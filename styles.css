@@ -138,16 +138,23 @@ body {
   background: rgba(255, 107, 53, 0.06);
 }
 
-.channel-label {
+.channel-label-col {
   width: 120px;
   flex-shrink: 0;
-  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
 }
 
-.ch-name {
-  display: block;
+.ch-name-hit {
   font-weight: 600;
   font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0.15rem 0;
+}
+
+.ch-name-hit:hover {
+  color: var(--mint);
 }
 
 .wave-select {

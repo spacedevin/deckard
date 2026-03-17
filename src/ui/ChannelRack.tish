@@ -1,4 +1,4 @@
-import { toggleStep } from '../model/Edits.tish'
+import { toggleStep, clearStep } from '../model/Edits.tish'
 
 export fn StepRow(ch, chIdx, project, setProject) {
   fn cell(si) {
@@ -6,8 +6,17 @@ export fn StepRow(ch, chIdx, project, setProject) {
     let cls = on ? "step step-on" : "step"
     return <button
       class={cls}
-      onclick={() => {
+      type="button"
+      title={"Left: toggle · Right: clear"}
+      onclick={(e) => {
+        e.stopPropagation()
         toggleStep(project.channels[chIdx], si)
+        setProject(project)
+      }}
+      oncontextmenu={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        clearStep(project.channels[chIdx], si)
         setProject(project)
       }}
     >{""}</button>
@@ -21,9 +30,21 @@ export fn StepRow(ch, chIdx, project, setProject) {
 export fn ChannelRow(ch, chIdx, project, setProject, selected, onSelect) {
   let rowCls = selected ? "channel-row channel-row-sel" : "channel-row"
   return <div class={rowCls}>
-    <div class="channel-label" onclick={() => onSelect(chIdx)}>
-      <span class="ch-name">{ch.name}</span>
-      <select class="wave-select" value={ch.waveform} onchange={(e) => { ch.waveform = e.target.value; setProject(project) }}>
+    <div class="channel-label-col">
+      <div class="ch-name-hit" onclick={() => onSelect(chIdx)} title={"Select for piano roll"}>
+        {ch.name}
+      </div>
+      <select
+        class="wave-select"
+        value={ch.waveform}
+        title={"Instrument waveform"}
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={(e) => e.stopPropagation()}
+        onchange={(e) => {
+          ch.waveform = e.target.value
+          setProject(project)
+        }}
+      >
         <option value="sine">{"sine"}</option>
         <option value="square">{"square"}</option>
         <option value="sawtooth">{"sawtooth"}</option>

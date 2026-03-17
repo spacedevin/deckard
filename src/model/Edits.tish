@@ -5,6 +5,10 @@ export fn toggleStep(ch, stepIdx) {
   st.on = !st.on
 }
 
+export fn clearStep(ch, stepIdx) {
+  ch.steps[stepIdx].on = false
+}
+
 export fn setStepVel(ch, stepIdx, vel) {
   ch.steps[stepIdx].vel = vel
 }
