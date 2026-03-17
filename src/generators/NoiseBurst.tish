@@ -1,5 +1,3 @@
-// Generator: noiseBurst — filtered noise; params.decay, tone, pitchFollow.
-
 import { midiToHz } from '../schedule/Engine.tish'
 
 export fn playNoiseBurst(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
@@ -7,6 +5,7 @@ export fn playNoiseBurst(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let decay = 0.08
   let tone = 0.5
   let pitchFollow = 0.2
+  let rise = 0.002
   if (p) {
     if (p.decay > 0) {
       decay = p.decay
@@ -17,6 +16,12 @@ export fn playNoiseBurst(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
     if (p.pitchFollow >= 0 && p.pitchFollow <= 1) {
       pitchFollow = p.pitchFollow
     }
+    if (p.attack > 0) {
+      rise = p.attack
+    }
+  }
+  if (rise > 0.15) {
+    rise = 0.15
   }
   let sr = ctx.sampleRate
   let n = Math.floor(sr * 0.35)
@@ -49,15 +54,8 @@ export fn playNoiseBurst(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   env.connect(bus.input)
   let v = vel / 127
   let hitDur = Math.min(durSec, decay * 3 + 0.02)
-  let a = ch.attack
-  if (a < 0.0005) {
-    a = 0.0005
-  }
-  if (a > 0.15) {
-    a = 0.15
-  }
   env.gain.setValueAtTime(0, t)
-  env.gain.linearRampToValueAtTime(v, t + a)
+  env.gain.linearRampToValueAtTime(v, t + rise)
   env.gain.exponentialRampToValueAtTime(0.001, t + hitDur)
   src.start(t)
   src.stop(t + hitDur + 0.05)

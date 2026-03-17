@@ -15,7 +15,7 @@
    Per-plugin preset banks; switching preset does not change plugin type.
 
 5. **Effects are separate**  
-   Insert FX on mixer tracks are another plugin category. Our **per-channel filter + gain + pan** is a thin stand-in for “mixer strip”; **generators** are the analogue of channel instruments.
+   Insert FX on mixer tracks are another plugin category. Our **mixer strip** is gain, pan, mute, solo (+ shared filter on the bus). **ADSR / synth envelopes live in the generator params**, like Fruity Slicer’s own envelope inside the plugin—not on the mixer fader.
 
 ## What we mirror in tish-midi
 

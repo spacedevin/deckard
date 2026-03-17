@@ -1,5 +1,3 @@
-// Generator: fmTone — modulator FM into carrier frequency AudioParam.
-
 import { midiToHz } from '../schedule/Engine.tish'
 
 export fn playFmTone(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
@@ -8,6 +6,10 @@ export fn playFmTone(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let modIndex = 4
   let carW = "sine"
   let modW = "sine"
+  let a = 0.005
+  let d = 0.08
+  let sus = 0.4
+  let r = 0.12
   if (p) {
     if (p.ratio > 0 && p.ratio < 64) {
       ratio = p.ratio
@@ -20,6 +22,18 @@ export fn playFmTone(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
     }
     if (p.modWave) {
       modW = p.modWave
+    }
+    if (p.attack > 0) {
+      a = p.attack
+    }
+    if (p.decay > 0) {
+      d = p.decay
+    }
+    if (p.sustain >= 0 && p.sustain <= 1) {
+      sus = p.sustain
+    }
+    if (p.release > 0) {
+      r = p.release
     }
   }
   let Fc = midiToHz(midi + bendSemis)
@@ -46,10 +60,7 @@ export fn playFmTone(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   env.connect(bus.input)
   let v = vel / 127
   let peak = v
-  let a = ch.attack
-  let d = ch.decay
-  let slev = ch.sustain * v
-  let r = ch.release
+  let slev = sus * v
   let susPlateau = Math.max(t + a + d, t + durSec - r)
   env.gain.setValueAtTime(0, t)
   env.gain.linearRampToValueAtTime(peak, t + a)

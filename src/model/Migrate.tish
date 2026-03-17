@@ -16,6 +16,40 @@ export fn migrateChannelGenerator(ch) {
       ch.generatorParams.waveform = ch.waveform ? ch.waveform : "sine"
     }
   }
+  migrateLegacyChannelAdsrIntoParams(ch)
+}
+
+export fn migrateLegacyChannelAdsrIntoParams(ch) {
+  let p = ch.generatorParams
+  if (!p) {
+    return
+  }
+  let id = ch.generatorId
+  if (!id) {
+    id = "basicOsc"
+  }
+  if (id === "basicOsc" || id === "fmTone") {
+    if (typeof ch.attack === "number") {
+      p.attack = ch.attack
+      ch.attack = null
+    }
+    if (typeof ch.decay === "number") {
+      p.decay = ch.decay
+      ch.decay = null
+    }
+    if (typeof ch.sustain === "number") {
+      p.sustain = ch.sustain
+      ch.sustain = null
+    }
+    if (typeof ch.release === "number") {
+      p.release = ch.release
+      ch.release = null
+    }
+  }
+  if (id === "noiseBurst" && typeof ch.attack === "number") {
+    p.attack = ch.attack
+    ch.attack = null
+  }
 }
 
 export fn migrateProjectGenerators(project) {

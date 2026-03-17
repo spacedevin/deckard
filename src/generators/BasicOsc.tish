@@ -1,11 +1,28 @@
-// Generator: basicOsc — one oscillator, waveform from generatorParams.
-
 import { midiToHz } from '../schedule/Engine.tish'
 
 export fn playBasicOsc(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  let p = ch.generatorParams
   let wave = "sine"
-  if (ch.generatorParams && ch.generatorParams.waveform) {
-    wave = ch.generatorParams.waveform
+  let a = 0.005
+  let d = 0.08
+  let sus = 0.4
+  let r = 0.12
+  if (p) {
+    if (p.waveform) {
+      wave = p.waveform
+    }
+    if (p.attack > 0) {
+      a = p.attack
+    }
+    if (p.decay > 0) {
+      d = p.decay
+    }
+    if (p.sustain >= 0 && p.sustain <= 1) {
+      sus = p.sustain
+    }
+    if (p.release > 0) {
+      r = p.release
+    }
   }
   let osc = ctx.createOscillator()
   osc.type = wave
@@ -17,10 +34,7 @@ export fn playBasicOsc(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   env.connect(bus.input)
   let v = vel / 127
   let peak = v
-  let a = ch.attack
-  let d = ch.decay
-  let slev = ch.sustain * v
-  let r = ch.release
+  let slev = sus * v
   let susPlateau = Math.max(t + a + d, t + durSec - r)
   env.gain.setValueAtTime(0, t)
   env.gain.linearRampToValueAtTime(peak, t + a)

@@ -21,11 +21,15 @@ export fn setChannelPan(ch, p) {
   ch.pan = p
 }
 
-export fn setAdsr(ch, a, d, s, r) {
-  ch.attack = a
-  ch.decay = d
-  ch.sustain = s
-  ch.release = r
+// ADSR lives on generatorParams (basicOsc / fmTone / noiseBurst attack).
+export fn setGeneratorAdsr(ch, a, d, s, r) {
+  if (!ch.generatorParams) {
+    return
+  }
+  ch.generatorParams.attack = a
+  ch.generatorParams.decay = d
+  ch.generatorParams.sustain = s
+  ch.generatorParams.release = r
 }
 
 export fn addPianoNote(ch, startBeat, durBeats, pitch, vel) {

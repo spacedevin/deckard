@@ -1,21 +1,21 @@
-// Catalog of generator plugins (FL-style: one generator per channel).
+// Catalog + default generatorParams (includes ADSR where the generator uses an amp envelope).
 
 export fn generatorCatalog() {
   return [
     {
       id: "basicOsc",
       label: "Basic OSC",
-      description: "Single oscillator + channel ADSR (like a minimal 3x OSC voice)."
+      description: "Single oscillator + ADSR in generator params."
     },
     {
       id: "noiseBurst",
       label: "Noise burst",
-      description: "Filtered noise hit for drums/percussion; pitch steers the filter."
+      description: "Filtered noise; attack + decay shape the hit."
     },
     {
       id: "fmTone",
       label: "FM tone",
-      description: "Two-operator FM; ratio + index in params."
+      description: "Two-operator FM + ADSR in generator params."
     }
   ]
 }
@@ -46,13 +46,33 @@ export fn generatorDescriptionById(id) {
 
 export fn defaultParamsForGeneratorId(id) {
   if (id === "basicOsc") {
-    return { waveform: "sine" }
+    return {
+      waveform: "sine",
+      attack: 0.005,
+      decay: 0.08,
+      sustain: 0.4,
+      release: 0.12
+    }
   }
   if (id === "noiseBurst") {
-    return { decay: 0.07, tone: 0.45, pitchFollow: 0.25 }
+    return {
+      attack: 0.002,
+      decay: 0.07,
+      tone: 0.45,
+      pitchFollow: 0.25
+    }
   }
   if (id === "fmTone") {
-    return { ratio: 2, modIndex: 4, carrierWave: "sine", modWave: "sine" }
+    return {
+      ratio: 2,
+      modIndex: 4,
+      carrierWave: "sine",
+      modWave: "sine",
+      attack: 0.005,
+      decay: 0.08,
+      sustain: 0.4,
+      release: 0.12
+    }
   }
   return {}
 }

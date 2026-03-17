@@ -1,4 +1,4 @@
-// Serializable project — channels use generatorId + generatorParams (see docs/GENERATORS.md).
+// Channel = routing (gain, pan, mute, solo) + generatorId + generatorParams (sound + ADSR per plugin).
 
 import { defaultParamsForGeneratorId } from '../generators/Registry.tish'
 
@@ -30,10 +30,6 @@ export fn makeChannel(id, name, stepPitch, generatorId) {
     solo: false,
     generatorId: gid,
     generatorParams: defaultParamsForGeneratorId(gid),
-    attack: 0.005,
-    decay: 0.08,
-    sustain: 0.4,
-    release: 0.12,
     filterCutoff: 8000,
     filterQ: 1,
     stepPitch: stepPitch,
@@ -44,20 +40,19 @@ export fn makeChannel(id, name, stepPitch, generatorId) {
 
 export fn defaultProject() {
   let ch0 = makeChannel("c0", "Kick", 36, "noiseBurst")
-  ch0.generatorParams = { decay: 0.12, tone: 0.15, pitchFollow: 0.35 }
+  ch0.generatorParams = { attack: 0.002, decay: 0.12, tone: 0.15, pitchFollow: 0.35 }
   ch0.steps[0].on = true
   ch0.steps[4].on = true
   ch0.steps[8].on = true
   ch0.steps[12].on = true
 
   let ch1 = makeChannel("c1", "Snare", 38, "noiseBurst")
-  ch1.generatorParams = { decay: 0.09, tone: 0.55, pitchFollow: 0.2 }
-
+  ch1.generatorParams = { attack: 0.002, decay: 0.09, tone: 0.55, pitchFollow: 0.2 }
   ch1.steps[4].on = true
   ch1.steps[12].on = true
 
   let ch2 = makeChannel("c2", "HiHat", 42, "noiseBurst")
-  ch2.generatorParams = { decay: 0.035, tone: 0.85, pitchFollow: 0.05 }
+  ch2.generatorParams = { attack: 0.001, decay: 0.035, tone: 0.85, pitchFollow: 0.05 }
   let h = 0
   while (h < 16) {
     ch2.steps[h].on = (h % 2) === 0
@@ -66,7 +61,16 @@ export fn defaultProject() {
   }
 
   let ch3 = makeChannel("c3", "Bass", 48, "fmTone")
-  ch3.generatorParams = { ratio: 1, modIndex: 6, carrierWave: "sine", modWave: "sine" }
+  ch3.generatorParams = {
+    ratio: 1,
+    modIndex: 6,
+    carrierWave: "sine",
+    modWave: "sine",
+    attack: 0.008,
+    decay: 0.12,
+    sustain: 0.35,
+    release: 0.15
+  }
   ch3.pianoNotes.push({ startBeat: 0, durBeats: 0.5, pitch: 48, vel: 90 })
   ch3.pianoNotes.push({ startBeat: 1, durBeats: 0.5, pitch: 50, vel: 85 })
   ch3.pianoNotes.push({ startBeat: 2, durBeats: 0.5, pitch: 52, vel: 88 })
@@ -81,19 +85,28 @@ export fn defaultProject() {
         presetId: "factory_kick",
         name: "Kick punch",
         generatorId: "noiseBurst",
-        params: { decay: 0.12, tone: 0.15, pitchFollow: 0.35 }
+        params: { attack: 0.002, decay: 0.12, tone: 0.15, pitchFollow: 0.35 }
       },
       {
         presetId: "factory_hat",
         name: "Hat tight",
         generatorId: "noiseBurst",
-        params: { decay: 0.035, tone: 0.85, pitchFollow: 0.05 }
+        params: { attack: 0.001, decay: 0.035, tone: 0.85, pitchFollow: 0.05 }
       },
       {
         presetId: "factory_bass_fm",
         name: "Bass growl",
         generatorId: "fmTone",
-        params: { ratio: 1, modIndex: 8, carrierWave: "sine", modWave: "square" }
+        params: {
+          ratio: 1,
+          modIndex: 8,
+          carrierWave: "sine",
+          modWave: "square",
+          attack: 0.005,
+          decay: 0.1,
+          sustain: 0.3,
+          release: 0.2
+        }
       }
     ],
     automation: {

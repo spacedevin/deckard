@@ -450,11 +450,18 @@ body {
   border-color: var(--mint);
 }
 
-.mixer-adsr-caption {
-  font-size: 0.58rem;
-  line-height: 1.25;
+.gen-adsr-block {
+  margin-top: 0.45rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--border);
+}
+
+.gen-adsr-title {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--muted);
-  margin: 0.25rem 0 0.15rem;
+  margin-bottom: 0.35rem;
 }
 
 .mixer-name {

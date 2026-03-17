@@ -111,28 +111,10 @@ export fn App() {
     setProject(project)
   }
 
-  fn onAdsr(idx, k, e) {
-    let v = Number(e.target.value)
-    let ch = project.channels[idx]
-    if (k === "a") {
-      ch.attack = v / 1000
-    }
-    if (k === "d") {
-      ch.decay = v / 1000
-    }
-    if (k === "s") {
-      ch.sustain = v / 100
-    }
-    if (k === "r") {
-      ch.release = v / 1000
-    }
-    setProject(project)
-  }
-
   let mixers = []
   let mi = 0
   while (mi < project.channels.length) {
-    mixers.push(MixerStrip(project.channels[mi], mi, mi === selectedCh, setSelectedCh, onGain, onPan, onAdsr, setProject, project))
+    mixers.push(MixerStrip(project.channels[mi], mi, mi === selectedCh, setSelectedCh, onGain, onPan, setProject, project))
     mi = mi + 1
   }
 

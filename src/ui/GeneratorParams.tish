@@ -1,5 +1,19 @@
 import { defaultParamsForGeneratorId } from '../generators/Registry.tish'
 
+export fn AdsrAmpBlock(p, project, setProject) {
+  let a = p.attack > 0 ? p.attack : 0.005
+  let d = p.decay > 0 ? p.decay : 0.08
+  let s = p.sustain >= 0 && p.sustain <= 1 ? p.sustain : 0.4
+  let r = p.release > 0 ? p.release : 0.12
+  return <div class="gen-adsr-block">
+    <div class="gen-adsr-title">{"Amplitude ADSR"}</div>
+    <label class="gen-row">{"A "}<input type="range" min="1" max="500" value={String(Math.round(a * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.attack = Number(e.target.value) / 1000; setProject(project) }} /></label>
+    <label class="gen-row">{"D "}<input type="range" min="1" max="500" value={String(Math.round(d * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.decay = Number(e.target.value) / 1000; setProject(project) }} /></label>
+    <label class="gen-row">{"S "}<input type="range" min="0" max="100" value={String(Math.round(s * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.sustain = Number(e.target.value) / 100; setProject(project) }} /></label>
+    <label class="gen-row">{"R "}<input type="range" min="1" max="800" value={String(Math.round(r * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.release = Number(e.target.value) / 1000; setProject(project) }} /></label>
+  </div>
+}
+
 export fn GeneratorParamPanel(ch, project, setProject) {
   let id = ch.generatorId
   if (!id) {
@@ -8,83 +22,69 @@ export fn GeneratorParamPanel(ch, project, setProject) {
   if (!ch.generatorParams) {
     ch.generatorParams = defaultParamsForGeneratorId(id)
   }
+  let p = ch.generatorParams
   if (id === "basicOsc") {
-    let w = "sine"
-    if (ch.generatorParams && ch.generatorParams.waveform) {
-      w = ch.generatorParams.waveform
-    }
-    return <div class="gen-params">
-      <span class="gen-params-label">{"OSC"}</span>
-      <select
-        class="gen-params-select"
-        value={w}
-        onmousedown={(e) => e.stopPropagation()}
-        onclick={(e) => e.stopPropagation()}
-        onchange={(e) => {
-          ch.generatorParams.waveform = e.target.value
-          setProject(project)
-        }}
-      >
-        <option value="sine">{"sine"}</option>
-        <option value="square">{"square"}</option>
-        <option value="sawtooth">{"sawtooth"}</option>
-        <option value="triangle">{"triangle"}</option>
-      </select>
+    let w = p.waveform ? p.waveform : "sine"
+    return <div class="gen-params gen-params-stack">
+      <div class="gen-row-pair">
+        <span class="gen-params-label">{"Wave"}</span>
+        <select
+          class="gen-params-select"
+          value={w}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={(e) => e.stopPropagation()}
+          onchange={(e) => {
+            p.waveform = e.target.value
+            setProject(project)
+          }}
+        >
+          <option value="sine">{"sine"}</option>
+          <option value="square">{"square"}</option>
+          <option value="sawtooth">{"sawtooth"}</option>
+          <option value="triangle">{"triangle"}</option>
+        </select>
+      </div>
+      {AdsrAmpBlock(p, project, setProject)}
     </div>
   }
   if (id === "noiseBurst") {
-    let dec = 0.07
-    let tone = 0.45
-    let pf = 0.25
-    if (ch.generatorParams) {
-      if (ch.generatorParams.decay > 0) {
-        dec = ch.generatorParams.decay
-      }
-      if (ch.generatorParams.tone >= 0 && ch.generatorParams.tone <= 1) {
-        tone = ch.generatorParams.tone
-      }
-      if (ch.generatorParams.pitchFollow >= 0 && ch.generatorParams.pitchFollow <= 1) {
-        pf = ch.generatorParams.pitchFollow
-      }
-    }
+    let rise = p.attack > 0 ? p.attack : 0.002
+    let dec = p.decay > 0 ? p.decay : 0.07
+    let tone = p.tone >= 0 && p.tone <= 1 ? p.tone : 0.45
+    let pf = p.pitchFollow >= 0 && p.pitchFollow <= 1 ? p.pitchFollow : 0.25
     return <div class="gen-params gen-params-stack">
-      <label class="gen-row">{"Decay "}<input type="range" min="2" max="400" value={String(Math.round(dec * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { ch.generatorParams.decay = Number(e.target.value) / 1000; setProject(project) }} /></label>
-      <label class="gen-row">{"Tone "}<input type="range" min="0" max="100" value={String(Math.round(tone * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { ch.generatorParams.tone = Number(e.target.value) / 100; setProject(project) }} /></label>
-      <label class="gen-row">{"Pitch→filter "}<input type="range" min="0" max="100" value={String(Math.round(pf * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { ch.generatorParams.pitchFollow = Number(e.target.value) / 100; setProject(project) }} /></label>
+      <div class="gen-adsr-title">{"Hit shape"}</div>
+      <label class="gen-row">{"Attack "}<input type="range" min="1" max="150" value={String(Math.round(rise * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.attack = Number(e.target.value) / 1000; setProject(project) }} /></label>
+      <label class="gen-row">{"Decay "}<input type="range" min="2" max="400" value={String(Math.round(dec * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.decay = Number(e.target.value) / 1000; setProject(project) }} /></label>
+      <label class="gen-row">{"Tone "}<input type="range" min="0" max="100" value={String(Math.round(tone * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.tone = Number(e.target.value) / 100; setProject(project) }} /></label>
+      <label class="gen-row">{"Pitch→filter "}<input type="range" min="0" max="100" value={String(Math.round(pf * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.pitchFollow = Number(e.target.value) / 100; setProject(project) }} /></label>
     </div>
   }
   if (id === "fmTone") {
-    let ratio = 2
-    let idx = 4
-    if (ch.generatorParams) {
-      if (ch.generatorParams.ratio > 0) {
-        ratio = ch.generatorParams.ratio
-      }
-      if (ch.generatorParams.modIndex >= 0) {
-        idx = ch.generatorParams.modIndex
-      }
-    }
-    let cw = ch.generatorParams.carrierWave ? ch.generatorParams.carrierWave : "sine"
-    let mw = ch.generatorParams.modWave ? ch.generatorParams.modWave : "sine"
+    let ratio = p.ratio > 0 ? p.ratio : 2
+    let idx = p.modIndex >= 0 ? p.modIndex : 4
+    let cw = p.carrierWave ? p.carrierWave : "sine"
+    let mw = p.modWave ? p.modWave : "sine"
     return <div class="gen-params gen-params-stack">
-      <label class="gen-row">{"Ratio "}<input type="range" min="1" max="1600" value={String(Math.round(ratio * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { ch.generatorParams.ratio = Number(e.target.value) / 100; setProject(project) }} /></label>
-      <label class="gen-row">{"FM index "}<input type="range" min="0" max="480" value={String(Math.round(idx * 10))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { ch.generatorParams.modIndex = Number(e.target.value) / 10; setProject(project) }} /></label>
+      <label class="gen-row">{"Ratio "}<input type="range" min="1" max="1600" value={String(Math.round(ratio * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.ratio = Number(e.target.value) / 100; setProject(project) }} /></label>
+      <label class="gen-row">{"FM index "}<input type="range" min="0" max="480" value={String(Math.round(idx * 10))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.modIndex = Number(e.target.value) / 10; setProject(project) }} /></label>
       <div class="gen-row-pair">
         <span>{"C"}</span>
-        <select value={cw} onmousedown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()} onchange={(e) => { ch.generatorParams.carrierWave = e.target.value; setProject(project) }}>
+        <select value={cw} onmousedown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()} onchange={(e) => { p.carrierWave = e.target.value; setProject(project) }}>
           <option value="sine">{"sine"}</option>
           <option value="square">{"square"}</option>
           <option value="sawtooth">{"saw"}</option>
           <option value="triangle">{"tri"}</option>
         </select>
         <span>{"M"}</span>
-        <select value={mw} onmousedown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()} onchange={(e) => { ch.generatorParams.modWave = e.target.value; setProject(project) }}>
+        <select value={mw} onmousedown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()} onchange={(e) => { p.modWave = e.target.value; setProject(project) }}>
           <option value="sine">{"sine"}</option>
           <option value="square">{"square"}</option>
           <option value="sawtooth">{"saw"}</option>
           <option value="triangle">{"tri"}</option>
         </select>
       </div>
+      {AdsrAmpBlock(p, project, setProject)}
     </div>
   }
   return <div class="gen-params" />

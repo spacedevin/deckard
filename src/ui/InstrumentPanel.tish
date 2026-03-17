@@ -58,7 +58,7 @@ export fn InstrumentPanel(project, selectedCh, setProject) {
       <span class="instr-track-label">{"Track"}</span>
       <span class="instr-track-name">{ch.name}</span>
     </div>
-    <p class="instr-panel-hint">{"Each track has its own generator instance. Edits here only affect this track."}</p>
+    <p class="instr-panel-hint">{"Each track has its own generator + params (including ADSR). Mixer: gain, pan, mute, solo only."}</p>
     <div class="gen-pick-row">{genBtns}</div>
     <p class="instr-desc">{desc}</p>
     <div class="instr-params-wrap">
