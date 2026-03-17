@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tish-midi.local/schema/project-v1.json",
+  "title": "Tish MIDI DAW Project",
+  "type": "object",
+  "required": ["version", "bpm", "channels"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "bpm": { "type": "number", "minimum": 20, "maximum": 300 },
+    "channels": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/channel" }
+    },
+    "automation": {
+      "type": "object",
+      "properties": {
+        "pitchBend": { "$ref": "#/$defs/automationLane" },
+        "masterGain": { "$ref": "#/$defs/automationLane" }
+      }
+    }
+  },
+  "$defs": {
+    "automationLane": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["beat", "value"],
+        "properties": {
+          "beat": { "type": "number" },
+          "value": { "type": "number" }
+        }
+      }
+    },
+    "channel": {
+      "type": "object",
+      "required": ["id", "name", "gain", "pan", "mute", "solo", "waveform", "attack", "decay", "sustain", "release", "stepPitch", "steps", "pianoNotes"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "gain": { "type": "number", "minimum": 0, "maximum": 2 },
+        "pan": { "type": "number", "minimum": -1, "maximum": 1 },
+        "mute": { "type": "boolean" },
+        "solo": { "type": "boolean" },
+        "waveform": { "enum": ["sine", "square", "sawtooth", "triangle"] },
+        "attack": { "type": "number" },
+        "decay": { "type": "number" },
+        "sustain": { "type": "number", "minimum": 0, "maximum": 1 },
+        "release": { "type": "number" },
+        "filterCutoff": { "type": "number" },
+        "filterQ": { "type": "number" },
+        "stepPitch": { "type": "integer", "minimum": 0, "maximum": 127 },
+        "steps": {
+          "type": "array",
+          "minItems": 16,
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "required": ["on", "vel"],
+            "properties": {
+              "on": { "type": "boolean" },
+              "vel": { "type": "integer", "minimum": 1, "maximum": 127 }
+            }
+          }
+        },
+        "pianoNotes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["startBeat", "durBeats", "pitch", "vel"],
+            "properties": {
+              "startBeat": { "type": "number" },
+              "durBeats": { "type": "number" },
+              "pitch": { "type": "integer", "minimum": 0, "maximum": 127 },
+              "vel": { "type": "integer", "minimum": 1, "maximum": 127 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

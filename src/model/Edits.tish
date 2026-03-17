@@ -1,0 +1,38 @@
+// Pure edit helpers — safe transforms for agents.
+
+export fn toggleStep(ch, stepIdx) {
+  let st = ch.steps[stepIdx]
+  st.on = !st.on
+}
+
+export fn setStepVel(ch, stepIdx, vel) {
+  ch.steps[stepIdx].vel = vel
+}
+
+export fn setChannelGain(ch, g) {
+  ch.gain = g
+}
+
+export fn setChannelPan(ch, p) {
+  ch.pan = p
+}
+
+export fn setAdsr(ch, a, d, s, r) {
+  ch.attack = a
+  ch.decay = d
+  ch.sustain = s
+  ch.release = r
+}
+
+export fn addPianoNote(ch, startBeat, durBeats, pitch, vel) {
+  ch.pianoNotes.push({ startBeat: startBeat, durBeats: durBeats, pitch: pitch, vel: vel })
+}
+
+export fn removePianoNoteAt(ch, idx) {
+  ch.pianoNotes.splice(idx, 1)
+}
+
+export fn quantizeNoteToStep(note, stepFrac) {
+  let q = Math.round(note.startBeat / stepFrac) * stepFrac
+  note.startBeat = q
+}

@@ -1,0 +1,4 @@
+import { createRoot } from './hooks.tish'
+import { App } from './ui/App.tish'
+
+createRoot(document.getElementById("root")).render(App)

@@ -1,0 +1,26 @@
+export fn MixerStrip(ch, idx, selected, onSelect, onGain, onPan, onAdsr, setProject, project) {
+  let selClass = selected ? " mixer-ch-sel" : ""
+  return <div class={"mixer-strip" + selClass} onclick={() => onSelect(idx)}>
+    <div class="mixer-name">{ch.name}</div>
+    <label class="mixer-fader-label">{"Gain"}</label>
+    <input type="range" class="mixer-fader" min="0" max="100" value={String(Math.round(ch.gain * 100))} oninput={(e) => onGain(idx, e)} />
+    <label class="mixer-fader-label">{"Pan"}</label>
+    <input type="range" class="mixer-fader" min="-100" max="100" value={String(Math.round(ch.pan * 100))} oninput={(e) => onPan(idx, e)} />
+    <div class="adsr-row">
+      <span>{"A"}</span><input type="range" min="1" max="500" value={String(Math.round(ch.attack * 1000))} oninput={(e) => onAdsr(idx, "a", e)} />
+    </div>
+    <div class="adsr-row">
+      <span>{"D"}</span><input type="range" min="1" max="500" value={String(Math.round(ch.decay * 1000))} oninput={(e) => onAdsr(idx, "d", e)} />
+    </div>
+    <div class="adsr-row">
+      <span>{"S"}</span><input type="range" min="0" max="100" value={String(Math.round(ch.sustain * 100))} oninput={(e) => onAdsr(idx, "s", e)} />
+    </div>
+    <div class="adsr-row">
+      <span>{"R"}</span><input type="range" min="1" max="800" value={String(Math.round(ch.release * 1000))} oninput={(e) => onAdsr(idx, "r", e)} />
+    </div>
+    <div class="mixer-toggles">
+      <label><input type="checkbox" checked={ch.mute} onchange={(e) => { ch.mute = e.target.checked; setProject(project) }} />{" M"}</label>
+      <label><input type="checkbox" checked={ch.solo} onchange={(e) => { ch.solo = e.target.checked; setProject(project) }} />{" S"}</label>
+    </div>
+  </div>
+}

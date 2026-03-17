@@ -1,0 +1,10 @@
+{
+  "name": "tish-midi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Minimal FL-style web DAW in Tish",
+  "scripts": {
+    "build": "tish compile --target js src/main.tish -o dist/bundle.js",
+    "serve": "npx --yes serve . -p 3456"
+  }
+}

@@ -1,0 +1,92 @@
+// Canvas piano roll: pitch vs beat. Coordinates in canvas pixels.
+
+export fn attachPianoRoll(canvas, project, chIdx, setProject) {
+  if (!canvas) {
+    return
+  }
+  let ch = project.channels[chIdx]
+  let w = canvas.width
+  let h = canvas.height
+  let keyW = 44
+  let rollW = w - keyW
+  let pxPerBeat = 48
+  let pitchMin = 36
+  let pitchMax = 72
+  let pitchRange = pitchMax - pitchMin
+  let ctx2 = canvas.getContext("2d")
+  if (!ctx2) {
+    return
+  }
+  ctx2.fillStyle = "#12141a"
+  ctx2.fillRect(0, 0, w, h)
+  let py = 0
+  while (py < pitchRange) {
+    let y = h - ((py + 1) / pitchRange) * h
+    ctx2.strokeStyle = (py % 12 === 1 || py % 12 === 3 || py % 12 === 6 || py % 12 === 8 || py % 12 === 10) ? "#2a2e3a" : "#1e222c"
+    ctx2.beginPath()
+    ctx2.moveTo(keyW, y)
+    ctx2.lineTo(w, y)
+    ctx2.stroke()
+    py = py + 1
+  }
+  ctx2.fillStyle = "#252830"
+  ctx2.fillRect(0, 0, keyW, h)
+  let pi = 0
+  while (pi < pitchRange) {
+    let midi = pitchMin + pi
+    let y = h - ((pi + 1) / pitchRange) * h
+    ctx2.fillStyle = "#8a9099"
+    ctx2.font = "9px sans-serif"
+    ctx2.fillText(String(midi), 4, y - 2)
+    pi = pi + 1
+  }
+  ctx2.strokeStyle = "#ff6b35"
+  let ni = 0
+  while (ni < ch.pianoNotes.length) {
+    let n = ch.pianoNotes[ni]
+    let x = keyW + n.startBeat * pxPerBeat
+    let nw = Math.max(4, n.durBeats * pxPerBeat)
+    let row = n.pitch - pitchMin
+    let y = h - ((row + 1) / pitchRange) * h
+    let velShade = Math.floor(80 + (n.vel / 127) * 80)
+    ctx2.fillStyle = "rgb(" + String(velShade) + ",90,50)"
+    ctx2.fillRect(x, y + 1, nw, h / pitchRange - 2)
+    ctx2.strokeRect(x, y + 1, nw, h / pitchRange - 2)
+    ni = ni + 1
+  }
+  ctx2.fillStyle = "#6ae4b0"
+  ctx2.font = "11px sans-serif"
+  ctx2.fillText("Piano roll — click to add, drag notes", keyW + 8, 14)
+}
+
+export fn PianoRollCanvas(project, chIdx, setProject, dragRef) {
+  return <canvas
+    class="piano-roll"
+    width="720"
+    height="220"
+    onclick={(ev) => {
+      let canvas = ev.target
+      let rect = canvas.getBoundingClientRect()
+      let x = ev.clientX - rect.left - 44
+      let y = ev.clientY - rect.top
+      let h = 220
+      let pitchRange = 36
+      let pitchMin = 36
+      let pxPerBeat = 48
+      if (x < 0) {
+        return
+      }
+      let beat = x / pxPerBeat
+      let row = Math.floor((h - y) / (h / pitchRange))
+      let pitch = pitchMin + row
+      if (pitch < 36) {
+        pitch = 36
+      }
+      if (pitch > 71) {
+        pitch = 71
+      }
+      project.channels[chIdx].pianoNotes.push({ startBeat: beat, durBeats: 0.25, pitch: pitch, vel: 100 })
+      setProject(project)
+    }}
+  />
+}

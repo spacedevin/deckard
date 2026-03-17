@@ -1,0 +1,84 @@
+// Serializable project model — primary surface for LLM edits.
+
+export fn makeStep(on, vel) {
+  return { on: on, vel: vel }
+}
+
+export fn makeSteps16() {
+  let s = []
+  let i = 0
+  while (i < 16) {
+    s.push(makeStep(false, 100))
+    i = i + 1
+  }
+  return s
+}
+
+export fn makeChannel(id, name, stepPitch) {
+  return {
+    id: id,
+    name: name,
+    gain: 0.85,
+    pan: 0,
+    mute: false,
+    solo: false,
+    waveform: "sine",
+    attack: 0.005,
+    decay: 0.08,
+    sustain: 0.4,
+    release: 0.12,
+    filterCutoff: 8000,
+    filterQ: 1,
+    stepPitch: stepPitch,
+    steps: makeSteps16(),
+    pianoNotes: []
+  }
+}
+
+export fn defaultProject() {
+  let ch0 = makeChannel("c0", "Kick", 36)
+  ch0.steps[0].on = true
+  ch0.steps[4].on = true
+  ch0.steps[8].on = true
+  ch0.steps[12].on = true
+  ch0.waveform = "sine"
+
+  let ch1 = makeChannel("c1", "Snare", 38)
+  ch1.steps[4].on = true
+  ch1.steps[12].on = true
+  ch1.waveform = "triangle"
+
+  let ch2 = makeChannel("c2", "HiHat", 42)
+  let h = 0
+  while (h < 16) {
+    ch2.steps[h].on = (h % 2) === 0
+    ch2.steps[h].vel = 70
+    h = h + 1
+  }
+  ch2.waveform = "square"
+
+  let ch3 = makeChannel("c3", "Bass", 48)
+  ch3.pianoNotes.push({ startBeat: 0, durBeats: 0.5, pitch: 48, vel: 90 })
+  ch3.pianoNotes.push({ startBeat: 1, durBeats: 0.5, pitch: 50, vel: 85 })
+  ch3.pianoNotes.push({ startBeat: 2, durBeats: 0.5, pitch: 52, vel: 88 })
+  ch3.pianoNotes.push({ startBeat: 3, durBeats: 0.5, pitch: 53, vel: 80 })
+  ch3.waveform = "sawtooth"
+
+  return {
+    version: 1,
+    bpm: 118,
+    channels: [ch0, ch1, ch2, ch3],
+    automation: {
+      pitchBend: [{ beat: 0, value: 0 }, { beat: 4, value: 0 }],
+      masterGain: [{ beat: 0, value: 1 }, { beat: 16, value: 1 }]
+    }
+  }
+}
+
+export fn projectToJson(project) {
+  return JSON.stringify(project)
+}
+
+export fn projectFromJson(s) {
+  return JSON.parse(s)
+}

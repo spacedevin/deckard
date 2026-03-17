@@ -1,0 +1,115 @@
+// Web Audio graph + note scheduling (uses webAudioCreateContext builtin).
+
+import { beatToSeconds, sixteenthSeconds, automationAt, midiToHz } from '../schedule/Engine.tish'
+
+export fn buildChannelBus(ctx, ch, master) {
+  let pan = ctx.createStereoPanner()
+  pan.pan.value = ch.pan
+  let g = ctx.createGain()
+  g.gain.value = ch.gain
+  let filt = ctx.createBiquadFilter()
+  filt.type = "lowpass"
+  filt.frequency.value = ch.filterCutoff
+  filt.Q.value = ch.filterQ
+  filt.connect(g)
+  g.connect(pan)
+  pan.connect(master)
+  return { input: filt, gainNode: g, panNode: pan, filterNode: filt }
+}
+
+export fn ensureAudio(project, store) {
+  if (store.ctx) {
+    return store
+  }
+  let ctx = webAudioCreateContext()
+  let master = ctx.createGain()
+  let mg = [{ beat: 0, value: 1 }]
+  if (project.automation && project.automation.masterGain && project.automation.masterGain.length > 0) {
+    mg = project.automation.masterGain
+  }
+  master.gain.value = automationAt(mg, 0)
+  let analyser = ctx.createAnalyser()
+  analyser.fftSize = 512
+  master.connect(analyser)
+  analyser.connect(ctx.destination)
+  store.analyser = analyser
+  let buses = []
+  let ci = 0
+  while (ci < project.channels.length) {
+    buses.push(buildChannelBus(ctx, project.channels[ci], master))
+    ci = ci + 1
+  }
+  store.ctx = ctx
+  store.master = master
+  store.buses = buses
+  return store
+}
+
+export fn updateMixerFromProject(project, store) {
+  if (!store.buses) {
+    return
+  }
+  let mi = 0
+  while (mi < project.channels.length) {
+    let ch = project.channels[mi]
+    let b = store.buses[mi]
+    b.gainNode.gain.value = ch.gain
+    b.panNode.pan.value = ch.pan
+    b.filterNode.frequency.value = ch.filterCutoff
+    mi = mi + 1
+  }
+  if (store.master) {
+    let mg2 = [{ beat: 0, value: 1 }]
+    if (project.automation && project.automation.masterGain && project.automation.masterGain.length > 0) {
+      mg2 = project.automation.masterGain
+    }
+    store.master.gain.value = automationAt(mg2, 0)
+  }
+}
+
+export fn playHitAt(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  let osc = ctx.createOscillator()
+  osc.type = ch.waveform
+  let hz = midiToHz(midi + bendSemis)
+  osc.frequency.value = hz
+  let env = ctx.createGain()
+  env.gain.value = 0
+  osc.connect(env)
+  env.connect(bus.input)
+  let v = vel / 127
+  let peak = v
+  let a = ch.attack
+  let d = ch.decay
+  let slev = ch.sustain * v
+  let r = ch.release
+  let susPlateau = Math.max(t + a + d, t + durSec - r)
+  env.gain.setValueAtTime(0, t)
+  env.gain.linearRampToValueAtTime(peak, t + a)
+  env.gain.linearRampToValueAtTime(slev, t + a + d)
+  env.gain.setValueAtTime(slev, susPlateau)
+  env.gain.linearRampToValueAtTime(0, t + durSec + r)
+  osc.start(t)
+  osc.stop(t + durSec + r + 0.05)
+}
+
+export fn anySolo(project) {
+  let i = 0
+  while (i < project.channels.length) {
+    if (project.channels[i].solo) {
+      return true
+    }
+    i = i + 1
+  }
+  return false
+}
+
+export fn channelAudible(project, idx) {
+  let ch = project.channels[idx]
+  if (ch.mute) {
+    return false
+  }
+  if (anySolo(project)) {
+    return ch.solo
+  }
+  return true
+}

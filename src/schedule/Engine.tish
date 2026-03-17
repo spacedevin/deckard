@@ -1,0 +1,39 @@
+// Map project time → playback parameters (beats, automation).
+
+export fn beatToSeconds(beat, bpm) {
+  return (beat * 60) / bpm
+}
+
+export fn sixteenthSeconds(bpm) {
+  return (60 / bpm) / 4
+}
+
+// Linear automation value at beat (points sorted by beat).
+export fn automationAt(points, beat) {
+  if (points.length === 0) {
+    return 0
+  }
+  if (beat <= points[0].beat) {
+    return points[0].value
+  }
+  let i = 1
+  while (i < points.length) {
+    if (beat < points[i].beat) {
+      let p0 = points[i - 1]
+      let p1 = points[i]
+      let t = (beat - p0.beat) / (p1.beat - p0.beat)
+      return p0.value + t * (p1.value - p0.value)
+    }
+    i = i + 1
+  }
+  return points[points.length - 1].value
+}
+
+export fn midiToHz(midi) {
+  return 440 * Math.pow(2, (midi - 69) / 12)
+}
+
+// Song step index (16 steps per bar), bar loops.
+export fn songStepFromTick(barTick, stepInBar) {
+  return barTick * 16 + stepInBar
+}

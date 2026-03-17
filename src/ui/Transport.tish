@@ -1,0 +1,9 @@
+export fn TransportBar(bpm, playing, onPlay, onStop, onBpmInput, onExport, onImport) {
+  return <div class="transport-bar">
+    <button class="btn-play" onclick={onPlay} disabled={playing}>{"Play"}</button>
+    <button class="btn-stop" onclick={onStop}>{"Stop"}</button>
+    <label class="bpm-label">{"BPM "}<input type="number" class="bpm-input" min="40" max="240" value={String(bpm)} oninput={onBpmInput} /></label>
+    <button class="btn-ghost" onclick={onExport}>{"Export JSON"}</button>
+    <button class="btn-ghost" onclick={onImport}>{"Import JSON"}</button>
+  </div>
+}

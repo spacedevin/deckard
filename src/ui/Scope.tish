@@ -1,0 +1,32 @@
+export fn drawScopeCanvas(canvas, analyser) {
+  if (!canvas || !analyser) {
+    return
+  }
+  let ctx2 = canvas.getContext("2d")
+  let n = analyser.frequencyBinCount
+  let buf = jsUint8Array(n)
+  analyser.getByteTimeDomainData(buf)
+  let w = canvas.width
+  let h = canvas.height
+  ctx2.fillStyle = "#0a0c10"
+  ctx2.fillRect(0, 0, w, h)
+  ctx2.strokeStyle = "#6ae4b0"
+  ctx2.lineWidth = 1
+  ctx2.beginPath()
+  let i = 0
+  while (i < n) {
+    let v = buf[i] / 128
+    let y = v * h * 0.45 + h * 0.25
+    let x = (i / n) * w
+    if (i === 0) {
+      ctx2.moveTo(x, y)
+    } else {
+      ctx2.lineTo(x, y)
+    }
+    i = i + 1
+  }
+  ctx2.stroke()
+  ctx2.fillStyle = "#5a6068"
+  ctx2.font = "10px sans-serif"
+  ctx2.fillText("Master waveform", 6, 12)
+}

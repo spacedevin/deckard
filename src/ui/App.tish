@@ -1,0 +1,164 @@
+import { useState } from '../hooks.tish'
+import { defaultProject, projectToJson, projectFromJson } from '../model/Project.tish'
+import { ensureAudio, updateMixerFromProject } from '../audio/Engine.tish'
+import { transportTick } from '../audio/Playback.tish'
+import { TransportBar } from './Transport.tish'
+import { MixerStrip } from './Mixer.tish'
+import { ChannelRow } from './ChannelRack.tish'
+import { PianoRollCanvas, attachPianoRoll } from './PianoRoll.tish'
+import { drawScopeCanvas } from './Scope.tish'
+
+let audioStore = {}
+let playbackTimer = null
+let globalTick = 0
+
+export fn App() {
+  let [project, setProject] = useState(defaultProject())
+  let [selectedCh, setSelectedCh] = useState(3)
+  let [playing, setPlaying] = useState(false)
+  window.__dawProject = project
+
+  setTimeout(() => {
+    let pr = document.querySelector(".piano-roll")
+    if (pr) {
+      attachPianoRoll(pr, project, selectedCh, setProject)
+    }
+    let sc = document.querySelector(".scope-canvas")
+    if (sc && audioStore.analyser) {
+      drawScopeCanvas(sc, audioStore.analyser)
+    }
+  }, 0)
+
+  if (!window.__dawScopeRaf) {
+    window.__dawScopeRaf = true
+    fn scopeFrame() {
+      let sc2 = document.querySelector(".scope-canvas")
+      if (sc2 && audioStore.analyser) {
+        drawScopeCanvas(sc2, audioStore.analyser)
+      }
+      requestAnimationFrame(scopeFrame)
+    }
+    requestAnimationFrame(scopeFrame)
+  }
+
+  fn onPlay() {
+    ensureAudio(project, audioStore)
+    updateMixerFromProject(project, audioStore)
+    let ctx = audioStore.ctx
+    ctx.resume().then(() => {
+      if (playbackTimer) {
+        clearInterval(playbackTimer)
+      }
+      globalTick = 0
+      let ms = (60 / project.bpm / 4) * 1000
+      playbackTimer = setInterval(() => {
+        transportTick(window.__dawProject, audioStore, globalTick)
+        globalTick = globalTick + 1
+      }, ms)
+      setPlaying(true)
+    })
+  }
+
+  fn onStop() {
+    if (playbackTimer) {
+      clearInterval(playbackTimer)
+      playbackTimer = null
+    }
+    setPlaying(false)
+  }
+
+  fn onBpmInput(e) {
+    let v = Number(e.target.value)
+    if (v >= 40 && v <= 240) {
+      project.bpm = v
+      setProject(project)
+    }
+  }
+
+  fn onExport() {
+    let blob = projectToJson(project)
+    let a = document.createElement("a")
+    a.setAttribute("href", "data:application/json;charset=utf-8," + encodeURIComponent(blob))
+    a.setAttribute("download", "tish-midi-project.json")
+    a.click()
+  }
+
+  fn onImport() {
+    let s = prompt("Paste full project JSON", "")
+    if (s && s.length > 2) {
+      try {
+        let p = projectFromJson(s)
+        setProject(p)
+      } catch (e) {
+        alert("Invalid JSON")
+      }
+    }
+  }
+
+  fn onGain(idx, e) {
+    project.channels[idx].gain = Number(e.target.value) / 100
+    updateMixerFromProject(project, audioStore)
+    setProject(project)
+  }
+
+  fn onPan(idx, e) {
+    project.channels[idx].pan = Number(e.target.value) / 100
+    updateMixerFromProject(project, audioStore)
+    setProject(project)
+  }
+
+  fn onAdsr(idx, k, e) {
+    let v = Number(e.target.value)
+    let ch = project.channels[idx]
+    if (k === "a") {
+      ch.attack = v / 1000
+    }
+    if (k === "d") {
+      ch.decay = v / 1000
+    }
+    if (k === "s") {
+      ch.sustain = v / 100
+    }
+    if (k === "r") {
+      ch.release = v / 1000
+    }
+    setProject(project)
+  }
+
+  let mixers = []
+  let mi = 0
+  while (mi < project.channels.length) {
+    mixers.push(MixerStrip(project.channels[mi], mi, mi === selectedCh, setSelectedCh, onGain, onPan, onAdsr, setProject, project))
+    mi = mi + 1
+  }
+
+  let channels = []
+  let ci = 0
+  while (ci < project.channels.length) {
+    channels.push(ChannelRow(project.channels[ci], ci, project, setProject, ci === selectedCh, setSelectedCh))
+    ci = ci + 1
+  }
+
+  return <div class="daw-root">
+    <header class="daw-header">
+      <h1 class="logo">{"tish-midi"}</h1>
+      {TransportBar(project.bpm, playing, onPlay, onStop, onBpmInput, onExport, onImport)}
+    </header>
+    <div class="daw-body">
+      <section class="panel rack-panel">
+        <h2>{"Channel rack + step sequencer"}</h2>
+        {channels}
+      </section>
+      <section class="panel piano-panel">
+        <h2>{"Piano roll (channel "}{String(selectedCh + 1)}{")"}</h2>
+        {PianoRollCanvas(project, selectedCh, setProject, null)}
+      </section>
+      <aside class="panel mixer-panel">
+        <h2>{"Mixer"}</h2>
+        <canvas class="scope-canvas" width="140" height="56" />
+        <div class="mixer-strips">{mixers}</div>
+      </aside>
+    </div>
+    <footer class="daw-foot">{"Pitch bend: edit project.automation.pitchBend in JSON. Schema: docs/schema/project-v1.json"}</footer>
+  </div>
+}
