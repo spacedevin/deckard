@@ -1,0 +1,27 @@
+import { defaultParamsForGeneratorId } from '../generators/Registry.tish'
+
+export fn migrateChannelGenerator(ch) {
+  if (!ch.generatorId || ch.generatorId === "") {
+    ch.generatorId = "basicOsc"
+    ch.generatorParams = defaultParamsForGeneratorId("basicOsc")
+    if (ch.waveform) {
+      ch.generatorParams.waveform = ch.waveform
+    }
+  }
+  if (!ch.generatorParams) {
+    ch.generatorParams = defaultParamsForGeneratorId(ch.generatorId)
+  }
+  if (ch.generatorId === "basicOsc") {
+    if (!ch.generatorParams.waveform) {
+      ch.generatorParams.waveform = ch.waveform ? ch.waveform : "sine"
+    }
+  }
+}
+
+export fn migrateProjectGenerators(project) {
+  let i = 0
+  while (i < project.channels.length) {
+    migrateChannelGenerator(project.channels[i])
+    i = i + 1
+  }
+}

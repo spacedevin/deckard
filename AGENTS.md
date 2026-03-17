@@ -2,13 +2,14 @@
 
 ## Prefer these surfaces
 
-1. **[docs/schema/project-v1.json](docs/schema/project-v1.json)** — canonical shape.
+1. **[docs/schema/project-v2.json](docs/schema/project-v2.json)** — v2 shape (`generatorId` + `generatorParams` per channel). v1 JSON with `waveform` only is migrated on load.
 2. **[src/model/Project.tish](src/model/Project.tish)** — `defaultProject()`, `projectToJson` / `projectFromJson`.
-3. **[src/model/Edits.tish](src/model/Edits.tish)** — small safe mutators (`toggleStep`, `addPianoNote`, `setAdsr`, …).
+3. **[src/generators/](src/generators/)** — modular instruments; see [docs/GENERATORS.md](docs/GENERATORS.md).
+4. **[src/model/Edits.tish](src/model/Edits.tish)** — small safe mutators (`toggleStep`, `addPianoNote`, `setAdsr`, …).
 
 ## Invariants
 
-- **`version`**: keep `1` unless you introduce breaking field renames (then bump and document).
+- **`version`**: use `2` for generator-based projects; bump when breaking `generatorParams` shapes.
 - **Times**: `startBeat` / `durBeats` are in **quarter-note beats**. Step `i` (0–15) = beat `i * 0.25` in the looping bar.
 - **Channels**: preserve `id` strings when editing; UI keys off array index + `id`.
 - **Do not** put sequencing rules inside JSX-only files; keep logic in `model/`, `schedule/`, `audio/`.

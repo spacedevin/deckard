@@ -1,0 +1,19 @@
+import { playBasicOsc } from './BasicOsc.tish'
+import { playNoiseBurst } from './NoiseBurst.tish'
+import { playFmTone } from './FmTone.tish'
+
+export fn dispatchPlayNote(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  let id = ch.generatorId
+  if (!id) {
+    id = "basicOsc"
+  }
+  if (id === "noiseBurst") {
+    playNoiseBurst(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+  if (id === "fmTone") {
+    playFmTone(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+  playBasicOsc(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+}

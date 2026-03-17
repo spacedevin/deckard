@@ -1,0 +1,58 @@
+// Generator: noiseBurst — filtered noise; params.decay, tone, pitchFollow.
+
+import { midiToHz } from '../schedule/Engine.tish'
+
+export fn playNoiseBurst(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  let p = ch.generatorParams
+  let decay = 0.08
+  let tone = 0.5
+  let pitchFollow = 0.2
+  if (p) {
+    if (p.decay > 0) {
+      decay = p.decay
+    }
+    if (p.tone >= 0 && p.tone <= 1) {
+      tone = p.tone
+    }
+    if (p.pitchFollow >= 0 && p.pitchFollow <= 1) {
+      pitchFollow = p.pitchFollow
+    }
+  }
+  let sr = ctx.sampleRate
+  let n = Math.floor(sr * 0.35)
+  let buf = ctx.createBuffer(1, n, sr)
+  let data = buf.getChannelData(0)
+  let i = 0
+  while (i < n) {
+    data[i] = Math.random() * 2 - 1
+    i = i + 1
+  }
+  let src = ctx.createBufferSource()
+  src.buffer = buf
+  let bp = ctx.createBiquadFilter()
+  bp.type = "bandpass"
+  let rootHz = midiToHz(midi + bendSemis)
+  let center = 400 + tone * 7000
+  center = center * (1 - pitchFollow) + rootHz * pitchFollow
+  if (center < 80) {
+    center = 80
+  }
+  if (center > 12000) {
+    center = 12000
+  }
+  bp.frequency.value = center
+  bp.Q.value = 0.7 + tone * 3
+  let env = ctx.createGain()
+  env.gain.value = 0
+  src.connect(bp)
+  bp.connect(env)
+  env.connect(bus.input)
+  let v = vel / 127
+  let hitDur = Math.min(durSec, decay * 3 + 0.02)
+  let a = 0.002
+  env.gain.setValueAtTime(0, t)
+  env.gain.linearRampToValueAtTime(v, t + a)
+  env.gain.exponentialRampToValueAtTime(0.001, t + hitDur)
+  src.start(t)
+  src.stop(t + hitDur + 0.05)
+}

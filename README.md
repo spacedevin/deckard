@@ -21,7 +21,9 @@ Serve the folder (e.g. `npx serve .`) and open `index.html`. Click **Play** once
 
 ## Docs
 
-- [docs/schema/project-v1.md](docs/schema/project-v1.md) — LLM-oriented schema notes  
+- [docs/FL_STUDIO_GENERATORS.md](docs/FL_STUDIO_GENERATORS.md) — how this maps to FL-style channel instruments  
+- [docs/GENERATORS.md](docs/GENERATORS.md) — adding a new generator module  
+- [docs/schema/project-v2.json](docs/schema/project-v2.json) — project shape (v1 `waveform` auto-migrates)  
 - [docs/TISH_JS_BUILTINS.md](docs/TISH_JS_BUILTINS.md) — `webAudioCreateContext` / `jsUint8Array`  
 - [AGENTS.md](AGENTS.md) — agent editing contract  
 

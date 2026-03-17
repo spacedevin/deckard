@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tish MIDI DAW Project v2",
+  "type": "object",
+  "required": ["version", "bpm", "channels"],
+  "properties": {
+    "version": { "type": "integer", "minimum": 2 },
+    "bpm": { "type": "number", "minimum": 20, "maximum": 300 },
+    "channels": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/channel" }
+    },
+    "automation": {
+      "type": "object",
+      "properties": {
+        "pitchBend": { "$ref": "#/$defs/automationLane" },
+        "masterGain": { "$ref": "#/$defs/automationLane" }
+      }
+    }
+  },
+  "$defs": {
+    "automationLane": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["beat", "value"],
+        "properties": {
+          "beat": { "type": "number" },
+          "value": { "type": "number" }
+        }
+      }
+    },
+    "channel": {
+      "type": "object",
+      "required": ["id", "name", "generatorId", "generatorParams", "gain", "pan", "mute", "solo", "attack", "decay", "sustain", "release", "stepPitch", "steps", "pianoNotes"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "generatorId": {
+          "type": "string",
+          "description": "Instrument plugin id: basicOsc | noiseBurst | fmTone | …"
+        },
+        "generatorParams": {
+          "type": "object",
+          "description": "Shape depends on generatorId; see docs/GENERATORS.md"
+        },
+        "waveform": { "type": "string", "description": "Legacy v1; migrated into basicOsc.generatorParams.waveform" },
+        "gain": { "type": "number" },
+        "pan": { "type": "number" },
+        "mute": { "type": "boolean" },
+        "solo": { "type": "boolean" },
+        "attack": { "type": "number" },
+        "decay": { "type": "number" },
+        "sustain": { "type": "number" },
+        "release": { "type": "number" },
+        "filterCutoff": { "type": "number" },
+        "filterQ": { "type": "number" },
+        "stepPitch": { "type": "integer" },
+        "steps": { "type": "array", "minItems": 16, "maxItems": 16 },
+        "pianoNotes": { "type": "array" }
+      }
+    }
+  }
+}

@@ -157,10 +157,75 @@ body {
   color: var(--mint);
 }
 
-.wave-select {
-  margin-top: 0.25rem;
+.instr-label {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-top: 0.35rem;
+}
+
+.instr-select {
   width: 100%;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
+  background: var(--bg);
+  color: var(--mint);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.2rem 0.15rem;
+  font-weight: 600;
+}
+
+.gen-params {
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--border);
+}
+
+.gen-params-label {
+  font-size: 0.6rem;
+  color: var(--muted);
+  margin-right: 0.35rem;
+}
+
+.gen-params-select {
+  font-size: 0.7rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  max-width: 100%;
+}
+
+.gen-params-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.gen-row {
+  font-size: 0.65rem;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.gen-row input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.gen-row-pair {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.65rem;
+}
+
+.gen-row-pair select {
+  font-size: 0.65rem;
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);

@@ -1,0 +1,63 @@
+// Generator: fmTone — modulator FM into carrier frequency AudioParam.
+
+import { midiToHz } from '../schedule/Engine.tish'
+
+export fn playFmTone(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  let p = ch.generatorParams
+  let ratio = 2
+  let modIndex = 4
+  let carW = "sine"
+  let modW = "sine"
+  if (p) {
+    if (p.ratio > 0 && p.ratio < 64) {
+      ratio = p.ratio
+    }
+    if (p.modIndex >= 0 && p.modIndex <= 48) {
+      modIndex = p.modIndex
+    }
+    if (p.carrierWave) {
+      carW = p.carrierWave
+    }
+    if (p.modWave) {
+      modW = p.modWave
+    }
+  }
+  let Fc = midiToHz(midi + bendSemis)
+  let mod = ctx.createOscillator()
+  mod.type = modW
+  mod.frequency.value = Fc * ratio
+  let modDepth = ctx.createGain()
+  let depthHz = Fc * modIndex * 0.12
+  if (depthHz < 0.5) {
+    depthHz = 0.5
+  }
+  if (depthHz > 6000) {
+    depthHz = 6000
+  }
+  modDepth.gain.value = depthHz
+  mod.connect(modDepth)
+  let car = ctx.createOscillator()
+  car.type = carW
+  car.frequency.value = Fc
+  modDepth.connect(car.frequency)
+  let env = ctx.createGain()
+  env.gain.value = 0
+  car.connect(env)
+  env.connect(bus.input)
+  let v = vel / 127
+  let peak = v
+  let a = ch.attack
+  let d = ch.decay
+  let slev = ch.sustain * v
+  let r = ch.release
+  let susPlateau = Math.max(t + a + d, t + durSec - r)
+  env.gain.setValueAtTime(0, t)
+  env.gain.linearRampToValueAtTime(peak, t + a)
+  env.gain.linearRampToValueAtTime(slev, t + a + d)
+  env.gain.setValueAtTime(slev, susPlateau)
+  env.gain.linearRampToValueAtTime(0, t + durSec + r)
+  mod.start(t)
+  car.start(t)
+  mod.stop(t + durSec + r + 0.08)
+  car.stop(t + durSec + r + 0.08)
+}
