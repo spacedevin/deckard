@@ -24,4 +24,7 @@ export fn migrateProjectGenerators(project) {
     migrateChannelGenerator(project.channels[i])
     i = i + 1
   }
+  if (!project.instrumentPresets) {
+    project.instrumentPresets = []
+  }
 }

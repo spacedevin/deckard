@@ -1,0 +1,27 @@
+// Per-track instrument state is isolated: always clone params when assigning or loading presets.
+
+export fn deepCloneParams(obj) {
+  return JSON.parse(JSON.stringify(obj))
+}
+
+export fn ensureInstrumentPresets(project) {
+  if (!project.instrumentPresets) {
+    project.instrumentPresets = []
+  }
+}
+
+export fn addInstrumentPreset(project, displayName, ch) {
+  ensureInstrumentPresets(project)
+  let pid = "p_" + String(project.instrumentPresets.length) + "_" + String(Math.floor(Math.random() * 99999))
+  project.instrumentPresets.push({
+    presetId: pid,
+    name: displayName,
+    generatorId: ch.generatorId,
+    params: deepCloneParams(ch.generatorParams)
+  })
+}
+
+export fn applyInstrumentPresetToChannel(ch, preset) {
+  ch.generatorId = preset.generatorId
+  ch.generatorParams = deepCloneParams(preset.params)
+}

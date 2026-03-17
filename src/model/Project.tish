@@ -76,6 +76,26 @@ export fn defaultProject() {
     version: 2,
     bpm: 118,
     channels: [ch0, ch1, ch2, ch3],
+    instrumentPresets: [
+      {
+        presetId: "factory_kick",
+        name: "Kick punch",
+        generatorId: "noiseBurst",
+        params: { decay: 0.12, tone: 0.15, pitchFollow: 0.35 }
+      },
+      {
+        presetId: "factory_hat",
+        name: "Hat tight",
+        generatorId: "noiseBurst",
+        params: { decay: 0.035, tone: 0.85, pitchFollow: 0.05 }
+      },
+      {
+        presetId: "factory_bass_fm",
+        name: "Bass growl",
+        generatorId: "fmTone",
+        params: { ratio: 1, modIndex: 8, carrierWave: "sine", modWave: "square" }
+      }
+    ],
     automation: {
       pitchBend: [{ beat: 0, value: 0 }, { beat: 4, value: 0 }],
       masterGain: [{ beat: 0, value: 1 }, { beat: 16, value: 1 }]

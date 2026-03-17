@@ -1,0 +1,103 @@
+// FL-style: instrument + params belong to the selected track only; presets copy isolated param blobs.
+
+import {
+  generatorCatalog,
+  defaultParamsForGeneratorId,
+  generatorLabelById,
+  generatorDescriptionById
+} from '../generators/Registry.tish'
+import { GeneratorParamPanel } from './GeneratorParams.tish'
+import {
+  deepCloneParams,
+  addInstrumentPreset,
+  applyInstrumentPresetToChannel,
+  ensureInstrumentPresets
+} from '../model/InstrumentPresets.tish'
+
+export fn InstrumentPanel(project, selectedCh, setProject) {
+  ensureInstrumentPresets(project)
+  let ch = project.channels[selectedCh]
+  let gid = ch.generatorId
+  if (!gid) {
+    gid = "basicOsc"
+  }
+  let cat = generatorCatalog()
+  let genBtns = []
+  let bi = 0
+  while (bi < cat.length) {
+    let g = cat[bi]
+    let active = g.id === gid ? " gen-pick-active" : ""
+    let gidCopy = g.id
+    genBtns.push(
+      <button
+        type="button"
+        class={"gen-pick-btn" + active}
+        onclick={() => {
+          ch.generatorId = gidCopy
+          ch.generatorParams = deepCloneParams(defaultParamsForGeneratorId(gidCopy))
+          setProject(project)
+        }}
+      >
+        {g.label}
+      </button>
+    )
+    bi = bi + 1
+  }
+  let presetOpts = []
+  presetOpts.push(<option value="-1">{"— Load preset —"}</option>)
+  let pi = 0
+  while (pi < project.instrumentPresets.length) {
+    let pr = project.instrumentPresets[pi]
+    presetOpts.push(<option value={String(pi)}>{pr.name + " (" + generatorLabelById(pr.generatorId) + ")"}</option>)
+    pi = pi + 1
+  }
+  let desc = generatorDescriptionById(gid)
+  return <section class="panel instrument-panel">
+    <h2>{"Instrument"}</h2>
+    <div class="instr-track-line">
+      <span class="instr-track-label">{"Track"}</span>
+      <span class="instr-track-name">{ch.name}</span>
+    </div>
+    <p class="instr-panel-hint">{"Each track has its own generator instance. Edits here only affect this track."}</p>
+    <div class="gen-pick-row">{genBtns}</div>
+    <p class="instr-desc">{desc}</p>
+    <div class="instr-params-wrap">
+      {GeneratorParamPanel(ch, project, setProject)}
+    </div>
+    <div class="preset-block">
+      <h3 class="preset-title">{"Presets"}</h3>
+      <p class="preset-hint">{"Save this track’s sound or load a stored patch (per generator)."}</p>
+      <div class="preset-row">
+        <select
+          class="preset-select"
+          value="-1"
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={(e) => e.stopPropagation()}
+          onchange={(e) => {
+            let idx = Number(e.target.value)
+            e.target.value = "-1"
+            if (idx >= 0 && idx < project.instrumentPresets.length) {
+              applyInstrumentPresetToChannel(ch, project.instrumentPresets[idx])
+              setProject(project)
+            }
+          }}
+        >
+          {presetOpts}
+        </select>
+      </div>
+      <button
+        type="button"
+        class="btn-preset-save"
+        onclick={() => {
+          let nm = prompt("Preset name", ch.name + " sound")
+          if (nm && nm.length > 0) {
+            addInstrumentPreset(project, nm, ch)
+            setProject(project)
+          }
+        }}
+      >
+        {"Save current as preset"}
+      </button>
+    </div>
+  </section>
+}

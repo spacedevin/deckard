@@ -1,6 +1,5 @@
 import { toggleStep, clearStep } from '../model/Edits.tish'
-import { generatorCatalog, defaultParamsForGeneratorId } from '../generators/Registry.tish'
-import { GeneratorParamPanel } from './GeneratorParams.tish'
+import { generatorLabelById } from '../generators/Registry.tish'
 
 export fn StepRow(ch, chIdx, project, setProject) {
   fn cell(si) {
@@ -31,40 +30,17 @@ export fn StepRow(ch, chIdx, project, setProject) {
 
 export fn ChannelRow(ch, chIdx, project, setProject, selected, onSelect) {
   let rowCls = selected ? "channel-row channel-row-sel" : "channel-row"
-  let cat = generatorCatalog()
-  let opts = []
-  let oi = 0
-  while (oi < cat.length) {
-    let g = cat[oi]
-    opts.push(<option value={g.id}>{g.label}</option>)
-    oi = oi + 1
-  }
   let gid = ch.generatorId
   if (!gid) {
     gid = "basicOsc"
   }
+  let badge = generatorLabelById(gid)
   return <div class={rowCls}>
-    <div class="channel-label-col">
-      <div class="ch-name-hit" onclick={() => onSelect(chIdx)} title={"Select for piano roll"}>
+    <div class="rack-track-col">
+      <div class="ch-name-hit" onclick={() => onSelect(chIdx)} title={"Select track — edit instrument in Instrument panel"}>
         {ch.name}
       </div>
-      <label class="instr-label">{"Instrument"}</label>
-      <select
-        class="instr-select"
-        value={gid}
-        title={"Generator plugin (FL-style channel instrument)"}
-        onmousedown={(e) => e.stopPropagation()}
-        onclick={(e) => e.stopPropagation()}
-        onchange={(e) => {
-          let nid = e.target.value
-          ch.generatorId = nid
-          ch.generatorParams = defaultParamsForGeneratorId(nid)
-          setProject(project)
-        }}
-      >
-        {opts}
-      </select>
-      {GeneratorParamPanel(ch, project, setProject)}
+      <div class="ch-instr-badge">{badge}</div>
     </div>
     {StepRow(ch, chIdx, project, setProject)}
   </div>

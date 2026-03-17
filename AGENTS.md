@@ -6,6 +6,7 @@
 2. **[src/model/Project.tish](src/model/Project.tish)** — `defaultProject()`, `projectToJson` / `projectFromJson`.
 3. **[src/generators/](src/generators/)** — modular instruments; see [docs/GENERATORS.md](docs/GENERATORS.md).
 4. **[src/model/Edits.tish](src/model/Edits.tish)** — small safe mutators (`toggleStep`, `addPianoNote`, `setAdsr`, …).
+5. **`instrumentPresets`** — project-level named patches; applying copies `generatorId` + deep-cloned `params` onto the **selected track only**.
 
 ## Invariants
 

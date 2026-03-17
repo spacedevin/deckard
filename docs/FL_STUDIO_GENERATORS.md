@@ -27,3 +27,5 @@
 | Add new instrument | New module under `src/generators/` + register in `Registry.tish` + branch in `Dispatch.tish` |
 
 We do **not** host VSTs; each generator is **Tish + Web Audio** code paths. The same **modular boundary** as FL’s “one plugin per channel” applies.
+
+**UI parity:** Like opening Fruity Slicer on one channel, the **Instrument** column edits **only the selected track’s** `generatorId` + `generatorParams`. Other tracks keep their own isolated parameter objects (deep-cloned when switching generator or loading a preset).

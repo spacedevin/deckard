@@ -10,7 +10,7 @@ export fn generatorCatalog() {
     {
       id: "noiseBurst",
       label: "Noise burst",
-      description: "Filtered noise hit for drums/percussion; pitch tweaks filter."
+      description: "Filtered noise hit for drums/percussion; pitch steers the filter."
     },
     {
       id: "fmTone",
@@ -18,6 +18,30 @@ export fn generatorCatalog() {
       description: "Two-operator FM; ratio + index in params."
     }
   ]
+}
+
+export fn generatorLabelById(id) {
+  let cat = generatorCatalog()
+  let i = 0
+  while (i < cat.length) {
+    if (cat[i].id === id) {
+      return cat[i].label
+    }
+    i = i + 1
+  }
+  return id
+}
+
+export fn generatorDescriptionById(id) {
+  let cat = generatorCatalog()
+  let i = 0
+  while (i < cat.length) {
+    if (cat[i].id === id) {
+      return cat[i].description
+    }
+    i = i + 1
+  }
+  return ""
 }
 
 export fn defaultParamsForGeneratorId(id) {

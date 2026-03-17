@@ -5,6 +5,9 @@ export fn GeneratorParamPanel(ch, project, setProject) {
   if (!id) {
     id = "basicOsc"
   }
+  if (!ch.generatorParams) {
+    ch.generatorParams = defaultParamsForGeneratorId(id)
+  }
   if (id === "basicOsc") {
     let w = "sine"
     if (ch.generatorParams && ch.generatorParams.waveform) {

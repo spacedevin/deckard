@@ -23,9 +23,10 @@ Use [`midiToHz`](../src/schedule/Engine.tish) for pitched notes.
 
 Call your `play...` when `ch.generatorId === "yourId"`. Unknown ids fall back to `basicOsc`.
 
-## 5. UI in [`src/ui/GeneratorParams.tish`](../src/ui/GeneratorParams.tish)
+## 5. UI
 
-Render controls for `ch.generatorParams` when `ch.generatorId` matches. Use `setProject(project)` after edits.
+- **Generator list + params** live in [`src/ui/InstrumentPanel.tish`](../src/ui/InstrumentPanel.tish) for the **selected track only** (same selection as piano roll).
+- Shared widgets are in [`src/ui/GeneratorParams.tish`](../src/ui/GeneratorParams.tish). The channel rack only shows the **instrument label badge**, not parameters.
 
 ## 6. Schema
 

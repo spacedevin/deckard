@@ -6,6 +6,7 @@ import { transportTick } from '../audio/Playback.tish'
 import { TransportBar } from './Transport.tish'
 import { MixerStrip } from './Mixer.tish'
 import { ChannelRow } from './ChannelRack.tish'
+import { InstrumentPanel } from './InstrumentPanel.tish'
 import { PianoRollCanvas, attachPianoRoll } from './PianoRoll.tish'
 import { drawScopeCanvas } from './Scope.tish'
 
@@ -156,6 +157,7 @@ export fn App() {
         <h2>{"Piano roll (channel "}{String(selectedCh + 1)}{")"}</h2>
         {PianoRollCanvas(project, selectedCh, setProject, null)}
       </section>
+      {InstrumentPanel(project, selectedCh, setProject)}
       <aside class="panel mixer-panel">
         <h2>{"Mixer"}</h2>
         <canvas class="scope-canvas" width="140" height="56" />
