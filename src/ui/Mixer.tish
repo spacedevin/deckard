@@ -6,6 +6,7 @@ export fn MixerStrip(ch, idx, selected, onSelect, onGain, onPan, onAdsr, setProj
     <input type="range" class="mixer-fader" min="0" max="100" value={String(Math.round(ch.gain * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => onGain(idx, e)} />
     <label class="mixer-fader-label">{"Pan"}</label>
     <input type="range" class="mixer-fader" min="-100" max="100" value={String(Math.round(ch.pan * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => onPan(idx, e)} />
+    <div class="mixer-adsr-caption">{(ch.generatorId === "noiseBurst") ? "ADSR: A only; D/S/R unused — use Instrument Decay" : "ADSR: amplitude (note body)"}</div>
     <div class="adsr-row">
       <span>{"A"}</span><input type="range" min="1" max="500" value={String(Math.round(ch.attack * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => onAdsr(idx, "a", e)} />
     </div>

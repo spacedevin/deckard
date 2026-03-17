@@ -450,6 +450,13 @@ body {
   border-color: var(--mint);
 }
 
+.mixer-adsr-caption {
+  font-size: 0.58rem;
+  line-height: 1.25;
+  color: var(--muted);
+  margin: 0.25rem 0 0.15rem;
+}
+
 .mixer-name {
   font-weight: 700;
   margin-bottom: 0.35rem;

@@ -49,7 +49,13 @@ export fn playNoiseBurst(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   env.connect(bus.input)
   let v = vel / 127
   let hitDur = Math.min(durSec, decay * 3 + 0.02)
-  let a = 0.002
+  let a = ch.attack
+  if (a < 0.0005) {
+    a = 0.0005
+  }
+  if (a > 0.15) {
+    a = 0.15
+  }
   env.gain.setValueAtTime(0, t)
   env.gain.linearRampToValueAtTime(v, t + a)
   env.gain.exponentialRampToValueAtTime(0.001, t + hitDur)
