@@ -9,6 +9,7 @@ import { TransportBar } from './Transport.tish'
 import { MixerStrip } from './Mixer.tish'
 import { ChannelRow } from './ChannelRack.tish'
 import { InstrumentPanel } from './InstrumentPanel.tish'
+import { CoDjPanel } from './CoDjPanel.tish'
 import {
   PianoRollCanvas,
   PianoRollZoomBar,
@@ -18,6 +19,8 @@ import {
   rackPianoPreviewSig
 } from './PianoRoll.tish'
 import { drawScopeCanvas } from './Scope.tish'
+import { coDjInitWebMidi } from '../codj/MidiProfiles.tish'
+import { coDjFlushScheduledForStep } from '../codj/Schedule.tish'
 
 let audioStore = {}
 let playbackTimer = null
@@ -62,6 +65,9 @@ export fn App() {
       }
     }
   }
+  setTimeout(() => {
+    coDjInitWebMidi(project, setProject)
+  }, 100)
   setTimeout(() => {
     let pr = document.querySelector(".piano-roll")
     if (pr) {
@@ -120,6 +126,8 @@ export fn App() {
       window.__dawPlaying = true
       let ms = (60 / project.bpm / 4) * 1000
       playbackTimer = setInterval(() => {
+        window.__dawPerfStep = globalTick
+        coDjFlushScheduledForStep(globalTick)
         transportTick(window.__dawProject, audioStore, globalTick)
         if (window.__tplSetPlaybackHighlight) {
           window.__tplSetPlaybackHighlight(globalTick % 16, true)
@@ -244,6 +252,7 @@ export fn App() {
         {PianoRollCanvas(project, selectedCh, setProject, null)}
       </section>
       {InstrumentPanel(project, selectedCh, setProject, tplMirrorFlush)}
+      {CoDjPanel(project, setProject, tplMirrorFlush)}
       {CodeDebugView(project, setProject, tplText, setTplText)}
       <aside class="panel mixer-panel">
         <h2>{"Mixer"}</h2>

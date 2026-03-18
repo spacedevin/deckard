@@ -23,6 +23,17 @@ Serve the folder (e.g. `npx serve .`) and open `index.html`. Click **Play** once
 
 **Reachability:** `src/main.tish` → `ui/App.tish` pulls in model, audio, schedule, generators, tpl (emit/apply/highlight), and Tishact. Optional counter demo: `src/tishact/examples/counter-main.tish` (`npm run build:counter`). **Removed unused:** `hooks.tish` (dead shim), `tpl/Lexer.tish` (Parser inlines the same concerns).
 
+## Co-DJ (WebSocket + agents)
+
+1. `npm install` in `services/ws-hub` and `services/agent-worker` (once).
+2. Terminal A: `npm run ws-hub` → hub on port **8765**.
+3. Terminal B: `npm run agent -- --lane ai-a` (optional demo worker; SQLite log + `tpl.block` on simulated `direct`).
+4. Open the app → **Co-DJ** panel → Connect. Incoming **`tpl.block`** from agents merges into the project (lane ownership rules in [docs/CO_DJ_SPACE.md](docs/CO_DJ_SPACE.md)).
+
+Specs: [docs/WS_AND_AGENTS.md](docs/WS_AND_AGENTS.md), [docs/STREAM_PROTOCOL.md](docs/STREAM_PROTOCOL.md), [docs/AUTHOR_TAGGING.md](docs/AUTHOR_TAGGING.md), [docs/DJ_SKILLS.md](docs/DJ_SKILLS.md), [docs/CONTROLLER_PROFILES.md](docs/CONTROLLER_PROFILES.md).
+
+**Web MIDI**: note-on on MIDI channels maps note % 8 → channel index for **temporary gain overlay** (hear without committing TPL).
+
 ## Docs
 
 - [docs/FL_STUDIO_GENERATORS.md](docs/FL_STUDIO_GENERATORS.md) — how this maps to FL-style channel instruments  

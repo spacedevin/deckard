@@ -1,0 +1,39 @@
+// Web MIDI → temporary gain overlays on first 8 notes (Launchpad-style sketch).
+
+import { coDjSetGainOverlay } from './Overlay.tish'
+
+export fn coDjInitWebMidi(project, setProject) {
+  if (typeof navigator === "undefined") {
+    return
+  }
+  if (!navigator.requestMIDIAccess) {
+    return
+  }
+  if (typeof window !== "undefined" && window.__coDjMidiOn) {
+    return
+  }
+  navigator.requestMIDIAccess({ sysex: false }).then((access) => {
+    if (typeof window !== "undefined") {
+      window.__coDjMidiOn = true
+    }
+    let inputs = access.inputs.values()
+    let it = inputs.next()
+    while (!it.done) {
+      let input = it.value
+      input.onmidimessage = (e) => {
+        let st = e.data[0]
+        let n = e.data[1]
+        let vel = e.data[2]
+        if (st >= 144 && st <= 159 && vel > 0) {
+          let idx = n % 8
+          if (idx >= 0 && idx < project.channels.length) {
+            let ch = project.channels[idx]
+            coDjSetGainOverlay(project, ch.id, vel / 127, "midi")
+            setProject(project)
+          }
+        }
+      }
+      it = inputs.next()
+    }
+  })
+}

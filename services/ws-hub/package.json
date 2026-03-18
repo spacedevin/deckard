@@ -1,0 +1,13 @@
+{
+  "name": "tish-midi-ws-hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Co-DJ WebSocket session hub",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

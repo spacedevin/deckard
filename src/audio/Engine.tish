@@ -1,6 +1,7 @@
 // Web Audio graph + channel bus (generators dispatch separately).
 
 import { automationAt } from '../schedule/Engine.tish'
+import { coDjEffectiveGain } from '../codj/Overlay.tish'
 import { dispatchPlayNote } from '../generators/Dispatch.tish'
 
 export fn buildChannelBus(ctx, ch, master) {
@@ -54,7 +55,7 @@ export fn updateMixerFromProject(project, store) {
   while (mi < project.channels.length) {
     let ch = project.channels[mi]
     let b = store.buses[mi]
-    b.gainNode.gain.value = ch.gain
+    b.gainNode.gain.value = coDjEffectiveGain(project, mi)
     b.panNode.pan.value = ch.pan
     b.filterNode.frequency.value = ch.filterCutoff
     mi = mi + 1

@@ -1,0 +1,46 @@
+// Sidecar metadata for co-DJ lanes and track ownership.
+
+export fn ensureCoDjMeta(project) {
+  if (!project.coDjMeta) {
+    project.coDjMeta = { tracks: {} }
+  }
+  if (!project.coDjMeta.tracks) {
+    project.coDjMeta.tracks = {}
+  }
+  let ci = 0
+  while (ci < project.channels.length) {
+    let id = project.channels[ci].id
+    if (!project.coDjMeta.tracks[id]) {
+      project.coDjMeta.tracks[id] = {
+        ownerLane: "human",
+        authorId: "human",
+        masterLock: false
+      }
+    }
+    ci = ci + 1
+  }
+}
+
+export fn setTrackOwner(project, channelId, laneId, authorId) {
+  ensureCoDjMeta(project)
+  project.coDjMeta.tracks[channelId] = {
+    ownerLane: laneId,
+    authorId: authorId,
+    masterLock: project.coDjMeta.tracks[channelId]
+      ? project.coDjMeta.tracks[channelId].masterLock
+      : false
+  }
+}
+
+export fn setMasterLock(project, channelId, locked) {
+  ensureCoDjMeta(project)
+  if (!project.coDjMeta.tracks[channelId]) {
+    project.coDjMeta.tracks[channelId] = {
+      ownerLane: "human",
+      authorId: "human",
+      masterLock: locked
+    }
+  } else {
+    project.coDjMeta.tracks[channelId].masterLock = locked
+  }
+}

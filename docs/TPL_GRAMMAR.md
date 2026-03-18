@@ -32,6 +32,7 @@ Must appear before track-specific lines (recommended first non-comment line).
 | Line | Effect |
 |------|--------|
 | `bpm <number>` | Project tempo (40–300). |
+| `@ perf_step <n>` | **Stream / Co-DJ only**: schedule this patch for host perf step `n` (16th-note index). Ignored by Song parser except as no-op. JSON `effectivePerfStep` on `tpl.block` overrides this line. |
 
 ## Track block
 

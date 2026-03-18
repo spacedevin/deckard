@@ -1,0 +1,20 @@
+// Skill allowlist for AI lanes (browser-side check; hub may duplicate).
+
+export fn skillAllowsLine(line, laneId) {
+  if (laneId === "human") {
+    return true
+  }
+  let t = line.trim()
+  if (t.length === 0 || t.charAt(0) === "#") {
+    return true
+  }
+  let sp = t.indexOf(" ")
+  let h = sp < 0 ? t : t.substring(0, sp)
+  if (h === "bpm" || h === "tpl" || h === "auto") {
+    return false
+  }
+  if (h === "track") {
+    return true
+  }
+  return true
+}

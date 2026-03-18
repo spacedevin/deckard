@@ -133,6 +133,9 @@ export fn parseProgram(source) {
       }
       continue
     }
+    if (head === "@" && toks.length >= 3 && toks[1] === "perf_step") {
+      continue
+    }
     if (head === "track") {
       if (toks.length >= 6 && toks[2] === "id" && toks[4] === "gen") {
         currentTrack = {

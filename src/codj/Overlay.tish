@@ -1,0 +1,43 @@
+// Temporary UI overlays: { channelId, gain?, pan?, untilTs? } applied on read path.
+
+export fn coDjEnsureOverlays(project) {
+  if (!project.coDjOverlays) {
+    project.coDjOverlays = []
+  }
+}
+
+export fn coDjSetGainOverlay(project, channelId, gain, authorId) {
+  coDjEnsureOverlays(project)
+  let i = 0
+  while (i < project.coDjOverlays.length) {
+    if (project.coDjOverlays[i].channelId === channelId) {
+      project.coDjOverlays[i].gain = gain
+      project.coDjOverlays[i].authorId = authorId
+      return
+    }
+    i = i + 1
+  }
+  project.coDjOverlays.push({ channelId: channelId, gain: gain, authorId: authorId })
+}
+
+export fn coDjClearOverlays(project) {
+  project.coDjOverlays = []
+}
+
+export fn coDjEffectiveGain(project, channelIdx) {
+  let ch = project.channels[channelIdx]
+  if (!ch) {
+    return 0.85
+  }
+  let g = ch.gain
+  coDjEnsureOverlays(project)
+  let i = 0
+  while (i < project.coDjOverlays.length) {
+    let o = project.coDjOverlays[i]
+    if (o.channelId === ch.id && o.gain !== undefined && o.gain !== null) {
+      g = o.gain
+    }
+    i = i + 1
+  }
+  return g
+}

@@ -1,0 +1,266 @@
+// Co-DJ WebSocket client (human lane receives tpl.block from agents).
+
+import { h, Fragment, useState } from '../tishact/Tishact.tish'
+import { applyCoDjTplSource } from '../codj/Merge.tish'
+import { coDjClearOverlays } from '../codj/Overlay.tish'
+import { coDjHandleIncomingTplBlock } from '../codj/Schedule.tish'
+
+export fn CoDjPanel(project, setProject, tplMirrorFlush) {
+  let [poll, setPoll] = useState(0)
+  if (typeof window !== "undefined") {
+    if (!window.__codjIv) {
+      window.__codjIv = setInterval(() => {
+        if (window.__coDjLogDirty) {
+          window.__coDjLogDirty = false
+          setPoll((p) => p + 1)
+        }
+      }, 350)
+    }
+    if (!window.__coDjLog) {
+      window.__coDjLog = []
+    }
+  }
+  fn pushLog(s) {
+    if (typeof window !== "undefined") {
+      window.__coDjLog.push(String(Date.now()).slice(-8) + " " + s)
+      while (window.__coDjLog.length > 36) {
+        window.__coDjLog.shift()
+      }
+      window.__coDjLogDirty = true
+    }
+  }
+  if (typeof window !== "undefined") {
+    window.__coDjPushLog = pushLog
+    window.__coDjSetProject = setProject
+    window.__coDjApplyScheduledTpl = (tpl, laneId, authorId) => {
+      let p = window.__dawProject
+      if (!p) {
+        return
+      }
+      let s = tpl
+      if (s.indexOf("tpl ") !== 0) {
+        s = "tpl 1\n" + s
+      }
+      applyCoDjTplSource(p, s, laneId, authorId)
+    }
+    window.__coDjAfterScheduled = () => {
+      if (window.__coDjSetProject && window.__dawProject) {
+        window.__coDjSetProject(window.__dawProject)
+      }
+      if (window.__coDjTplMirrorFlush) {
+        window.__coDjTplMirrorFlush()
+      }
+    }
+    window.__coDjTplMirrorFlush = tplMirrorFlush
+  }
+  fn handleWsMessage(ev) {
+    let msg = null
+    try {
+      msg = JSON.parse(ev.data)
+    } catch (e) {
+      return
+    }
+    let t = msg.type
+    if (t === "joined" || t === "error") {
+      pushLog((msg.type) + " " + (msg.message ? msg.message : ""))
+      return
+    }
+    if (t === "tpl.block") {
+      let laneId = msg.laneId ? msg.laneId : "ai-a"
+      let authorId = msg.authorId ? msg.authorId : laneId
+      let lines = msg.lines
+      if (!lines || lines.length === 0) {
+        return
+      }
+      let src = lines.join("\n")
+      if (src.indexOf("tpl ") !== 0) {
+        src = "tpl 1\n" + src
+      }
+      let r = coDjHandleIncomingTplBlock(
+        src,
+        laneId,
+        authorId,
+        msg.effectivePerfStep,
+        msg.submitDeadlinePerfStep,
+        msg.asap,
+        pushLog
+      )
+      if (r.status === "late") {
+        return
+      }
+      if (r.status === "queued") {
+        pushLog("apply " + laneId + " queued")
+        return
+      }
+      let applySrc = r.tpl
+      if (applySrc.indexOf("tpl ") !== 0) {
+        applySrc = "tpl 1\n" + applySrc
+      }
+      let p = window.__dawProject ? window.__dawProject : project
+      applyCoDjTplSource(p, applySrc, laneId, authorId)
+      setProject(p)
+      if (tplMirrorFlush) {
+        tplMirrorFlush()
+      }
+      pushLog("apply " + laneId + " " + String(lines.length) + "L")
+      return
+    }
+    if (t === "tpl.line") {
+      pushLog("line " + (msg.laneId ? msg.laneId : "?") + ": " + (msg.line ? msg.line : ""))
+      return
+    }
+    if (t === "direct") {
+      pushLog("direct→" + (msg.laneId ? msg.laneId : "?"))
+      return
+    }
+    if (t === "control" && msg.op === "clear_overlay") {
+      coDjClearOverlays(project)
+      setProject(project)
+    }
+  }
+  fn connectWs() {
+    let base = "ws://127.0.0.1:8765"
+    let sess = "default"
+    let lane = "human"
+    if (typeof window !== "undefined") {
+      if (window.__coDjWsUrl && window.__coDjWsUrl.length > 0) {
+        base = window.__coDjWsUrl
+      }
+      if (window.__coDjSessionId && window.__coDjSessionId.length > 0) {
+        sess = window.__coDjSessionId
+      }
+      if (window.__coDjLaneId) {
+        lane = window.__coDjLaneId
+      }
+    }
+    let path = base
+    while (path.length > 0 && path.charAt(path.length - 1) === "/") {
+      path = path.substring(0, path.length - 1)
+    }
+    path = path + "/session/" + sess
+    let ws = Reflect.construct(WebSocket, [path])
+    ws.onopen = () => {
+      ws.send(
+        '{"type":"join","role":"browser-human","laneId":"' +
+          lane +
+          '","sinceSeq":{"human":0,"ai-a":0,"ai-b":0}}'
+      )
+      pushLog("connected")
+    }
+    ws.onmessage = handleWsMessage
+    ws.onerror = () => {
+      pushLog("ws error")
+    }
+    ws.onclose = () => {
+      pushLog("closed")
+    }
+    if (typeof window !== "undefined") {
+      window.__coDjWs = ws
+    }
+  }
+  fn disconnectWs() {
+    if (typeof window !== "undefined" && window.__coDjWs) {
+      window.__coDjWs.close()
+      window.__coDjWs = null
+    }
+  }
+  let logEls = []
+  let li = 0
+  if (typeof window !== "undefined" && window.__coDjLog) {
+    while (li < window.__coDjLog.length) {
+      logEls.push(<div class="codj-log-line">{window.__coDjLog[li]}</div>)
+      li = li + 1
+    }
+  }
+  return <section class="panel codj-panel">
+    <h2>{"Co-DJ (WebSocket)"}</h2>
+    <p class="codj-hint">{"Run: npm run ws-hub · npm run agent -- --lane ai-a. Incoming tpl.block merges into project."}</p>
+    <div class="codj-row">
+      <label>{"WS "}<input
+        type="text"
+        class="codj-input"
+        placeholder="ws://127.0.0.1:8765"
+        oninput={(e) => {
+          if (typeof window !== "undefined") {
+            window.__coDjWsUrl = e.target.value
+          }
+        }}
+      /></label>
+    </div>
+    <div class="codj-row">
+      <label>{"Direct→ "}
+        <select class="codj-input" onchange={(e) => {
+          if (typeof window !== "undefined") {
+            window.__coDjDirectLane = e.target.value
+          }
+        }}>
+          <option value="ai-a">{"ai-a"}</option>
+          <option value="ai-b">{"ai-b"}</option>
+        </select>
+      </label>
+      <input
+        type="text"
+        class="codj-input"
+        class="codj-input codj-direct-txt"
+        placeholder="euclid hi-hat"
+        oninput={(e) => {
+          if (typeof window !== "undefined") {
+            window.__coDjDirectText = e.target.value
+          }
+        }}
+      />
+    </div>
+    <div class="codj-row">
+      <label>{"Session "}<input type="text" class="codj-input" placeholder="default" oninput={(e) => {
+        if (typeof window !== "undefined") {
+          window.__coDjSessionId = e.target.value
+        }
+      }} /></label>
+      <label>{"Lane "}
+        <select class="codj-input" onchange={(e) => {
+          if (typeof window !== "undefined") {
+            window.__coDjLaneId = e.target.value
+          }
+        }}>
+          <option value="human">{"human"}</option>
+          <option value="ai-a">{"ai-a"}</option>
+          <option value="ai-b">{"ai-b"}</option>
+        </select>
+      </label>
+    </div>
+    <div class="codj-actions">
+      <button type="button" class="btn-codj" onclick={connectWs}>{"Connect"}</button>
+      <button type="button" class="btn-codj" onclick={disconnectWs}>{"Disconnect"}</button>
+      <button
+        type="button"
+        class="btn-codj"
+        onclick={() => {
+          if (typeof window !== "undefined" && window.__coDjWs && window.__coDjWs.readyState === 1) {
+            let tgt = window.__coDjDirectLane ? window.__coDjDirectLane : "ai-a"
+            let tx = window.__coDjDirectText ? window.__coDjDirectText : "euclid hi-hat"
+            let ps =
+              typeof window.__dawPerfStep === "number" ? window.__dawPerfStep : 0
+            window.__coDjWs.send(
+              JSON.stringify({
+                type: "direct",
+                laneId: tgt,
+                text: tx,
+                authorId: "human",
+                perfStep: ps
+              })
+            )
+            pushLog("sent direct→" + tgt)
+          }
+        }}
+      >
+        {"Send test direct"}
+      </button>
+      <button type="button" class="btn-codj" onclick={() => {
+        coDjClearOverlays(project)
+        setProject(project)
+      }}>{"Clear overlays"}</button>
+    </div>
+    <div class="codj-log">{logEls}</div>
+    <span class="codj-poll-hid">{String(poll)}</span>
+  </section>
+}

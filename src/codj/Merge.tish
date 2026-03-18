@@ -1,0 +1,64 @@
+// Apply TPL from a lane with ownership / master-lock rules.
+
+import { makeChannel, defaultParamsForGeneratorId } from '../model/Project.tish'
+import { parseProgram } from '../tpl/Parser.tish'
+import { applyTrackBody, applyAutos } from '../tpl/Apply.tish'
+import { findChannelById } from '../tpl/Apply.tish'
+import { ensureCoDjMeta, setTrackOwner } from './CoDjMeta.tish'
+
+export fn laneMayEditTrack(project, channelId, laneId, isNewTrack) {
+  if (laneId === "human") {
+    return true
+  }
+  ensureCoDjMeta(project)
+  let t = project.coDjMeta.tracks[channelId]
+  if (!t) {
+    return isNewTrack
+  }
+  if (t.masterLock) {
+    return false
+  }
+  if (t.ownerLane === laneId) {
+    return true
+  }
+  return false
+}
+
+export fn applyCoDjTplSource(project, source, laneId, authorId) {
+  ensureCoDjMeta(project)
+  let parsed = parseProgram(source)
+  let errs = parsed.errors
+  if (laneId === "human" && parsed.bpm !== null && parsed.bpm >= 40 && parsed.bpm <= 300) {
+    project.bpm = parsed.bpm
+  }
+  let ti = 0
+  while (ti < parsed.tracks.length) {
+    let tb = parsed.tracks[ti]
+    let ch = findChannelById(project, tb.id)
+    let isNew = ch === null
+    if (!laneMayEditTrack(project, tb.id, laneId, isNew)) {
+      ti = ti + 1
+      continue
+    }
+    if (!ch) {
+      ch = makeChannel(tb.id, tb.name, 36, tb.generatorId)
+      project.channels.push(ch)
+      setTrackOwner(project, tb.id, laneId, authorId)
+    } else {
+      ch.name = tb.name
+      if (ch.generatorId !== tb.generatorId) {
+        ch.generatorId = tb.generatorId
+        ch.generatorParams = defaultParamsForGeneratorId(tb.generatorId)
+      }
+      if (laneId === "human") {
+        setTrackOwner(project, tb.id, "human", authorId)
+      }
+    }
+    applyTrackBody(project, ch, tb.body, tb.genBlocks, errs)
+    ti = ti + 1
+  }
+  if (laneId === "human") {
+    applyAutos(project, parsed.autos)
+  }
+  return { errors: errs, applied: true }
+}

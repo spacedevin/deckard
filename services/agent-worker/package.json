@@ -1,0 +1,14 @@
+{
+  "name": "tish-midi-agent-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Co-DJ AI lane worker: SQLite log + optional tpl.block demo",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.6.0",
+    "ws": "^8.18.0"
+  }
+}

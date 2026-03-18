@@ -1,0 +1,131 @@
+// perf_step: schedule TPL for future 16th-step ticks (sequencer frame). ASAP / late-drop.
+
+export fn coDjEnsureSchedule() {
+  if (typeof window !== "undefined" && !window.__coDjScheduled) {
+    window.__coDjScheduled = []
+  }
+}
+
+export fn coDjCurrentPerfStep() {
+  if (typeof window !== "undefined" && typeof window.__dawPerfStep === "number") {
+    return window.__dawPerfStep
+  }
+  return 0
+}
+
+export fn coDjStripPerfStepDirective(src) {
+  let lines = src.split("\n")
+  let eff = null
+  let out = []
+  let li = 0
+  while (li < lines.length) {
+    let t = lines[li].trim()
+    if (t.length > 12 && t.substring(0, 12) === "@ perf_step ") {
+      let n = Number(t.substring(12).trim())
+      if (n === n && n >= 0) {
+        eff = Math.floor(n)
+      }
+    } else {
+      out.push(lines[li])
+    }
+    li = li + 1
+  }
+  return { effectivePerfStep: eff, tpl: out.join("\n") }
+}
+
+// Returns { status: "late" } | { status: "asap", tpl } | { status: "queued", tpl }
+export fn coDjHandleIncomingTplBlock(src, laneId, authorId, envEffective, envDeadline, envAsap, pushLog) {
+  coDjEnsureSchedule()
+  let st = coDjStripPerfStepDirective(src)
+  let tpl = st.tpl
+  let eff = st.effectivePerfStep
+  if (envEffective !== undefined && envEffective !== null) {
+    let ne = Number(envEffective)
+    if (ne === ne && ne >= 0) {
+      eff = Math.floor(ne)
+    }
+  }
+  let now = coDjCurrentPerfStep()
+  let dl = null
+  if (envDeadline !== undefined && envDeadline !== null) {
+    let nd = Number(envDeadline)
+    if (nd === nd) {
+      dl = Math.floor(nd)
+    }
+  }
+  if (dl !== null && now > dl) {
+    if (pushLog) {
+      pushLog("LATE ignore deadline " + String(dl) + " now " + String(now))
+    }
+    return { status: "late" }
+  }
+  if (envAsap === true || eff === undefined || eff === null) {
+    if (pushLog) {
+      pushLog("ASAP")
+    }
+    return { status: "asap", tpl: tpl }
+  }
+  if (eff <= now) {
+    if (pushLog) {
+      pushLog("due now")
+    }
+    return { status: "asap", tpl: tpl }
+  }
+  window.__coDjScheduled.push({
+    effectivePerfStep: eff,
+    laneId: laneId,
+    authorId: authorId,
+    tpl: tpl
+  })
+  if (pushLog) {
+    pushLog("queue @perf_step " + String(eff))
+  }
+  return { status: "queued", tpl: tpl }
+}
+
+export fn coDjSortScheduled() {
+  coDjEnsureSchedule()
+  let a = window.__coDjScheduled
+  let i = 0
+  while (i < a.length) {
+    let j = i + 1
+    while (j < a.length) {
+      if (a[j].effectivePerfStep < a[i].effectivePerfStep) {
+        let t = a[i]
+        a[i] = a[j]
+        a[j] = t
+      }
+      j = j + 1
+    }
+    i = i + 1
+  }
+}
+
+export fn coDjFlushScheduledForStep(perfStep) {
+  coDjEnsureSchedule()
+  coDjSortScheduled()
+  let arr = window.__coDjScheduled
+  let kept = []
+  let ap = window.__coDjApplyScheduledTpl
+  let after = window.__coDjAfterScheduled
+  let log = window.__coDjPushLog
+  let i = 0
+  while (i < arr.length) {
+    let it = arr[i]
+    if (it.effectivePerfStep <= perfStep) {
+      if (log) {
+        log("exec@step" + String(perfStep) + " " + it.laneId)
+      }
+      if (ap) {
+        ap(it.tpl, it.laneId, it.authorId)
+      }
+      if (after) {
+        after()
+      }
+    } else {
+      kept.push(it)
+    }
+    i = i + 1
+  }
+  window.__coDjScheduled = kept
+}

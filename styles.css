@@ -360,6 +360,81 @@ body {
   margin-bottom: 0.45rem;
 }
 
+.codj-panel {
+  max-width: 28rem;
+}
+
+.codj-hint {
+  font-size: 0.65rem;
+  color: var(--muted);
+  margin: 0 0 0.5rem;
+  line-height: 1.35;
+}
+
+.codj-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  align-items: center;
+}
+
+.codj-direct-txt {
+  flex: 1;
+  min-width: 10rem;
+}
+
+.codj-input {
+  font-size: 0.7rem;
+  padding: 0.25rem 0.35rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  min-width: 8rem;
+}
+
+.codj-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.5rem 0;
+}
+
+.btn-codj {
+  font-size: 0.68rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--bg);
+  color: var(--mint);
+  border: 1px solid var(--mint);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.codj-log {
+  font-family: ui-monospace, monospace;
+  font-size: 0.6rem;
+  max-height: 10rem;
+  overflow-y: auto;
+  background: #0a0c10;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.35rem;
+}
+
+.codj-log-line {
+  color: var(--muted);
+  line-height: 1.35;
+  word-break: break-all;
+}
+
+.codj-poll-hid {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
 .preset-select {
   width: 100%;
   font-size: 0.72rem;
