@@ -32,16 +32,35 @@ export fn App() {
   window.__dawProject = project
 
   fn tplMirrorFlush() {
-    let p = window.__dawProject
-    let e = emitProject(p)
-    setTplText(e)
-    setTimeout(() => {
-      let e2 = emitProject(window.__dawProject)
-      if (window.__tplSetSongText) {
-        window.__tplSetSongText(e2)
+    try {
+      let p = window.__dawProject
+      if (!p) {
+        return
       }
-      setTplText(e2)
-    }, 0)
+      let e = emitProject(p)
+      setTplText(e)
+      setTimeout(() => {
+        try {
+          let p2 = window.__dawProject
+          if (!p2) {
+            return
+          }
+          let e2 = emitProject(p2)
+          if (window.__tplSetSongText) {
+            window.__tplSetSongText(e2)
+          }
+          setTplText(e2)
+        } catch (err2) {
+          if (typeof console !== "undefined" && console.warn) {
+            console.warn("tplMirrorFlush (deferred)", err2)
+          }
+        }
+      }, 0)
+    } catch (err) {
+      if (typeof console !== "undefined" && console.warn) {
+        console.warn("tplMirrorFlush", err)
+      }
+    }
   }
   setTimeout(() => {
     let pr = document.querySelector(".piano-roll")

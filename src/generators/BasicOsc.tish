@@ -1,4 +1,6 @@
 import { midiToHz } from '../schedule/Engine.tish'
+import { normalizeBasicOscWaveform } from './Registry.tish'
+import { scheduleAdsrAmpEnvelope } from './AdsrAmpSchedule.tish'
 
 export fn playBasicOsc(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let p = ch.generatorParams
@@ -8,9 +10,7 @@ export fn playBasicOsc(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let sus = 0.4
   let r = 0.12
   if (p) {
-    if (p.waveform) {
-      wave = p.waveform
-    }
+    wave = normalizeBasicOscWaveform(p.waveform)
     if (p.attack > 0) {
       a = p.attack
     }
@@ -26,21 +26,26 @@ export fn playBasicOsc(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   }
   let osc = ctx.createOscillator()
   osc.type = wave
-  let hz = midiToHz(midi + bendSemis)
+  let n = Math.floor(midi + bendSemis)
+  let hz = 440
+  if (n >= 0 && n <= 127) {
+    hz = midiToHz(n)
+  }
   osc.frequency.value = hz
   let env = ctx.createGain()
   env.gain.value = 0
   osc.connect(env)
   env.connect(bus.input)
   let v = vel / 127
+  if (v < 0) {
+    v = 0
+  }
+  if (v > 1) {
+    v = 1
+  }
   let peak = v
   let slev = sus * v
-  let susPlateau = Math.max(t + a + d, t + durSec - r)
-  env.gain.setValueAtTime(0, t)
-  env.gain.linearRampToValueAtTime(peak, t + a)
-  env.gain.linearRampToValueAtTime(slev, t + a + d)
-  env.gain.setValueAtTime(slev, susPlateau)
-  env.gain.linearRampToValueAtTime(0, t + durSec + r)
+  let tEnd = scheduleAdsrAmpEnvelope(env, t, peak, slev, a, d, r, durSec)
   osc.start(t)
-  osc.stop(t + durSec + r + 0.05)
+  osc.stop(tEnd + 0.05)
 }

@@ -1,0 +1,17 @@
+// Schedules gain ADSR so AudioParam times never go backwards (short gates + long A/D would throw).
+
+export fn scheduleAdsrAmpEnvelope(env, t, peak, slev, a, d, r, durSec) {
+  let gate = durSec > 0 ? durSec : 0.001
+  let tDecayEnd = t + a + d
+  let susPlateau = Math.max(tDecayEnd, t + gate - r)
+  let releaseEnd = t + gate + r
+  if (releaseEnd <= susPlateau) {
+    releaseEnd = susPlateau + Math.max(r, 0.02)
+  }
+  env.gain.setValueAtTime(0, t)
+  env.gain.linearRampToValueAtTime(peak, t + a)
+  env.gain.linearRampToValueAtTime(slev, tDecayEnd)
+  env.gain.setValueAtTime(slev, susPlateau)
+  env.gain.linearRampToValueAtTime(0, releaseEnd)
+  return releaseEnd
+}

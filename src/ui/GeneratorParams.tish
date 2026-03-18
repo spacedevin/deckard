@@ -1,5 +1,5 @@
 import { h, Fragment } from '../tishact/Tishact.tish'
-import { defaultParamsForGeneratorId } from '../generators/Registry.tish'
+import { defaultParamsForGeneratorId, normalizeBasicOscWaveform } from '../generators/Registry.tish'
 
 export fn AdsrAmpBlock(p, project, setProject, tplMirrorFlush) {
   let a = p.attack > 0 ? p.attack : 0.005
@@ -31,8 +31,8 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush) {
   }
   let p = ch.generatorParams
   if (id === "basicOsc") {
-    let w = p.waveform ? p.waveform : "sine"
-    return <div class="gen-params gen-params-stack">
+    let w = normalizeBasicOscWaveform(p.waveform)
+    return <article class="gen-params gen-params-stack">
       <div class="gen-row-pair">
         <span class="gen-params-label">{"Wave"}</span>
         <select
@@ -55,7 +55,7 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush) {
         </select>
       </div>
       {AdsrAmpBlock(p, project, setProject, tplMirrorFlush)}
-    </div>
+    </article>
   }
   if (id === "noiseBurst") {
     let rise = p.attack > 0 ? p.attack : 0.002
@@ -68,13 +68,13 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush) {
         tplMirrorFlush()
       }
     }
-    return <div class="gen-params gen-params-stack">
+    return <section class="gen-params gen-params-stack">
       <div class="gen-adsr-title">{"Hit shape"}</div>
       <label class="gen-row">{"Attack "}<input type="range" min="1" max="150" value={String(Math.round(rise * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.attack = Number(e.target.value) / 1000 }} onchange={commitNoise} /></label>
       <label class="gen-row">{"Decay "}<input type="range" min="2" max="400" value={String(Math.round(dec * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.decay = Number(e.target.value) / 1000 }} onchange={commitNoise} /></label>
       <label class="gen-row">{"Tone "}<input type="range" min="0" max="100" value={String(Math.round(tone * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.tone = Number(e.target.value) / 100 }} onchange={commitNoise} /></label>
       <label class="gen-row">{"Pitch→filter "}<input type="range" min="0" max="100" value={String(Math.round(pf * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.pitchFollow = Number(e.target.value) / 100 }} onchange={commitNoise} /></label>
-    </div>
+    </section>
   }
   if (id === "fmTone") {
     let ratio = p.ratio > 0 ? p.ratio : 2

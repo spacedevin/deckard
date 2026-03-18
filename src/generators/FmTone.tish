@@ -1,4 +1,6 @@
 import { midiToHz } from '../schedule/Engine.tish'
+import { normalizeBasicOscWaveform } from './Registry.tish'
+import { scheduleAdsrAmpEnvelope } from './AdsrAmpSchedule.tish'
 
 export fn playFmTone(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let p = ch.generatorParams
@@ -18,10 +20,10 @@ export fn playFmTone(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
       modIndex = p.modIndex
     }
     if (p.carrierWave) {
-      carW = p.carrierWave
+      carW = normalizeBasicOscWaveform(p.carrierWave)
     }
     if (p.modWave) {
-      modW = p.modWave
+      modW = normalizeBasicOscWaveform(p.modWave)
     }
     if (p.attack > 0) {
       a = p.attack
@@ -36,7 +38,11 @@ export fn playFmTone(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
       r = p.release
     }
   }
-  let Fc = midiToHz(midi + bendSemis)
+  let n = Math.floor(midi + bendSemis)
+  let Fc = 440
+  if (n >= 0 && n <= 127) {
+    Fc = midiToHz(n)
+  }
   let mod = ctx.createOscillator()
   mod.type = modW
   mod.frequency.value = Fc * ratio
@@ -59,16 +65,17 @@ export fn playFmTone(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   car.connect(env)
   env.connect(bus.input)
   let v = vel / 127
+  if (v < 0) {
+    v = 0
+  }
+  if (v > 1) {
+    v = 1
+  }
   let peak = v
   let slev = sus * v
-  let susPlateau = Math.max(t + a + d, t + durSec - r)
-  env.gain.setValueAtTime(0, t)
-  env.gain.linearRampToValueAtTime(peak, t + a)
-  env.gain.linearRampToValueAtTime(slev, t + a + d)
-  env.gain.setValueAtTime(slev, susPlateau)
-  env.gain.linearRampToValueAtTime(0, t + durSec + r)
+  let tEnd = scheduleAdsrAmpEnvelope(env, t, peak, slev, a, d, r, durSec)
   mod.start(t)
   car.start(t)
-  mod.stop(t + durSec + r + 0.08)
-  car.stop(t + durSec + r + 0.08)
+  mod.stop(tEnd + 0.08)
+  car.stop(tEnd + 0.08)
 }

@@ -286,6 +286,12 @@ export fn attachPianoRoll(canvas, project, chIdx, setProject) {
     window.__prZoomIx = 4
   }
   let ch = project.channels[chIdx]
+  if (!ch) {
+    return
+  }
+  if (!ch.pianoNotes) {
+    ch.pianoNotes = []
+  }
   let w = canvas.width
   let h = canvas.height
   let keyW = PR_KEY_W

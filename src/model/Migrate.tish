@@ -1,11 +1,11 @@
-import { defaultParamsForGeneratorId } from '../generators/Registry.tish'
+import { defaultParamsForGeneratorId, normalizeBasicOscWaveform } from '../generators/Registry.tish'
 
 export fn migrateChannelGenerator(ch) {
   if (!ch.generatorId || ch.generatorId === "") {
     ch.generatorId = "basicOsc"
     ch.generatorParams = defaultParamsForGeneratorId("basicOsc")
     if (ch.waveform) {
-      ch.generatorParams.waveform = ch.waveform
+      ch.generatorParams.waveform = normalizeBasicOscWaveform(ch.waveform)
     }
   }
   if (!ch.generatorParams) {
@@ -13,7 +13,9 @@ export fn migrateChannelGenerator(ch) {
   }
   if (ch.generatorId === "basicOsc") {
     if (!ch.generatorParams.waveform) {
-      ch.generatorParams.waveform = ch.waveform ? ch.waveform : "sine"
+      ch.generatorParams.waveform = normalizeBasicOscWaveform(ch.waveform ? ch.waveform : "sine")
+    } else {
+      ch.generatorParams.waveform = normalizeBasicOscWaveform(ch.generatorParams.waveform)
     }
   }
   migrateLegacyChannelAdsrIntoParams(ch)

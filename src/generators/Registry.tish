@@ -44,6 +44,27 @@ export fn generatorDescriptionById(id) {
   return ""
 }
 
+/// Maps TPL / shorthand names to valid OscillatorType (sine|square|sawtooth|triangle).
+export fn normalizeBasicOscWaveform(raw) {
+  if (!raw) {
+    return "sine"
+  }
+  let s = String(raw).toLowerCase()
+  if (s === "saw" || s === "sawtooth") {
+    return "sawtooth"
+  }
+  if (s === "square" || s === "sqr") {
+    return "square"
+  }
+  if (s === "triangle" || s === "tri") {
+    return "triangle"
+  }
+  if (s === "sine" || s === "sin") {
+    return "sine"
+  }
+  return "sine"
+}
+
 export fn defaultParamsForGeneratorId(id) {
   if (id === "basicOsc") {
     return {

@@ -17,7 +17,16 @@ import {
 
 export fn InstrumentPanel(project, selectedCh, setProject, tplMirrorFlush) {
   ensureInstrumentPresets(project)
-  let ch = project.channels[selectedCh]
+  let ch = null
+  if (selectedCh >= 0 && selectedCh < project.channels.length) {
+    ch = project.channels[selectedCh]
+  }
+  if (!ch) {
+    return <section class="panel instrument-panel">
+      <h2>{"Instrument"}</h2>
+      <p class="instr-panel-hint">{"Select a channel in the rack."}</p>
+    </section>
+  }
   let gid = ch.generatorId
   if (!gid) {
     gid = "basicOsc"
@@ -38,7 +47,9 @@ export fn InstrumentPanel(project, selectedCh, setProject, tplMirrorFlush) {
           ch.generatorParams = deepCloneParams(defaultParamsForGeneratorId(gidCopy))
           setProject(project)
           if (tplMirrorFlush) {
-            tplMirrorFlush()
+            setTimeout(() => {
+              tplMirrorFlush()
+            }, 0)
           }
         }}
       >
