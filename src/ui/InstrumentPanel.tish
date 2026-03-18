@@ -14,7 +14,7 @@ import {
   ensureInstrumentPresets
 } from '../model/InstrumentPresets.tish'
 
-export fn InstrumentPanel(project, selectedCh, setProject) {
+export fn InstrumentPanel(project, selectedCh, setProject, tplMirrorSchedule, tplMirrorFlush) {
   ensureInstrumentPresets(project)
   let ch = project.channels[selectedCh]
   let gid = ch.generatorId
@@ -36,6 +36,9 @@ export fn InstrumentPanel(project, selectedCh, setProject) {
           ch.generatorId = gidCopy
           ch.generatorParams = deepCloneParams(defaultParamsForGeneratorId(gidCopy))
           setProject(project)
+          if (tplMirrorFlush) {
+            tplMirrorFlush()
+          }
         }}
       >
         {g.label}
@@ -62,7 +65,7 @@ export fn InstrumentPanel(project, selectedCh, setProject) {
     <div class="gen-pick-row">{genBtns}</div>
     <p class="instr-desc">{desc}</p>
     <div class="instr-params-wrap">
-      {GeneratorParamPanel(ch, project, setProject)}
+      {GeneratorParamPanel(ch, project, setProject, tplMirrorSchedule, tplMirrorFlush)}
     </div>
     <div class="preset-block">
       <h3 class="preset-title">{"Presets"}</h3>
@@ -79,6 +82,9 @@ export fn InstrumentPanel(project, selectedCh, setProject) {
             if (idx >= 0 && idx < project.instrumentPresets.length) {
               applyInstrumentPresetToChannel(ch, project.instrumentPresets[idx])
               setProject(project)
+              if (tplMirrorFlush) {
+                tplMirrorFlush()
+              }
             }
           }}
         >

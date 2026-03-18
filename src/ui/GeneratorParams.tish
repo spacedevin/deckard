@@ -1,20 +1,20 @@
 import { defaultParamsForGeneratorId } from '../generators/Registry.tish'
 
-export fn AdsrAmpBlock(p, project, setProject) {
+export fn AdsrAmpBlock(p, project, setProject, tplMirrorSchedule) {
   let a = p.attack > 0 ? p.attack : 0.005
   let d = p.decay > 0 ? p.decay : 0.08
   let s = p.sustain >= 0 && p.sustain <= 1 ? p.sustain : 0.4
   let r = p.release > 0 ? p.release : 0.12
   return <div class="gen-adsr-block">
     <div class="gen-adsr-title">{"Amplitude ADSR"}</div>
-    <label class="gen-row">{"A "}<input type="range" min="1" max="500" value={String(Math.round(a * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.attack = Number(e.target.value) / 1000; setProject(project) }} /></label>
-    <label class="gen-row">{"D "}<input type="range" min="1" max="500" value={String(Math.round(d * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.decay = Number(e.target.value) / 1000; setProject(project) }} /></label>
-    <label class="gen-row">{"S "}<input type="range" min="0" max="100" value={String(Math.round(s * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.sustain = Number(e.target.value) / 100; setProject(project) }} /></label>
-    <label class="gen-row">{"R "}<input type="range" min="1" max="800" value={String(Math.round(r * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.release = Number(e.target.value) / 1000; setProject(project) }} /></label>
+    <label class="gen-row">{"A "}<input type="range" min="1" max="500" value={String(Math.round(a * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.attack = Number(e.target.value) / 1000; setProject(project); if (tplMirrorSchedule) { tplMirrorSchedule() } }} /></label>
+    <label class="gen-row">{"D "}<input type="range" min="1" max="500" value={String(Math.round(d * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.decay = Number(e.target.value) / 1000; setProject(project); if (tplMirrorSchedule) { tplMirrorSchedule() } }} /></label>
+    <label class="gen-row">{"S "}<input type="range" min="0" max="100" value={String(Math.round(s * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.sustain = Number(e.target.value) / 100; setProject(project); if (tplMirrorSchedule) { tplMirrorSchedule() } }} /></label>
+    <label class="gen-row">{"R "}<input type="range" min="1" max="800" value={String(Math.round(r * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.release = Number(e.target.value) / 1000; setProject(project); if (tplMirrorSchedule) { tplMirrorSchedule() } }} /></label>
   </div>
 }
 
-export fn GeneratorParamPanel(ch, project, setProject) {
+export fn GeneratorParamPanel(ch, project, setProject, tplMirrorSchedule, tplMirrorFlush) {
   let id = ch.generatorId
   if (!id) {
     id = "basicOsc"
@@ -36,6 +36,9 @@ export fn GeneratorParamPanel(ch, project, setProject) {
           onchange={(e) => {
             p.waveform = e.target.value
             setProject(project)
+            if (tplMirrorFlush) {
+              tplMirrorFlush()
+            }
           }}
         >
           <option value="sine">{"sine"}</option>
@@ -44,7 +47,7 @@ export fn GeneratorParamPanel(ch, project, setProject) {
           <option value="triangle">{"triangle"}</option>
         </select>
       </div>
-      {AdsrAmpBlock(p, project, setProject)}
+      {AdsrAmpBlock(p, project, setProject, tplMirrorSchedule)}
     </div>
   }
   if (id === "noiseBurst") {
@@ -54,10 +57,10 @@ export fn GeneratorParamPanel(ch, project, setProject) {
     let pf = p.pitchFollow >= 0 && p.pitchFollow <= 1 ? p.pitchFollow : 0.25
     return <div class="gen-params gen-params-stack">
       <div class="gen-adsr-title">{"Hit shape"}</div>
-      <label class="gen-row">{"Attack "}<input type="range" min="1" max="150" value={String(Math.round(rise * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.attack = Number(e.target.value) / 1000; setProject(project) }} /></label>
-      <label class="gen-row">{"Decay "}<input type="range" min="2" max="400" value={String(Math.round(dec * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.decay = Number(e.target.value) / 1000; setProject(project) }} /></label>
-      <label class="gen-row">{"Tone "}<input type="range" min="0" max="100" value={String(Math.round(tone * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.tone = Number(e.target.value) / 100; setProject(project) }} /></label>
-      <label class="gen-row">{"Pitch→filter "}<input type="range" min="0" max="100" value={String(Math.round(pf * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.pitchFollow = Number(e.target.value) / 100; setProject(project) }} /></label>
+      <label class="gen-row">{"Attack "}<input type="range" min="1" max="150" value={String(Math.round(rise * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.attack = Number(e.target.value) / 1000; setProject(project); if (tplMirrorSchedule) { tplMirrorSchedule() } }} /></label>
+      <label class="gen-row">{"Decay "}<input type="range" min="2" max="400" value={String(Math.round(dec * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.decay = Number(e.target.value) / 1000; setProject(project); if (tplMirrorSchedule) { tplMirrorSchedule() } }} /></label>
+      <label class="gen-row">{"Tone "}<input type="range" min="0" max="100" value={String(Math.round(tone * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.tone = Number(e.target.value) / 100; setProject(project); if (tplMirrorSchedule) { tplMirrorSchedule() } }} /></label>
+      <label class="gen-row">{"Pitch→filter "}<input type="range" min="0" max="100" value={String(Math.round(pf * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.pitchFollow = Number(e.target.value) / 100; setProject(project); if (tplMirrorSchedule) { tplMirrorSchedule() } }} /></label>
     </div>
   }
   if (id === "fmTone") {
@@ -66,25 +69,25 @@ export fn GeneratorParamPanel(ch, project, setProject) {
     let cw = p.carrierWave ? p.carrierWave : "sine"
     let mw = p.modWave ? p.modWave : "sine"
     return <div class="gen-params gen-params-stack">
-      <label class="gen-row">{"Ratio "}<input type="range" min="1" max="1600" value={String(Math.round(ratio * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.ratio = Number(e.target.value) / 100; setProject(project) }} /></label>
-      <label class="gen-row">{"FM index "}<input type="range" min="0" max="480" value={String(Math.round(idx * 10))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.modIndex = Number(e.target.value) / 10; setProject(project) }} /></label>
+      <label class="gen-row">{"Ratio "}<input type="range" min="1" max="1600" value={String(Math.round(ratio * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.ratio = Number(e.target.value) / 100; setProject(project); if (tplMirrorSchedule) { tplMirrorSchedule() } }} /></label>
+      <label class="gen-row">{"FM index "}<input type="range" min="0" max="480" value={String(Math.round(idx * 10))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.modIndex = Number(e.target.value) / 10; setProject(project); if (tplMirrorSchedule) { tplMirrorSchedule() } }} /></label>
       <div class="gen-row-pair">
         <span>{"C"}</span>
-        <select value={cw} onmousedown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()} onchange={(e) => { p.carrierWave = e.target.value; setProject(project) }}>
+        <select value={cw} onmousedown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()} onchange={(e) => { p.carrierWave = e.target.value; setProject(project); if (tplMirrorFlush) { tplMirrorFlush() } }}>
           <option value="sine">{"sine"}</option>
           <option value="square">{"square"}</option>
           <option value="sawtooth">{"saw"}</option>
           <option value="triangle">{"tri"}</option>
         </select>
         <span>{"M"}</span>
-        <select value={mw} onmousedown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()} onchange={(e) => { p.modWave = e.target.value; setProject(project) }}>
+        <select value={mw} onmousedown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()} onchange={(e) => { p.modWave = e.target.value; setProject(project); if (tplMirrorFlush) { tplMirrorFlush() } }}>
           <option value="sine">{"sine"}</option>
           <option value="square">{"square"}</option>
           <option value="sawtooth">{"saw"}</option>
           <option value="triangle">{"tri"}</option>
         </select>
       </div>
-      {AdsrAmpBlock(p, project, setProject)}
+      {AdsrAmpBlock(p, project, setProject, tplMirrorSchedule)}
     </div>
   }
   return <div class="gen-params" />

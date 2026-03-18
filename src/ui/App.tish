@@ -15,6 +15,7 @@ import { drawScopeCanvas } from './Scope.tish'
 let audioStore = {}
 let playbackTimer = null
 let globalTick = 0
+let __tplMirrorTimer = null
 
 export fn App() {
   let [project, setProject] = useState(defaultProject())
@@ -24,6 +25,28 @@ export fn App() {
   let [selectedCh, setSelectedCh] = useState(3)
   let [playing, setPlaying] = useState(false)
   window.__dawProject = project
+
+  fn tplMirrorFlush() {
+    let p = window.__dawProject
+    let e = emitProject(p)
+    setTplText(e)
+    setTimeout(() => {
+      let e2 = emitProject(window.__dawProject)
+      if (window.__tplSetSongText) {
+        window.__tplSetSongText(e2)
+      }
+      setTplText(e2)
+    }, 0)
+  }
+  fn tplMirrorSchedule() {
+    if (__tplMirrorTimer) {
+      clearTimeout(__tplMirrorTimer)
+    }
+    __tplMirrorTimer = setTimeout(() => {
+      __tplMirrorTimer = null
+      tplMirrorFlush()
+    }, 160)
+  }
 
   setTimeout(() => {
     let pr = document.querySelector(".piano-roll")
@@ -105,7 +128,15 @@ export fn App() {
         let p = projectFromJson(s)
         migrateProjectGenerators(p)
         setProject(p)
-        setTplText(emitProject(p))
+        let em = emitProject(p)
+        setTplText(em)
+        setTimeout(() => {
+          let e2 = emitProject(window.__dawProject)
+          if (window.__tplSetSongText) {
+            window.__tplSetSongText(e2)
+          }
+          setTplText(e2)
+        }, 0)
       } catch (e) {
         alert("Invalid JSON")
       }
@@ -152,7 +183,7 @@ export fn App() {
         <h2>{"Piano roll (channel "}{String(selectedCh + 1)}{")"}</h2>
         {PianoRollCanvas(project, selectedCh, setProject, null)}
       </section>
-      {InstrumentPanel(project, selectedCh, setProject)}
+      {InstrumentPanel(project, selectedCh, setProject, tplMirrorSchedule, tplMirrorFlush)}
       {CodeDebugView(project, setProject, tplText, setTplText)}
       <aside class="panel mixer-panel">
         <h2>{"Mixer"}</h2>

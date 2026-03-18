@@ -5,12 +5,34 @@ import { tplDocumentToHighlightHtml } from '../tpl/SongEditorHighlight.tish'
 
 let STREAM_REF_MAX = 24
 
+// Module-level: nested `fn` inside CodeDebugView miscompiles (body runs every render → stack overflow).
+fn flushTplSongEditorFromProject(project, setTplText) {
+  let p = window.__dawProject
+  if (!p) {
+    p = project
+  }
+  let em = emitProject(p)
+  setTplText(em)
+  setTimeout(() => {
+    let p2 = window.__dawProject
+    if (!p2) {
+      p2 = project
+    }
+    let e2 = emitProject(p2)
+    if (window.__tplSetSongText) {
+      window.__tplSetSongText(e2)
+    }
+    setTplText(e2)
+  }, 0)
+}
+
 export fn CodeDebugView(project, setProject, tplText, setTplText) {
   let [tplErr, setTplErr] = useState("")
   let [tplTab, setTplTab] = useState("song")
   let [streamTick, setStreamTick] = useState(0)
 
   if (typeof window !== "undefined") {
+    window.__tplSongEditorEcho = tplText
     if (!window.__tplStreamRefLines) {
       window.__tplStreamRefLines = []
     }
@@ -132,29 +154,13 @@ export fn CodeDebugView(project, setProject, tplText, setTplText) {
     }
     setTplErr(errStr)
     setProject(project)
-    let emitted = emitProject(project)
-    setTplText(emitted)
-    if (window.__tplSetSongText) {
-      window.__tplSetSongText(emitted)
-    } else {
-      if (window.__tplTextarea) {
-        window.__tplTextarea.value = emitted
-      }
-    }
+    flushTplSongEditorFromProject(project, setTplText)
   }
 
   fn onSync() {
-    let emitted = emitProject(project)
-    setTplText(emitted)
     setTplErr("")
     setProject(project)
-    if (window.__tplSetSongText) {
-      window.__tplSetSongText(emitted)
-    } else {
-      if (window.__tplTextarea) {
-        window.__tplTextarea.value = emitted
-      }
-    }
+    flushTplSongEditorFromProject(project, setTplText)
   }
 
   fn tplSongMirrorRefresh() {
@@ -184,7 +190,27 @@ export fn CodeDebugView(project, setProject, tplText, setTplText) {
         slot.appendChild(window.__tplSongMirrorWrap)
       }
       let ta = window.__tplSongMirrorTa
+      let pre = document.getElementById("tpl-song-hl-pre")
+      window.__tplTextarea = ta
+      window.__tplGetSongText = () => {
+        return ta.value
+      }
+      window.__tplSetSongText = (s) => {
+        window.__tplSongEditorEcho = s
+        ta.value = s
+        if (pre) {
+          let st = 0
+          if (typeof window.__dawPlaybackStep === "number") {
+            st = window.__dawPlaybackStep
+          }
+          pre.innerHTML = tplDocumentToHighlightHtml(ta.value, st, !!window.__dawPlaying)
+        }
+      }
+      window.__tplDispatchPlaybackHighlight = () => {
+        tplSongMirrorRefresh()
+      }
       if (document.activeElement !== ta && ta.value !== tplText) {
+        window.__tplSongEditorEcho = tplText
         ta.value = tplText
         tplSongMirrorRefresh()
       }
@@ -201,9 +227,14 @@ export fn CodeDebugView(project, setProject, tplText, setTplText) {
     ta.className = "tpl-song-input-layer"
     ta.rows = 22
     ta.placeholder = "TPL song…"
+    window.__tplSongEditorEcho = tplText
     ta.value = tplText
     ta.setAttribute("spellcheck", "false")
     ta.oninput = () => {
+      if (ta.value === window.__tplSongEditorEcho) {
+        return
+      }
+      window.__tplSongEditorEcho = ta.value
       setTplText(ta.value)
       tplSongMirrorRefresh()
     }
@@ -221,6 +252,7 @@ export fn CodeDebugView(project, setProject, tplText, setTplText) {
       return ta.value
     }
     window.__tplSetSongText = (s) => {
+      window.__tplSongEditorEcho = s
       ta.value = s
       tplSongMirrorRefresh()
     }
@@ -249,6 +281,9 @@ export fn CodeDebugView(project, setProject, tplText, setTplText) {
     st.placeholder = "Stream tokens here (newline completes a line → reference). LLM: __tplStreamAppendLine(line)."
     st.setAttribute("spellcheck", "false")
     st.oninput = () => {
+      if (window.__tplStreamInputInside) {
+        return
+      }
       let v = st.value
       let parts = v.split("\n")
       if (parts.length <= 1) {
@@ -261,10 +296,12 @@ export fn CodeDebugView(project, setProject, tplText, setTplText) {
         complete.push(parts[ci])
         ci = ci + 1
       }
+      window.__tplStreamInputInside = true
       if (window.__tplStreamFlushCompleteLines) {
         window.__tplStreamFlushCompleteLines(complete)
       }
       st.value = tail
+      window.__tplStreamInputInside = false
     }
     window.__tplStreamLive = st
     slot.appendChild(st)
