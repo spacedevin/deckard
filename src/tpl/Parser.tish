@@ -1,0 +1,176 @@
+import { normalizeGeneratorId } from './RegistryMap.tish'
+
+export fn tokenize(text) {
+  let t = text.trim()
+  let out = []
+  let cur = ""
+  let i = 0
+  while (i <= t.length) {
+    let c = " "
+    if (i < t.length) {
+      c = t.charAt(i)
+    }
+    if (i === t.length || c === " " || c === "\t") {
+      if (cur.length > 0) {
+        out.push(cur)
+        cur = ""
+      }
+    } else {
+      cur = cur + c
+    }
+    i = i + 1
+  }
+  return out
+}
+
+export fn isNumberToken(s) {
+  if (s.length === 0) {
+    return false
+  }
+  let n = Number(s)
+  return n === n
+}
+
+export fn parseProgram(source) {
+  let errors = []
+  let tplVersion = 0
+  let bpm = null
+  let tracks = []
+  let autos = []
+
+  let raw = source.split("\n")
+  let i = 0
+  let currentTrack = null
+  let currentAuto = null
+  let inGenBlock = false
+  let genBlockId = ""
+  let genBlockLines = []
+
+  while (i < raw.length) {
+    let fullLine = raw[i]
+    let hash = fullLine.indexOf("#")
+    let noCom = fullLine
+    if (hash >= 0) {
+      noCom = fullLine.substring(0, hash)
+    }
+    let line = noCom
+    let a = 0
+    while (a < line.length) {
+      let c = line.charAt(a)
+      if (c === " " || c === "\t") {
+        a = a + 1
+      } else {
+        break
+      }
+    }
+    let indent = a
+    let trimmed = line.substring(a)
+    let b = trimmed.length
+    while (b > 0) {
+      let c2 = trimmed.charAt(b - 1)
+      if (c2 === " " || c2 === "\t" || c2 === "\r") {
+        b = b - 1
+      } else {
+        break
+      }
+    }
+    trimmed = trimmed.substring(0, b)
+    i = i + 1
+    if (trimmed.length === 0) {
+      continue
+    }
+
+    let toks = tokenize(trimmed)
+    let isIndented = a > 0
+
+    if (!isIndented && toks.length > 0 && toks[0] !== "auto") {
+      currentAuto = null
+    }
+
+    if (inGenBlock && currentTrack) {
+      if (toks.length >= 2 && toks[0] === "end" && toks[1] === "gen_block") {
+        currentTrack.genBlocks.push({ generatorId: genBlockId, lines: genBlockLines })
+        inGenBlock = false
+        genBlockLines = []
+        continue
+      }
+      genBlockLines.push(trimmed)
+      continue
+    }
+
+    if (currentAuto && isIndented) {
+      if (toks.length >= 2 && isNumberToken(toks[0]) && isNumberToken(toks[1])) {
+        currentAuto.points.push({ beat: Number(toks[0]), value: Number(toks[1]) })
+      }
+      continue
+    }
+
+    if (isIndented && currentTrack) {
+      if (toks.length >= 1 && toks[0] === "gen_block" && toks.length >= 2) {
+        inGenBlock = true
+        genBlockId = toks[1]
+        genBlockLines = []
+        continue
+      }
+      currentTrack.body.push({ lineNo: i, tokens: toks, raw: trimmed })
+      continue
+    }
+
+    if (toks.length === 0) {
+      continue
+    }
+
+    let head = toks[0]
+    if (head === "tpl") {
+      if (toks.length >= 2) {
+        tplVersion = Math.floor(Number(toks[1]))
+      }
+      continue
+    }
+    if (head === "bpm") {
+      if (toks.length >= 2) {
+        bpm = Number(toks[1])
+      }
+      continue
+    }
+    if (head === "track") {
+      if (toks.length >= 6 && toks[2] === "id" && toks[4] === "gen") {
+        currentTrack = {
+          name: toks[1],
+          id: toks[3],
+          generatorId: normalizeGeneratorId(toks[5]),
+          body: [],
+          genBlocks: []
+        }
+        tracks.push(currentTrack)
+      } else {
+        errors.push({ line: i, msg: "track: expected track <name> id <id> gen <generatorId>" })
+      }
+      continue
+    }
+    if (head === "auto") {
+      currentAuto = { lineNo: i, header: toks.slice(1), points: [] }
+      autos.push(currentAuto)
+      continue
+    }
+
+    if (head === "end" && toks.length >= 2 && toks[1] === "gen_block") {
+      errors.push({ line: i, msg: "end gen_block without open gen_block" })
+      continue
+    }
+
+    errors.push({ line: i, msg: "unexpected top-level: " + head })
+  }
+
+  if (inGenBlock) {
+    errors.push({ line: 0, msg: "unclosed gen_block" })
+  }
+
+  return {
+    tplVersion: tplVersion,
+    bpm: bpm,
+    tracks: tracks,
+    autos: autos,
+    errors: errors
+  }
+}

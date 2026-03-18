@@ -1,0 +1,300 @@
+import { makeChannel, defaultParamsForGeneratorId } from '../model/Project.tish'
+import { paramKeyToCamel } from './RegistryMap.tish'
+import { euclideanPattern } from './Euclidean.tish'
+import { parseGenBlock } from './TplExtension.tish'
+import { parseProgram } from './Parser.tish'
+
+export fn findChannelById(project, id) {
+  let i = 0
+  while (i < project.channels.length) {
+    if (project.channels[i].id === id) {
+      return project.channels[i]
+    }
+    i = i + 1
+  }
+  return null
+}
+
+export fn sortPointsByBeat(points) {
+  let arr = []
+  let pi = 0
+  while (pi < points.length) {
+    arr.push(points[pi])
+    pi = pi + 1
+  }
+  let i = 0
+  while (i < arr.length) {
+    let j = i + 1
+    while (j < arr.length) {
+      if (arr[j].beat < arr[i].beat) {
+        let t = arr[i]
+        arr[i] = arr[j]
+        arr[j] = t
+      }
+      j = j + 1
+    }
+    i = i + 1
+  }
+  return arr
+}
+
+export fn applyStepsLiteral(ch, toks, startIdx) {
+  let si = 0
+  while (si < 16) {
+    let ti = startIdx + si
+    let on = false
+    let vel = 100
+    if (ti < toks.length) {
+      let t = toks[ti]
+      if (t === "x" || t === "X" || t === "1") {
+        on = true
+      }
+    }
+    ch.steps[si].on = on
+    ch.steps[si].vel = vel
+    si = si + 1
+  }
+}
+
+export fn applyStepsEuclid(ch, hits, len) {
+  let n = Math.floor(len)
+  let k = Math.floor(hits)
+  if (n <= 0) {
+    n = 16
+  }
+  let pat = euclideanPattern(k, n)
+  let full = []
+  while (full.length < 16) {
+    let pj = 0
+    while (pj < pat.length && full.length < 16) {
+      full.push(pat[pj])
+      pj = pj + 1
+    }
+    if (pj === 0) {
+      break
+    }
+  }
+  let fi = 0
+  while (fi < 16) {
+    ch.steps[fi].on = full[fi]
+    ch.steps[fi].vel = 100
+    fi = fi + 1
+  }
+}
+
+export fn parseBoolish(s) {
+  if (s === "1" || s === "true" || s === "on" || s === "yes") {
+    return true
+  }
+  return false
+}
+
+export fn applyTrackBody(project, ch, body, genBlocks, errors) {
+  let noteLines = []
+  let hadSteps = false
+  let transposeSemi = 0
+  let sawTranspose = false
+  let bi = 0
+  while (bi < body.length) {
+    let row = body[bi]
+    let t = row.tokens
+    if (t.length === 0) {
+      bi = bi + 1
+      continue
+    }
+    let h = t[0]
+    if (h === "mix") {
+      let mi = 1
+      while (mi < t.length) {
+        if (t[mi] === "gain" && mi + 1 < t.length) {
+          ch.gain = Number(t[mi + 1])
+          mi = mi + 2
+          continue
+        }
+        if (t[mi] === "pan" && mi + 1 < t.length) {
+          ch.pan = Number(t[mi + 1])
+          mi = mi + 2
+          continue
+        }
+        if (t[mi] === "mute" && mi + 1 < t.length) {
+          ch.mute = parseBoolish(t[mi + 1])
+          mi = mi + 2
+          continue
+        }
+        if (t[mi] === "solo" && mi + 1 < t.length) {
+          ch.solo = parseBoolish(t[mi + 1])
+          mi = mi + 2
+          continue
+        }
+        mi = mi + 1
+      }
+    } else {
+      if (h === "steps") {
+        hadSteps = true
+        if (t.length >= 4 && t[1] === "euclid") {
+          applyStepsEuclid(ch, Number(t[2]), Number(t[3]))
+        } else {
+          applyStepsLiteral(ch, t, 1)
+        }
+      } else {
+        if (h === "note") {
+          if (t.length >= 6 && t[4] === "v") {
+            noteLines.push({
+              pitch: Math.floor(Number(t[1])),
+              startBeat: Number(t[2]),
+              durBeats: Number(t[3]),
+              vel: Math.floor(Number(t[5]))
+            })
+          }
+        } else {
+          if (h === "transpose") {
+            if (t.length >= 2) {
+              transposeSemi = Math.floor(Number(t[1]))
+              sawTranspose = true
+            }
+          } else {
+            if (h === "noise" || h === "fm" || h === "osc") {
+              let ki = 1
+              while (ki + 1 < t.length) {
+                let key = paramKeyToCamel(t[ki])
+                let val = t[ki + 1]
+                let num = Number(val)
+                if (num === num && val.length > 0) {
+                  ch.generatorParams[key] = num
+                } else {
+                  ch.generatorParams[key] = val
+                }
+                ki = ki + 2
+              }
+            } else {
+              if (h === "adsr") {
+                let ai = 1
+                while (ai + 1 < t.length) {
+                  if (t[ai] === "a") {
+                    ch.generatorParams.attack = Number(t[ai + 1])
+                  }
+                  if (t[ai] === "d") {
+                    ch.generatorParams.decay = Number(t[ai + 1])
+                  }
+                  if (t[ai] === "s") {
+                    ch.generatorParams.sustain = Number(t[ai + 1])
+                  }
+                  if (t[ai] === "r") {
+                    ch.generatorParams.release = Number(t[ai + 1])
+                  }
+                  ai = ai + 2
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    bi = bi + 1
+  }
+
+  if (noteLines.length > 0) {
+    ch.pianoNotes = []
+    let ni = 0
+    while (ni < noteLines.length) {
+      ch.pianoNotes.push({
+        startBeat: noteLines[ni].startBeat,
+        durBeats: noteLines[ni].durBeats,
+        pitch: noteLines[ni].pitch,
+        vel: noteLines[ni].vel
+      })
+      ni = ni + 1
+    }
+  }
+
+  if (sawTranspose) {
+    let pi = 0
+    while (pi < ch.pianoNotes.length) {
+      ch.pianoNotes[pi].pitch = ch.pianoNotes[pi].pitch + transposeSemi
+      pi = pi + 1
+    }
+  }
+
+  if (genBlocks.length > 0) {
+    let last = genBlocks[genBlocks.length - 1]
+    ch.generatorSpec = parseGenBlock(last.generatorId, last.lines)
+  }
+}
+
+export fn applyAutos(project, autos) {
+  if (!project.automation) {
+    project.automation = { pitchBend: [], masterGain: [] }
+  }
+  if (!project.paramAutomations) {
+    project.paramAutomations = []
+  }
+  let fromTpl = []
+  let touched = {}
+  let ai = 0
+  while (ai < autos.length) {
+    let au = autos[ai]
+    let hdr = au.header
+    if (hdr.length >= 1 && hdr[0] === "master_gain") {
+      project.automation.masterGain = sortPointsByBeat(au.points)
+    } else {
+      if (hdr.length >= 3 && hdr[1] === "gen") {
+        let cid = hdr[0]
+        let prm = paramKeyToCamel(hdr[2])
+        let tk = cid + "\t" + prm
+        touched[tk] = true
+        fromTpl.push({
+          channelId: cid,
+          param: prm,
+          points: sortPointsByBeat(au.points)
+        })
+      }
+    }
+    ai = ai + 1
+  }
+  let merged = []
+  let pi = 0
+  while (pi < project.paramAutomations.length) {
+    let pa = project.paramAutomations[pi]
+    let tk2 = pa.channelId + "\t" + pa.param
+    if (!touched[tk2]) {
+      merged.push(pa)
+    }
+    pi = pi + 1
+  }
+  let fi = 0
+  while (fi < fromTpl.length) {
+    merged.push(fromTpl[fi])
+    fi = fi + 1
+  }
+  project.paramAutomations = merged
+}
+
+export fn applyParsed(project, parsed) {
+  let errs = parsed.errors
+  if (parsed.bpm !== null && parsed.bpm >= 40 && parsed.bpm <= 300) {
+    project.bpm = parsed.bpm
+  }
+  let ti = 0
+  while (ti < parsed.tracks.length) {
+    let tb = parsed.tracks[ti]
+    let ch = findChannelById(project, tb.id)
+    if (!ch) {
+      ch = makeChannel(tb.id, tb.name, 36, tb.generatorId)
+      project.channels.push(ch)
+    }
+    ch.name = tb.name
+    if (ch.generatorId !== tb.generatorId) {
+      ch.generatorId = tb.generatorId
+      ch.generatorParams = defaultParamsForGeneratorId(tb.generatorId)
+    }
+    applyTrackBody(project, ch, tb.body, tb.genBlocks, errs)
+    ti = ti + 1
+  }
+  applyAutos(project, parsed.autos)
+  return { errors: errs }
+}
+
+export fn applyTplSource(project, source) {
+  let parsed = parseProgram(source)
+  return applyParsed(project, parsed)
+}

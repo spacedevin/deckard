@@ -1,0 +1,31 @@
+// TPL generator ids and param aliases → project camelCase.
+
+export fn normalizeGeneratorId(tplId) {
+  let s = tplId
+  if (s === "noise_burst" || s === "noiseburst") {
+    return "noiseBurst"
+  }
+  if (s === "fm" || s === "fm_tone" || s === "fmtone") {
+    return "fmTone"
+  }
+  if (s === "basic_osc" || s === "basicosc" || s === "osc") {
+    return "basicOsc"
+  }
+  return s
+}
+
+export fn paramKeyToCamel(key) {
+  if (key === "pitch_follow") {
+    return "pitchFollow"
+  }
+  if (key === "mod_index") {
+    return "modIndex"
+  }
+  if (key === "carrier_wave") {
+    return "carrierWave"
+  }
+  if (key === "mod_wave") {
+    return "modWave"
+  }
+  return key
+}

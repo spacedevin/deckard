@@ -503,3 +503,59 @@ body {
   color: var(--muted);
   border-top: 1px solid var(--border);
 }
+
+.code-debug-panel {
+  grid-column: 1 / -1;
+  max-width: 100%;
+}
+
+.code-debug-hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin: 0 0 0.5rem 0;
+}
+
+.code-debug-textarea {
+  width: 100%;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  padding: 0.6rem;
+  background: #0a0c10;
+  color: var(--mint);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  resize: vertical;
+  min-height: 280px;
+}
+
+.code-debug-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.code-debug-btn {
+  padding: 0.35rem 0.75rem;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.code-debug-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.code-debug-errors {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: #2a1510;
+  color: #f08870;
+  font-size: 0.72rem;
+  overflow: auto;
+  border-radius: 4px;
+}

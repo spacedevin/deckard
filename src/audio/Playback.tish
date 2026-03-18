@@ -1,13 +1,18 @@
 import { sixteenthSeconds, automationAt } from '../schedule/Engine.tish'
 import { playHitAt, channelAudible } from './Engine.tish'
+import { generatorChannelAtBeat } from './ParamAtBeat.tish'
 
 export fn transportTick(project, store, globalStep) {
   if (!store.ctx) {
     return
   }
   let stepInBar = globalStep % 16
+  let beat = globalStep * 0.25
   let ctx = store.ctx
   let t = ctx.currentTime + 0.04
+  if (store.master && project.automation && project.automation.masterGain && project.automation.masterGain.length > 0) {
+    store.master.gain.value = automationAt(project.automation.masterGain, beat)
+  }
   let bend = 0
   if (project.automation && project.automation.pitchBend && project.automation.pitchBend.length > 0) {
     bend = automationAt(project.automation.pitchBend, stepInBar * 0.25)
@@ -22,14 +27,16 @@ export fn transportTick(project, store, globalStep) {
     let bus = store.buses[bi]
     if (ch.steps[stepInBar].on) {
       let dur = sixteenthSeconds(project.bpm) * 0.85
-      playHitAt(ctx, bus, t, ch.stepPitch, ch.steps[stepInBar].vel, dur, ch, bend)
+      let gch = generatorChannelAtBeat(project, ch, beat)
+      playHitAt(ctx, bus, t, ch.stepPitch, ch.steps[stepInBar].vel, dur, gch, bend)
     }
     let pi = 0
     while (pi < ch.pianoNotes.length) {
       let n = ch.pianoNotes[pi]
       if ((globalStep % 16) === (Math.floor(n.startBeat * 4 + 0.0001) % 16)) {
         let sec = (n.durBeats * 60) / project.bpm
-        playHitAt(ctx, bus, t, n.pitch, n.vel, sec, ch, bend)
+        let gch2 = generatorChannelAtBeat(project, ch, n.startBeat)
+        playHitAt(ctx, bus, t, n.pitch, n.vel, sec, gch2, bend)
       }
       pi = pi + 1
     }

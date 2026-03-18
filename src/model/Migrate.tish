@@ -61,4 +61,14 @@ export fn migrateProjectGenerators(project) {
   if (!project.instrumentPresets) {
     project.instrumentPresets = []
   }
+  if (!project.paramAutomations) {
+    project.paramAutomations = []
+  }
+  let mc = 0
+  while (mc < project.channels.length) {
+    if (!project.channels[mc].generatorSpec) {
+      project.channels[mc].generatorSpec = null
+    }
+    mc = mc + 1
+  }
 }

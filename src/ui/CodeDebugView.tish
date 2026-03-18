@@ -1,0 +1,44 @@
+import { useState } from '../hooks.tish'
+import { emitProject } from '../tpl/Emit.tish'
+import { applyTplSource } from '../tpl/Apply.tish'
+
+export fn CodeDebugView(project, setProject, tplText, setTplText) {
+  let [tplErr, setTplErr] = useState("")
+
+  fn onApply() {
+    let r = applyTplSource(project, tplText)
+    let errStr = ""
+    let ei = 0
+    while (ei < r.errors.length) {
+      errStr = errStr + "L" + String(r.errors[ei].line) + ": " + r.errors[ei].msg + "\n"
+      ei = ei + 1
+    }
+    setTplErr(errStr)
+    setProject(project)
+    setTplText(emitProject(project))
+  }
+
+  fn onSync() {
+    setTplText(emitProject(project))
+    setTplErr("")
+    setProject(project)
+  }
+
+  return <section class="panel code-debug-panel">
+    <h2>{"TPL (patch language)"}</h2>
+    <p class="code-debug-hint">{"Apply merges into project. Sync overwrites buffer from UI. See docs/TPL_GRAMMAR.md."}</p>
+    <textarea
+      class="code-debug-textarea"
+      rows={22}
+      value={tplText}
+      oninput={(e) => {
+        setTplText(e.target.value)
+      }}
+    />
+    <div class="code-debug-actions">
+      <button type="button" class="code-debug-btn" onclick={onApply}>{"Apply TPL"}</button>
+      <button type="button" class="code-debug-btn" onclick={onSync}>{"Sync from project"}</button>
+    </div>
+    {tplErr.length > 0 ? <pre class="code-debug-errors">{tplErr}</pre> : null}
+  </section>
+}

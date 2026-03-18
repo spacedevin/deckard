@@ -1,5 +1,7 @@
 import { useState } from '../hooks.tish'
 import { defaultProject, projectToJson, projectFromJson } from '../model/Project.tish'
+import { emitProject } from '../tpl/Emit.tish'
+import { CodeDebugView } from './CodeDebugView.tish'
 import { migrateProjectGenerators } from '../model/Migrate.tish'
 import { ensureAudio, updateMixerFromProject } from '../audio/Engine.tish'
 import { transportTick } from '../audio/Playback.tish'
@@ -17,6 +19,8 @@ let globalTick = 0
 export fn App() {
   let [project, setProject] = useState(defaultProject())
   migrateProjectGenerators(project)
+  let tplInit = emitProject(project)
+  let [tplText, setTplText] = useState(tplInit)
   let [selectedCh, setSelectedCh] = useState(3)
   let [playing, setPlaying] = useState(false)
   window.__dawProject = project
@@ -93,6 +97,7 @@ export fn App() {
         let p = projectFromJson(s)
         migrateProjectGenerators(p)
         setProject(p)
+        setTplText(emitProject(p))
       } catch (e) {
         alert("Invalid JSON")
       }
@@ -140,12 +145,13 @@ export fn App() {
         {PianoRollCanvas(project, selectedCh, setProject, null)}
       </section>
       {InstrumentPanel(project, selectedCh, setProject)}
+      {CodeDebugView(project, setProject, tplText, setTplText)}
       <aside class="panel mixer-panel">
         <h2>{"Mixer"}</h2>
         <canvas class="scope-canvas" width="140" height="56" />
         <div class="mixer-strips">{mixers}</div>
       </aside>
     </div>
-    <footer class="daw-foot">{"Instruments = generator plugins (see docs/FL_STUDIO_GENERATORS.md). Schema: docs/schema/project-v2.json"}</footer>
+    <footer class="daw-foot">{"TPL: docs/TPL_GRAMMAR.md · Generators: docs/FL_STUDIO_GENERATORS.md · Schema: docs/schema/project-v2.json"}</footer>
   </div>
 }

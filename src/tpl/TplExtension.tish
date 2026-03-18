@@ -1,0 +1,20 @@
+// Per-generator gen_block parse/emit hooks (scaffold for graph generators).
+
+export fn parseGenBlock(generatorId, lines) {
+  return { kind: generatorId, version: 1, raw: lines }
+}
+
+export fn emitGenBlock(spec) {
+  if (!spec || !spec.raw) {
+    return ""
+  }
+  let gid = spec.kind ? spec.kind : "unknown"
+  let out = "gen_block " + gid + "\n"
+  let ri = 0
+  while (ri < spec.raw.length) {
+    out = out + "  " + spec.raw[ri] + "\n"
+    ri = ri + 1
+  }
+  out = out + "end gen_block\n"
+  return out
+}

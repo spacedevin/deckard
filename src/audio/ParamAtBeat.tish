@@ -1,0 +1,21 @@
+import { automationAt } from '../schedule/Engine.tish'
+
+// Channel slice used at note time with paramAutomations merged by beat.
+
+export fn generatorChannelAtBeat(project, ch, beat) {
+  let gp = {}
+  if (ch.generatorParams) {
+    gp = JSON.parse(JSON.stringify(ch.generatorParams))
+  }
+  if (project.paramAutomations) {
+    let i = 0
+    while (i < project.paramAutomations.length) {
+      let pa = project.paramAutomations[i]
+      if (pa.channelId === ch.id && pa.points && pa.points.length > 0) {
+        gp[pa.param] = automationAt(pa.points, beat)
+      }
+      i = i + 1
+    }
+  }
+  return { generatorId: ch.generatorId, generatorParams: gp }
+}

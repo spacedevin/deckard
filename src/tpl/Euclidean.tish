@@ -1,0 +1,44 @@
+// Bjorklund-style Euclidean rhythm: k pulses in n steps.
+
+export fn euclideanPattern(kIn, nIn) {
+  let k = Math.floor(kIn)
+  let n = Math.floor(nIn)
+  if (n <= 0) {
+    return []
+  }
+  if (k <= 0) {
+    let z = []
+    let zi = 0
+    while (zi < n) {
+      z.push(false)
+      zi = zi + 1
+    }
+    return z
+  }
+  if (k >= n) {
+    let o = []
+    let oi = 0
+    while (oi < n) {
+      o.push(true)
+      oi = oi + 1
+    }
+    return o
+  }
+  let pattern = []
+  let pi = 0
+  while (pi < n) {
+    pattern.push(false)
+    pi = pi + 1
+  }
+  let bucket = 0
+  let j = 0
+  while (j < n) {
+    bucket = bucket + k
+    if (bucket >= n) {
+      bucket = bucket - n
+      pattern[j] = true
+    }
+    j = j + 1
+  }
+  return pattern
+}

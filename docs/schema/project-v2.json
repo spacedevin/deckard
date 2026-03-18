@@ -16,6 +16,19 @@
         "pitchBend": { "$ref": "#/$defs/automationLane" },
         "masterGain": { "$ref": "#/$defs/automationLane" }
       }
+    },
+    "paramAutomations": {
+      "type": "array",
+      "description": "Per-channel generator param lanes (TPL auto … gen …)",
+      "items": {
+        "type": "object",
+        "required": ["channelId", "param", "points"],
+        "properties": {
+          "channelId": { "type": "string" },
+          "param": { "type": "string" },
+          "points": { "$ref": "#/$defs/automationLane" }
+        }
+      }
     }
   },
   "$defs": {
@@ -57,7 +70,11 @@
         "filterQ": { "type": "number" },
         "stepPitch": { "type": "integer" },
         "steps": { "type": "array", "minItems": 16, "maxItems": 16 },
-        "pianoNotes": { "type": "array" }
+        "pianoNotes": { "type": "array" },
+        "generatorSpec": {
+          "type": ["object", "null"],
+          "description": "Heavy generator graph/raw (TPL gen_block); optional"
+        }
       }
     }
   }

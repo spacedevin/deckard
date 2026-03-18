@@ -34,7 +34,8 @@ export fn makeChannel(id, name, stepPitch, generatorId) {
     filterQ: 1,
     stepPitch: stepPitch,
     steps: makeSteps16(),
-    pianoNotes: []
+    pianoNotes: [],
+    generatorSpec: null
   }
 }
 
@@ -112,7 +113,8 @@ export fn defaultProject() {
     automation: {
       pitchBend: [{ beat: 0, value: 0 }, { beat: 4, value: 0 }],
       masterGain: [{ beat: 0, value: 1 }, { beat: 16, value: 1 }]
-    }
+    },
+    paramAutomations: []
   }
 }
 
