@@ -787,14 +787,6 @@ export fn PianoRollCanvas(project, chIdx, setProject, dragRef) {
     class="piano-roll"
     width="720"
     height="220"
-    onmousedown={(e) => {
-      e.stopPropagation()
-      if (e.button === 2) {
-        e.preventDefault()
-        let canvas = e.target
-        tryDeletePianoNoteAtPointer(canvas, project, chIdx, e.clientX, e.clientY, setProject)
-      }
-    }}
     oncontextmenu={(ev) => {
       ev.preventDefault()
       ev.stopPropagation()
@@ -872,7 +864,11 @@ export fn pianoRollVisualSig(project, chIdx) {
     z = 4
   }
   let ch = project.channels[chIdx]
-  let s = String(chIdx) + "|z" + String(z) + "|"
+  let gid = ""
+  if (ch && ch.generatorId) {
+    gid = ch.generatorId
+  }
+  let s = String(chIdx) + "|g" + gid + "|z" + String(z) + "|"
   let notes = ch.pianoNotes
   if (!notes || notes.length === 0) {
     return s + "0"
