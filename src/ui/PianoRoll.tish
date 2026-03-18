@@ -407,6 +407,7 @@ export fn attachPianoRoll(canvas, project, chIdx, setProject) {
   canvas.onwheel = prCanvasWheel
   canvas.onmousemove = prCanvasMouseMove
   canvas.onmouseleave = prCanvasMouseLeave
+  prSyncRackPreview(window.__prCtx)
 }
 
 fn prCanvasMouseLeave(e) {
@@ -694,7 +695,6 @@ fn prDocumentMouseUp(e) {
         ch.pianoNotes.push({ startBeat: beat, durBeats: defDur, pitch: pitch, vel: 100 })
         window.__prSelected = [ch.pianoNotes.length - 1]
         attachPianoRoll(ctx.canvas, ctx.project, ctx.chIdx, ctx.setProject)
-        prSyncRackPreview(ctx)
         if (ctx.setProject) {
           ctx.setProject(ctx.project)
         }
