@@ -77,7 +77,12 @@ Example: `steps euclid 5 16` — five hits distributed across 16 steps.
 note <midi> <startBeat> <durBeats> v <velocity>
 ```
 
+- **Beats** are in **quarter-note units** (1 beat = one quarter note). The **piano roll** snaps to a **zoom-dependent grid** (wheel or **±**): from **1 beat** down to **1/128 beat**. **TPL** may use any numeric `startBeat` / `durBeats`; emit prints them with `String(...)` so exact values you type are kept.
+- **DurBeats** is note length in the same units. New piano notes use duration **4× current snap** (max 4 beats).
+
 Multiple `note` lines append in order of appearance. Re-applying a full track block that contains `note` lines **replaces** all notes for that channel (see streaming note below).
+
+**Steps vs piano roll (per channel):** use one or the other. If a track block includes any `note` lines, step data for that channel is cleared on Apply. If the block includes a `steps` line and **no** `note` lines, piano notes for that channel are cleared. Playback uses **only** piano notes when the channel has at least one note; otherwise the 16-step row drives hits.
 
 ### Transpose (bulk)
 

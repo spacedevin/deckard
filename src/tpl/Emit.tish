@@ -1,3 +1,5 @@
+import { formatTplBeat, formatTplFloat } from './Format.tish'
+
 export fn generatorIdToTpl(id) {
   if (id === "noiseBurst") {
     return "noise_burst"
@@ -13,7 +15,7 @@ export fn generatorIdToTpl(id) {
 
 export fn emitProject(project) {
   let o = "tpl 1\n"
-  o = o + "bpm " + String(project.bpm) + "\n\n"
+  o = o + "bpm " + formatTplFloat(project.bpm) + "\n\n"
 
   let ci = 0
   while (ci < project.channels.length) {
@@ -31,7 +33,7 @@ export fn emitProject(project) {
       " gen " +
       generatorIdToTpl(gid) +
       "\n"
-    o = o + "  mix gain " + String(ch.gain) + " pan " + String(ch.pan)
+    o = o + "  mix gain " + formatTplFloat(ch.gain) + " pan " + formatTplFloat(ch.pan)
     if (ch.mute) {
       o = o + " mute 1"
     }
@@ -48,22 +50,22 @@ export fn emitProject(project) {
       o =
         o +
         "  noise attack " +
-        String(p.attack) +
+        formatTplFloat(p.attack) +
         " decay " +
-        String(p.decay) +
+        formatTplFloat(p.decay) +
         " tone " +
-        String(p.tone) +
+        formatTplFloat(p.tone) +
         " pitch_follow " +
-        String(p.pitchFollow) +
+        formatTplFloat(p.pitchFollow) +
         "\n"
     }
     if (gid === "fmTone") {
       o =
         o +
         "  fm ratio " +
-        String(p.ratio) +
+        formatTplFloat(p.ratio) +
         " mod_index " +
-        String(p.modIndex) +
+        formatTplFloat(p.modIndex) +
         " carrier " +
         String(p.carrierWave) +
         " mod " +
@@ -72,13 +74,13 @@ export fn emitProject(project) {
       o =
         o +
         "  adsr a " +
-        String(p.attack) +
+        formatTplFloat(p.attack) +
         " d " +
-        String(p.decay) +
+        formatTplFloat(p.decay) +
         " s " +
-        String(p.sustain) +
+        formatTplFloat(p.sustain) +
         " r " +
-        String(p.release) +
+        formatTplFloat(p.release) +
         "\n"
     }
     if (gid === "basicOsc") {
@@ -86,27 +88,29 @@ export fn emitProject(project) {
       o =
         o +
         "  adsr a " +
-        String(p.attack) +
+        formatTplFloat(p.attack) +
         " d " +
-        String(p.decay) +
+        formatTplFloat(p.decay) +
         " s " +
-        String(p.sustain) +
+        formatTplFloat(p.sustain) +
         " r " +
-        String(p.release) +
+        formatTplFloat(p.release) +
         "\n"
     }
 
-    o = o + "  steps"
-    let si = 0
-    while (si < 16) {
-      if (ch.steps[si].on) {
-        o = o + " x"
-      } else {
-        o = o + " ."
+    if (ch.pianoNotes.length === 0) {
+      o = o + "  steps"
+      let si = 0
+      while (si < 16) {
+        if (ch.steps[si].on) {
+          o = o + " x"
+        } else {
+          o = o + " ."
+        }
+        si = si + 1
       }
-      si = si + 1
+      o = o + "\n"
     }
-    o = o + "\n"
 
     let ni = 0
     while (ni < ch.pianoNotes.length) {
@@ -148,7 +152,7 @@ export fn emitProject(project) {
     let mi = 0
     while (mi < project.automation.masterGain.length) {
       let pt = project.automation.masterGain[mi]
-      o = o + "  " + String(pt.beat) + " " + String(pt.value) + "\n"
+      o = o + "  " + formatTplBeat(pt.beat) + " " + formatTplFloat(pt.value) + "\n"
       mi = mi + 1
     }
     o = o + "\n"
@@ -169,7 +173,7 @@ export fn emitProject(project) {
       let qi = 0
       while (qi < pa.points.length) {
         let q = pa.points[qi]
-        o = o + "  " + String(q.beat) + " " + String(q.value) + "\n"
+        o = o + "  " + formatTplBeat(q.beat) + " " + formatTplFloat(q.value) + "\n"
         qi = qi + 1
       }
       o = o + "\n"

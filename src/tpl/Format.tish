@@ -1,0 +1,40 @@
+// Human-readable numbers in emitted TPL.
+
+// Snap to 1/96 beat (sixteenths + triplet-eighths line up), trim trailing zeros.
+export fn formatTplBeat(x) {
+  if (typeof x !== "number" || x !== x) {
+    return "0"
+  }
+  let g = 96
+  let r = Math.round(x * g) / g
+  if (r === 0) {
+    return "0"
+  }
+  let s = r.toFixed(6)
+  while (s.length > 1 && s.charAt(s.length - 1) === "0") {
+    s = s.substring(0, s.length - 1)
+  }
+  if (s.charAt(s.length - 1) === ".") {
+    s = s.substring(0, s.length - 1)
+  }
+  return s
+}
+
+// Params / automation values: 4 decimal places max, trimmed.
+export fn formatTplFloat(x) {
+  if (typeof x !== "number" || x !== x) {
+    return "0"
+  }
+  let r = Math.round(x * 10000) / 10000
+  if (r === 0) {
+    return "0"
+  }
+  let s = r.toFixed(4)
+  while (s.length > 1 && s.charAt(s.length - 1) === "0") {
+    s = s.substring(0, s.length - 1)
+  }
+  if (s.charAt(s.length - 1) === ".") {
+    s = s.substring(0, s.length - 1)
+  }
+  return s
+}

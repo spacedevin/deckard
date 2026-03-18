@@ -28,6 +28,28 @@ export fn StepRow(ch, chIdx, project, setProject) {
   </div>
 }
 
+export fn RackPatternArea(ch, chIdx, project, setProject, onSelectCh) {
+  let pn = ch.pianoNotes
+  if (!pn) {
+    pn = []
+  }
+  if (pn.length > 0) {
+    let prevId = "rack-pr-" + String(chIdx)
+    return <canvas
+      id={prevId}
+      class="rack-piano-preview"
+      width="320"
+      height="44"
+      onclick={(e) => {
+        e.stopPropagation()
+        onSelectCh(chIdx)
+      }}
+      title={"Piano roll — " + String(pn.length) + " note(s). Click to edit this track."}
+    />
+  }
+  return StepRow(ch, chIdx, project, setProject)
+}
+
 export fn ChannelRow(ch, chIdx, project, setProject, selected, onSelect) {
   let rowCls = selected ? "channel-row channel-row-sel" : "channel-row"
   let gid = ch.generatorId
@@ -42,6 +64,6 @@ export fn ChannelRow(ch, chIdx, project, setProject, selected, onSelect) {
       </div>
       <div class="ch-instr-badge">{badge}</div>
     </div>
-    {StepRow(ch, chIdx, project, setProject)}
+    {RackPatternArea(ch, chIdx, project, setProject, onSelect)}
   </div>
 }

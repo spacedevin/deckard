@@ -9,7 +9,7 @@ import { TransportBar } from './Transport.tish'
 import { MixerStrip } from './Mixer.tish'
 import { ChannelRow } from './ChannelRack.tish'
 import { InstrumentPanel } from './InstrumentPanel.tish'
-import { PianoRollCanvas, attachPianoRoll } from './PianoRoll.tish'
+import { PianoRollCanvas, PianoRollZoomBar, attachPianoRoll, drawRackPianoPreview } from './PianoRoll.tish'
 import { drawScopeCanvas } from './Scope.tish'
 
 let audioStore = {}
@@ -52,6 +52,14 @@ export fn App() {
     let pr = document.querySelector(".piano-roll")
     if (pr) {
       attachPianoRoll(pr, project, selectedCh, setProject)
+    }
+    let rpi = 0
+    while (rpi < project.channels.length) {
+      let rackCv = document.getElementById("rack-pr-" + String(rpi))
+      if (rackCv) {
+        drawRackPianoPreview(rackCv, project.channels[rpi])
+      }
+      rpi = rpi + 1
     }
     let sc = document.querySelector(".scope-canvas")
     if (sc && audioStore.analyser) {
@@ -181,6 +189,7 @@ export fn App() {
       </section>
       <section class="panel piano-panel">
         <h2>{"Piano roll (channel "}{String(selectedCh + 1)}{")"}</h2>
+        {PianoRollZoomBar(project, setProject)}
         {PianoRollCanvas(project, selectedCh, setProject, null)}
       </section>
       {InstrumentPanel(project, selectedCh, setProject, tplMirrorSchedule, tplMirrorFlush)}

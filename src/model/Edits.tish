@@ -1,5 +1,13 @@
 // Pure edit helpers — safe transforms for agents.
 
+export fn clearAllSteps(ch) {
+  let si = 0
+  while (si < 16) {
+    ch.steps[si].on = false
+    si = si + 1
+  }
+}
+
 export fn toggleStep(ch, stepIdx) {
   let st = ch.steps[stepIdx]
   st.on = !st.on
