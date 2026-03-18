@@ -30,6 +30,8 @@ Serve the folder (e.g. `npx serve .`) and open `index.html`. Click **Play** once
 3. Terminal B: `npm run agent -- --lane ai-a` (optional demo worker; SQLite log + `tpl.block` on simulated `direct`).
 4. Open the app → **Co-DJ** panel → Connect. Incoming **`tpl.block`** from agents merges into the project (lane ownership rules in [docs/CO_DJ_SPACE.md](docs/CO_DJ_SPACE.md)).
 
+**Token stream demo** (see [docs/TOKEN_STREAM_DEMO.md](docs/TOKEN_STREAM_DEMO.md)): `npm run token-demo` (after `npm install` in `services/token-stream-demo`). Streams **`tpl.stream_chunk`** then commits **`tpl.block`** (`asap`). Connect Co-DJ, **Play**, watch the live stream panel; edit **Song** on `wsdemo_k1` / `wsdemo_h1` as human to override the bot.
+
 Specs: [docs/WS_AND_AGENTS.md](docs/WS_AND_AGENTS.md), [docs/STREAM_PROTOCOL.md](docs/STREAM_PROTOCOL.md), [docs/AUTHOR_TAGGING.md](docs/AUTHOR_TAGGING.md), [docs/DJ_SKILLS.md](docs/DJ_SKILLS.md), [docs/CONTROLLER_PROFILES.md](docs/CONTROLLER_PROFILES.md).
 
 **Web MIDI**: note-on on MIDI channels maps note % 8 → channel index for **temporary gain overlay** (hear without committing TPL).

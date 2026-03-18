@@ -8,6 +8,7 @@
     "build:counter": "tish compile --target js src/tishact/examples/counter-main.tish -o dist/counter-bundle.js",
     "serve": "npx --yes serve . -p 3456",
     "ws-hub": "node services/ws-hub/index.js",
-    "agent": "node services/agent-worker/index.js"
+    "agent": "node services/agent-worker/index.js",
+    "token-demo": "node services/token-stream-demo/index.js"
   }
 }

@@ -1,0 +1,13 @@
+{
+  "name": "tish-midi-token-stream-demo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Streams tpl.stream_chunk then commits tpl.block (asap) for Co-DJ demo",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

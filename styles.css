@@ -411,6 +411,32 @@ body {
   cursor: pointer;
 }
 
+.codj-stream-wrap {
+  margin: 0.5rem 0 0.75rem;
+}
+.codj-stream-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #8a9;
+  margin-bottom: 0.25rem;
+}
+.codj-stream-preview {
+  margin: 0;
+  max-height: 6.5rem;
+  overflow: auto;
+  padding: 0.45rem 0.5rem;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #b8c5c4;
+  font-family: ui-monospace, monospace;
+}
+
 .codj-log {
   font-family: ui-monospace, monospace;
   font-size: 0.6rem;

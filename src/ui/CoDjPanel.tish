@@ -10,8 +10,9 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
   if (typeof window !== "undefined") {
     if (!window.__codjIv) {
       window.__codjIv = setInterval(() => {
-        if (window.__coDjLogDirty) {
+        if (window.__coDjLogDirty || window.__coDjStreamDirty) {
           window.__coDjLogDirty = false
+          window.__coDjStreamDirty = false
           setPoll((p) => p + 1)
         }
       }, 350)
@@ -92,6 +93,10 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
         pushLog("apply " + laneId + " queued")
         return
       }
+      if (typeof window !== "undefined") {
+        window.__coDjStreamPreview = ""
+        window.__coDjStreamDirty = true
+      }
       let applySrc = r.tpl
       if (applySrc.indexOf("tpl ") !== 0) {
         applySrc = "tpl 1\n" + applySrc
@@ -103,6 +108,19 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
         tplMirrorFlush()
       }
       pushLog("apply " + laneId + " " + String(lines.length) + "L")
+      return
+    }
+    if (t === "tpl.stream_chunk") {
+      let ch = msg.chunk ? String(msg.chunk) : ""
+      let from = msg.laneId ? msg.laneId : "?"
+      if (typeof window !== "undefined") {
+        if (!window.__coDjStreamPreview) {
+          window.__coDjStreamPreview = ""
+        }
+        window.__coDjStreamPreview = (window.__coDjStreamPreview + ch).slice(-1200)
+        window.__coDjStreamLane = from
+        window.__coDjStreamDirty = true
+      }
       return
     }
     if (t === "tpl.line") {
@@ -164,6 +182,14 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
       window.__coDjWs = null
     }
   }
+  let streamPreview = ""
+  if (typeof window !== "undefined" && window.__coDjStreamPreview) {
+    streamPreview = window.__coDjStreamPreview
+  }
+  let streamLane = ""
+  if (typeof window !== "undefined" && window.__coDjStreamLane) {
+    streamLane = window.__coDjStreamLane
+  }
   let logEls = []
   let li = 0
   if (typeof window !== "undefined" && window.__coDjLog) {
@@ -174,7 +200,11 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
   }
   return <section class="panel codj-panel">
     <h2>{"Co-DJ (WebSocket)"}</h2>
-    <p class="codj-hint">{"Run: npm run ws-hub · npm run agent -- --lane ai-a. Incoming tpl.block merges into project."}</p>
+    <p class="codj-hint">{"Token demo: ws-hub + token-demo · Connect · Play. Live stream below; edit Song (human) on wsdemo_k1 / wsdemo_h1 to override."}</p>
+    <div class="codj-stream-wrap">
+      <div class="codj-stream-label">{"Live stream "}{streamLane ? "(" + streamLane + ")" : ""}</div>
+      <pre class="codj-stream-preview">{streamPreview ? streamPreview : "—"}</pre>
+    </div>
     <div class="codj-row">
       <label>{"WS "}<input
         type="text"
