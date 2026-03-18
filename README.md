@@ -27,8 +27,8 @@ Serve the folder (e.g. `npx serve .`) and open `index.html`. Click **Play** once
 
 1. `npm install` in `services/ws-hub` and `services/agent-worker` (once).
 2. Terminal A: `npm run ws-hub` → hub on port **8765**.
-3. Terminal B: `npm run agent -- --lane ai-a` (optional demo worker; SQLite log + `tpl.block` on simulated `direct`).
-4. Open the app → **Co-DJ** panel → Connect. Incoming **`tpl.block`** from agents merges into the project (lane ownership rules in [docs/CO_DJ_SPACE.md](docs/CO_DJ_SPACE.md)).
+3. Terminal B: `npm run agent -- --lane ai-a` — see [services/agent-worker/README.md](services/agent-worker/README.md): set **`GRADIENT_MODEL_ACCESS_KEY`** in `.env` for AI; **`DIGITALOCEAN_API_TOKEN`** is for DO control API only, not inference.
+4. Open the app → **Co-DJ** → **Connect** (same session as agent, usually `default`) → set **Direct→** to `ai-a` → **Send test direct** (agent only runs after a direct; **Play** if you use perf-step deadlines).
 
 **Token stream demo** (see [docs/TOKEN_STREAM_DEMO.md](docs/TOKEN_STREAM_DEMO.md)): `npm run token-demo` (after `npm install` in `services/token-stream-demo`). Streams **`tpl.stream_chunk`** then commits **`tpl.block`** (`asap`). Connect Co-DJ, **Play**, watch the live stream panel; edit **Song** on `wsdemo_k1` / `wsdemo_h1` as human to override the bot.
 

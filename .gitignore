@@ -2,3 +2,6 @@ dist
 .cursor
 node_modules
 **/node_modules/
+.sqlite
+.env
+.DS_Store

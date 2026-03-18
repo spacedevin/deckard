@@ -143,6 +143,6 @@ CREATE TABLE agent_memory (
 ## 5. Reference implementation layout
 
 - `services/ws-hub/` — Node + `ws` package, `npm start`.
-- `services/agent-worker/` — Node or Python; `.env` for `OPENAI_API_KEY`, `HUB_URL`, `SESSION_ID`, `LANE_ID`.
+- `services/agent-worker/` — Node; repo `.env` for **`GRADIENT_MODEL_ACCESS_KEY`** (inference), **`DIGITALOCEAN_API_TOKEN`** (DO API if needed); hub/session via flags / `CODJ_HUB`.
 
 See repository `package.json` / README for run commands.
