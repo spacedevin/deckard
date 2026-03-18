@@ -2,6 +2,19 @@
 
 Streamable, line-oriented patch text for **tish-midi** projects. Optimized for incremental parse (one completed line at a time) and LLM token streams.
 
+## UI: Song vs Stream
+
+| View | Purpose |
+|------|---------|
+| **Song** | Full static patch: one document, Apply / Sync, step highlighting during playback. |
+| **Stream** | Real-time token flow: **Live** holds the partial tail; each **newline** commits completed lines into a short **reference** buffer (last ~24 lines, older lines fade). Use **Promote to song** to append reference + live into the Song buffer. |
+
+**Programmatic stream feed** (e.g. LLM chunking by line):
+
+- `window.__tplStreamAppendLine("track kick id c0 gen noise_burst")`
+- `window.__tplStreamClearRef()` — clear reference
+- After switching to Stream tab once, `window.__tplStreamLive` is the live `<textarea>` if you need to inject text.
+
 ## Version header
 
 ```

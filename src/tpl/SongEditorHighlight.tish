@@ -1,0 +1,120 @@
+// Build HTML for mirrored TPL highlight layer (textarea overlay). All logic in Tish.
+
+import { tokenize } from './Parser.tish'
+import { classifyLine, isKeyword, isStepToken } from './Highlight.tish'
+
+fn escapeHtml(s) {
+  let x = s.split("&").join("&amp;")
+  x = x.split("<").join("&lt;")
+  x = x.split(">").join("&gt;")
+  return x
+}
+
+fn lineIndentAndCore(line) {
+  let a = 0
+  while (a < line.length) {
+    let c = line.charAt(a)
+    if (c === " " || c === "\t") {
+      a = a + 1
+    } else {
+      break
+    }
+  }
+  let trimmed = line.substring(a)
+  let b = trimmed.length
+  while (b > 0) {
+    let c2 = trimmed.charAt(b - 1)
+    if (c2 === " " || c2 === "\t" || c2 === "\r") {
+      b = b - 1
+    } else {
+      break
+    }
+  }
+  let core = trimmed.substring(0, b)
+  let tail = line.substring(a + core.length)
+  return { indent: a, core: core, tail: tail }
+}
+
+// HTML for one line (no comment segment; caller appends comment).
+fn highlightCoreHtml(core, indentStr, tailStr, activeStep, playing) {
+  let html = escapeHtml(indentStr)
+  if (core.length === 0) {
+    return html + escapeHtml(tailStr)
+  }
+  let toks = tokenize(core)
+  if (toks.length === 0) {
+    return html + escapeHtml(core) + escapeHtml(tailStr)
+  }
+  let cl = classifyLine(core)
+  let stepSlotOfTok = {}
+  if (cl.kind === "steps") {
+    let si = 0
+    while (si < cl.stepIndices.length) {
+      let ti = cl.stepIndices[si]
+      stepSlotOfTok[String(ti)] = si
+      si = si + 1
+    }
+  }
+  let pos = 0
+  let ti = 0
+  while (ti < toks.length) {
+    let tok = toks[ti]
+    let found = core.indexOf(tok, pos)
+    if (found < 0) {
+      break
+    }
+    html = html + escapeHtml(core.substring(pos, found))
+    let inner = escapeHtml(tok)
+    let slotStr = stepSlotOfTok[String(ti)]
+    if (ti === 0 && isKeyword(tok)) {
+      inner = "<span class=\"tpl-hl-kw\">" + inner + "</span>"
+    } else {
+      if (cl.kind === "steps" && slotStr !== undefined && slotStr !== null) {
+        let slot = slotStr
+        let on = tok === "x" || tok === "X" || tok === "1"
+        let off = tok === "." || tok === "0"
+        if (on || off) {
+          let cls = on ? "tpl-hl-st-on" : "tpl-hl-st-off"
+          if (playing && slot === activeStep) {
+            cls = cls + " tpl-hl-st-act"
+          }
+          inner = "<span class=\"" + cls + "\">" + inner + "</span>"
+        }
+      }
+    }
+    html = html + inner
+    pos = found + tok.length
+    ti = ti + 1
+  }
+  html = html + escapeHtml(core.substring(pos))
+  html = html + escapeHtml(tailStr)
+  return html
+}
+
+export fn tplDocumentToHighlightHtml(source, playbackStep, playing) {
+  let active = Math.floor(playbackStep) % 16
+  let lines = source.split("\n")
+  let li = 0
+  let out = ""
+  while (li < lines.length) {
+    let fullLine = lines[li]
+    let hash = fullLine.indexOf("#")
+    let main = fullLine
+    let com = ""
+    if (hash >= 0) {
+      main = fullLine.substring(0, hash)
+      com = fullLine.substring(hash)
+    }
+    let ic = lineIndentAndCore(main)
+    let indentStr = main.substring(0, ic.indent)
+    out = out + highlightCoreHtml(ic.core, indentStr, ic.tail, active, playing)
+    if (com.length > 0) {
+      out = out + "<span class=\"tpl-hl-comment\">" + escapeHtml(com) + "</span>"
+    }
+    if (li < lines.length - 1) {
+      out = out + "\n"
+    }
+    li = li + 1
+  }
+  return out
+}

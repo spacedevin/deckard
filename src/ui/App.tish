@@ -57,9 +57,13 @@ export fn App() {
         clearInterval(playbackTimer)
       }
       globalTick = 0
+      window.__dawPlaying = true
       let ms = (60 / project.bpm / 4) * 1000
       playbackTimer = setInterval(() => {
         transportTick(window.__dawProject, audioStore, globalTick)
+        if (window.__tplSetPlaybackHighlight) {
+          window.__tplSetPlaybackHighlight(globalTick % 16, true)
+        }
         globalTick = globalTick + 1
       }, ms)
       setPlaying(true)
@@ -70,6 +74,10 @@ export fn App() {
     if (playbackTimer) {
       clearInterval(playbackTimer)
       playbackTimer = null
+    }
+    window.__dawPlaying = false
+    if (window.__tplSetPlaybackHighlight) {
+      window.__tplSetPlaybackHighlight(0, false)
     }
     setPlaying(false)
   }

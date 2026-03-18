@@ -1,0 +1,57 @@
+// Line-level classification for TPL syntax and step highlighting (no full parse).
+
+import { tokenize } from './Parser.tish'
+
+let TOP_KEYS = {}
+TOP_KEYS["tpl"] = true
+TOP_KEYS["bpm"] = true
+TOP_KEYS["track"] = true
+TOP_KEYS["auto"] = true
+
+let BODY_KEYS = {}
+BODY_KEYS["mix"] = true
+BODY_KEYS["steps"] = true
+BODY_KEYS["note"] = true
+BODY_KEYS["noise"] = true
+BODY_KEYS["fm"] = true
+BODY_KEYS["osc"] = true
+BODY_KEYS["adsr"] = true
+BODY_KEYS["transpose"] = true
+BODY_KEYS["gen_block"] = true
+BODY_KEYS["end"] = true
+
+export fn isKeyword(s) {
+  return TOP_KEYS[s] === true || BODY_KEYS[s] === true
+}
+
+export fn isStepToken(s) {
+  return s === "x" || s === "X" || s === "." || s === "1" || s === "0"
+}
+
+// Returns { kind: "steps" | "keyword" | "plain", tokens: [...], stepIndices: [0..15] for steps lines }.
+export fn classifyLine(line) {
+  let t = line.trim()
+  if (t.length === 0) {
+    return { kind: "plain", tokens: [], stepIndices: [] }
+  }
+  let toks = tokenize(t)
+  if (toks.length === 0) {
+    return { kind: "plain", tokens: [], stepIndices: [] }
+  }
+  let first = toks[0]
+  if (first === "steps") {
+    let stepIndices = []
+    let i = 1
+    while (i < toks.length && stepIndices.length < 16) {
+      if (isStepToken(toks[i])) {
+        stepIndices.push(i)
+      }
+      i = i + 1
+    }
+    return { kind: "steps", tokens: toks, stepIndices: stepIndices }
+  }
+  if (isKeyword(first)) {
+    return { kind: "keyword", tokens: toks, stepIndices: [] }
+  }
+  return { kind: "plain", tokens: toks, stepIndices: [] }
+}

@@ -1,12 +1,129 @@
 import { useState } from '../hooks.tish'
 import { emitProject } from '../tpl/Emit.tish'
 import { applyTplSource } from '../tpl/Apply.tish'
+import { tplDocumentToHighlightHtml } from '../tpl/SongEditorHighlight.tish'
+
+let STREAM_REF_MAX = 24
 
 export fn CodeDebugView(project, setProject, tplText, setTplText) {
   let [tplErr, setTplErr] = useState("")
+  let [tplTab, setTplTab] = useState("song")
+  let [streamTick, setStreamTick] = useState(0)
+
+  if (typeof window !== "undefined") {
+    if (!window.__tplStreamRefLines) {
+      window.__tplStreamRefLines = []
+    }
+    window.__tplStreamBump = () => {
+      let n = window.__tplStreamRenderGen
+      if (!n) {
+        n = 0
+      }
+      n = n + 1
+      window.__tplStreamRenderGen = n
+      setStreamTick(n)
+    }
+    window.__tplStreamFlushCompleteLines = (lines) => {
+      let li = 0
+      while (li < lines.length) {
+        window.__tplStreamRefLines.push(lines[li])
+        li = li + 1
+      }
+      while (window.__tplStreamRefLines.length > STREAM_REF_MAX) {
+        window.__tplStreamRefLines.shift()
+      }
+      window.__tplStreamBump()
+    }
+    window.__tplStreamAppendLine = (line) => {
+      window.__tplStreamRefLines.push(line)
+      while (window.__tplStreamRefLines.length > STREAM_REF_MAX) {
+        window.__tplStreamRefLines.shift()
+      }
+      window.__tplStreamBump()
+    }
+    window.__tplStreamClearRef = () => {
+      window.__tplStreamRefLines = []
+      window.__tplStreamBump()
+    }
+    window.__tplStreamAppendToSong = () => {
+      let extra = window.__tplStreamRefLines.join("\n")
+      let live = ""
+      if (window.__tplStreamLive) {
+        live = window.__tplStreamLive.value
+      }
+      if (live.length > 0) {
+        if (extra.length > 0) {
+          extra = extra + "\n"
+        }
+        extra = extra + live
+      }
+      if (extra.length > 0) {
+        let cur = ""
+        if (window.__tplGetSongText) {
+          cur = window.__tplGetSongText()
+        } else {
+          if (window.__tplTextarea) {
+            cur = window.__tplTextarea.value
+          }
+        }
+        if (cur.length > 0 && !cur.endsWith("\n")) {
+          cur = cur + "\n"
+        }
+        let merged = cur + extra
+        setTplText(merged)
+        if (window.__tplSetSongText) {
+          window.__tplSetSongText(merged)
+        } else {
+          if (window.__tplTextarea) {
+            window.__tplTextarea.value = merged
+          }
+        }
+      }
+      setTplTab("song")
+    }
+  }
+
+  let beatCells = []
+  let bi = 0
+  while (bi < 16) {
+    beatCells.push(<span class="tpl-beat-cell">{String(bi + 1)}</span>)
+    bi = bi + 1
+  }
+
+  fn tplSetPlaybackHighlight(step, playing) {
+    window.__dawPlaybackStep = step
+    window.__dawPlaying = playing
+    let cells = document.querySelectorAll(".tpl-beat-cell")
+    let s = Math.floor(step) % 16
+    let ci = 0
+    while (ci < cells.length) {
+      if (playing && ci === s) {
+        cells[ci].classList.add("tpl-beat-cell-active")
+      } else {
+        cells[ci].classList.remove("tpl-beat-cell-active")
+      }
+      ci = ci + 1
+    }
+    if (window.__tplDispatchPlaybackHighlight) {
+      window.__tplDispatchPlaybackHighlight(step, playing)
+    }
+  }
+
+  window.__tplSetPlaybackHighlight = tplSetPlaybackHighlight
+
+  fn getTextareaValue() {
+    if (window.__tplGetSongText) {
+      return window.__tplGetSongText()
+    }
+    if (window.__tplTextarea) {
+      return window.__tplTextarea.value
+    }
+    return tplText
+  }
 
   fn onApply() {
-    let r = applyTplSource(project, tplText)
+    let val = getTextareaValue()
+    let r = applyTplSource(project, val)
     let errStr = ""
     let ei = 0
     while (ei < r.errors.length) {
@@ -15,30 +132,235 @@ export fn CodeDebugView(project, setProject, tplText, setTplText) {
     }
     setTplErr(errStr)
     setProject(project)
-    setTplText(emitProject(project))
+    let emitted = emitProject(project)
+    setTplText(emitted)
+    if (window.__tplSetSongText) {
+      window.__tplSetSongText(emitted)
+    } else {
+      if (window.__tplTextarea) {
+        window.__tplTextarea.value = emitted
+      }
+    }
   }
 
   fn onSync() {
-    setTplText(emitProject(project))
+    let emitted = emitProject(project)
+    setTplText(emitted)
     setTplErr("")
     setProject(project)
+    if (window.__tplSetSongText) {
+      window.__tplSetSongText(emitted)
+    } else {
+      if (window.__tplTextarea) {
+        window.__tplTextarea.value = emitted
+      }
+    }
   }
 
-  return <section class="panel code-debug-panel">
-    <h2>{"TPL (patch language)"}</h2>
-    <p class="code-debug-hint">{"Apply merges into project. Sync overwrites buffer from UI. See docs/TPL_GRAMMAR.md."}</p>
-    <textarea
-      class="code-debug-textarea"
-      rows={22}
-      value={tplText}
-      oninput={(e) => {
-        setTplText(e.target.value)
-      }}
-    />
+  fn tplSongMirrorRefresh() {
+    let pre = document.getElementById("tpl-song-hl-pre")
+    let ta = window.__tplSongMirrorTa
+    if (!pre || !ta) {
+      return
+    }
+    let st = 0
+    if (typeof window.__dawPlaybackStep === "number") {
+      st = window.__dawPlaybackStep
+    }
+    pre.innerHTML = tplDocumentToHighlightHtml(ta.value, st, !!window.__dawPlaying)
+  }
+
+  fn attachSongTextarea() {
+    let slot = document.getElementById("tpl-song-textarea-slot")
+    if (!slot) {
+      return
+    }
+    if (tplTab !== "song") {
+      return
+    }
+    if (window.__tplSongMirrorTa && window.__tplSongMirrorWrap) {
+      if (!slot.contains(window.__tplSongMirrorWrap)) {
+        slot.innerHTML = ""
+        slot.appendChild(window.__tplSongMirrorWrap)
+      }
+      let ta = window.__tplSongMirrorTa
+      if (document.activeElement !== ta && ta.value !== tplText) {
+        ta.value = tplText
+        tplSongMirrorRefresh()
+      }
+      return
+    }
+    slot.innerHTML = ""
+    let wrap = document.createElement("div")
+    wrap.className = "tpl-song-mirror-stack"
+    let pre = document.createElement("pre")
+    pre.id = "tpl-song-hl-pre"
+    pre.className = "tpl-song-highlight-layer"
+    pre.setAttribute("aria-hidden", "true")
+    let ta = document.createElement("textarea")
+    ta.className = "tpl-song-input-layer"
+    ta.rows = 22
+    ta.placeholder = "TPL song…"
+    ta.value = tplText
+    ta.setAttribute("spellcheck", "false")
+    ta.oninput = () => {
+      setTplText(ta.value)
+      tplSongMirrorRefresh()
+    }
+    ta.onscroll = () => {
+      pre.scrollTop = ta.scrollTop
+      pre.scrollLeft = ta.scrollLeft
+    }
+    wrap.appendChild(pre)
+    wrap.appendChild(ta)
+    slot.appendChild(wrap)
+    window.__tplSongMirrorWrap = wrap
+    window.__tplSongMirrorTa = ta
+    window.__tplTextarea = ta
+    window.__tplGetSongText = () => {
+      return ta.value
+    }
+    window.__tplSetSongText = (s) => {
+      ta.value = s
+      tplSongMirrorRefresh()
+    }
+    window.__tplDispatchPlaybackHighlight = () => {
+      tplSongMirrorRefresh()
+    }
+    tplSongMirrorRefresh()
+  }
+
+  fn attachStreamLive() {
+    if (tplTab !== "stream") {
+      return
+    }
+    let slot = document.getElementById("tpl-stream-live-slot")
+    if (!slot) {
+      return
+    }
+    if (window.__tplStreamLive) {
+      if (window.__tplStreamLive.parentNode !== slot) {
+        slot.appendChild(window.__tplStreamLive)
+      }
+      return
+    }
+    let st = document.createElement("textarea")
+    st.className = "tpl-stream-live-input"
+    st.placeholder = "Stream tokens here (newline completes a line → reference). LLM: __tplStreamAppendLine(line)."
+    st.setAttribute("spellcheck", "false")
+    st.oninput = () => {
+      let v = st.value
+      let parts = v.split("\n")
+      if (parts.length <= 1) {
+        return
+      }
+      let tail = parts[parts.length - 1]
+      let ci = 0
+      let complete = []
+      while (ci < parts.length - 1) {
+        complete.push(parts[ci])
+        ci = ci + 1
+      }
+      if (window.__tplStreamFlushCompleteLines) {
+        window.__tplStreamFlushCompleteLines(complete)
+      }
+      st.value = tail
+    }
+    window.__tplStreamLive = st
+    slot.appendChild(st)
+  }
+
+  setTimeout(() => {
+    attachSongTextarea()
+    attachStreamLive()
+  }, 0)
+
+  let refLines = []
+  if (typeof window !== "undefined" && window.__tplStreamRefLines) {
+    refLines = window.__tplStreamRefLines
+  }
+
+  let refEls = []
+  let ri = 0
+  while (ri < refLines.length) {
+    let rline = refLines[ri]
+    let fade = "tpl-stream-ref-line"
+    let third = Math.floor(STREAM_REF_MAX / 3)
+    if (ri < third) {
+      fade = fade + " tpl-stream-ref-old"
+    } else {
+      if (ri < third * 2) {
+        fade = fade + " tpl-stream-ref-mid"
+      } else {
+        fade = fade + " tpl-stream-ref-recent"
+      }
+    }
+    refEls.push(<div class={fade}>{rline}</div>)
+    ri = ri + 1
+  }
+
+  let songDisplay = "none"
+  if (tplTab === "song") {
+    songDisplay = "block"
+  }
+  let streamDisplay = "none"
+  if (tplTab === "stream") {
+    streamDisplay = "block"
+  }
+
+  let songPanel = <div class="tpl-tab-panel tpl-tab-song" style={{ display: songDisplay }}>
+    <p class="code-debug-hint">{"TPL song editor: syntax + step highlight + playback pulse (Tish-only, no extra JS files). Apply / Sync ↔ project."}</p>
+    <div class="tpl-song-editor-wrap tpl-song-editor-full">
+      <div id="tpl-song-textarea-slot" class="tpl-song-textarea-slot" />
+    </div>
+    <div class="tpl-playback-strip-wrap">
+      <span class="tpl-playback-strip-label">{"Step"}</span>
+      <div class="tpl-playback-strip">{beatCells}</div>
+    </div>
     <div class="code-debug-actions">
       <button type="button" class="code-debug-btn" onclick={onApply}>{"Apply TPL"}</button>
       <button type="button" class="code-debug-btn" onclick={onSync}>{"Sync from project"}</button>
     </div>
+  </div>
+
+  let streamPanel = <div class="tpl-tab-panel tpl-tab-stream" style={{ display: streamDisplay }}>
+      <p class="code-debug-hint">{"Real-time stream: each newline commits lines to the short reference tail (~"}{String(STREAM_REF_MAX)}{" lines). Live zone holds the partial tail. Promote appends ref+live to Song."}</p>
+      <div class="tpl-stream-ref" id="tpl-stream-ref">
+        <div class="tpl-stream-ref-label">{"Reference (recent only)"}</div>
+        {refEls.length > 0 ? refEls : <div class="tpl-stream-ref-empty">{"(no committed lines yet)"}</div>}
+      </div>
+      <div class="tpl-stream-live-wrap">
+        <div class="tpl-stream-live-label">{"Live (streaming tokens)"}</div>
+        <div id="tpl-stream-live-slot" class="tpl-stream-live-slot" />
+      </div>
+      <div class="code-debug-actions">
+        <button type="button" class="code-debug-btn" onclick={() => {
+          if (window.__tplStreamAppendToSong) {
+            window.__tplStreamAppendToSong()
+          }
+        }}>{"Promote to song"}</button>
+        <button type="button" class="code-debug-btn" onclick={() => {
+          if (window.__tplStreamClearRef) {
+            window.__tplStreamClearRef()
+          }
+        }}>{"Clear reference"}</button>
+      </div>
+    </div>
+
+  return <section class="panel code-debug-panel">
+    <h2>{"TPL"}</h2>
+    <div class="tpl-view-tabs">
+      <button type="button" class={tplTab === "song" ? "tpl-tab tpl-tab-active" : "tpl-tab"} onclick={() => {
+        setTplTab("song")
+        setTimeout(attachSongTextarea, 0)
+      }}>{"Song"}</button>
+      <button type="button" class={tplTab === "stream" ? "tpl-tab tpl-tab-active" : "tpl-tab"} onclick={() => {
+        setTplTab("stream")
+        setTimeout(attachStreamLive, 0)
+      }}>{"Stream"}</button>
+    </div>
+    {songPanel}
+    {streamPanel}
     {tplErr.length > 0 ? <pre class="code-debug-errors">{tplErr}</pre> : null}
   </section>
 }
