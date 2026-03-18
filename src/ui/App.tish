@@ -9,7 +9,14 @@ import { TransportBar } from './Transport.tish'
 import { MixerStrip } from './Mixer.tish'
 import { ChannelRow } from './ChannelRack.tish'
 import { InstrumentPanel } from './InstrumentPanel.tish'
-import { PianoRollCanvas, PianoRollZoomBar, attachPianoRoll, drawRackPianoPreview } from './PianoRoll.tish'
+import {
+  PianoRollCanvas,
+  PianoRollZoomBar,
+  attachPianoRoll,
+  drawRackPianoPreview,
+  pianoRollVisualSig,
+  rackPianoPreviewSig
+} from './PianoRoll.tish'
 import { drawScopeCanvas } from './Scope.tish'
 
 let audioStore = {}
@@ -39,19 +46,34 @@ export fn App() {
   setTimeout(() => {
     let pr = document.querySelector(".piano-roll")
     if (pr) {
-      attachPianoRoll(pr, project, selectedCh, setProject)
+      let sig = pianoRollVisualSig(project, selectedCh)
+      if (window.__prSkipRedrawSig !== sig || window.__prSkipRedrawEl !== pr) {
+        window.__prSkipRedrawSig = sig
+        window.__prSkipRedrawEl = pr
+        attachPianoRoll(pr, project, selectedCh, setProject)
+      } else {
+        window.__prCtx = { canvas: pr, project: project, chIdx: selectedCh, setProject: setProject }
+        window.__prChIdx = selectedCh
+      }
+    }
+    if (!window.__rackPrSigCache) {
+      window.__rackPrSigCache = []
+    }
+    if (!window.__rackPrNode) {
+      window.__rackPrNode = []
     }
     let rpi = 0
     while (rpi < project.channels.length) {
       let rackCv = document.getElementById("rack-pr-" + String(rpi))
       if (rackCv) {
-        drawRackPianoPreview(rackCv, project.channels[rpi])
+        let rsig = rackPianoPreviewSig(project.channels[rpi])
+        if (window.__rackPrSigCache[rpi] !== rsig || window.__rackPrNode[rpi] !== rackCv) {
+          window.__rackPrSigCache[rpi] = rsig
+          window.__rackPrNode[rpi] = rackCv
+          drawRackPianoPreview(rackCv, project.channels[rpi])
+        }
       }
       rpi = rpi + 1
-    }
-    let sc = document.querySelector(".scope-canvas")
-    if (sc && audioStore.analyser) {
-      drawScopeCanvas(sc, audioStore.analyser)
     }
   }, 0)
 
@@ -124,6 +146,9 @@ export fn App() {
         let p = projectFromJson(s)
         migrateProjectGenerators(p)
         setProject(p)
+        window.__prSkipRedrawSig = null
+        window.__rackPrSigCache = []
+        window.__rackPrNode = []
         let em = emitProject(p)
         setTplText(em)
         setTimeout(() => {
@@ -142,19 +167,38 @@ export fn App() {
   fn onGain(idx, e) {
     project.channels[idx].gain = Number(e.target.value) / 100
     updateMixerFromProject(project, audioStore)
+  }
+
+  fn onGainCommit() {
     setProject(project)
   }
 
   fn onPan(idx, e) {
     project.channels[idx].pan = Number(e.target.value) / 100
     updateMixerFromProject(project, audioStore)
+  }
+
+  fn onPanCommit() {
     setProject(project)
   }
 
   let mixers = []
   let mi = 0
   while (mi < project.channels.length) {
-    mixers.push(MixerStrip(project.channels[mi], mi, mi === selectedCh, setSelectedCh, onGain, onPan, setProject, project))
+    mixers.push(
+      MixerStrip(
+        project.channels[mi],
+        mi,
+        mi === selectedCh,
+        setSelectedCh,
+        onGain,
+        onPan,
+        onGainCommit,
+        onPanCommit,
+        setProject,
+        project
+      )
+    )
     mi = mi + 1
   }
 

@@ -7,8 +7,10 @@ Minimal FL-style hybrid web DAW in **[Tish](https://github.com/tishlang/tish)** 
 Requires the `tish` CLI (from the Tish repo):
 
 ```bash
-tish compile --target js src/main.tish -o dist/bundle.js
+tish compile --target js --jsx vdom src/main.tish -o dist/bundle.js
 ```
+
+(`--jsx vdom` patches the DOM instead of replacing the whole tree, so the TPL editor, piano roll, and rack previews don’t flicker on every control tweak.)
 
 Serve the folder (e.g. `npx serve .`) and open `index.html`. Click **Play** once to unlock audio.
 

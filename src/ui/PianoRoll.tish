@@ -845,6 +845,41 @@ export fn PianoRollZoomBar(project, setProject) {
   </div>
 }
 
+export fn rackPianoPreviewSig(ch) {
+  let notes = ch.pianoNotes
+  if (!notes || notes.length === 0) {
+    return ""
+  }
+  let s = String(notes.length)
+  let ni = 0
+  while (ni < notes.length) {
+    let n = notes[ni]
+    s = s + ";" + String(n.startBeat) + "," + String(n.durBeats) + "," + String(n.pitch) + "," + String(n.vel)
+    ni = ni + 1
+  }
+  return s
+}
+
+export fn pianoRollVisualSig(project, chIdx) {
+  let z = window.__prZoomIx
+  if (z === undefined || z === null) {
+    z = 4
+  }
+  let ch = project.channels[chIdx]
+  let s = String(chIdx) + "|z" + String(z) + "|"
+  let notes = ch.pianoNotes
+  if (!notes || notes.length === 0) {
+    return s + "0"
+  }
+  let ni = 0
+  while (ni < notes.length) {
+    let n = notes[ni]
+    s = s + ";" + String(n.startBeat) + "," + String(n.durBeats) + "," + String(n.pitch) + "," + String(n.vel)
+    ni = ni + 1
+  }
+  return s
+}
+
 export fn drawRackPianoPreview(canvas, ch) {
   if (!canvas) {
     return

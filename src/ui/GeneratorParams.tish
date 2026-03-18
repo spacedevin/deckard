@@ -91,15 +91,41 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush) {
       <label class="gen-row">{"Ratio "}<input type="range" min="1" max="1600" value={String(Math.round(ratio * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.ratio = Number(e.target.value) / 100 }} onchange={commitFm} /></label>
       <label class="gen-row">{"FM index "}<input type="range" min="0" max="480" value={String(Math.round(idx * 10))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.modIndex = Number(e.target.value) / 10 }} onchange={commitFm} /></label>
       <div class="gen-row-pair">
-        <span>{"C"}</span>
-        <select value={cw} onmousedown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()} onchange={(e) => { p.carrierWave = e.target.value; setProject(project); if (tplMirrorFlush) { tplMirrorFlush() } }}>
+        <span class="gen-params-label">{"Carrier wave"}</span>
+        <select
+          class="gen-params-select"
+          value={cw}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={(e) => e.stopPropagation()}
+          onchange={(e) => {
+            p.carrierWave = e.target.value
+            setProject(project)
+            if (tplMirrorFlush) {
+              tplMirrorFlush()
+            }
+          }}
+        >
           <option value="sine">{"sine"}</option>
           <option value="square">{"square"}</option>
           <option value="sawtooth">{"saw"}</option>
           <option value="triangle">{"tri"}</option>
         </select>
-        <span>{"M"}</span>
-        <select value={mw} onmousedown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()} onchange={(e) => { p.modWave = e.target.value; setProject(project); if (tplMirrorFlush) { tplMirrorFlush() } }}>
+      </div>
+      <div class="gen-row-pair">
+        <span class="gen-params-label">{"Modulator wave"}</span>
+        <select
+          class="gen-params-select"
+          value={mw}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={(e) => e.stopPropagation()}
+          onchange={(e) => {
+            p.modWave = e.target.value
+            setProject(project)
+            if (tplMirrorFlush) {
+              tplMirrorFlush()
+            }
+          }}
+        >
           <option value="sine">{"sine"}</option>
           <option value="square">{"square"}</option>
           <option value="sawtooth">{"saw"}</option>
