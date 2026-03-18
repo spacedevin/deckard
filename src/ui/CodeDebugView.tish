@@ -1,4 +1,4 @@
-import { useState } from '../hooks.tish'
+import { useState, h, Fragment } from '../tishact/Tishact.tish'
 import { emitProject } from '../tpl/Emit.tish'
 import { applyTplSource } from '../tpl/Apply.tish'
 import { tplDocumentToHighlightHtml } from '../tpl/SongEditorHighlight.tish'

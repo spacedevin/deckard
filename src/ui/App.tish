@@ -1,4 +1,4 @@
-import { useState } from '../hooks.tish'
+import { useState, h, Fragment } from '../tishact/Tishact.tish'
 import { defaultProject, projectToJson, projectFromJson } from '../model/Project.tish'
 import { emitProject } from '../tpl/Emit.tish'
 import { CodeDebugView } from './CodeDebugView.tish'
@@ -15,8 +15,6 @@ import { drawScopeCanvas } from './Scope.tish'
 let audioStore = {}
 let playbackTimer = null
 let globalTick = 0
-let __tplMirrorTimer = null
-
 export fn App() {
   let [project, setProject] = useState(defaultProject())
   migrateProjectGenerators(project)
@@ -38,16 +36,6 @@ export fn App() {
       setTplText(e2)
     }, 0)
   }
-  fn tplMirrorSchedule() {
-    if (__tplMirrorTimer) {
-      clearTimeout(__tplMirrorTimer)
-    }
-    __tplMirrorTimer = setTimeout(() => {
-      __tplMirrorTimer = null
-      tplMirrorFlush()
-    }, 160)
-  }
-
   setTimeout(() => {
     let pr = document.querySelector(".piano-roll")
     if (pr) {
@@ -192,7 +180,7 @@ export fn App() {
         {PianoRollZoomBar(project, setProject)}
         {PianoRollCanvas(project, selectedCh, setProject, null)}
       </section>
-      {InstrumentPanel(project, selectedCh, setProject, tplMirrorSchedule, tplMirrorFlush)}
+      {InstrumentPanel(project, selectedCh, setProject, tplMirrorFlush)}
       {CodeDebugView(project, setProject, tplText, setTplText)}
       <aside class="panel mixer-panel">
         <h2>{"Mixer"}</h2>

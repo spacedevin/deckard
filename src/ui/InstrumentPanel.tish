@@ -7,6 +7,7 @@ import {
   generatorDescriptionById
 } from '../generators/Registry.tish'
 import { GeneratorParamPanel } from './GeneratorParams.tish'
+import { h, Fragment } from '../tishact/Tishact.tish'
 import {
   deepCloneParams,
   addInstrumentPreset,
@@ -14,7 +15,7 @@ import {
   ensureInstrumentPresets
 } from '../model/InstrumentPresets.tish'
 
-export fn InstrumentPanel(project, selectedCh, setProject, tplMirrorSchedule, tplMirrorFlush) {
+export fn InstrumentPanel(project, selectedCh, setProject, tplMirrorFlush) {
   ensureInstrumentPresets(project)
   let ch = project.channels[selectedCh]
   let gid = ch.generatorId
@@ -65,7 +66,7 @@ export fn InstrumentPanel(project, selectedCh, setProject, tplMirrorSchedule, tp
     <div class="gen-pick-row">{genBtns}</div>
     <p class="instr-desc">{desc}</p>
     <div class="instr-params-wrap">
-      {GeneratorParamPanel(ch, project, setProject, tplMirrorSchedule, tplMirrorFlush)}
+      {GeneratorParamPanel(ch, project, setProject, tplMirrorFlush)}
     </div>
     <div class="preset-block">
       <h3 class="preset-title">{"Presets"}</h3>

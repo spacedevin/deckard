@@ -1,3 +1,5 @@
+import { h, Fragment } from '../tishact/Tishact.tish'
+
 export fn TransportBar(bpm, playing, onPlay, onStop, onBpmInput, onExport, onImport) {
   return <div class="transport-bar">
     <button class="btn-play" onclick={onPlay} disabled={playing}>{"Play"}</button>

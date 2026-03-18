@@ -1,3 +1,5 @@
+import { h, Fragment } from '../tishact/Tishact.tish'
+
 export fn MixerStrip(ch, idx, selected, onSelect, onGain, onPan, setProject, project) {
   let selClass = selected ? " mixer-ch-sel" : ""
   return <div class={"mixer-strip" + selClass}>
