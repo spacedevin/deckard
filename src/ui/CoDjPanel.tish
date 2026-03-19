@@ -46,7 +46,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
   if (typeof window !== "undefined") {
     window.__coDjPushLog = pushLog
     window.__coDjSetProject = setProject
-    window.__coDjApplyScheduledTpl = (tpl, laneId, authorId) => {
+    window.__coDjApplyScheduledTpl = (tpl, laneId, authorId, perfStep) => {
       let p = window.__dawProject
       if (!p) {
         return
@@ -55,7 +55,15 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
       if (s.indexOf("tpl ") !== 0) {
         s = "tpl 1\n" + s
       }
-      applyCoDjTplSource(p, s, laneId, authorId)
+      let step = perfStep
+      if (step === undefined || step === null) {
+        step = typeof window.__dawPerfStep === "number" ? window.__dawPerfStep : 0
+      }
+      applyCoDjTplSource(p, s, laneId, authorId, step)
+      if (window.__tplAppendStreamedBlock) {
+        let lines = tpl.split("\n")
+        window.__tplAppendStreamedBlock(lines, step)
+      }
     }
     window.__coDjAfterScheduled = () => {
       if (window.__coDjSetProject && window.__dawProject) {
@@ -244,10 +252,14 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
         applySrc = "tpl 1\n" + applySrc
       }
       let p = window.__dawProject ? window.__dawProject : project
-      applyCoDjTplSource(p, applySrc, laneId, authorId)
+      let effStep = msg.effectivePerfStep
+      if (effStep === undefined || effStep === null) {
+        effStep = typeof window.__dawPerfStep === "number" ? window.__dawPerfStep : 0
+      }
+      applyCoDjTplSource(p, applySrc, laneId, authorId, effStep)
       setProject(p)
       if (typeof window !== "undefined" && window.__tplAppendStreamedBlock) {
-        window.__tplAppendStreamedBlock(lines)
+        window.__tplAppendStreamedBlock(lines, effStep)
       }
       if (tplMirrorFlush) {
         tplMirrorFlush()
@@ -510,12 +522,12 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
       setTimeout(() => {
         ingestCoDjMsg({
           type: "tpl.block",
-          laneId: "human",
+          laneId: "ai-a",
           authorId: "sim-full-control",
           lines: lines,
           asap: true
         })
-        pushLog("full-control wave " + String(waveIndex + 1) + " applied")
+        pushLog("full-control wave " + String(waveIndex + 1) + " applied (ai-a: only edits sim tracks)")
         if (waveIndex < 7) {
           let nextBase = 3200
           let nextProj = window.__dawProject ? window.__dawProject : proj
@@ -572,6 +584,9 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
     path = path + "/session/" + sess
     let ws = Reflect.construct(WebSocket, [path])
     ws.onopen = () => {
+      if (!Array.isArray(window.__tplSessionStream)) {
+        window.__tplSessionStream = []
+      }
       ws.send(
         '{"type":"join","role":"browser-human","laneId":"' +
           lane +

@@ -21,6 +21,7 @@ import {
 import { drawScopeCanvas } from './Scope.tish'
 import { coDjInitWebMidi } from '../codj/MidiProfiles.tish'
 import { coDjFlushScheduledForStep } from '../codj/Schedule.tish'
+import { pruneStaleTracks, coDjTrackExpirySequences } from '../codj/Prune.tish'
 
 let audioStore = {}
 let playbackTimer = null
@@ -33,20 +34,73 @@ export fn App() {
   let [selectedCh, setSelectedCh] = useState(3)
   let [playing, setPlaying] = useState(false)
   window.__dawProject = project
+  window.__dawSelectedCh = selectedCh
+  window.__dawSetSelectedCh = setSelectedCh
   if (typeof window !== "undefined") {
-    window.__tplAppendStreamedBlock = (lineArray) => {
+    window.__tplAppendStreamedBlock = (lineArray, effectivePerfStep) => {
       if (!lineArray || lineArray.length === 0) {
         return
       }
-      setTplText((prev) => {
-        let s = prev.trimEnd()
-        let sep = s.length > 0 && !s.endsWith("\n") ? "\n\n" : "\n"
-        let next = s + sep + lineArray.join("\n") + "\n"
+      let step = effectivePerfStep
+      if (step === undefined || step === null) {
+        step = typeof window.__dawPerfStep === "number" ? window.__dawPerfStep : 0
+      }
+      let streamMode =
+        window.__coDjWs && window.__coDjWs.readyState === 1 && Array.isArray(window.__tplSessionStream)
+      if (streamMode) {
+        if (!window.__tplSessionStream) {
+          window.__tplSessionStream = []
+        }
+        window.__tplSessionStream.push({ lines: lineArray, effectivePerfStep: step })
+        let parts = []
+        let pi = 0
+        while (pi < window.__tplSessionStream.length) {
+          parts.push(window.__tplSessionStream[pi].lines.join("\n"))
+          pi = pi + 1
+        }
+        let next = parts.join("\n\n") + "\n"
+        setTplText(next)
         if (window.__tplSetSongText) {
           window.__tplSetSongText(next)
         }
-        return next
-      })
+      } else {
+        setTplText((prev) => {
+          let s = prev.trimEnd()
+          let sep = s.length > 0 && !s.endsWith("\n") ? "\n\n" : "\n"
+          let next = s + sep + lineArray.join("\n") + "\n"
+          if (window.__tplSetSongText) {
+            window.__tplSetSongText(next)
+          }
+          return next
+        })
+      }
+    }
+    window.__tplConsumePlayedBlocks = (perfStep) => {
+      if (!window.__coDjWs || window.__coDjWs.readyState !== 1 || !Array.isArray(window.__tplSessionStream)) {
+        return
+      }
+      let seq = 64
+      let arr = window.__tplSessionStream
+      let keep = []
+      let j = 0
+      while (j < arr.length) {
+        if (arr[j].effectivePerfStep + seq > perfStep) {
+          keep.push(arr[j])
+        }
+        j = j + 1
+      }
+      window.__tplSessionStream = keep
+      let parts = []
+      let pi = 0
+      while (pi < keep.length) {
+        parts.push(keep[pi].lines.join("\n"))
+        pi = pi + 1
+      }
+      let next = keep.length > 0 ? parts.join("\n\n") + "\n" : ""
+      setTplText(next)
+      if (window.__tplSetSongText) {
+        window.__tplSetSongText(next)
+      }
     }
   }
 
@@ -145,6 +199,26 @@ export fn App() {
         window.__dawPerfStep = globalTick
         coDjFlushScheduledForStep(globalTick)
         transportTick(window.__dawProject, audioStore, globalTick)
+        if (globalTick % 64 === 0) {
+          let p = window.__dawProject
+          if (p && audioStore.buses) {
+            let r = pruneStaleTracks(p, audioStore, globalTick, coDjTrackExpirySequences())
+            if (r.removedCount > 0 && window.__coDjSetProject) {
+              window.__coDjSetProject(p)
+            }
+            if (
+              r.removedCount > 0 &&
+              window.__dawSetSelectedCh &&
+              typeof window.__dawSelectedCh === "number" &&
+              window.__dawSelectedCh >= p.channels.length
+            ) {
+              window.__dawSetSelectedCh(p.channels.length > 0 ? p.channels.length - 1 : 0)
+            }
+          }
+          if (window.__tplConsumePlayedBlocks) {
+            window.__tplConsumePlayedBlocks(globalTick)
+          }
+        }
         if (window.__tplSetPlaybackHighlight) {
           window.__tplSetPlaybackHighlight(globalTick % 16, true)
         }

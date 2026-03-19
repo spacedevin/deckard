@@ -130,7 +130,7 @@ export fn coDjFlushScheduledForStep(perfStep) {
         log("exec@step" + String(perfStep) + " " + it.laneId)
       }
       if (ap) {
-        ap(it.tpl, it.laneId, it.authorId)
+        ap(it.tpl, it.laneId, it.authorId, perfStep)
       }
       if (after) {
         after()

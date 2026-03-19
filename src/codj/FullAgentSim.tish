@@ -60,13 +60,6 @@ export fn coDjBuildFullControlAgentDemo(project) {
     let g0 = 0.35 + rnd(60) * 0.01
     let p0 = (rnd(21) - 10) * 0.1
     lines.push("  mix gain " + String(g0) + " pan " + String(p0))
-    if (rnd(6) === 0) {
-      lines.push("  mix mute 1")
-    } else {
-      if (rnd(8) === 0) {
-        lines.push("  mix solo 1")
-      }
-    }
     if (tplGen === "noise_burst") {
       lines.push(
         "  noise attack 0.001 decay " +

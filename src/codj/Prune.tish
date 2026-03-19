@@ -1,0 +1,80 @@
+// Prune tracks that have had no changes for X sequences (stale). Primarily for agent-added tracks.
+
+import { ensureCoDjMeta } from './CoDjMeta.tish'
+import { removeChannelBusAt } from '../audio/Engine.tish'
+
+let STEPS_PER_SEQUENCE = 64
+
+export fn coDjTrackExpirySequences() {
+  return 2
+}
+
+/** Remove channels that are stale (lastTouchedPerfStep older than expirySequences), not masterLock, and not human-owned. */
+export fn pruneStaleTracks(project, store, currentPerfStep, expirySequences) {
+  if (!project || !project.channels || project.channels.length === 0) {
+    return { removedCount: 0, newChannelCount: 0 }
+  }
+  ensureCoDjMeta(project)
+  let threshold = currentPerfStep - (expirySequences * STEPS_PER_SEQUENCE)
+  let indicesToRemove = []
+  let idsToRemove = []
+  let i = 0
+  while (i < project.channels.length) {
+    let ch = project.channels[i]
+    let meta = project.coDjMeta.tracks[ch.id]
+    if (!meta) {
+      i = i + 1
+      continue
+    }
+    if (meta.masterLock === true) {
+      i = i + 1
+      continue
+    }
+    if (meta.ownerLane === "human") {
+      i = i + 1
+      continue
+    }
+    let last = meta.lastTouchedPerfStep
+    if (typeof last !== "number") {
+      last = 0
+    }
+    if (last < threshold) {
+      indicesToRemove.push(i)
+      idsToRemove.push(ch.id)
+    }
+    i = i + 1
+  }
+  if (indicesToRemove.length === 0) {
+    return { removedCount: 0, newChannelCount: project.channels.length }
+  }
+  let k = indicesToRemove.length - 1
+  while (k >= 0) {
+    let idx = indicesToRemove[k]
+    removeChannelBusAt(store, idx)
+    project.channels.splice(idx, 1)
+    k = k - 1
+  }
+  if (project.coDjMeta && project.coDjMeta.tracks) {
+    let newTracks = {}
+    let keys = Object.keys(project.coDjMeta.tracks)
+    let ki = 0
+    while (ki < keys.length) {
+      let key = keys[ki]
+      let skip = false
+      let ri = 0
+      while (ri < idsToRemove.length) {
+        if (idsToRemove[ri] === key) {
+          skip = true
+          break
+        }
+        ri = ri + 1
+      }
+      if (!skip) {
+        newTracks[key] = project.coDjMeta.tracks[key]
+      }
+      ki = ki + 1
+    }
+    project.coDjMeta.tracks = newTracks
+  }
+  return { removedCount: indicesToRemove.length, newChannelCount: project.channels.length }
+}

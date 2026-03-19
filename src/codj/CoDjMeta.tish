@@ -14,8 +14,12 @@ export fn ensureCoDjMeta(project) {
       project.coDjMeta.tracks[id] = {
         ownerLane: "human",
         authorId: "human",
-        masterLock: false
+        masterLock: false,
+        lastTouchedPerfStep: 0
       }
+    }
+    if (typeof project.coDjMeta.tracks[id].lastTouchedPerfStep !== "number") {
+      project.coDjMeta.tracks[id].lastTouchedPerfStep = 0
     }
     ci = ci + 1
   }
@@ -23,12 +27,26 @@ export fn ensureCoDjMeta(project) {
 
 export fn setTrackOwner(project, channelId, laneId, authorId) {
   ensureCoDjMeta(project)
+  let prev = project.coDjMeta.tracks[channelId]
   project.coDjMeta.tracks[channelId] = {
     ownerLane: laneId,
     authorId: authorId,
-    masterLock: project.coDjMeta.tracks[channelId]
-      ? project.coDjMeta.tracks[channelId].masterLock
-      : false
+    masterLock: prev ? prev.masterLock : false,
+    lastTouchedPerfStep: prev && typeof prev.lastTouchedPerfStep === "number" ? prev.lastTouchedPerfStep : 0
+  }
+}
+
+export fn setTrackTouched(project, channelId, perfStep) {
+  ensureCoDjMeta(project)
+  if (!project.coDjMeta.tracks[channelId]) {
+    project.coDjMeta.tracks[channelId] = {
+      ownerLane: "human",
+      authorId: "human",
+      masterLock: false,
+      lastTouchedPerfStep: perfStep
+    }
+  } else {
+    project.coDjMeta.tracks[channelId].lastTouchedPerfStep = perfStep
   }
 }
 
@@ -38,7 +56,8 @@ export fn setMasterLock(project, channelId, locked) {
     project.coDjMeta.tracks[channelId] = {
       ownerLane: "human",
       authorId: "human",
-      masterLock: locked
+      masterLock: locked,
+      lastTouchedPerfStep: 0
     }
   } else {
     project.coDjMeta.tracks[channelId].masterLock = locked

@@ -61,6 +61,20 @@ export fn syncChannelBuses(project, store) {
   }
 }
 
+/** Disconnect one bus from the graph and remove it from store.buses. Call before splicing project.channels. */
+export fn removeChannelBusAt(store, index) {
+  if (!store.buses || index < 0 || index >= store.buses.length) {
+    return
+  }
+  let bus = store.buses[index]
+  if (bus && bus.panNode) {
+    try {
+      bus.panNode.disconnect()
+    } catch (e) {}
+  }
+  store.buses.splice(index, 1)
+}
+
 export fn updateMixerFromProject(project, store) {
   if (!store.buses) {
     return
