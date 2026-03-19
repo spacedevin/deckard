@@ -94,11 +94,13 @@ fn handleDirect(ws, msg) {
   let demo = buildDemoPatch(text)
   if (!demo) { return }
   if (ws && ws.send) {
+    let ps = (msg.perfStep != null && typeof msg.perfStep === "number") ? msg.perfStep : 0
     ws.send(JSON.stringify({
       type: "tpl.block",
       laneId: lane,
       authorId: "agent-" + lane,
       lines: demo.split("\n"),
+      effectivePerfStep: ps,
       asap: true
     }))
   }
@@ -152,7 +154,9 @@ fn run() {
     if (msg.type === "control" && msg.op === "human_play") { continue }
     if (msg.type === "control" && msg.op === "human_stop") { continue }
     if (msg.type === "direct" && msg.laneId === lane) {
+      console.log("[agent] got direct: " + (msg.text || ""))
       handleDirect(ws, msg)
+      console.log("[agent] sent tpl.block")
     }
   }
 }

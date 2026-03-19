@@ -32,6 +32,12 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
     }
     if (!window.__coDjLog) {
       window.__coDjLog = []
+      window.__coDjLogDirty = true
+    }
+    if (!window.__coDjLogSeeded) {
+      window.__coDjLogSeeded = true
+      window.__coDjLog.push(String(Date.now()).slice(-8) + " Co-DJ: Connect or run Stream/Full-control demo")
+      window.__coDjLogDirty = true
     }
   }
   fn pushLog(s) {
@@ -195,6 +201,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
       if (typeof window !== "undefined") {
         window.__coDjAgentLanes = msg.agentLanes ? msg.agentLanes : []
         let al = window.__coDjAgentLanes
+        pushLog("presence: agents " + (al.length > 0 ? al.join(",") : "none"))
         let paired = null
         if (al.length > 0) {
           let ai = 0
