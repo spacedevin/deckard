@@ -3,9 +3,6 @@ import { emitProject } from '../tpl/Emit.tish'
 import { applyTplSource } from '../tpl/Apply.tish'
 import { tplDocumentToHighlightHtml } from '../tpl/SongEditorHighlight.tish'
 
-let STREAM_REF_MAX = 24
-
-// Module-level: nested `fn` inside CodeDebugView miscompiles (body runs every render → stack overflow).
 fn flushTplSongEditorFromProject(project, setTplText) {
   let p = window.__dawProject
   if (!p) {
@@ -28,80 +25,42 @@ fn flushTplSongEditorFromProject(project, setTplText) {
 
 export fn CodeDebugView(project, setProject, tplText, setTplText) {
   let [tplErr, setTplErr] = useState("")
-  let [tplTab, setTplTab] = useState("song")
-  let [streamTick, setStreamTick] = useState(0)
+  let [tplHubTick, setTplHubTick] = useState(0)
 
   if (typeof window !== "undefined") {
     window.__tplSongEditorEcho = tplText
-    if (!window.__tplStreamRefLines) {
-      window.__tplStreamRefLines = []
-    }
-    window.__tplStreamBump = () => {
-      let n = window.__tplStreamRenderGen
-      if (!n) {
-        n = 0
-      }
-      n = n + 1
-      window.__tplStreamRenderGen = n
-      setStreamTick(n)
-    }
-    window.__tplStreamFlushCompleteLines = (lines) => {
-      let li = 0
-      while (li < lines.length) {
-        window.__tplStreamRefLines.push(lines[li])
-        li = li + 1
-      }
-      while (window.__tplStreamRefLines.length > STREAM_REF_MAX) {
-        window.__tplStreamRefLines.shift()
-      }
-      window.__tplStreamBump()
-    }
     window.__tplStreamAppendLine = (line) => {
-      window.__tplStreamRefLines.push(line)
-      while (window.__tplStreamRefLines.length > STREAM_REF_MAX) {
-        window.__tplStreamRefLines.shift()
+      let cur = ""
+      if (window.__tplGetSongText) {
+        cur = window.__tplGetSongText()
+      } else {
+        if (window.__tplTextarea) {
+          cur = window.__tplTextarea.value
+        }
       }
-      window.__tplStreamBump()
+      if (cur.length > 0 && !cur.endsWith("\n")) {
+        cur = cur + "\n"
+      }
+      let merged = cur + String(line) + "\n"
+      setTplText(merged)
+      if (window.__tplSetSongText) {
+        window.__tplSetSongText(merged)
+      } else {
+        if (window.__tplTextarea) {
+          window.__tplTextarea.value = merged
+        }
+      }
     }
-    window.__tplStreamClearRef = () => {
-      window.__tplStreamRefLines = []
-      window.__tplStreamBump()
+    if (!window.__tplHubPollIv) {
+      window.__tplHubPollIv = setInterval(() => {
+        let b = window.__tplHubPollBump
+        if (b) {
+          b()
+        }
+      }, 450)
     }
-    window.__tplStreamAppendToSong = () => {
-      let extra = window.__tplStreamRefLines.join("\n")
-      let live = ""
-      if (window.__tplStreamLive) {
-        live = window.__tplStreamLive.value
-      }
-      if (live.length > 0) {
-        if (extra.length > 0) {
-          extra = extra + "\n"
-        }
-        extra = extra + live
-      }
-      if (extra.length > 0) {
-        let cur = ""
-        if (window.__tplGetSongText) {
-          cur = window.__tplGetSongText()
-        } else {
-          if (window.__tplTextarea) {
-            cur = window.__tplTextarea.value
-          }
-        }
-        if (cur.length > 0 && !cur.endsWith("\n")) {
-          cur = cur + "\n"
-        }
-        let merged = cur + extra
-        setTplText(merged)
-        if (window.__tplSetSongText) {
-          window.__tplSetSongText(merged)
-        } else {
-          if (window.__tplTextarea) {
-            window.__tplTextarea.value = merged
-          }
-        }
-      }
-      setTplTab("song")
+    window.__tplHubPollBump = () => {
+      setTplHubTick((x) => x + 1)
     }
   }
 
@@ -179,9 +138,6 @@ export fn CodeDebugView(project, setProject, tplText, setTplText) {
   fn attachSongTextarea() {
     let slot = document.getElementById("tpl-song-textarea-slot")
     if (!slot) {
-      return
-    }
-    if (tplTab !== "song") {
       return
     }
     if (window.__tplSongMirrorTa && window.__tplSongMirrorWrap) {
@@ -262,142 +218,151 @@ export fn CodeDebugView(project, setProject, tplText, setTplText) {
     tplSongMirrorRefresh()
   }
 
-  fn attachStreamLive() {
-    if (tplTab !== "stream") {
-      return
-    }
-    let slot = document.getElementById("tpl-stream-live-slot")
-    if (!slot) {
-      return
-    }
-    if (window.__tplStreamLive) {
-      if (window.__tplStreamLive.parentNode !== slot) {
-        slot.appendChild(window.__tplStreamLive)
-      }
-      return
-    }
-    let st = document.createElement("textarea")
-    st.className = "tpl-stream-live-input"
-    st.placeholder = "Stream tokens here (newline completes a line → reference). LLM: __tplStreamAppendLine(line)."
-    st.setAttribute("spellcheck", "false")
-    st.oninput = () => {
-      if (window.__tplStreamInputInside) {
-        return
-      }
-      let v = st.value
-      let parts = v.split("\n")
-      if (parts.length <= 1) {
-        return
-      }
-      let tail = parts[parts.length - 1]
-      let ci = 0
-      let complete = []
-      while (ci < parts.length - 1) {
-        complete.push(parts[ci])
-        ci = ci + 1
-      }
-      window.__tplStreamInputInside = true
-      if (window.__tplStreamFlushCompleteLines) {
-        window.__tplStreamFlushCompleteLines(complete)
-      }
-      st.value = tail
-      window.__tplStreamInputInside = false
-    }
-    window.__tplStreamLive = st
-    slot.appendChild(st)
-  }
-
   setTimeout(() => {
     attachSongTextarea()
-    attachStreamLive()
   }, 0)
 
-  let refLines = []
-  if (typeof window !== "undefined" && window.__tplStreamRefLines) {
-    refLines = window.__tplStreamRefLines
-  }
-
-  let refEls = []
-  let ri = 0
-  while (ri < refLines.length) {
-    let rline = refLines[ri]
-    let fade = "tpl-stream-ref-line"
-    let third = Math.floor(STREAM_REF_MAX / 3)
-    if (ri < third) {
-      fade = fade + " tpl-stream-ref-old"
+  let hubOn = false
+  let hubPaired = ""
+  let localStream = ""
+  let localLane = ""
+  let remoteStream = ""
+  let remoteLane = ""
+  if (typeof window !== "undefined" && window.__coDjWs && window.__coDjWs.readyState === 1) {
+    hubOn = true
+    if (window.__coDjPairedAgentLane) {
+      hubPaired = String(window.__coDjPairedAgentLane)
     } else {
-      if (ri < third * 2) {
-        fade = fade + " tpl-stream-ref-mid"
-      } else {
-        fade = fade + " tpl-stream-ref-recent"
-      }
+      hubPaired = "none"
     }
-    refEls.push(<div class={fade}>{rline}</div>)
-    ri = ri + 1
+    if (window.__coDjLocalStreamPreview) {
+      localStream = String(window.__coDjLocalStreamPreview)
+    }
+    if (window.__coDjLocalStreamLane) {
+      localLane = String(window.__coDjLocalStreamLane)
+    }
+    if (window.__coDjStreamPreview) {
+      remoteStream = String(window.__coDjStreamPreview)
+    }
+    if (window.__coDjStreamLane) {
+      remoteLane = String(window.__coDjStreamLane)
+    }
   }
-
-  let songDisplay = "none"
-  if (tplTab === "song") {
-    songDisplay = "block"
-  }
-  let streamDisplay = "none"
-  if (tplTab === "stream") {
-    streamDisplay = "block"
-  }
-
-  let songPanel = <div class="tpl-tab-panel tpl-tab-song" style={{ display: songDisplay }}>
-    <p class="code-debug-hint">{"TPL song editor: syntax + step highlight + playback pulse (Tish-only, no extra JS files). Apply / Sync ↔ project."}</p>
-    <div class="tpl-song-editor-wrap tpl-song-editor-full">
-      <div id="tpl-song-textarea-slot" class="tpl-song-textarea-slot" />
-    </div>
-    <div class="tpl-playback-strip-wrap">
-      <span class="tpl-playback-strip-label">{"Step"}</span>
-      <div class="tpl-playback-strip">{beatCells}</div>
-    </div>
-    <div class="code-debug-actions">
-      <button type="button" class="code-debug-btn" onclick={onApply}>{"Apply TPL"}</button>
-      <button type="button" class="code-debug-btn" onclick={onSync}>{"Sync from project"}</button>
-    </div>
-  </div>
-
-  let streamPanel = <div class="tpl-tab-panel tpl-tab-stream" style={{ display: streamDisplay }}>
-      <p class="code-debug-hint">{"Real-time stream: each newline commits lines to the short reference tail (~"}{String(STREAM_REF_MAX)}{" lines). Live zone holds the partial tail. Promote appends ref+live to Song."}</p>
-      <div class="tpl-stream-ref" id="tpl-stream-ref">
-        <div class="tpl-stream-ref-label">{"Reference (recent only)"}</div>
-        {refEls.length > 0 ? refEls : <div class="tpl-stream-ref-empty">{"(no committed lines yet)"}</div>}
+  let hubBlock = null
+  if (hubOn) {
+    hubBlock = (
+      <div class="tpl-hub-stream">
+        <div class="tpl-hub-stream-head">
+          <span class="tpl-hub-badge">{"Hub"}</span>
+          <span class="tpl-hub-stream-meta">
+            {"paired "}
+            {hubPaired}
+            {" · Press Play to stream project TPL to the session"}
+          </span>
+        </div>
+        <div class="tpl-hub-stream-cols">
+          <div class="tpl-hub-stream-col">
+            <div class="tpl-hub-stream-label">
+              {"Local → hub"}
+              {localLane.length > 0 ? " (" + localLane + ")" : ""}
+            </div>
+            <pre class="tpl-hub-stream-pre">{localStream.length > 0 ? localStream : "—"}</pre>
+          </div>
+          <div class="tpl-hub-stream-col">
+            <div class="tpl-hub-stream-label">
+              {"Remote"}
+              {remoteLane.length > 0 ? " (" + remoteLane + ")" : ""}
+            </div>
+            <pre class="tpl-hub-stream-pre">{remoteStream.length > 0 ? remoteStream : "—"}</pre>
+          </div>
+        </div>
       </div>
-      <div class="tpl-stream-live-wrap">
-        <div class="tpl-stream-live-label">{"Live (streaming tokens)"}</div>
-        <div id="tpl-stream-live-slot" class="tpl-stream-live-slot" />
+    )
+  } else {
+    hubBlock = (
+      <div class="tpl-hub-offline">
+        <span class="tpl-hub-offline-label">{"Local"}</span>
+        <span class="tpl-hub-offline-hint">
+          {" — not on hub. Connect for Play→hub. TPL line stream below works offline (demos)."}
+        </span>
+      </div>
+    )
+  }
+
+  let remoteTplBuf = ""
+  let remoteTplLaneLbl = "remote"
+  let localTplBuf = ""
+  let localTplLaneLbl = ""
+  if (typeof window !== "undefined") {
+    if (window.__coDjRemoteTplStream) {
+      remoteTplBuf = String(window.__coDjRemoteTplStream)
+    }
+    if (window.__coDjRemoteTplStreamLane) {
+      remoteTplLaneLbl = String(window.__coDjRemoteTplStreamLane)
+    }
+    if (window.__coDjLocalStreamPreview) {
+      localTplBuf = String(window.__coDjLocalStreamPreview)
+    }
+    if (window.__coDjLocalStreamLane) {
+      localTplLaneLbl = String(window.__coDjLocalStreamLane)
+    }
+  }
+
+  let tplLineStream = (
+    <div class="tpl-tpl-line-stream">
+      <div class="tpl-tpl-line-stream-title">{"TPL line stream"}</div>
+      <p class="tpl-tpl-line-stream-hint">
+        {
+          "Demos emit valid TPL one line at a time (like tpl.line). Full-control sim = same, then applies that text as tpl.block."
+        }
+      </p>
+      <div class="tpl-tpl-line-stream-cols">
+        <div class="tpl-tpl-line-stream-col">
+          <div class="tpl-hub-stream-label">
+            {"Local TPL"}
+            {localTplLaneLbl.length > 0 ? " (" + localTplLaneLbl + ")" : ""}
+          </div>
+          <pre class="tpl-tpl-line-stream-pre">{localTplBuf.length > 0 ? localTplBuf : "—"}</pre>
+        </div>
+        <div class="tpl-tpl-line-stream-col">
+          <div class="tpl-hub-stream-label">
+            {"Remote TPL (" + remoteTplLaneLbl + ")"}
+          </div>
+          <pre class="tpl-tpl-line-stream-pre">{remoteTplBuf.length > 0 ? remoteTplBuf : "—"}</pre>
+        </div>
+      </div>
+    </div>
+  )
+
+  return (
+    <section class="panel code-debug-panel">
+      <h2>{"TPL"}</h2>
+      {hubBlock}
+      {tplLineStream}
+      <span class="tpl-hub-poll-anchor" style={{ display: "none" }}>
+        {String(tplHubTick)}
+      </span>
+      <p class="code-debug-hint">
+        {
+          "Song editor: Apply / Sync ↔ project. Hub row = socket byte previews when connected."
+        }
+      </p>
+      <div class="tpl-song-editor-wrap tpl-song-editor-full">
+        <div id="tpl-song-textarea-slot" class="tpl-song-textarea-slot" />
+      </div>
+      <div class="tpl-playback-strip-wrap">
+        <span class="tpl-playback-strip-label">{"Step"}</span>
+        <div class="tpl-playback-strip">{beatCells}</div>
       </div>
       <div class="code-debug-actions">
-        <button type="button" class="code-debug-btn" onclick={() => {
-          if (window.__tplStreamAppendToSong) {
-            window.__tplStreamAppendToSong()
-          }
-        }}>{"Promote to song"}</button>
-        <button type="button" class="code-debug-btn" onclick={() => {
-          if (window.__tplStreamClearRef) {
-            window.__tplStreamClearRef()
-          }
-        }}>{"Clear reference"}</button>
+        <button type="button" class="code-debug-btn" onclick={onApply}>
+          {"Apply TPL"}
+        </button>
+        <button type="button" class="code-debug-btn" onclick={onSync}>
+          {"Sync from project"}
+        </button>
       </div>
-    </div>
-
-  return <section class="panel code-debug-panel">
-    <h2>{"TPL"}</h2>
-    <div class="tpl-view-tabs">
-      <button type="button" class={tplTab === "song" ? "tpl-tab tpl-tab-active" : "tpl-tab"} onclick={() => {
-        setTplTab("song")
-        setTimeout(attachSongTextarea, 0)
-      }}>{"Song"}</button>
-      <button type="button" class={tplTab === "stream" ? "tpl-tab tpl-tab-active" : "tpl-tab"} onclick={() => {
-        setTplTab("stream")
-        setTimeout(attachStreamLive, 0)
-      }}>{"Stream"}</button>
-    </div>
-    {songPanel}
-    {streamPanel}
-    {tplErr.length > 0 ? <pre class="code-debug-errors">{tplErr}</pre> : null}
-  </section>
+      {tplErr.length > 0 ? <pre class="code-debug-errors">{tplErr}</pre> : null}
+    </section>
+  )
 }

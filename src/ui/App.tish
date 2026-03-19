@@ -33,6 +33,22 @@ export fn App() {
   let [selectedCh, setSelectedCh] = useState(3)
   let [playing, setPlaying] = useState(false)
   window.__dawProject = project
+  if (typeof window !== "undefined") {
+    window.__tplAppendStreamedBlock = (lineArray) => {
+      if (!lineArray || lineArray.length === 0) {
+        return
+      }
+      setTplText((prev) => {
+        let s = prev.trimEnd()
+        let sep = s.length > 0 && !s.endsWith("\n") ? "\n\n" : "\n"
+        let next = s + sep + lineArray.join("\n") + "\n"
+        if (window.__tplSetSongText) {
+          window.__tplSetSongText(next)
+        }
+        return next
+      })
+    }
+  }
 
   fn tplMirrorFlush() {
     try {
@@ -135,10 +151,16 @@ export fn App() {
         globalTick = globalTick + 1
       }, ms)
       setPlaying(true)
+      if (typeof window !== "undefined" && window.__coDjNotifyHumanPlay) {
+        window.__coDjNotifyHumanPlay(true)
+      }
     })
   }
 
   fn onStop() {
+    if (typeof window !== "undefined" && window.__coDjNotifyHumanPlay) {
+      window.__coDjNotifyHumanPlay(false)
+    }
     if (playbackTimer) {
       clearInterval(playbackTimer)
       playbackTimer = null
@@ -256,7 +278,13 @@ export fn App() {
       {CodeDebugView(project, setProject, tplText, setTplText)}
       <aside class="panel mixer-panel">
         <h2>{"Mixer"}</h2>
-        <canvas class="scope-canvas" width="140" height="56" />
+        <div class="scope-wrap">
+          <div class="scope-head">
+            <span class="scope-title">{"Master"}</span>
+            <span class="scope-badge">{"live"}</span>
+          </div>
+          <canvas class="scope-canvas" width="320" height="96" />
+        </div>
         <div class="mixer-strips">{mixers}</div>
       </aside>
     </div>

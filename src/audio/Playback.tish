@@ -1,11 +1,12 @@
 import { sixteenthSeconds, automationAt } from '../schedule/Engine.tish'
-import { playHitAt, channelAudible } from './Engine.tish'
+import { playHitAt, channelAudible, syncChannelBuses } from './Engine.tish'
 import { generatorChannelAtBeat } from './ParamAtBeat.tish'
 
 export fn transportTick(project, store, globalStep) {
   if (!store.ctx) {
     return
   }
+  syncChannelBuses(project, store)
   let stepInBar = globalStep % 16
   let beat = globalStep * 0.25
   let ctx = store.ctx

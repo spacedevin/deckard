@@ -29,7 +29,7 @@ The host advances **`perfStep`** in **16th-note steps** (one sequencer column pe
 | `submitDeadlinePerfStep` | optional | If host `perfStep` **exceeds** this when the message is received, **drop** (late delivery). Omit = no deadline check. |
 | `asap` | optional | If `true`, ignore schedule and apply immediately when received. |
 
-**Default agent lookahead**: `effectivePerfStep = hostPerfStep + 64` (four 4/4 bars of 16ths). Tune per session.
+**Sequence lookahead**: one sequence = **64** sixteenth steps (four 4/4 bars). Remote lanes may schedule blocks up to **4 sequences** ahead: `effectivePerfStep = hostPerfStep + 256`. Use `submitDeadlinePerfStep` at least `hostPerfStep + 384` (or omit) so delivery is not dropped while the playhead catches up.
 
 **`direct`** from browser may include **`perfStep`** (host’s current step when the human sent the message) so the agent can compute `effectivePerfStep` and deadline relative to that instant.
 

@@ -25,12 +25,20 @@ Serve the folder (e.g. `npx serve .`) and open `index.html`. Click **Play** once
 
 ## Co-DJ (WebSocket + agents)
 
+**Order:** hub → agent → browser.
+
 1. `npm install` in `services/ws-hub` and `services/agent-worker` (once).
 2. Terminal A: `npm run ws-hub` → hub on port **8765**.
-3. Terminal B: `npm run agent -- --lane ai-a` — see [services/agent-worker/README.md](services/agent-worker/README.md): set **`GRADIENT_MODEL_ACCESS_KEY`** in `.env` for AI; **`DIGITALOCEAN_API_TOKEN`** is for DO control API only, not inference.
-4. Open the app → **Co-DJ** → **Connect** (same session as agent, usually `default`) → set **Direct→** to `ai-a` → **Send test direct** (agent only runs after a direct; **Play** if you use perf-step deadlines).
+3. Terminal B: `npm run agent -- --lane ai-a` — see [services/agent-worker/README.md](services/agent-worker/README.md): set **`GRADIENT_MODEL_ACCESS_KEY`** in `.env` for AI; without it, the agent still answers the human stream with a small demo pattern.
+4. Open the app → **Co-DJ** → **Connect** (same session as the agent, usually `default`). The panel shows **Paired with ai-a** when an agent is online.
+5. **Press Play** to stream the current project as TPL lines to the agent (`human_play` + throttled `tpl.line`). The agent buffers that text and replies with streamed TPL + a **`tpl.block`** on `ai-a`. **Stop** sends `human_stop`.
+6. Optional: **Direct→** `ai-a` → **Send** for one-off natural-language edits (still works alongside streaming).
 
-**Token stream demo** (see [docs/TOKEN_STREAM_DEMO.md](docs/TOKEN_STREAM_DEMO.md)): `npm run token-demo` (after `npm install` in `services/token-stream-demo`). Streams **`tpl.stream_chunk`** then commits **`tpl.block`** (`asap`). Connect Co-DJ, **Play**, watch the live stream panel; edit **Song** on `wsdemo_k1` / `wsdemo_h1` as human to override the bot.
+**Co-DJ Stream demo** (no hub): **Stream demo** randomly picks **DJ skills** from a unified registry ([`src/codj/StreamDemo.tish`](src/codj/StreamDemo.tish))—human stream may include `bpm` / tracks / steps / mix; agent stream stays within AI-allowed TPL. It then streams **tpl.stream_chunk** + one or two queued **`tpl.block`**s (second block ~one sequence later). **Play** to hear when the playhead reaches the target steps.
+
+**Full-control sim**: streams the same patch as **TPL lines** in the TPL panel, then applies it via **`tpl.block`** on the **human** lane (full project power). **Stream demo** does the same for **ai-a** (lines → then queued blocks). No hub required to watch the line stream.
+
+**Token stream demo** (see [docs/TOKEN_STREAM_DEMO.md](docs/TOKEN_STREAM_DEMO.md)): `npm run token-demo` — hub + bot stream.
 
 Specs: [docs/WS_AND_AGENTS.md](docs/WS_AND_AGENTS.md), [docs/STREAM_PROTOCOL.md](docs/STREAM_PROTOCOL.md), [docs/AUTHOR_TAGGING.md](docs/AUTHOR_TAGGING.md), [docs/DJ_SKILLS.md](docs/DJ_SKILLS.md), [docs/CONTROLLER_PROFILES.md](docs/CONTROLLER_PROFILES.md).
 

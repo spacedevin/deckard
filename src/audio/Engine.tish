@@ -47,10 +47,25 @@ export fn ensureAudio(project, store) {
   return store
 }
 
+/** Agent / TPL can add channels after audio init; extend buses so playHitAt has a valid graph. */
+export fn syncChannelBuses(project, store) {
+  if (!store.ctx || !store.master || !store.buses) {
+    return
+  }
+  let ctx = store.ctx
+  let master = store.master
+  while (store.buses.length < project.channels.length) {
+    let idx = store.buses.length
+    let ch = project.channels[idx]
+    store.buses.push(buildChannelBus(ctx, ch, master))
+  }
+}
+
 export fn updateMixerFromProject(project, store) {
   if (!store.buses) {
     return
   }
+  syncChannelBuses(project, store)
   let mi = 0
   while (mi < project.channels.length) {
     let ch = project.channels[mi]

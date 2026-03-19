@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 /**
  * Co-DJ WebSocket hub: room per sessionId, fanout JSON messages, per-lane seq.
+ * Tracks agent lanes; joined payload includes clientId, pairedAgentLane, agentLanes.
+ * tpl.line / tpl.stream_chunk: no echo to sender.
  */
 const http = require("http");
+const crypto = require("crypto");
 const WebSocket = require("ws");
 
 const PORT = Number(process.env.CODJ_HUB_PORT || 8765);
@@ -17,6 +20,22 @@ function getRoom(sessionId) {
     });
   }
   return rooms.get(sessionId);
+}
+
+function collectAgentLanes(room) {
+  const s = new Set();
+  for (const c of room.clients) {
+    if (c.readyState !== WebSocket.OPEN) continue;
+    const j = c._codj;
+    if (j && j.role === "agent") s.add(j.laneId || "ai-a");
+  }
+  return Array.from(s).sort();
+}
+
+function pairedAgentLane(agentLanes) {
+  if (agentLanes.includes("ai-a")) return "ai-a";
+  if (agentLanes.length > 0) return agentLanes[0];
+  return null;
 }
 
 function nextSeq(room, laneId) {
@@ -76,16 +95,32 @@ wss.on("connection", (ws, _req, sessionId) => {
       joined = true;
       laneId = msg.laneId || "human";
       role = msg.role || "client";
-      ws._codj = { sessionId, laneId, role };
+      const clientId = crypto.randomUUID();
+      ws._codj = { sessionId, laneId, role, clientId };
       room.clients.add(ws);
+
+      const agentLanes = collectAgentLanes(room);
+      const paired = role === "agent" ? null : pairedAgentLane(agentLanes);
+
       ws.send(
         JSON.stringify({
           type: "joined",
           sessionId,
-          you: { laneId, role },
+          you: { laneId, role, clientId },
+          agentLanes,
+          pairedAgentLane: paired,
           replay: [],
         })
       );
+
+      if (role === "agent") {
+        const lanes = collectAgentLanes(room);
+        broadcast(
+          room,
+          { type: "presence", sessionId, agentLanes: lanes },
+          null
+        );
+      }
       return;
     }
 
@@ -94,13 +129,34 @@ wss.on("connection", (ws, _req, sessionId) => {
     const out = { ...msg, seq, sessionId };
 
     if (msg.type === "tpl.line" || msg.type === "tpl.block" || msg.type === "direct" || msg.type === "tpl.stream_chunk" || msg.type === "control") {
-      broadcast(room, out, null);
+      let noEcho = null;
+      if (
+        (msg.type === "tpl.line" || msg.type === "tpl.stream_chunk") &&
+        ws._codj &&
+        (ws._codj.role === "browser-human" || ws._codj.laneId === "human")
+      ) {
+        noEcho = ws;
+      } else if (
+        msg.type === "control" &&
+        (msg.op === "human_play" || msg.op === "human_stop") &&
+        ws._codj &&
+        ws._codj.role === "browser-human"
+      ) {
+        noEcho = ws;
+      }
+      broadcast(room, out, noEcho);
     }
   });
 
   ws.on("close", () => {
+    const wasAgent = ws._codj && ws._codj.role === "agent";
     room.clients.delete(ws);
-    if (room.clients.size === 0) rooms.delete(sessionId);
+    if (room.clients.size === 0) {
+      rooms.delete(sessionId);
+    } else if (wasAgent) {
+      const lanes = collectAgentLanes(room);
+      broadcast(room, { type: "presence", sessionId, agentLanes: lanes }, null);
+    }
   });
 });
 

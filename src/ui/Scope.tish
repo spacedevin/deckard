@@ -1,32 +1,138 @@
+// Master scope: HiDPI canvas + neon / gradient “eye candy” (not a technical meter).
+
 export fn drawScopeCanvas(canvas, analyser) {
   if (!canvas || !analyser) {
     return
   }
+  let dpr = 1
+  if (typeof window !== "undefined" && window.devicePixelRatio) {
+    dpr = window.devicePixelRatio
+  }
+  if (dpr > 2.5) {
+    dpr = 2.5
+  }
+  let cssW = canvas.offsetWidth
+  let cssH = canvas.offsetHeight
+  if (cssW < 8 || cssH < 8) {
+    let r = canvas.getBoundingClientRect()
+    cssW = Math.max(8, Math.floor(r.width))
+    cssH = Math.max(8, Math.floor(r.height))
+  }
+  if (cssW < 8 || cssH < 8) {
+    return
+  }
+  let bw = Math.max(1, Math.floor(cssW * dpr))
+  let bh = Math.max(1, Math.floor(cssH * dpr))
+  if (canvas.width !== bw || canvas.height !== bh) {
+    canvas.width = bw
+    canvas.height = bh
+  }
   let ctx2 = canvas.getContext("2d")
+  if (!ctx2) {
+    return
+  }
+  ctx2.setTransform(dpr, 0, 0, dpr, 0, 0)
+  let w = cssW
+  let h = cssH
   let n = analyser.frequencyBinCount
   let buf = jsUint8Array(n)
   analyser.getByteTimeDomainData(buf)
-  let w = canvas.width
-  let h = canvas.height
-  ctx2.fillStyle = "#0a0c10"
+  let t = 0
+  if (typeof Date !== "undefined" && Date.now) {
+    t = Date.now() / 1000
+  }
+  let cx = w * 0.5
+  let cy = h * 0.52
+  let amp = h * 0.38
+  let hue0 = (t * 38) % 360
+  let bg = ctx2.createRadialGradient(cx, cy, 0, cx, cy, Math.max(w, h) * 0.85)
+  bg.addColorStop(0, "rgba(45, 12, 62, 0.95)")
+  bg.addColorStop(0.45, "rgba(8, 14, 32, 1)")
+  bg.addColorStop(1, "rgba(4, 6, 14, 1)")
+  ctx2.fillStyle = bg
   ctx2.fillRect(0, 0, w, h)
-  ctx2.strokeStyle = "#6ae4b0"
-  ctx2.lineWidth = 1
-  ctx2.beginPath()
+  let gi = 0
+  while (gi < 5) {
+    let gy = (gi + 1) * (h / 6)
+    ctx2.strokeStyle = "rgba(120, 200, 255, 0.04)"
+    ctx2.lineWidth = 1
+    ctx2.beginPath()
+    ctx2.moveTo(0, gy)
+    ctx2.lineTo(w, gy)
+    ctx2.stroke()
+    gi = gi + 1
+  }
+  let peak = 0
+  let pi = 0
+  while (pi < n) {
+    let d = buf[pi] - 128
+    if (d < 0) {
+      d = -d
+    }
+    if (d > peak) {
+      peak = d
+    }
+    pi = pi + 1
+  }
+  let breathe = Math.sin(t * 2.4) * 0.04 + 0.96
+  let pulse = 1 + (peak / 128) * 0.35
+  let xs = []
+  let ys = []
   let i = 0
   while (i < n) {
     let v = buf[i] / 128
-    let y = v * h * 0.45 + h * 0.25
-    let x = (i / n) * w
-    if (i === 0) {
-      ctx2.moveTo(x, y)
-    } else {
-      ctx2.lineTo(x, y)
+    let jm = peak / 100
+    if (jm > 1) {
+      jm = 1
     }
+    let jitter = Math.sin(i * 0.08 + t * 6) * jm * 1.2
+    let y = cy + (v - 1) * amp * breathe + jitter
+    let x = (i / (n - 1)) * w
+    xs.push(x)
+    ys.push(y)
     i = i + 1
   }
+  let waveG = ctx2.createLinearGradient(0, 0, w, 0)
+  waveG.addColorStop(0, "hsla(" + String(Math.floor(hue0)) + ", 95%, 58%, 0.55)")
+  waveG.addColorStop(0.28, "hsla(" + String(Math.floor((hue0 + 110) % 360)) + ", 90%, 62%, 0.5)")
+  waveG.addColorStop(0.55, "hsla(" + String(Math.floor((hue0 + 220) % 360)) + ", 92%, 55%, 0.5)")
+  waveG.addColorStop(1, "hsla(" + String(Math.floor((hue0 + 300) % 360)) + ", 88%, 60%, 0.5)")
+  ctx2.beginPath()
+  ctx2.moveTo(0, h)
+  ctx2.lineTo(0, ys[0])
+  let si = 0
+  while (si < n) {
+    ctx2.lineTo(xs[si], ys[si])
+    si = si + 1
+  }
+  ctx2.lineTo(w, h)
+  ctx2.closePath()
+  ctx2.fillStyle = waveG
+  ctx2.fill()
+  ctx2.beginPath()
+  ctx2.moveTo(xs[0], ys[0])
+  let li = 1
+  while (li < n) {
+    ctx2.lineTo(xs[li], ys[li])
+    li = li + 1
+  }
+  let glow = 10 + peak * 0.15
+  ctx2.strokeStyle = "hsla(" + String(Math.floor((hue0 + 140) % 360)) + ", 100%, 78%, 0.9)"
+  ctx2.lineWidth = 2.2 * pulse
+  ctx2.lineCap = "round"
+  ctx2.lineJoin = "round"
+  ctx2.shadowColor = "hsla(" + String(Math.floor((hue0 + 180) % 360)) + ", 100%, 65%, 1)"
+  ctx2.shadowBlur = glow
   ctx2.stroke()
-  ctx2.fillStyle = "#5a6068"
-  ctx2.font = "10px sans-serif"
-  ctx2.fillText("Master waveform", 6, 12)
+  ctx2.shadowBlur = 0
+  ctx2.strokeStyle = "rgba(255, 250, 255, 0.85)"
+  ctx2.lineWidth = 0.85
+  ctx2.stroke()
+  let rim = ctx2.createLinearGradient(0, 0, w, h)
+  rim.addColorStop(0, "rgba(255, 100, 200, 0.12)")
+  rim.addColorStop(0.5, "rgba(80, 220, 255, 0.08)")
+  rim.addColorStop(1, "rgba(180, 80, 255, 0.1)")
+  ctx2.strokeStyle = rim
+  ctx2.lineWidth = 1
+  ctx2.strokeRect(0.5, 0.5, w - 1, h - 1)
 }

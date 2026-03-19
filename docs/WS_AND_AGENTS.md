@@ -30,9 +30,25 @@ Hub responds:
   "type": "joined",
   "sessionId": "...",
   "you": { "clientId": "uuid", "laneId": "ai-a" },
+  "agentLanes": ["ai-a"],
+  "pairedAgentLane": "ai-a",
   "replay": [ /* messages with seq > sinceSeq for subscribed lanes */ ]
 }
 ```
+
+- **`agentLanes`**: agent lanes currently connected in the room (e.g. `["ai-a"]`).
+- **`pairedAgentLane`**: for **human** joins, the hub picks a paired agent lane when exactly one agent is online (v1 prefers **`ai-a`**); otherwise `null`. Browsers show “No agent” until an agent connects.
+- When an agent joins or leaves, the hub broadcasts **`presence`**: `{ "type": "presence", "sessionId": "...", "agentLanes": ["ai-a"] }` so late humans update pairing.
+
+### Human TPL stream (Play)
+
+While the human is **playing**, the browser sends:
+
+1. **`control`** `{ "type": "control", "op": "human_play", "laneId": "human", "authorId": "...", "perfStep": <host 16th> }` — agent marks the session live and may run inference after buffered TPL arrives.
+2. **`tpl.line`** per emitted TPL line with **`laneId": "human"`** (throttled). The hub **does not echo** these back to the sender.
+3. **`control`** `{ "op": "human_stop", ... }` on stop — agent clears live mode.
+
+Agents append human `tpl.line` text to a rolling buffer and respond with **`tpl.stream_chunk`** then **`tpl.block`** on their lane (e.g. `ai-a`).
 
 ### 1.3 Message families
 

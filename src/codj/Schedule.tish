@@ -1,4 +1,17 @@
 // perf_step: schedule TPL for future 16th-step ticks (sequencer frame). ASAP / late-drop.
+// One "sequence" = 64 sixteenths (four 4/4 bars). Remote actors may target up to 4 sequences ahead.
+
+export fn coDjStepsPerSequence() {
+  return 64
+}
+
+export fn coDjMaxSequenceLookahead() {
+  return 4
+}
+
+export fn coDjMaxLookaheadPerfSteps() {
+  return coDjStepsPerSequence() * coDjMaxSequenceLookahead()
+}
 
 export fn coDjEnsureSchedule() {
   if (typeof window !== "undefined" && !window.__coDjScheduled) {
