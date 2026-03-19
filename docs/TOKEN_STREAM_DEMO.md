@@ -1,8 +1,8 @@
-# Token stream demo (WebSocket → hub → browser → audio)
+# Token stream demo (WebSocket → gateway → browser → audio)
 
 End-to-end flow:
 
-1. **`services/token-stream-demo`** connects to the hub as lane **`demo-stream`**.
+1. **`services/token-stream-demo`** connects to the gateway as lane **`demo-stream`**.
 2. For each cycle it sends **`tpl.stream_chunk`** (single characters) so the Co-DJ panel shows a live “token” preview.
 3. Then it sends **`tpl.block`** with **`asap: true`** so the patch applies immediately (no perf-step queue).
 4. You **Play** in the app to hear **WsKick** / **WsHat** on channel ids **`wsdemo_k1`** / **`wsdemo_h1`**.
@@ -11,8 +11,7 @@ End-to-end flow:
 
 ```bash
 # Terminal A
-cd services/ws-hub && npm install   # once
-npm run ws-hub                      # from repo root
+npm run gateway                     # from repo root (Tish gateway)
 
 # Terminal B
 cd services/token-stream-demo && npm install   # once
@@ -31,6 +30,6 @@ Open the app (e.g. `npm run serve` → http://localhost:3456), go to **Co-DJ**, 
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `CODJ_HUB` | `ws://127.0.0.1:8765` | Hub base URL |
+| `CODJ_HUB` | `ws://127.0.0.1:8765` | Gateway base URL |
 | `CODJ_SESSION` | `default` | Session id (must match browser) |
 | `TOKEN_CHUNK_MS` | `12` | Delay between stream chunks (ms) |

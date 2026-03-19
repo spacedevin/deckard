@@ -60,10 +60,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
         step = typeof window.__dawPerfStep === "number" ? window.__dawPerfStep : 0
       }
       applyCoDjTplSource(p, s, laneId, authorId, step)
-      if (window.__tplAppendStreamedBlock) {
-        let lines = tpl.split("\n")
-        window.__tplAppendStreamedBlock(lines, step)
-      }
+      // Block already in TPL stream (added when queued); do not append again.
     }
     window.__coDjAfterScheduled = () => {
       if (window.__coDjSetProject && window.__dawProject) {
@@ -241,7 +238,15 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
         return
       }
       if (r.status === "queued") {
-        pushLog("apply " + laneId + " queued @" + String(msg.effectivePerfStep))
+        let effStep = msg.effectivePerfStep
+        if (effStep === undefined || effStep === null) {
+          effStep = typeof window.__dawPerfStep === "number" ? window.__dawPerfStep : 0
+        }
+        if (typeof window !== "undefined" && window.__tplAppendStreamedBlock) {
+          window.__tplAppendStreamedBlock(lines, effStep)
+          window.__coDjStreamDirty = true
+        }
+        pushLog("apply " + laneId + " queued @" + String(effStep))
         return
       }
       if (typeof window !== "undefined") {
@@ -261,7 +266,12 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
       if (typeof window !== "undefined" && window.__tplAppendStreamedBlock) {
         window.__tplAppendStreamedBlock(lines, effStep)
       }
-      if (tplMirrorFlush) {
+      let inStreamMode =
+        typeof window !== "undefined" &&
+        window.__coDjWs &&
+        window.__coDjWs.readyState === 1 &&
+        Array.isArray(window.__tplSessionStream)
+      if (tplMirrorFlush && !inStreamMode) {
         tplMirrorFlush()
       }
       pushLog("apply " + laneId + " " + String(lines.length) + "L")
@@ -581,14 +591,16 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
     while (path.length > 0 && path.charAt(path.length - 1) === "/") {
       path = path.substring(0, path.length - 1)
     }
-    path = path + "/session/" + sess
+    // Gateway: connect to ws://host:8765 (no path); first message is join with sessionId
     let ws = Reflect.construct(WebSocket, [path])
     ws.onopen = () => {
       if (!Array.isArray(window.__tplSessionStream)) {
         window.__tplSessionStream = []
       }
       ws.send(
-        '{"type":"join","role":"browser-human","laneId":"' +
+        '{"type":"join","sessionId":"' +
+          sess +
+          '","role":"browser-human","laneId":"' +
           lane +
           '","sinceSeq":{"human":0,"ai-a":0,"ai-b":0}}'
       )

@@ -1,21 +1,22 @@
-# WebSocket hub and AI agent workers
+# WebSocket gateway and AI agent workers
 
-This document specifies how browsers and per-lane AI agents connect to a **session hub**, exchange TPL and direction text, and how agents persist memory in **SQLite + vectors**.
+This document specifies how browsers and per-lane AI agents connect to a **session gateway**, exchange TPL and direction text, and how agents persist memory in **SQLite + vectors**.
 
-## 1. Session hub
+## 1. Session gateway
 
 ### 1.1 Transport
 
-- **URL**: `ws://<host>:<port>/session/<sessionId>?token=<optional>`
-- **Framing**: each message is a **JSON object** (UTF-8 text frame). For high-volume token streams, clients may batch; hub may reject frames &gt; 256 KiB.
+- **URL**: `ws://<host>:<port>` (e.g. **ws://127.0.0.1:8765**). No path; **first message** from client must be `join` and must include **`sessionId`**.
+- **Framing**: each message is a **JSON object** (UTF-8 text frame). For high-volume token streams, clients may batch; gateway may reject frames &gt; 256 KiB.
 
 ### 1.2 Join handshake
 
-First message from client **must** be `join`:
+First message from client **must** be `join` (and must include **`sessionId`** for the gateway):
 
 ```json
 {
   "type": "join",
+  "sessionId": "default",
   "role": "browser-human | browser-viewer | agent",
   "laneId": "human | ai-a | ai-b",
   "agentId": "optional-stable-id",
@@ -23,7 +24,7 @@ First message from client **must** be `join`:
 }
 ```
 
-Hub responds:
+Gateway responds:
 
 ```json
 {
@@ -37,15 +38,15 @@ Hub responds:
 ```
 
 - **`agentLanes`**: agent lanes currently connected in the room (e.g. `["ai-a"]`).
-- **`pairedAgentLane`**: for **human** joins, the hub picks a paired agent lane when exactly one agent is online (v1 prefers **`ai-a`**); otherwise `null`. Browsers show “No agent” until an agent connects.
-- When an agent joins or leaves, the hub broadcasts **`presence`**: `{ "type": "presence", "sessionId": "...", "agentLanes": ["ai-a"] }` so late humans update pairing.
+- **`pairedAgentLane`**: for **human** joins, the gateway picks a paired agent lane when exactly one agent is online (v1 prefers **`ai-a`**); otherwise `null`. Browsers show “No agent” until an agent connects.
+- When an agent joins or leaves, the gateway broadcasts **`presence`**: `{ "type": "presence", "sessionId": "...", "agentLanes": ["ai-a"] }` so late humans update pairing.
 
 ### Human TPL stream (Play)
 
 While the human is **playing**, the browser sends:
 
 1. **`control`** `{ "type": "control", "op": "human_play", "laneId": "human", "authorId": "...", "perfStep": <host 16th> }` — agent marks the session live and may run inference after buffered TPL arrives.
-2. **`tpl.line`** per emitted TPL line with **`laneId": "human"`** (throttled). The hub **does not echo** these back to the sender.
+2. **`tpl.line`** per emitted TPL line with **`laneId": "human"`** (throttled). The gateway **does not echo** these back to the sender.
 3. **`control`** `{ "op": "human_stop", ... }` on stop — agent clears live mode.
 
 Agents append human `tpl.line` text to a rolling buffer and respond with **`tpl.stream_chunk`** then **`tpl.block`** on their lane (e.g. `ai-a`).
@@ -54,17 +55,17 @@ Agents append human `tpl.line` text to a rolling buffer and respond with **`tpl.
 
 | `type` | Direction | Fields |
 |--------|-----------|--------|
-| `tpl.line` | any → hub → fanout | `laneId`, `line`, `authorId`, `seq` (hub-assigned) |
-| `tpl.block` | any → hub | `laneId`, `lines[]`, `authorId`, optional `effectivePerfStep`, `submitDeadlinePerfStep`, `asap` — see [STREAM_PROTOCOL.md](./STREAM_PROTOCOL.md) |
-| `tpl.stream_chunk` | agent → hub → browsers | `laneId`, `chunk`, `authorId` (no seq until line commit) |
-| `direct` | browser → hub → agents | `laneId` (target), `text`, `authorId`, optional `perfStep` (host 16th index when sent) |
-| `state.snapshot` | hub or browser | `hash`, `tplPreview` (truncated), `ts` |
+| `tpl.line` | any → gateway → fanout | `laneId`, `line`, `authorId`, `seq` (hub-assigned) |
+| `tpl.block` | any → gateway | `laneId`, `lines[]`, `authorId`, optional `effectivePerfStep`, `submitDeadlinePerfStep`, `asap` — see [STREAM_PROTOCOL.md](./STREAM_PROTOCOL.md) |
+| `tpl.stream_chunk` | agent → gateway → browsers | `laneId`, `chunk`, `authorId` (no seq until line commit) |
+| `direct` | browser → gateway → agents | `laneId` (target), `text`, `authorId`, optional `perfStep` (host 16th index when sent) |
+| `state.snapshot` | gateway or browser | `hash`, `tplPreview` (truncated), `ts` |
 | `control` | master | `op`, `payload` — see [STREAM_PROTOCOL.md](./STREAM_PROTOCOL.md) |
-| `error` | hub → client | `code`, `message` |
+| `error` | gateway → client | `code`, `message` |
 
 ### 1.4 Ordering
 
-- Hub maintains **`seq` per `laneId`** (monotonic). All `tpl.line` / `tpl.block` / `direct` get a server timestamp + lane seq.
+- Gateway maintains **`seq` per `laneId`** (monotonic). All `tpl.line` / `tpl.block` / `direct` get a server timestamp + lane seq.
 - Cross-lane order is **not** total; merge rules live in the browser ([CO_DJ_SPACE.md](./CO_DJ_SPACE.md)).
 
 ### 1.5 Rooms
@@ -86,18 +87,18 @@ Agents append human `tpl.line` text to a rolling buffer and respond with **`tpl.
 
 ### 2.3 Output loop
 
-1. Stream model tokens; on each newline in output, emit `tpl.line` to hub.
+1. Stream model tokens; on each newline in output, emit `tpl.line` to gateway.
 2. Optionally emit `tpl.stream_chunk` for UI typing indicator.
-3. Validate TPL line against allowlist ([DJ_SKILLS.md](./DJ_SKILLS.md)); if invalid, log and skip or send `error` to hub.
+3. Validate TPL line against allowlist ([DJ_SKILLS.md](./DJ_SKILLS.md)); if invalid, log and skip or send `error` to gateway.
 4. For **`tpl.block`**: set **`effectivePerfStep`** to **host `perfStep` + lookahead** (default **64** sixteenths ≈ four 4/4 bars). Set **`submitDeadlinePerfStep`** to host step + slack (e.g. **48**) so the host drops the block if it arrives too late. Omit both and use **`asap: true`** for emergency edits. Alternatively put **`@ perf_step N`** as the first line of TPL (parsed by host; same as `effectivePerfStep`).
 
 ### 2.4 Reconnect
 
-- Resend `join` with `sinceSeq` from last persisted seq per lane; hub sends `replay` or worker loads from SQLite `messages`.
+- Resend `join` with `sinceSeq` from last persisted seq per lane; gateway sends `replay` or worker loads from SQLite `messages`.
 
 ## 3. SQLite + vector schema
 
-Path: e.g. `~/.tish-midi-sessions/<sessionId>.sqlite` (agent-local) or shared if hub persists.
+Path: e.g. `~/.tish-midi-sessions/<sessionId>.sqlite` (agent-local) or shared if gateway persists.
 
 ### 3.1 Tables (SQL)
 
@@ -158,7 +159,21 @@ CREATE TABLE agent_memory (
 
 ## 5. Reference implementation layout
 
-- `services/ws-hub/` — Node + `ws` package, `npm start`.
-- `services/agent-worker/` — Node; repo `.env` for **`GRADIENT_MODEL_ACCESS_KEY`** (inference), **`DIGITALOCEAN_API_TOKEN`** (DO API if needed); hub/session via flags / `CODJ_HUB`.
+- **`services/gateway/`** — Tish: `npm run gateway` (or `tish run --features ws,process services/gateway/main.tish`). Listens on **ws://127.0.0.1:8765** (or `CODJ_HUB_PORT`).
+- **`services/agent-worker/`** — Tish agent: `npm run agent` (or `tish run --features ws,http,fs,process services/agent-worker/main.tish`). For **real LLM** responses, use the Node agent (see README there) until async/LLM is wired in Tish.
 
 See repository `package.json` / README for run commands.
+
+## 6. Troubleshooting
+
+### Agent gets "HTTP error: 200 OK" when connecting
+
+The WebSocket gateway responds with **101 Switching Protocols**, not 200. A **200 OK** response means another process is handling the port (e.g. an old Node server or another HTTP server).
+
+1. **Start the gateway first**: `npm run gateway` — you should see `WebSocket server listening on ws://0.0.0.0:8765`.
+2. **Check what is using the port**: with the gateway running, run:
+   ```bash
+   lsof -i :8765
+   ```
+   You should see a single process (the `tish` gateway). If you see another process (e.g. `node`), stop it so only the gateway is listening.
+3. **Then start the agent**: `npm run agent`.

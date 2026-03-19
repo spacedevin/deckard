@@ -1,0 +1,160 @@
+// Co-DJ agent worker (Tish): connect to gateway, join as agent, handle direct (demo patches).
+// Run: tish run --features ws,http,fs,process services/agent-worker/main.tish
+// Optional: use --backend interp for future async/LLM support.
+import { WebSocket } from "tish:ws"
+import { readFile, fileExists } from "tish:fs"
+import { process } from "tish:process"
+
+fn loadDotEnv() {
+  let paths = [".env", "../../.env"]
+  let i = 0
+  while (i < paths.length) {
+    if (fileExists(paths[i])) {
+      let content = readFile(paths[i])
+      let lines = content.split("\n")
+      let j = 0
+      while (j < lines.length) {
+        let line = lines[j].trim()
+        if (line.length > 0 && line.indexOf("#") !== 0) {
+          let eq = line.indexOf("=")
+          if (eq > 0) {
+            let k = line.substring(0, eq).trim()
+            let v = line.substring(eq + 1).trim()
+            if (v.startsWith('"') && v.endsWith('"')) { v = v.substring(1, v.length - 1) }
+            if (v.startsWith("'") && v.endsWith("'")) { v = v.substring(1, v.length - 1) }
+            if (typeof process !== "undefined" && process.env) { process.env[k] = v }
+          }
+        }
+        j = j + 1
+      }
+      return
+    }
+    i = i + 1
+  }
+}
+loadDotEnv()
+
+let lane = "ai-a"
+let hub = "ws://127.0.0.1:8765"
+let session = "default"
+let argv = typeof process !== "undefined" && process.argv ? process.argv : []
+let ai = 0
+while (ai < argv.length) {
+  if (ai + 1 < argv.length && argv[ai] === "--lane") {
+    lane = argv[ai + 1]
+    ai = ai + 2
+    continue
+  }
+  if (ai + 1 < argv.length && argv[ai] === "--hub") {
+    hub = argv[ai + 1]
+    ai = ai + 2
+    continue
+  }
+  if (ai + 1 < argv.length && argv[ai] === "--session") {
+    session = argv[ai + 1]
+    ai = ai + 2
+    continue
+  }
+  ai = ai + 1
+}
+
+let DO_BASE = "https://inference.do-ai.run/v1"
+if (typeof process !== "undefined" && process.env && "DO_INFERENCE_BASE" in process.env) {
+  DO_BASE = process.env["DO_INFERENCE_BASE"]
+}
+if (DO_BASE.endsWith("/")) { DO_BASE = DO_BASE.substring(0, DO_BASE.length - 1) }
+let DO_MODEL = "llama3-8b-instruct"
+if (typeof process !== "undefined" && process.env && "DO_MODEL" in process.env) {
+  DO_MODEL = process.env["DO_MODEL"]
+}
+let GRADIENT_MODEL_ACCESS_KEY = ""
+if (typeof process !== "undefined" && process.env) {
+  if ("GRADIENT_MODEL_ACCESS_KEY" in process.env) { GRADIENT_MODEL_ACCESS_KEY = process.env["GRADIENT_MODEL_ACCESS_KEY"] }
+  else if ("MODEL_ACCESS_KEY" in process.env) { GRADIENT_MODEL_ACCESS_KEY = process.env["MODEL_ACCESS_KEY"] }
+}
+
+let AGENT_SYSTEM = "You are lane " + lane + ". Respond with valid TPL (tpl 1, track ...). No markdown."
+let TPL_DIRECT = "Output ONLY TPL lines for one track. No markdown."
+
+fn buildDemoPatch(text) {
+  let lower = text.toLowerCase()
+  if (lower.indexOf("euclid") >= 0 || lower.indexOf("hat") >= 0 || lower.indexOf("hihat") >= 0) {
+    return "tpl 1\ntrack AgentHat id " + lane + "_hat gen noise_burst\n  noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1\n  steps euclid 5 16"
+  }
+  if (lower.indexOf("bass") >= 0 || lower.indexOf("fm") >= 0) {
+    return "tpl 1\ntrack AgentBass id " + lane + "_bass gen fm\n  fm ratio 2 mod_index 5 carrier sine mod square\n  adsr a 0.01 d 0.1 s 0.3 r 0.15\n  steps x . x . x . x . x . x . x . x ."
+  }
+  return null
+}
+
+let activeWs = null
+
+fn handleDirect(ws, msg) {
+  let text = msg.text || "add hi-hat"
+  let demo = buildDemoPatch(text)
+  if (!demo) { return }
+  if (ws && ws.send) {
+    ws.send(JSON.stringify({
+      type: "tpl.block",
+      laneId: lane,
+      authorId: "agent-" + lane,
+      lines: demo.split("\n"),
+      asap: true
+    }))
+  }
+}
+
+fn connectHub() {
+  // Gateway: connect to ws URL (no path), first message is join with sessionId
+  let url = hub
+  if (url.endsWith("/")) { url = url.substring(0, url.length - 1) }
+  let ws = null
+  let tries = 0
+  while (tries < 10) {
+    ws = WebSocket(url)
+    if (ws !== null) { break }
+    tries = tries + 1
+    console.warn("[agent] connect failed, retry in 2s", url, "attempt", tries)
+    // Busy-wait ~2s (no setTimeout in VM): loop 2e6 empty iterations
+    let _w = 0
+    while (_w < 2000000) { _w = _w + 1 }
+  }
+  if (ws === null) {
+    console.warn("[agent] connect failed after retries", url)
+    return null
+  }
+  activeWs = ws
+  ws.send(JSON.stringify({ type: "join", sessionId: session, role: "agent", laneId: lane, sinceSeq: {} }))
+  console.log("joined", session, "as", lane)
+  return ws
+}
+
+fn run() {
+  let ws = connectHub()
+  if (ws === null) {
+    process.exit(1)
+  }
+  while (true) {
+    // receive() blocks up to 2s when no message, keeping the process and WebSocket alive
+    let msgObj = ws.receive()
+    if (msgObj === null) {
+      continue
+    }
+    let raw = msgObj.data
+    if (!raw) { continue }
+    let msg = null
+    try {
+      msg = JSON.parse(raw)
+    } catch (e) {
+      continue
+    }
+    if (msg.type === "joined") { continue }
+    if (msg.type === "control" && msg.op === "human_play") { continue }
+    if (msg.type === "control" && msg.op === "human_stop") { continue }
+    if (msg.type === "direct" && msg.laneId === lane) {
+      handleDirect(ws, msg)
+    }
+  }
+}
+
+run()

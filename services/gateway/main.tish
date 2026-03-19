@@ -1,0 +1,165 @@
+// Co-DJ gateway (Tish): one room per sessionId, fanout JSON, per-lane seq.
+// Connect to ws://host:8765 — first message must be join with sessionId, role, laneId.
+import { Server } from "tish:ws"
+import { process } from "tish:process"
+
+let port = 8765
+if (typeof process !== "undefined" && process.env && "CODJ_HUB_PORT" in process.env) {
+  let v = process.env["CODJ_HUB_PORT"]
+  if (v) port = parseInt(v, 10)
+}
+if (!(port >= 1 && port <= 65535)) port = 8765
+
+let server = Server({ port })
+if (server === null) {
+  console.error("gateway: failed to listen on port", port)
+  process.exit(1)
+}
+
+console.log("Co-DJ gateway ws://127.0.0.1:" + port + " — first message: join with sessionId")
+console.log("(If agent gets HTTP 200, ensure only this process uses the port: lsof -i :" + port + ")")
+
+// sessions[sessionId] = { conns: [ { ws, laneId, role, clientId } ], seq: { human: 0, "ai-a": 0, "ai-b": 0 } }
+let sessions = {}
+let allConns = []
+let handle = server._handle
+
+fn getRoom(sessionId) {
+  if (sessions[sessionId] === undefined) {
+    sessions[sessionId] = { conns: [], seq: { human: 0, "ai-a": 0, "ai-b": 0 } }
+  }
+  return sessions[sessionId]
+}
+
+fn collectAgentLanes(room) {
+  let out = []
+  let i = 0
+  while (i < room.conns.length) {
+    let c = room.conns[i]
+    if (c.role === "agent") {
+      let lid = c.laneId || "ai-a"
+      if (out.indexOf(lid) === -1) out.push(lid)
+    }
+    i = i + 1
+  }
+  return out.sort()
+}
+
+fn pairedAgentLane(agentLanes) {
+  if (agentLanes.indexOf("ai-a") >= 0) return "ai-a"
+  if (agentLanes.length > 0) return agentLanes[0]
+  return null
+}
+
+fn nextSeq(room, laneId) {
+  let lane = laneId || "human"
+  if (room.seq[lane] === undefined) room.seq[lane] = 0
+  room.seq[lane] = room.seq[lane] + 1
+  return room.seq[lane]
+}
+
+fn broadcast(room, msg, except) {
+  let s = typeof msg === "string" ? msg : JSON.stringify(msg)
+  let i = 0
+  while (i < room.conns.length) {
+    let c = room.conns[i]
+    if (c !== except && c.ws && c.ws.send) {
+      c.ws.send(s)
+    }
+    i = i + 1
+  }
+}
+
+fn removeConn(room, conn) {
+  let i = 0
+  while (i < room.conns.length) {
+    if (room.conns[i] === conn) {
+      room.conns.splice(i, 1)
+      return
+    }
+    i = i + 1
+  }
+}
+
+fn clientId() {
+  return "tish-" + Date.now() + "-" + (Math.random() * 1000000000 | 0)
+}
+
+while (true) {
+  let ws = server.acceptTimeout(100)
+  if (ws !== null) {
+    allConns.push({ ws, sessionId: null, laneId: "human", role: "unknown", clientId: null, joined: false })
+  }
+
+  let ci = 0
+  while (ci < allConns.length) {
+    let conn = allConns[ci]
+    let msgObj = conn.ws.receive()
+    let raw = null
+    if (msgObj !== null && msgObj.data !== undefined) {
+      raw = msgObj.data
+    }
+    if (raw !== null) {
+      let msg = null
+      try {
+        msg = JSON.parse(raw)
+      } catch (e) {
+        if (conn.ws.send) conn.ws.send(JSON.stringify({ type: "error", code: "BAD_JSON", message: "invalid JSON" }))
+        ci = ci + 1
+        continue
+      }
+
+      if (!conn.joined) {
+        if (msg.type !== "join") {
+          if (conn.ws.send) conn.ws.send(JSON.stringify({ type: "error", code: "JOIN_FIRST", message: "send join first" }))
+          ci = ci + 1
+          continue
+        }
+        conn.joined = true
+        conn.sessionId = msg.sessionId || "default"
+        conn.laneId = msg.laneId || "human"
+        conn.role = msg.role || "client"
+        conn.clientId = clientId()
+        let room = getRoom(conn.sessionId)
+        room.conns.push(conn)
+
+        let agentLanes = collectAgentLanes(room)
+        let paired = conn.role === "agent" ? null : pairedAgentLane(agentLanes)
+        if (conn.ws.send) {
+          conn.ws.send(JSON.stringify({
+            type: "joined",
+            sessionId: conn.sessionId,
+            you: { laneId: conn.laneId, role: conn.role, clientId: conn.clientId },
+            agentLanes,
+            pairedAgentLane: paired,
+            replay: []
+          }))
+        }
+        if (conn.role === "agent") {
+          let lanes = collectAgentLanes(room)
+          broadcast(room, { type: "presence", sessionId: conn.sessionId, agentLanes: lanes }, null)
+        }
+        ci = ci + 1
+        continue
+      }
+
+      let lane = msg.laneId || conn.laneId
+      let room = getRoom(conn.sessionId)
+      let seq = nextSeq(room, lane)
+      let out = {}
+      let keys = Object.keys(msg)
+      let ki = 0
+      while (ki < keys.length) {
+        let k = keys[ki]
+        out[k] = msg[k]
+        ki = ki + 1
+      }
+      out.seq = seq
+      out.sessionId = conn.sessionId
+      if (msg.type === "tpl.line" || msg.type === "tpl.block" || msg.type === "direct" || msg.type === "tpl.stream_chunk" || msg.type === "control") {
+        broadcast(room, out, conn)
+      }
+    }
+    ci = ci + 1
+  }
+}

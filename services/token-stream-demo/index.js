@@ -4,7 +4,7 @@
  * Human browser hears the patch; editing wsdemo_* tracks in Song as human takes ownership — stream stops changing those tracks.
  *
  * Usage: npm run token-demo
- * Requires: npm run ws-hub (session default)
+ * Requires: npm run gateway (session default)
  */
 const WebSocket = require("ws");
 
@@ -52,13 +52,14 @@ function sleep(ms) {
 }
 
 function connect() {
-  const url = hub.replace(/\/$/, "") + "/session/" + encodeURIComponent(session);
+  const url = hub.replace(/\/$/, "");
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
     ws.on("open", () => {
       ws.send(
         JSON.stringify({
           type: "join",
+          sessionId: session,
           role: "agent",
           laneId,
           sinceSeq: {},

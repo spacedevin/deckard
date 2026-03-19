@@ -37,6 +37,26 @@ export fn App() {
   window.__dawSelectedCh = selectedCh
   window.__dawSetSelectedCh = setSelectedCh
   if (typeof window !== "undefined") {
+    window.__tplEnsureStreamSeeded = () => {
+      if (
+        !window.__coDjWs ||
+        window.__coDjWs.readyState !== 1 ||
+        !Array.isArray(window.__tplSessionStream) ||
+        window.__tplSessionStream.length > 0
+      ) {
+        return
+      }
+      let cur = ""
+      if (window.__tplGetSongText) {
+        cur = window.__tplGetSongText()
+      }
+      if (!cur || cur.trim().length === 0) {
+        return
+      }
+      let lineArr = cur.split("\n")
+      let step = typeof window.__dawPerfStep === "number" ? window.__dawPerfStep : 0
+      window.__tplSessionStream.push({ lines: lineArr, effectivePerfStep: step })
+    }
     window.__tplAppendStreamedBlock = (lineArray, effectivePerfStep) => {
       if (!lineArray || lineArray.length === 0) {
         return
@@ -54,6 +74,9 @@ export fn App() {
       if (streamMode) {
         if (!window.__tplSessionStream) {
           window.__tplSessionStream = []
+        }
+        if (window.__tplEnsureStreamSeeded) {
+          window.__tplEnsureStreamSeeded()
         }
         window.__tplSessionStream.push({ lines: lineArray, effectivePerfStep: step })
         let parts = []
@@ -94,13 +117,16 @@ export fn App() {
         j = j + 1
       }
       window.__tplSessionStream = keep
+      if (keep.length === 0) {
+        return
+      }
       let parts = []
       let pi = 0
       while (pi < keep.length) {
         parts.push(keep[pi].lines.join("\n"))
         pi = pi + 1
       }
-      let next = keep.length > 0 ? parts.join("\n\n") + "\n" : ""
+      let next = parts.join("\n\n") + "\n"
       setTplText(next)
       if (window.__tplSetSongText) {
         window.__tplSetSongText(next)
