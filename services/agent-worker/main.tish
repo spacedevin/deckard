@@ -136,27 +136,34 @@ fn run() {
   if (ws === null) {
     process.exit(1)
   }
+  console.log("[agent] enter receive loop")
+  // Use receiveTimeout(500) in a loop instead of blocking receive() — keeps process alive on some runtimes
   while (true) {
-    // receive() blocks up to 2s when no message, keeping the process and WebSocket alive
-    let msgObj = ws.receive()
-    if (msgObj === null) {
-      continue
-    }
-    let raw = msgObj.data
-    if (!raw) { continue }
-    let msg = null
     try {
-      msg = JSON.parse(raw)
+      let msgObj = ws.receiveTimeout(500)
+      if (msgObj === null) {
+        continue
+      }
+      let raw = (msgObj != null && msgObj.data != null) ? msgObj.data : null
+      if (!raw) { continue }
+      let msg = null
+      try {
+        msg = JSON.parse(raw)
+      } catch (e) {
+        continue
+      }
+      if (msg == null) { continue }
+      if (msg.type === "joined") { continue }
+      if (msg.type === "presence") { continue }
+      if (msg.type === "control" && msg.op === "human_play") { continue }
+      if (msg.type === "control" && msg.op === "human_stop") { continue }
+      if (msg.type === "direct" && msg.laneId === lane) {
+        console.log("[agent] got direct: " + (msg.text || ""))
+        handleDirect(ws, msg)
+        console.log("[agent] sent tpl.block")
+      }
     } catch (e) {
-      continue
-    }
-    if (msg.type === "joined") { continue }
-    if (msg.type === "control" && msg.op === "human_play") { continue }
-    if (msg.type === "control" && msg.op === "human_stop") { continue }
-    if (msg.type === "direct" && msg.laneId === lane) {
-      console.log("[agent] got direct: " + (msg.text || ""))
-      handleDirect(ws, msg)
-      console.log("[agent] sent tpl.block")
+      console.warn("[agent] loop error", e)
     }
   }
 }
