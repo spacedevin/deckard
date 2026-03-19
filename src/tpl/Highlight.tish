@@ -28,7 +28,7 @@ export fn isStepToken(s) {
   return s === "x" || s === "X" || s === "." || s === "1" || s === "0"
 }
 
-// Returns { kind: "steps" | "keyword" | "plain", tokens: [...], stepIndices: [0..15] for steps lines }.
+// Returns { kind: "steps" | "note" | "keyword" | "plain", tokens: [...], stepIndices: [0..15] for steps lines }.
 export fn classifyLine(line) {
   let t = line.trim()
   if (t.length === 0) {
@@ -49,6 +49,9 @@ export fn classifyLine(line) {
       i = i + 1
     }
     return { kind: "steps", tokens: toks, stepIndices: stepIndices }
+  }
+  if (first === "note") {
+    return { kind: "note", tokens: toks, stepIndices: [] }
   }
   if (isKeyword(first)) {
     return { kind: "keyword", tokens: toks, stepIndices: [] }

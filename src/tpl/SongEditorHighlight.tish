@@ -67,7 +67,11 @@ fn highlightCoreHtml(core, indentStr, tailStr, activeStep, playing) {
     let inner = escapeHtml(tok)
     let slotStr = stepSlotOfTok[String(ti)]
     if (ti === 0 && isKeyword(tok)) {
-      inner = "<span class=\"tpl-hl-kw\">" + inner + "</span>"
+      let kwClass = "tpl-hl-kw"
+      if (cl.kind === "note") {
+        kwClass = kwClass + " tpl-hl-note"
+      }
+      inner = "<span class=\"" + kwClass + "\">" + inner + "</span>"
     } else {
       if (cl.kind === "steps" && slotStr !== undefined && slotStr !== null) {
         let slot = slotStr
@@ -91,9 +95,16 @@ fn highlightCoreHtml(core, indentStr, tailStr, activeStep, playing) {
   return html
 }
 
-export fn tplDocumentToHighlightHtml(source, playbackStep, playing) {
+export fn tplDocumentToHighlightHtml(source, playbackStep, playing, lastAppliedLineCount, lastAppliedAt) {
   let active = Math.floor(playbackStep) % 16
   let lines = source.split("\n")
+  let totalLines = lines.length
+  let now = typeof Date !== "undefined" && Date.now ? Date.now() : 0
+  let updatedWindowMs = 32000
+  let isRecentlyApplied =
+    lastAppliedLineCount > 0 &&
+    lastAppliedAt > 0 &&
+    (now - lastAppliedAt) < updatedWindowMs
   let li = 0
   let out = ""
   while (li < lines.length) {
@@ -107,10 +118,17 @@ export fn tplDocumentToHighlightHtml(source, playbackStep, playing) {
     }
     let ic = lineIndentAndCore(main)
     let indentStr = main.substring(0, ic.indent)
+    let lineInLastBlock = isRecentlyApplied && (totalLines - li) <= lastAppliedLineCount
+    let lineClass = "tpl-hl-line"
+    if (lineInLastBlock) {
+      lineClass = lineClass + " tpl-hl-updated"
+    }
+    out = out + "<span class=\"" + lineClass + "\">"
     out = out + highlightCoreHtml(ic.core, indentStr, ic.tail, active, playing)
     if (com.length > 0) {
       out = out + "<span class=\"tpl-hl-comment\">" + escapeHtml(com) + "</span>"
     }
+    out = out + "</span>"
     if (li < lines.length - 1) {
       out = out + "\n"
     }

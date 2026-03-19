@@ -128,11 +128,29 @@ export fn CodeDebugView(project, setProject, tplText, setTplText) {
     if (!pre || !ta) {
       return
     }
+    let src = ta.value
     let st = 0
     if (typeof window.__dawPlaybackStep === "number") {
       st = window.__dawPlaybackStep
     }
-    pre.innerHTML = tplDocumentToHighlightHtml(ta.value, st, !!window.__dawPlaying)
+    if (
+      typeof window !== "undefined" &&
+      window.__tplLastHighlightSource === src &&
+      window.__tplLastHighlightPlaybackStep === st
+    ) {
+      return
+    }
+    if (typeof window !== "undefined") {
+      window.__tplLastHighlightSource = src
+      window.__tplLastHighlightPlaybackStep = st
+    }
+    let n = 0
+    let t = 0
+    if (typeof window !== "undefined") {
+      n = window.__tplLastAppliedLineCount ? window.__tplLastAppliedLineCount : 0
+      t = window.__tplLastAppliedAt ? window.__tplLastAppliedAt : 0
+    }
+    pre.innerHTML = tplDocumentToHighlightHtml(src, st, !!window.__dawPlaying, n, t)
   }
 
   fn attachSongTextarea() {
@@ -159,7 +177,15 @@ export fn CodeDebugView(project, setProject, tplText, setTplText) {
           if (typeof window.__dawPlaybackStep === "number") {
             st = window.__dawPlaybackStep
           }
-          pre.innerHTML = tplDocumentToHighlightHtml(ta.value, st, !!window.__dawPlaying)
+          let n = 0
+          let t = 0
+          if (typeof window !== "undefined") {
+            window.__tplLastHighlightSource = s
+            window.__tplLastHighlightPlaybackStep = st
+            n = window.__tplLastAppliedLineCount ? window.__tplLastAppliedLineCount : 0
+            t = window.__tplLastAppliedAt ? window.__tplLastAppliedAt : 0
+          }
+          pre.innerHTML = tplDocumentToHighlightHtml(s, st, !!window.__dawPlaying, n, t)
         }
       }
       window.__tplDispatchPlaybackHighlight = () => {

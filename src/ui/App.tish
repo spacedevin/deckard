@@ -41,6 +41,10 @@ export fn App() {
       if (!lineArray || lineArray.length === 0) {
         return
       }
+      if (typeof window !== "undefined") {
+        window.__tplLastAppliedLineCount = lineArray.length
+        window.__tplLastAppliedAt = typeof Date !== "undefined" && Date.now ? Date.now() : 0
+      }
       let step = effectivePerfStep
       if (step === undefined || step === null) {
         step = typeof window.__dawPerfStep === "number" ? window.__dawPerfStep : 0
@@ -135,6 +139,33 @@ export fn App() {
       }
     }
   }
+
+  fn syncProjectToTplEditor(p) {
+    try {
+      let e = emitProject(p)
+      setTplText(e)
+      if (typeof window !== "undefined") {
+        if (window.__tplSetSongText) {
+          window.__tplSetSongText(e)
+        }
+        window.__tplLastHighlightSource = null
+      }
+    } catch (err) {
+      if (typeof console !== "undefined" && console.warn) {
+        console.warn("syncProjectToTplEditor", err)
+      }
+    }
+  }
+
+  fn setProjectFromUI(p) {
+    setProject(p)
+    setTimeout(() => {
+      let proj = window.__dawProject
+      if (proj) {
+        syncProjectToTplEditor(proj)
+      }
+    }, 0)
+  }
   setTimeout(() => {
     coDjInitWebMidi(project, setProject)
   }, 100)
@@ -145,9 +176,9 @@ export fn App() {
       if (window.__prSkipRedrawSig !== sig || window.__prSkipRedrawEl !== pr) {
         window.__prSkipRedrawSig = sig
         window.__prSkipRedrawEl = pr
-        attachPianoRoll(pr, project, selectedCh, setProject)
+        attachPianoRoll(pr, project, selectedCh, setProjectFromUI)
       } else {
-        window.__prCtx = { canvas: pr, project: project, chIdx: selectedCh, setProject: setProject }
+        window.__prCtx = { canvas: pr, project: project, chIdx: selectedCh, setProject: setProjectFromUI }
         window.__prChIdx = selectedCh
       }
     }
@@ -250,7 +281,7 @@ export fn App() {
     let v = Number(e.target.value)
     if (v >= 40 && v <= 240) {
       project.bpm = v
-      setProject(project)
+      setProjectFromUI(project)
     }
   }
 
@@ -293,7 +324,7 @@ export fn App() {
   }
 
   fn onGainCommit() {
-    setProject(project)
+    setProjectFromUI(project)
   }
 
   fn onPan(idx, e) {
@@ -302,7 +333,7 @@ export fn App() {
   }
 
   fn onPanCommit() {
-    setProject(project)
+    setProjectFromUI(project)
   }
 
   let mixers = []
@@ -318,7 +349,7 @@ export fn App() {
         onPan,
         onGainCommit,
         onPanCommit,
-        setProject,
+        setProjectFromUI,
         project
       )
     )
@@ -328,7 +359,7 @@ export fn App() {
   let channels = []
   let ci = 0
   while (ci < project.channels.length) {
-    channels.push(ChannelRow(project.channels[ci], ci, project, setProject, ci === selectedCh, setSelectedCh))
+    channels.push(ChannelRow(project.channels[ci], ci, project, setProjectFromUI, ci === selectedCh, setSelectedCh))
     ci = ci + 1
   }
 
@@ -344,10 +375,10 @@ export fn App() {
       </section>
       <section class="panel piano-panel">
         <h2>{"Piano roll (channel "}{String(selectedCh + 1)}{")"}</h2>
-        {PianoRollZoomBar(project, setProject)}
-        {PianoRollCanvas(project, selectedCh, setProject, null)}
+        {PianoRollZoomBar(project, setProjectFromUI)}
+        {PianoRollCanvas(project, selectedCh, setProjectFromUI, null)}
       </section>
-      {InstrumentPanel(project, selectedCh, setProject, tplMirrorFlush)}
+      {InstrumentPanel(project, selectedCh, setProjectFromUI, tplMirrorFlush)}
       {CoDjPanel(project, setProject, tplMirrorFlush)}
       {CodeDebugView(project, setProject, tplText, setTplText)}
       <aside class="panel mixer-panel">
