@@ -16,8 +16,8 @@ if (server === null) {
   process.exit(1)
 }
 
-console.log("Co-DJ gateway ws://127.0.0.1:" + port + " — first message: join with sessionId")
-console.log("(If agent gets HTTP 200, ensure only this process uses the port: lsof -i :" + port + ")")
+console.log("[gateway] listening ws://0.0.0.0:" + port + " — first message: join with sessionId")
+console.log("[gateway] (If agent gets HTTP 200, ensure only this process uses the port: lsof -i :" + port + ")")
 
 // rooms: array of { id, conns, seq }; lookup by id
 let rooms = []
@@ -81,7 +81,7 @@ fn clientId() {
 while (true) {
   let ws = server.acceptTimeout(server, 50)
   if (ws !== null) {
-    console.log("[gateway] new connection")
+    console.log("[gateway] WS connection accepted (handshake OK), awaiting join")
     allConns.push({ ws, sessionId: null, laneId: "human", role: "unknown", clientId: null, joined: false })
   }
 
@@ -112,6 +112,7 @@ while (true) {
             if (room != null) {
               room.conns.push(conn)
               console.log("[gateway] joined session=" + conn.sessionId + " role=" + conn.role + " laneId=" + conn.laneId)
+              console.log("[gateway] sent joined to role=" + conn.role + " laneId=" + conn.laneId)
               let agentLanes = collectAgentLanes(room)
               let paired = conn.role === "agent" ? null : pairedAgentLane(agentLanes)
               if (conn.ws.send) {

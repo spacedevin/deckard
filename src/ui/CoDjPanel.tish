@@ -337,6 +337,9 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
     }
     let t = msg.type
     if (t === "joined") {
+      if (typeof console !== "undefined" && console.log) {
+        console.log("[Co-DJ] joined", msg.you, "paired=", msg.pairedAgentLane)
+      }
       if (typeof window !== "undefined") {
         if (msg.you && msg.you.clientId) {
           window.__coDjClientId = msg.you.clientId
@@ -599,8 +602,16 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
       path = path.substring(0, path.length - 1)
     }
     // Gateway: connect to ws://host:8765 (no path); first message is join with sessionId
+    pushLog("connecting to " + path)
+    if (typeof console !== "undefined" && console.log) {
+      console.log("[Co-DJ] connecting", path)
+    }
     let ws = Reflect.construct(WebSocket, [path])
     ws.onopen = () => {
+      if (typeof console !== "undefined" && console.log) {
+        console.log("[Co-DJ] ws onopen")
+      }
+      pushLog("ws open (handshake OK)")
       if (!Array.isArray(window.__tplSessionStream)) {
         window.__tplSessionStream = []
       }
@@ -611,13 +622,20 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
           lane +
           '","sinceSeq":{"human":0,"ai-a":0,"ai-b":0}}'
       )
-      pushLog("connected")
     }
     ws.onmessage = handleWsMessage
     ws.onerror = () => {
+      if (typeof console !== "undefined" && console.log) {
+        console.log("[Co-DJ] ws error")
+      }
       pushLog("ws error")
     }
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
+      if (typeof console !== "undefined" && console.log) {
+        let code = ev && ev.code != null ? ev.code : "?"
+        let reason = ev && ev.reason ? ev.reason : ""
+        console.log("[Co-DJ] ws closed", code, reason)
+      }
       pushLog("closed")
     }
     if (typeof window !== "undefined") {

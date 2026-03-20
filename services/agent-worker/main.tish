@@ -113,6 +113,7 @@ fn connectHub() {
   let ws = null
   let tries = 0
   while (tries < 10) {
+    console.log("[agent] connecting to " + url)
     ws = WebSocket(url)
     if (ws !== null) { break }
     tries = tries + 1
@@ -126,8 +127,9 @@ fn connectHub() {
     return null
   }
   activeWs = ws
+  console.log("[agent] WebSocket connected (handshake OK), sending join")
   ws.send(JSON.stringify({ type: "join", sessionId: session, role: "agent", laneId: lane, sinceSeq: {} }))
-  console.log("joined", session, "as", lane)
+  console.log("[agent] joined " + session + " as " + lane)
   return ws
 }
 
@@ -137,33 +139,35 @@ fn run() {
     process.exit(1)
   }
   console.log("[agent] enter receive loop")
+  let joinedLogged = false
   // Use receiveTimeout(500) in a loop instead of blocking receive() — keeps process alive on some runtimes
   while (true) {
+    let msgObj = null
     try {
-      let msgObj = ws.receiveTimeout(500)
-      if (msgObj === null) {
-        continue
-      }
-      let raw = (msgObj != null && msgObj.data != null) ? msgObj.data : null
-      if (!raw) { continue }
-      let msg = null
-      try {
-        msg = JSON.parse(raw)
-      } catch (e) {
-        continue
-      }
-      if (msg == null) { continue }
-      if (msg.type === "joined") { continue }
-      if (msg.type === "presence") { continue }
-      if (msg.type === "control" && msg.op === "human_play") { continue }
-      if (msg.type === "control" && msg.op === "human_stop") { continue }
-      if (msg.type === "direct" && msg.laneId === lane) {
-        console.log("[agent] got direct: " + (msg.text || ""))
-        handleDirect(ws, msg)
-        console.log("[agent] sent tpl.block")
-      }
+      msgObj = ws.receiveTimeout(500)
     } catch (e) {
       console.warn("[agent] loop error", e)
+    }
+    if (msgObj === null) { }
+    else {
+      let raw = (msgObj != null && msgObj.data != null) ? msgObj.data : null
+      if (!raw) { }
+      else {
+        let msg = null
+        try {
+          msg = JSON.parse(raw)
+        } catch (e) {
+        }
+        if (msg != null && msg.type === "direct" && msg.laneId === lane) {
+          console.log("[agent] got direct: " + (msg.text || ""))
+          handleDirect(ws, msg)
+          console.log("[agent] sent tpl.block")
+        }
+        else if (msg != null && msg.type === "joined" && !joinedLogged) {
+          joinedLogged = true
+          console.log("[agent] received joined, ready")
+        }
+      }
     }
   }
 }
