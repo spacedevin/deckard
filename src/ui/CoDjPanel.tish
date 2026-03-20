@@ -583,6 +583,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
     scheduleOneFullControlWave(p, 0, 40)
   }
   fn connectWs() {
+    let sock = null
     let base = "ws://127.0.0.1:8765"
     let sess = "default"
     let lane = "human"
@@ -606,8 +607,11 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
     if (typeof console !== "undefined" && console.log) {
       console.log("[Co-DJ] connecting", path)
     }
-    let ws = Reflect.construct(WebSocket, [path])
-    ws.onopen = () => {
+    sock = Reflect.construct(WebSocket, [path])
+    if (typeof window !== "undefined") {
+      window.__coDjWs = sock
+    }
+    sock.onopen = () => {
       if (typeof console !== "undefined" && console.log) {
         console.log("[Co-DJ] ws onopen")
       }
@@ -615,31 +619,30 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
       if (!Array.isArray(window.__tplSessionStream)) {
         window.__tplSessionStream = []
       }
-      ws.send(
-        '{"type":"join","sessionId":"' +
-          sess +
-          '","role":"browser-human","laneId":"' +
-          lane +
-          '","sinceSeq":{"human":0,"ai-a":0,"ai-b":0}}'
-      )
+      if (sock && sock.send) {
+        sock.send(
+          '{"type":"join","sessionId":"' +
+            sess +
+            '","role":"browser-human","laneId":"' +
+            lane +
+            '","sinceSeq":{"human":0,"ai-a":0,"ai-b":0}}'
+        )
+      }
     }
-    ws.onmessage = handleWsMessage
-    ws.onerror = () => {
+    sock.onmessage = handleWsMessage
+    sock.onerror = () => {
       if (typeof console !== "undefined" && console.log) {
         console.log("[Co-DJ] ws error")
       }
       pushLog("ws error")
     }
-    ws.onclose = (ev) => {
+    sock.onclose = (ev) => {
       if (typeof console !== "undefined" && console.log) {
         let code = ev && ev.code != null ? ev.code : "?"
         let reason = ev && ev.reason ? ev.reason : ""
         console.log("[Co-DJ] ws closed", code, reason)
       }
       pushLog("closed")
-    }
-    if (typeof window !== "undefined") {
-      window.__coDjWs = ws
     }
   }
   fn disconnectWs() {
