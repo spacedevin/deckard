@@ -1,16 +1,16 @@
-// Co-DJ gateway (Tish): one room per sessionId, fanout JSON, per-lane seq.
-// Connect to ws://host:8765 — first message must be join with sessionId, role, laneId.
+// Co-DJ gateway (Tish): one room per sessionId, fanout JSON, per-actor seq.
+// Connect to ws://host:35987 (or CODJ_HUB_PORT) — first message must be join with sessionId, actorId, channelIds, skillIds.
 // Node.js ws-compatible API: Server.clients
 // wsBroadcast does send in Rust — avoids Tish Call opcode for method/native in loop
 import { Server, wsSend, wsBroadcast } from "tish:ws"
 import { process } from "tish:process"
 
-let port = 8765
+let port = 35987
 if (process != null && process.env && "CODJ_HUB_PORT" in process.env) {
   let v = process.env["CODJ_HUB_PORT"]
   if (v) port = parseInt(v, 10)
 }
-if (!(port >= 1 && port <= 65535)) port = 8765
+if (!(port >= 1 && port <= 65535)) port = 35987
 
 let server = Server({ port })
 if (server === null) {
@@ -18,10 +18,10 @@ if (server === null) {
   process.exit(1)
 }
 
-console.log("[gateway] listening ws://0.0.0.0:" + port + " — first message: join with sessionId")
+console.log("[gateway] listening ws://0.0.0.0:" + port + " — first message: join with sessionId, actorId")
 console.log("[gateway] (If agent gets HTTP 200, ensure only this process uses the port: lsof -i :" + port + ")")
 
-// rooms: array of { id, conns, seq }; lookup by id
+// rooms: array of { id, conns, seq }; seq per actorId (dynamic keys)
 let rooms = []
 let allConns = []
 
@@ -31,43 +31,38 @@ fn getRoom(sessionId) {
     if (rooms[i].id === sessionId) return rooms[i]
     i = i + 1
   }
-  let r = { id: sessionId, conns: [], seq: { human: 0, "ai-a": 0, "ai-b": 0 } }
+  let r = { id: sessionId, conns: [], seq: {} }
   rooms.push(r)
   return r
 }
 
-fn collectAgentLanes(room) {
+fn collectActors(room) {
   let out = []
   let i = 0
   while (i < room.conns.length) {
     let c = room.conns[i]
-    if (c.role === "agent") {
-      let lid = c.laneId || "ai-a"
-      if (out.indexOf(lid) === -1) out.push(lid)
-    }
+    let aid = c.actorId
+    if (aid && out.indexOf(aid) === -1) out.push(aid)
     i = i + 1
   }
   return out.sort()
 }
 
-fn pairedAgentLane(agentLanes) {
-  if (agentLanes.indexOf("ai-a") >= 0) return "ai-a"
-  if (agentLanes.length > 0) return agentLanes[0]
-  return null
-}
-
-fn nextSeq(room, laneId) {
-  let lane = laneId || "human"
-  if (room.seq[lane] == null) room.seq[lane] = 0
-  room.seq[lane] = room.seq[lane] + 1
-  return room.seq[lane]
+fn nextSeq(room, actorId) {
+  if (actorId == null || actorId === "") actorId = "unknown"
+  if (room.seq[actorId] == null) room.seq[actorId] = 0
+  room.seq[actorId] = room.seq[actorId] + 1
+  return room.seq[actorId]
 }
 
 // Node.js pattern: wss.clients.forEach(client => client.send(data))
 // wsBroadcast(conns, except, data) does this in Rust to avoid Call-of-non-function bug
 fn broadcast(room, msg, except) {
   let s = typeof msg === "string" ? msg : JSON.stringify(msg)
-  wsBroadcast(room.conns, except, s)
+  let n = wsBroadcast(room.conns, except, s)
+  if (msg != null && typeof msg === "object" && msg.type === "presence") {
+    console.log("[gateway] broadcast presence -> " + String(n) + " recipients (room has " + String(room.conns.length) + " conns)")
+  }
 }
 
 fn clientId() {
@@ -79,7 +74,7 @@ while (true) {
   let ws = server.acceptTimeout(server, 50)
   if (ws !== null) {
     console.log("[gateway] WS connection accepted (handshake OK), awaiting join")
-    allConns.push({ ws, sessionId: null, laneId: "human", role: "unknown", clientId: null, joined: false })
+    allConns.push({ ws, sessionId: null, actorId: null, channelIds: [], skillIds: [], clientId: null, joined: false })
   }
 
   let ci = 0
@@ -100,42 +95,47 @@ while (true) {
       if (msg != null) {
         if (!conn.joined) {
           if (msg.type === "join") {
-            conn.joined = true
-            conn.sessionId = (typeof msg.sessionId === "string" && msg.sessionId !== "") ? msg.sessionId : "default"
-            conn.laneId = (typeof msg.laneId === "string" && msg.laneId !== "") ? msg.laneId : "human"
-            conn.role = (typeof msg.role === "string" && msg.role !== "") ? msg.role : "client"
-            conn.clientId = clientId()
-            let room = getRoom(conn.sessionId)
-            if (room != null) {
-              room.conns.push(conn)
-              console.log("[gateway] joined session=" + conn.sessionId + " role=" + conn.role + " laneId=" + conn.laneId)
-              console.log("[gateway] sent joined to role=" + conn.role + " laneId=" + conn.laneId)
-              let agentLanes = collectAgentLanes(room)
-              let paired = conn.role === "agent" ? null : pairedAgentLane(agentLanes)
-              if (conn.ws != null) {
-                wsSend(conn.ws, JSON.stringify({
-                  type: "joined",
-                  sessionId: conn.sessionId,
-                  you: { laneId: conn.laneId, role: conn.role, clientId: conn.clientId },
-                  agentLanes,
-                  pairedAgentLane: paired,
-                  replay: []
-                }))
-              }
-              if (conn.role === "agent") {
-                let lanes = collectAgentLanes(room)
-                broadcast(room, { type: "presence", sessionId: conn.sessionId, agentLanes: lanes }, null)
+            let aid = null
+            if ("actorId" in msg) {
+              let v = msg["actorId"]
+              if (typeof v === "string" && v !== "") aid = v
+            }
+            if (!aid) {
+              if (conn.ws != null) wsSend(conn.ws, JSON.stringify({ type: "error", code: "JOIN_BAD", message: "actorId required" }))
+            } else {
+              conn.joined = true
+              conn.sessionId = (typeof msg.sessionId === "string" && msg.sessionId !== "") ? msg.sessionId : "default"
+              conn.actorId = aid
+              conn.channelIds = ("channelIds" in msg && Array.isArray(msg["channelIds"]) && msg["channelIds"].length > 0) ? msg["channelIds"] : ["default"]
+              conn.skillIds = ("skillIds" in msg && Array.isArray(msg["skillIds"])) ? msg["skillIds"] : []
+              conn.clientId = clientId()
+              let room = getRoom(conn.sessionId)
+              if (room != null) {
+                room.conns.push(conn)
+                console.log("[gateway] joined session=" + conn.sessionId + " actorId=" + conn.actorId)
+                let actors = collectActors(room)
+                if (conn.ws != null) {
+                  wsSend(conn.ws, JSON.stringify({
+                    type: "joined",
+                    sessionId: conn.sessionId,
+                    you: { actorId: conn.actorId, clientId: conn.clientId, channelIds: conn.channelIds },
+                    actors,
+                    replay: []
+                  }))
+                }
+                console.log("[gateway] presence update: actors=" + JSON.stringify(actors) + " session=" + conn.sessionId)
+                broadcast(room, { type: "presence", sessionId: conn.sessionId, actors }, null)
               }
             }
           } else {
             if (conn.ws != null) wsSend(conn.ws, JSON.stringify({ type: "error", code: "JOIN_FIRST", message: "send join first" }))
           }
         } else {
-          console.log("[gateway] recv " + msg.type + " from " + conn.laneId)
-          let lane = (typeof msg.laneId === "string" && msg.laneId !== "") ? msg.laneId : conn.laneId
+          console.log("[gateway] recv " + msg.type + " from " + conn.actorId)
+          let actorId = conn.actorId
           let room = getRoom(conn.sessionId)
           if (room != null) {
-            let seq = nextSeq(room, lane)
+            let seq = nextSeq(room, actorId)
             let out = {}
             let keys = Object.keys(msg)
             let ki = 0
@@ -146,7 +146,8 @@ while (true) {
             }
             out.seq = seq
             out.sessionId = conn.sessionId
-            if (msg.type === "tpl.line" || msg.type === "tpl.block" || msg.type === "direct" || msg.type === "tpl.stream_chunk") {
+            out.actorId = actorId
+            if (msg.type === "tpl.line" || msg.type === "tpl.block" || msg.type === "direct" || msg.type === "tpl.stream_chunk" || msg.type === "control") {
               let n = 0
               let bi = 0
               while (bi < room.conns.length) {

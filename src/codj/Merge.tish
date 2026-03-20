@@ -1,4 +1,4 @@
-// Apply TPL from a lane with ownership / master-lock rules.
+// Apply TPL from an actor with ownership / master-lock rules.
 
 import { makeChannel, defaultParamsForGeneratorId } from '../model/Project.tish'
 import { parseProgram } from '../tpl/Parser.tish'
@@ -6,10 +6,7 @@ import { applyTrackBody, applyAutos } from '../tpl/Apply.tish'
 import { findChannelById } from '../tpl/Apply.tish'
 import { ensureCoDjMeta, setTrackOwner, setTrackTouched } from './CoDjMeta.tish'
 
-export fn laneMayEditTrack(project, channelId, laneId, isNewTrack) {
-  if (laneId === "human") {
-    return true
-  }
+export fn actorMayEditTrack(project, channelId, actorId, isNewTrack) {
   ensureCoDjMeta(project)
   let t = project.coDjMeta.tracks[channelId]
   if (!t) {
@@ -18,13 +15,19 @@ export fn laneMayEditTrack(project, channelId, laneId, isNewTrack) {
   if (t.masterLock) {
     return false
   }
-  if (t.ownerLane === laneId) {
+  if (t.ownerActorId === actorId) {
     return true
   }
   return false
 }
 
-export fn applyCoDjTplSource(project, source, laneId, authorId, currentPerfStep) {
+/** True if actor has master_mixer (bpm, autos). Browser actors have it; agents typically do not. */
+fn actorHasMasterMixer(actorId) {
+  if (!actorId || typeof actorId !== "string") return false
+  return actorId.indexOf("human") >= 0
+}
+
+export fn applyCoDjTplSource(project, source, actorId, authorId, currentPerfStep) {
   ensureCoDjMeta(project)
   let perfStep = currentPerfStep
   if (perfStep === undefined || perfStep === null) {
@@ -34,7 +37,7 @@ export fn applyCoDjTplSource(project, source, laneId, authorId, currentPerfStep)
   }
   let parsed = parseProgram(source)
   let errs = parsed.errors
-  if (laneId === "human" && parsed.bpm !== null && parsed.bpm >= 40 && parsed.bpm <= 300) {
+  if (actorHasMasterMixer(actorId) && parsed.bpm !== null && parsed.bpm >= 40 && parsed.bpm <= 300) {
     project.bpm = parsed.bpm
   }
   let ti = 0
@@ -42,29 +45,29 @@ export fn applyCoDjTplSource(project, source, laneId, authorId, currentPerfStep)
     let tb = parsed.tracks[ti]
     let ch = findChannelById(project, tb.id)
     let isNew = ch === null
-    if (!laneMayEditTrack(project, tb.id, laneId, isNew)) {
+    if (!actorMayEditTrack(project, tb.id, actorId, isNew)) {
       ti = ti + 1
       continue
     }
     if (!ch) {
       ch = makeChannel(tb.id, tb.name, 36, tb.generatorId)
       project.channels.push(ch)
-      setTrackOwner(project, tb.id, laneId, authorId)
+      setTrackOwner(project, tb.id, actorId, authorId)
     } else {
       ch.name = tb.name
       if (ch.generatorId !== tb.generatorId) {
         ch.generatorId = tb.generatorId
         ch.generatorParams = defaultParamsForGeneratorId(tb.generatorId)
       }
-      if (laneId === "human") {
-        setTrackOwner(project, tb.id, "human", authorId)
+      if (actorHasMasterMixer(actorId)) {
+        setTrackOwner(project, tb.id, actorId, authorId)
       }
     }
     setTrackTouched(project, tb.id, perfStep)
     applyTrackBody(project, ch, tb.body, tb.genBlocks, errs)
     ti = ti + 1
   }
-  if (laneId === "human") {
+  if (actorHasMasterMixer(actorId)) {
     applyAutos(project, parsed.autos)
   }
   return { errors: errs, applied: true }

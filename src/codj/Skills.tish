@@ -1,7 +1,7 @@
-// AI lane line policy — single source: StreamDemo.tish (coDjLineAllowedOnLane).
+// Skill-based line validation — single source: StreamDemo.tish (coDjLineAllowedForSkills).
 
-import { coDjLineAllowedOnLane } from './StreamDemo.tish'
+import { coDjLineAllowedForSkills } from './StreamDemo.tish'
 
-export fn skillAllowsLine(line, laneId) {
-  return coDjLineAllowedOnLane(line, laneId)
+export fn skillAllowsLine(line, skillIds) {
+  return coDjLineAllowedForSkills(line, skillIds)
 }

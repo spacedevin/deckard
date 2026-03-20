@@ -8,9 +8,9 @@
  */
 const WebSocket = require("ws");
 
-const hub = process.env.CODJ_HUB || "ws://127.0.0.1:8765";
+const hub = process.env.CODJ_HUB || "ws://127.0.0.1:35987";
 const session = process.env.CODJ_SESSION || "default";
-const laneId = "demo-stream";
+const actorId = "demo-stream";
 const authorId = "token-demo";
 const chunkMs = Number(process.env.TOKEN_CHUNK_MS || 12);
 
@@ -60,9 +60,9 @@ function connect() {
         JSON.stringify({
           type: "join",
           sessionId: session,
-          role: "agent",
-          laneId,
-          sinceSeq: {},
+          actorId,
+          channelIds: ["default"],
+          skillIds: ["add_track", "adjust_instrument", "pattern_steps", "pattern_piano", "channel_mix", "master_mixer"],
         })
       );
       resolve(ws);
@@ -78,7 +78,7 @@ async function streamThenCommit(ws, lines) {
     ws.send(
       JSON.stringify({
         type: "tpl.stream_chunk",
-        laneId,
+        actorId,
         authorId,
         chunk: text[i],
       })
@@ -89,7 +89,7 @@ async function streamThenCommit(ws, lines) {
   ws.send(
     JSON.stringify({
       type: "tpl.block",
-      laneId,
+      actorId,
       authorId,
       lines,
       asap: true,
@@ -98,7 +98,7 @@ async function streamThenCommit(ws, lines) {
 }
 
 async function main() {
-  console.log("Token stream demo →", hub, "session:", session, "lane:", laneId);
+  console.log("Token stream demo →", hub, "session:", session, "actor:", actorId);
   console.log("In the app: Co-DJ → Connect (session default) → Play.");
   console.log("Edit Song on wsdemo_k1 / wsdemo_h1 as human to lock stream out of those tracks.\n");
 

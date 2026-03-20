@@ -28,7 +28,7 @@ This document describes the **capabilities the Tish runtime must provide** so th
 
 ## Running gateway and agent as Tish
 
-- **Gateway**: `tish run services/gateway/main.tish` (with `--features ws`). Listens on port 8765 (or `CODJ_HUB_PORT`).
+- **Gateway**: `tish run services/gateway/main.tish` (with `--features ws`). Listens on port 35987 (or `CODJ_HUB_PORT`).
 - **Agent**: `tish run services/agent-worker/main.tish` (with `--features ws,http,fs,process`). Uses `--lane`, `--hub`, `--session` (argv), env `GRADIENT_MODEL_ACCESS_KEY`, `DO_BASE`, etc.
 
 No JavaScript in the service implementations; no Node.

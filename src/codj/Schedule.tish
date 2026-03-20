@@ -47,7 +47,7 @@ export fn coDjStripPerfStepDirective(src) {
 }
 
 // Returns { status: "late" } | { status: "asap", tpl } | { status: "queued", tpl }
-export fn coDjHandleIncomingTplBlock(src, laneId, authorId, envEffective, envDeadline, envAsap, pushLog) {
+export fn coDjHandleIncomingTplBlock(src, actorId, authorId, envEffective, envDeadline, envAsap, pushLog) {
   coDjEnsureSchedule()
   let st = coDjStripPerfStepDirective(src)
   let tpl = st.tpl
@@ -86,7 +86,7 @@ export fn coDjHandleIncomingTplBlock(src, laneId, authorId, envEffective, envDea
   }
   window.__coDjScheduled.push({
     effectivePerfStep: eff,
-    laneId: laneId,
+    actorId: laneId,
     authorId: authorId,
     tpl: tpl
   })
@@ -126,11 +126,12 @@ export fn coDjFlushScheduledForStep(perfStep) {
   while (i < arr.length) {
     let it = arr[i]
     if (it.effectivePerfStep <= perfStep) {
+      let aid = it.actorId != null ? it.actorId : it.laneId
       if (log) {
-        log("exec@step" + String(perfStep) + " " + it.laneId)
+        log("exec@step" + String(perfStep) + " " + aid)
       }
       if (ap) {
-        ap(it.tpl, it.laneId, it.authorId, perfStep)
+        ap(it.tpl, aid, it.authorId, perfStep)
       }
       if (after) {
         after()

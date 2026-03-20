@@ -30,6 +30,6 @@ Open the app (e.g. `npm run serve` → http://localhost:3456), go to **Co-DJ**, 
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `CODJ_HUB` | `ws://127.0.0.1:8765` | Gateway base URL |
+| `CODJ_HUB` | `ws://127.0.0.1:35987` | Gateway base URL |
 | `CODJ_SESSION` | `default` | Session id (must match browser) |
 | `TOKEN_CHUNK_MS` | `12` | Delay between stream chunks (ms) |

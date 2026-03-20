@@ -6,7 +6,7 @@
 {
   "v": 1,
   "sessionId": "uuid",
-  "laneId": "human | ai-a | ai-b",
+  "actorId": "string",
   "authorId": "string",
   "layer": "canonical | ui_overlay",
   "master": false,
@@ -43,7 +43,7 @@ See [WS_AND_AGENTS.md](./WS_AND_AGENTS.md). Summary:
 | `tpl.line` | One completed TPL line |
 | `tpl.block` | Multiple lines atomically (+ optional schedule fields above) |
 | `tpl.stream_chunk` | Live typing (agents) |
-| `direct` | Natural-language direction to a lane |
+| `direct` | Natural-language direction to a target actor |
 | `state.snapshot` | Resync |
 | `error` | Rejection |
 
@@ -74,13 +74,13 @@ Payload for `type: control`, `op`:
 **Human line**
 
 ```json
-{ "type": "tpl.line", "laneId": "human", "line": "  mix gain 0.9 pan 0", "authorId": "u1" }
+{ "type": "tpl.line", "actorId": "human-xyz", "line": "  mix gain 0.9 pan 0", "authorId": "u1" }
 ```
 
 **Direct to AI-A** (with perf step for scheduling)
 
 ```json
-{ "type": "direct", "laneId": "ai-a", "text": "add euclidean 5/16 hi-hat pattern", "authorId": "u1", "perfStep": 120 }
+{ "type": "direct", "targetActorId": "agent-1", "text": "add euclidean 5/16 hi-hat pattern", "authorId": "u1", "perfStep": 120 }
 ```
 
 **tpl.block scheduled for step 200, must arrive by 180**
@@ -88,7 +88,7 @@ Payload for `type: control`, `op`:
 ```json
 {
   "type": "tpl.block",
-  "laneId": "ai-a",
+  "actorId": "agent-1",
   "authorId": "agent",
   "lines": ["tpl 1", "track H id h1 gen noise_burst", "  steps euclid 5 16"],
   "effectivePerfStep": 200,

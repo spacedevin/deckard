@@ -9,7 +9,13 @@ export fn coDjTrackExpirySequences() {
   return 2
 }
 
-/** Remove channels that are stale (lastTouchedPerfStep older than expirySequences), not masterLock, and not human-owned. */
+/** True if ownerActorId is protected from pruning (e.g. browser/human-like). */
+fn isProtectedActor(ownerActorId) {
+  if (!ownerActorId || typeof ownerActorId !== "string") return false
+  return ownerActorId.indexOf("agent") < 0
+}
+
+/** Remove channels that are stale (lastTouchedPerfStep older than expirySequences), not masterLock, and not protected-actor-owned. */
 export fn pruneStaleTracks(project, store, currentPerfStep, expirySequences) {
   if (!project || !project.channels || project.channels.length === 0) {
     return { removedCount: 0, newChannelCount: 0 }
@@ -30,7 +36,8 @@ export fn pruneStaleTracks(project, store, currentPerfStep, expirySequences) {
       i = i + 1
       continue
     }
-    if (meta.ownerLane === "human") {
+    let owner = meta.ownerActorId != null ? meta.ownerActorId : meta.ownerLane
+    if (isProtectedActor(owner)) {
       i = i + 1
       continue
     }

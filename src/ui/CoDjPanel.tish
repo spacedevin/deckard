@@ -5,15 +5,8 @@ import { applyCoDjTplSource } from '../codj/Merge.tish'
 import { coDjClearOverlays } from '../codj/Overlay.tish'
 import {
   coDjCurrentPerfStep,
-  coDjHandleIncomingTplBlock,
-  coDjMaxLookaheadPerfSteps
+  coDjHandleIncomingTplBlock
 } from '../codj/Schedule.tish'
-import {
-  coDjAgentSecondBlockPerfSteps,
-  coDjBuildAgentDemoSpec,
-  coDjBuildHumanDemoLines
-} from '../codj/StreamDemo.tish'
-import { coDjBuildFullControlAgentDemo } from '../codj/FullAgentSim.tish'
 import { emitProject } from '../tpl/Emit.tish'
 
 export fn CoDjPanel(project, setProject, tplMirrorFlush) {
@@ -36,7 +29,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
     }
     if (!window.__coDjLogSeeded) {
       window.__coDjLogSeeded = true
-      window.__coDjLog.push(String(Date.now()).slice(-8) + " Co-DJ: Connect or run Stream/Full-control demo")
+      window.__coDjLog.push(String(Date.now()).slice(-8) + " Co-DJ: Connect to gateway + agent")
       window.__coDjLogDirty = true
     }
   }
@@ -52,7 +45,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
   if (typeof window !== "undefined") {
     window.__coDjPushLog = pushLog
     window.__coDjSetProject = setProject
-    window.__coDjApplyScheduledTpl = (tpl, laneId, authorId, perfStep) => {
+    window.__coDjApplyScheduledTpl = (tpl, actorId, authorId, perfStep) => {
       let p = window.__dawProject
       if (!p) {
         return
@@ -65,7 +58,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
       if (step === undefined || step === null) {
         step = typeof window.__dawPerfStep === "number" ? window.__dawPerfStep : 0
       }
-      applyCoDjTplSource(p, s, laneId, authorId, step)
+      applyCoDjTplSource(p, s, actorId, authorId, step)
       // Block already in TPL stream (added when queued); do not append again.
     }
     window.__coDjAfterScheduled = () => {
@@ -82,7 +75,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
       if (!ws || ws.readyState !== 1) {
         return
       }
-      let cid = window.__coDjClientId ? window.__coDjClientId : "human"
+      let aid = window.__coDjActorId ? window.__coDjActorId : (window.__coDjClientId ? window.__coDjClientId : "human-unknown")
       let ps =
         typeof window.__dawPerfStep === "number" ? window.__dawPerfStep : 0
       if (window.__coDjHumanResyncIv) {
@@ -93,9 +86,9 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
         ws.send(
           JSON.stringify({
             type: "control",
-            op: "human_stop",
-            laneId: "human",
-            authorId: cid
+            op: "playing_stop",
+            actorId: aid,
+            authorId: aid
           })
         )
         return
@@ -103,9 +96,9 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
       ws.send(
         JSON.stringify({
           type: "control",
-          op: "human_play",
-          laneId: "human",
-          authorId: cid,
+          op: "playing_start",
+          actorId: aid,
+          authorId: aid,
           perfStep: ps
         })
       )
@@ -121,7 +114,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
         if (!w || w.readyState !== 1) {
           return
         }
-        let c = window.__coDjClientId ? window.__coDjClientId : "human"
+        let c = window.__coDjActorId ? window.__coDjActorId : (window.__coDjClientId ? window.__coDjClientId : "human-unknown")
         let end = idx + 6
         if (end > lines.length) {
           end = lines.length
@@ -130,7 +123,6 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
           w.send(
             JSON.stringify({
               type: "tpl.line",
-              laneId: "human",
               line: lines[idx],
               authorId: c
             })
@@ -142,7 +134,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
         }
       }
       pumpHumanLines()
-      window.__coDjLocalStreamLane = "human→hub"
+      window.__coDjLocalStreamLane = (window.__coDjActorId || "human") + "→hub"
       window.__coDjLocalStreamPreview = text.slice(0, 900)
       window.__coDjLocalStreamDirty = true
       window.__coDjLastStreamHash =
@@ -168,7 +160,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
             if (!w3 || w3.readyState !== 1) {
               return
             }
-            let c2 = window.__coDjClientId ? window.__coDjClientId : "human"
+            let c2 = window.__coDjActorId ? window.__coDjActorId : (window.__coDjClientId ? window.__coDjClientId : "human-unknown")
             let e2 = j + 6
             if (e2 > L.length) {
               e2 = L.length
@@ -177,7 +169,6 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
               w3.send(
                 JSON.stringify({
                   type: "tpl.line",
-                  laneId: "human",
                   line: L[j],
                   authorId: c2
                 })
@@ -199,31 +190,20 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
     let t = msg.type
     if (t === "presence") {
       if (typeof window !== "undefined") {
-        window.__coDjAgentLanes = msg.agentLanes ? msg.agentLanes : []
-        let al = window.__coDjAgentLanes
-        pushLog("presence: agents " + (al.length > 0 ? al.join(",") : "none"))
-        let paired = null
-        if (al.length > 0) {
-          let ai = 0
-          while (ai < al.length) {
-            if (al[ai] === "ai-a") {
-              paired = "ai-a"
-              break
-            }
-            ai = ai + 1
-          }
-          if (paired === null) {
-            paired = al[0]
-          }
+        window.__coDjActors = msg.actors ? msg.actors : []
+        let al = window.__coDjActors
+        let s = "presence: actors " + (al.length > 0 ? al.join(",") : "none")
+        pushLog(s)
+        if (typeof console !== "undefined" && console.log) {
+          console.log("[Co-DJ] " + s + " session=" + (msg.sessionId || ""))
         }
-        window.__coDjPairedAgentLane = paired
         window.__coDjPairingDirty = true
       }
       return
     }
     if (t === "tpl.block") {
-      let laneId = msg.laneId ? msg.laneId : "ai-a"
-      let authorId = msg.authorId ? msg.authorId : laneId
+      let actorId = msg.actorId ? msg.actorId : (msg.laneId ? msg.laneId : "agent-1")
+      let authorId = msg.authorId ? msg.authorId : actorId
       let lines = msg.lines
       if (!lines || lines.length === 0) {
         return
@@ -234,7 +214,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
       }
       let r = coDjHandleIncomingTplBlock(
         src,
-        laneId,
+        actorId,
         authorId,
         msg.effectivePerfStep,
         msg.submitDeadlinePerfStep,
@@ -253,7 +233,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
           window.__tplAppendStreamedBlock(lines, effStep)
           window.__coDjStreamDirty = true
         }
-        pushLog("apply " + laneId + " queued @" + String(effStep))
+        pushLog("apply " + actorId + " queued @" + String(effStep))
         return
       }
       if (typeof window !== "undefined") {
@@ -268,7 +248,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
       if (effStep === undefined || effStep === null) {
         effStep = typeof window.__dawPerfStep === "number" ? window.__dawPerfStep : 0
       }
-      applyCoDjTplSource(p, applySrc, laneId, authorId, effStep)
+      applyCoDjTplSource(p, applySrc, actorId, authorId, effStep)
       setProject(p)
       if (typeof window !== "undefined" && window.__tplAppendStreamedBlock) {
         window.__tplAppendStreamedBlock(lines, effStep)
@@ -281,12 +261,12 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
       if (tplMirrorFlush && !inStreamMode) {
         tplMirrorFlush()
       }
-      pushLog("apply " + laneId + " " + String(lines.length) + "L")
+      pushLog("apply " + actorId + " " + String(lines.length) + "L")
       return
     }
     if (t === "tpl.stream_chunk") {
       let ch = msg.chunk ? String(msg.chunk) : ""
-      let from = msg.laneId ? msg.laneId : "?"
+      let from = msg.actorId ? msg.actorId : (msg.laneId ? msg.laneId : "?")
       if (typeof window !== "undefined") {
         if (!window.__coDjStreamPreview) {
           window.__coDjStreamPreview = ""
@@ -299,19 +279,20 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
     }
     if (t === "tpl.line") {
       let ln = msg.line != null ? String(msg.line) : ""
-      pushLog("line " + (msg.laneId ? msg.laneId : "?") + ": " + ln)
+      let fromId = msg.actorId ? msg.actorId : (msg.laneId ? msg.laneId : "?")
+      pushLog("line " + fromId + ": " + ln)
       if (msg.tplStream === true && typeof window !== "undefined") {
         let lineWithNewline = ln + "\n"
         if (!window.__coDjRemoteTplStream) {
           window.__coDjRemoteTplStream = ""
         }
         window.__coDjRemoteTplStream = (window.__coDjRemoteTplStream + lineWithNewline).slice(-14000)
-        window.__coDjRemoteTplStreamLane = (msg.laneId ? msg.laneId : "?") + " TPL"
+        window.__coDjRemoteTplStreamLane = fromId + " TPL"
         if (!window.__coDjStreamPreview) {
           window.__coDjStreamPreview = ""
         }
         window.__coDjStreamPreview = (window.__coDjStreamPreview + lineWithNewline).slice(-14000)
-        window.__coDjStreamLane = msg.laneId ? msg.laneId : "?"
+        window.__coDjStreamLane = fromId
         window.__coDjStreamDirty = true
         if (window.__tplHubPollBump) {
           window.__tplHubPollBump()
@@ -320,7 +301,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
       return
     }
     if (t === "direct") {
-      pushLog("direct→" + (msg.laneId ? msg.laneId : "?"))
+      pushLog("direct→" + (msg.targetActorId ? msg.targetActorId : "?"))
       return
     }
     if (t === "control" && msg.op === "clear_overlay") {
@@ -338,21 +319,21 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
     let t = msg.type
     if (t === "joined") {
       if (typeof console !== "undefined" && console.log) {
-        console.log("[Co-DJ] joined", msg.you, "paired=", msg.pairedAgentLane)
+        console.log("[Co-DJ] joined", msg.you, "actors=", msg.actors)
       }
       if (typeof window !== "undefined") {
-        if (msg.you && msg.you.clientId) {
-          window.__coDjClientId = msg.you.clientId
+        if (msg.you) {
+          if (msg.you.clientId) window.__coDjClientId = msg.you.clientId
+          if (msg.you.actorId) window.__coDjActorId = msg.you.actorId
         }
-        window.__coDjAgentLanes = msg.agentLanes ? msg.agentLanes : []
-        window.__coDjPairedAgentLane = msg.pairedAgentLane ? msg.pairedAgentLane : null
+        window.__coDjActors = msg.actors ? msg.actors : []
         window.__coDjPairingDirty = true
       }
       pushLog(
-        "joined client=" +
-          (msg.you && msg.you.clientId ? String(msg.you.clientId).slice(0, 8) : "?") +
-          " paired=" +
-          String(msg.pairedAgentLane ? msg.pairedAgentLane : "none")
+        "joined actor=" +
+          (msg.you && msg.you.actorId ? String(msg.you.actorId).slice(0, 16) : "?") +
+          " actors=" +
+          (msg.actors && msg.actors.length > 0 ? msg.actors.join(",") : "none")
       )
       return
     }
@@ -362,231 +343,11 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
     }
     ingestCoDjMsg(msg)
   }
-  fn appendLocalStreamDemoChunk(chunk) {
-    if (typeof window !== "undefined") {
-      if (!window.__coDjLocalStreamPreview) {
-        window.__coDjLocalStreamPreview = ""
-      }
-      window.__coDjLocalStreamLane = "human (sim)"
-      window.__coDjLocalStreamPreview = (window.__coDjLocalStreamPreview + chunk).slice(-14000)
-      window.__coDjLocalStreamDirty = true
-      if (window.__tplHubPollBump) {
-        window.__tplHubPollBump()
-      }
-    }
-  }
-  fn runStreamDemo() {
-    if (typeof window === "undefined") {
-      return
-    }
-    if (window.__coDjStreamDemoTimers) {
-      let ti = 0
-      while (ti < window.__coDjStreamDemoTimers.length) {
-        clearTimeout(window.__coDjStreamDemoTimers[ti])
-        ti = ti + 1
-      }
-    }
-    window.__coDjStreamDemoTimers = []
-    window.__coDjLocalStreamPreview = ""
-    window.__coDjStreamPreview = ""
-    window.__coDjRemoteTplStream = ""
-    window.__coDjLocalStreamDirty = true
-    window.__coDjStreamDirty = true
-    let hu = coDjBuildHumanDemoLines()
-    let spec = coDjBuildAgentDemoSpec()
-    let hs = hu.skillIds.join(",")
-    let gs = spec.skillIds.join(",")
-    let g2 = spec.secondSkillIds.join(",")
-    pushLog(
-      "stream demo: human skills [" +
-        hs +
-        "] | agent [" +
-        gs +
-        "]" +
-        (spec.secondPatch ? " + 2nd [" + g2 + "]" : "") +
-        " → tpl.block +" +
-        String(coDjMaxLookaheadPerfSteps()) +
-        " steps"
-    )
-    let lineMsHuman = 200
-    let t = 100
-    let hi = 0
-    while (hi < hu.lines.length) {
-      let lineText = hu.lines[hi] + "\n"
-      let schedT = t
-      window.__coDjStreamDemoTimers.push(
-        setTimeout(() => {
-          appendLocalStreamDemoChunk(lineText)
-        }, schedT)
-      )
-      t = t + lineMsHuman
-      hi = hi + 1
-    }
-    let pauseBeforeAgent = 1200
-    let lineMsAgent = 180
-    let agentBase = t + pauseBeforeAgent
-    let ai = 0
-    while (ai < spec.primaryLines.length) {
-      let lineAi = spec.primaryLines[ai]
-      let idxAi = ai
-      let ptAi = agentBase + ai * lineMsAgent
-      window.__coDjStreamDemoTimers.push(
-        setTimeout(() => {
-          ingestCoDjMsg({
-            type: "tpl.line",
-            laneId: "ai-a",
-            authorId: "sim-remote",
-            line: lineAi,
-            tplStream: true
-          })
-        }, ptAi)
-      )
-      ai = ai + 1
-    }
-    let pauseBeforeBlock = 500
-    let blockT = agentBase + spec.primaryLines.length * lineMsAgent + pauseBeforeBlock
-    window.__coDjStreamDemoTimers.push(
-      setTimeout(() => {
-        let ps = coDjCurrentPerfStep()
-        let ahead = coDjMaxLookaheadPerfSteps()
-        let eff = ps + ahead
-        let dl = ps + ahead + 220
-        ingestCoDjMsg({
-          type: "tpl.block",
-          laneId: "ai-a",
-          authorId: "sim-remote",
-          lines: spec.primaryLines,
-          effectivePerfStep: eff,
-          submitDeadlinePerfStep: dl
-        })
-        pushLog("demo 1st block perf_step " + String(eff) + " — Play to hear")
-      }, blockT)
-    )
-    if (spec.secondPatch && spec.secondPatch.length > 0) {
-      let pauseBeforeSecond = 1500
-      let base2 = blockT + pauseBeforeSecond
-      window.__coDjStreamDemoTimers.push(
-        setTimeout(() => {
-          ingestCoDjMsg({
-            type: "tpl.line",
-            laneId: "ai-a",
-            authorId: "sim-remote",
-            line: "# --- tpl.block 2 ---",
-            tplStream: true
-          })
-        }, base2)
-      )
-      let lineMsSecond = 160
-      let sj = 0
-      while (sj < spec.secondPatch.length) {
-        let line2b = spec.secondPatch[sj]
-        let pt2 = base2 + 200 + sj * lineMsSecond
-        window.__coDjStreamDemoTimers.push(
-          setTimeout(() => {
-            ingestCoDjMsg({
-              type: "tpl.line",
-              laneId: "ai-a",
-              authorId: "sim-remote",
-              line: line2b,
-              tplStream: true
-            })
-          }, pt2)
-        )
-        sj = sj + 1
-      }
-      let pauseBeforeBlock2 = 600
-      let t2 = base2 + 200 + spec.secondPatch.length * lineMsSecond + pauseBeforeBlock2
-      window.__coDjStreamDemoTimers.push(
-        setTimeout(() => {
-          let eff2 = coDjAgentSecondBlockPerfSteps()
-          let dl2 = eff2 + 240
-          ingestCoDjMsg({
-            type: "tpl.block",
-            laneId: "ai-a",
-            authorId: "sim-remote",
-            lines: spec.secondPatch,
-            effectivePerfStep: eff2,
-            submitDeadlinePerfStep: dl2
-          })
-          pushLog("demo 2nd block queued @" + String(eff2) + " (+1 seq)")
-        }, t2)
-      )
-    }
-  }
-  fn scheduleOneFullControlWave(proj, waveIndex, baseMs) {
-    let spec = coDjBuildFullControlAgentDemo(proj)
-    let lines = spec.primaryLines
-    if (!lines || lines.length === 0) {
-      return
-    }
-    let lineMs = 280
-    let i = 0
-    while (i < lines.length) {
-      let ln = lines[i]
-      let pt = baseMs + i * lineMs
-      window.__coDjStreamDemoTimers.push(
-        setTimeout(() => {
-          ingestCoDjMsg({
-            type: "tpl.line",
-            laneId: "sim-full",
-            authorId: "sim-full-control",
-            line: ln,
-            tplStream: true
-          })
-        }, pt)
-      )
-      i = i + 1
-    }
-    let blockAt = baseMs + lines.length * lineMs + 400
-    window.__coDjStreamDemoTimers.push(
-      setTimeout(() => {
-        ingestCoDjMsg({
-          type: "tpl.block",
-          laneId: "ai-a",
-          authorId: "sim-full-control",
-          lines: lines,
-          asap: true
-        })
-        pushLog("full-control wave " + String(waveIndex + 1) + " applied (ai-a: only edits sim tracks)")
-        if (waveIndex < 7) {
-          let nextBase = 3200
-          let nextProj = window.__dawProject ? window.__dawProject : proj
-          window.__coDjStreamDemoTimers.push(
-            setTimeout(() => {
-              scheduleOneFullControlWave(nextProj, waveIndex + 1, 0)
-            }, nextBase)
-          )
-        }
-      }, blockAt)
-    )
-  }
-
-  fn runFullControlAgentSim() {
-    if (typeof window === "undefined") {
-      return
-    }
-    if (window.__coDjStreamDemoTimers) {
-      let ti = 0
-      while (ti < window.__coDjStreamDemoTimers.length) {
-        clearTimeout(window.__coDjStreamDemoTimers[ti])
-        ti = ti + 1
-      }
-    }
-    window.__coDjStreamDemoTimers = []
-    window.__coDjLocalStreamPreview = ""
-    window.__coDjStreamPreview = ""
-    window.__coDjRemoteTplStream = ""
-    window.__coDjLocalStreamDirty = true
-    window.__coDjStreamDirty = true
-    let p = window.__dawProject ? window.__dawProject : project
-    pushLog("full-control sim: 8 waves — lines stream in over time (~280ms/line), then apply; 3.2s between waves")
-    scheduleOneFullControlWave(p, 0, 40)
-  }
   fn connectWs() {
     let sock = null
-    let base = "ws://127.0.0.1:8765"
+    let base = "ws://127.0.0.1:35987"
     let sess = "default"
-    let lane = "human"
+    let actorId = "human-" + Date.now() + "-" + (Math.random() * 1000000000 | 0)
     if (typeof window !== "undefined") {
       if (window.__coDjWsUrl && window.__coDjWsUrl.length > 0) {
         base = window.__coDjWsUrl
@@ -594,15 +355,15 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
       if (window.__coDjSessionId && window.__coDjSessionId.length > 0) {
         sess = window.__coDjSessionId
       }
-      if (window.__coDjLaneId) {
-        lane = window.__coDjLaneId
+      if (window.__coDjActorId) {
+        actorId = window.__coDjActorId
       }
     }
     let path = base
     while (path.length > 0 && path.charAt(path.length - 1) === "/") {
       path = path.substring(0, path.length - 1)
     }
-    // Gateway: connect to ws://host:8765 (no path); first message is join with sessionId
+    // Gateway: connect to ws://host:35987 (no path); first message is join with sessionId
     pushLog("connecting to " + path)
     if (typeof console !== "undefined" && console.log) {
       console.log("[Co-DJ] connecting", path)
@@ -621,11 +382,13 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
       }
       if (sock && sock.send) {
         sock.send(
-          '{"type":"join","sessionId":"' +
-            sess +
-            '","role":"browser-human","laneId":"' +
-            lane +
-            '","sinceSeq":{"human":0,"ai-a":0,"ai-b":0}}'
+          JSON.stringify({
+            type: "join",
+            sessionId: sess,
+            actorId: actorId,
+            channelIds: ["default"],
+            skillIds: ["add_track", "adjust_instrument", "pattern_steps", "pattern_piano", "channel_mix", "master_mixer"]
+          })
         )
       }
     }
@@ -681,16 +444,35 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
       li = li + 1
     }
   }
-  let pairStatus = "No agent (run npm run agent)"
-  if (typeof window !== "undefined" && window.__coDjAgentLanes && window.__coDjAgentLanes.length > 0) {
-    pairStatus =
-      "Paired lane " +
-      (window.__coDjPairedAgentLane ? window.__coDjPairedAgentLane : window.__coDjAgentLanes[0])
+  let pairStatus = "No other actors (run npm run agent)"
+  if (typeof window !== "undefined" && window.__coDjActors && window.__coDjActors.length > 0) {
+    let others = []
+    let myId = window.__coDjActorId || ""
+    let ai = 0
+    while (ai < window.__coDjActors.length) {
+      if (window.__coDjActors[ai] !== myId) {
+        others.push(window.__coDjActors[ai])
+      }
+      ai = ai + 1
+    }
+    pairStatus = others.length > 0 ? "Actors: " + others.join(", ") : "Only you in channel"
+  }
+  let directTargetOpts = []
+  if (typeof window !== "undefined" && window.__coDjActors) {
+    let myId = window.__coDjActorId || ""
+    let di = 0
+    while (di < window.__coDjActors.length) {
+      if (window.__coDjActors[di] !== myId) {
+        let aid = window.__coDjActors[di]
+        directTargetOpts.push(<option value={aid}>{aid}</option>)
+      }
+      di = di + 1
+    }
   }
   return <section class="panel codj-panel">
     <h2>{"Co-DJ (WebSocket)"}</h2>
-    <p class="codj-pairing"><strong>{"Agent: "}</strong>{pairStatus}</p>
-    <p class="codj-hint">{"Play streams TPL lines to hub. Local vs remote stream panes. Demo: +"}{String(coDjMaxLookaheadPerfSteps())}{" steps."}</p>
+    <p class="codj-pairing"><strong>{"Actors: "}</strong>{pairStatus}</p>
+    <p class="codj-hint">{"Play streams TPL lines to hub. Local vs remote stream panes."}</p>
     <div class="codj-stream-grid">
       <div class="codj-stream-wrap codj-stream-local">
         <div class="codj-stream-label">{"Local "}{localStreamLane ? "(" + localStreamLane + ")" : ""}</div>
@@ -705,7 +487,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
       <label>{"WS "}<input
         type="text"
         class="codj-input"
-        placeholder="ws://127.0.0.1:8765"
+        placeholder="ws://127.0.0.1:35987"
         oninput={(e) => {
           if (typeof window !== "undefined") {
             window.__coDjWsUrl = e.target.value
@@ -717,11 +499,11 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
       <label>{"Direct→ "}
         <select class="codj-input" onchange={(e) => {
           if (typeof window !== "undefined") {
-            window.__coDjDirectLane = e.target.value
+            window.__coDjDirectTarget = e.target.value
           }
         }}>
-          <option value="ai-a">{"ai-a"}</option>
-          <option value="ai-b">{"ai-b"}</option>
+          <option value="">{"(pick agent)"}</option>
+          {directTargetOpts}
         </select>
       </label>
       <input
@@ -742,17 +524,6 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
           window.__coDjSessionId = e.target.value
         }
       }} /></label>
-      <label>{"Lane "}
-        <select class="codj-input" onchange={(e) => {
-          if (typeof window !== "undefined") {
-            window.__coDjLaneId = e.target.value
-          }
-        }}>
-          <option value="human">{"human"}</option>
-          <option value="ai-a">{"ai-a"}</option>
-          <option value="ai-b">{"ai-b"}</option>
-        </select>
-      </label>
     </div>
     <div class="codj-actions">
       <button type="button" class="btn-codj" onclick={connectWs}>{"Connect"}</button>
@@ -762,21 +533,36 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
         class="btn-codj"
         onclick={() => {
           if (typeof window !== "undefined" && window.__coDjWs && window.__coDjWs.readyState === 1) {
-            let tgt = window.__coDjDirectLane ? window.__coDjDirectLane : "ai-a"
-            let tx = window.__coDjDirectText ? window.__coDjDirectText : "euclid hi-hat"
-            let ps =
-              typeof window.__dawPerfStep === "number" ? window.__dawPerfStep : 0
-            let aid = window.__coDjClientId ? window.__coDjClientId : "human"
-            window.__coDjWs.send(
-              JSON.stringify({
-                type: "direct",
-                laneId: tgt,
-                text: tx,
-                authorId: aid,
-                perfStep: ps
-              })
-            )
-            pushLog("sent direct→" + tgt)
+            let tgt = window.__coDjDirectTarget ? window.__coDjDirectTarget : ""
+            if (!tgt && window.__coDjActors && window.__coDjActors.length > 0) {
+              let myId = window.__coDjActorId || ""
+              let i = 0
+              while (i < window.__coDjActors.length) {
+                if (window.__coDjActors[i] !== myId) {
+                  tgt = window.__coDjActors[i]
+                  break
+                }
+                i = i + 1
+              }
+            }
+            if (tgt) {
+              let tx = window.__coDjDirectText ? window.__coDjDirectText : "euclid hi-hat"
+              let ps =
+                typeof window.__dawPerfStep === "number" ? window.__dawPerfStep : 0
+              let aid = window.__coDjActorId ? window.__coDjActorId : (window.__coDjClientId ? window.__coDjClientId : "human")
+              window.__coDjWs.send(
+                JSON.stringify({
+                  type: "direct",
+                  targetActorId: tgt,
+                  text: tx,
+                  authorId: aid,
+                  perfStep: ps
+                })
+              )
+              pushLog("sent direct→" + tgt)
+            } else {
+              pushLog("no target: connect agent first")
+            }
           }
         }}
       >
@@ -786,17 +572,6 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush) {
         coDjClearOverlays(project)
         setProject(project)
       }}>{"Clear overlays"}</button>
-      <button type="button" class="btn-codj btn-codj-demo" onclick={runStreamDemo}>
-        {"Stream demo"}
-      </button>
-      <button
-        type="button"
-        class="btn-codj btn-codj-demo btn-codj-fullsim"
-        title="Simulates an agent with human-level TPL power: BPM, every channel, autos, new tracks. Overwrites a lot."
-        onclick={runFullControlAgentSim}
-      >
-        {"Full-control sim"}
-      </button>
     </div>
     <div class="codj-log">{logEls}</div>
     <span class="codj-poll-hid">{String(poll)}</span>

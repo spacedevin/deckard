@@ -32,7 +32,7 @@ Serve the folder (e.g. `npx serve .`) and open `index.html`. Click **Play** once
 1. **Tish CLI** with `ws` (and for agent: `http`, `fs`, `process`). From the **tish** repo: `cargo build -p tish --features full`.
 2. **Terminal A — gateway:**  
    `npm run gateway`  
-   (listens on **ws://127.0.0.1:8765**; clients connect and send first message `join` with `sessionId`).
+   (listens on **ws://127.0.0.1:35987**; clients connect and send first message `join` with `sessionId`).
 3. **Terminal B — agent:**  
    `npm run agent`  
    (or `npm run agent -- --lane ai-a --session default`)  
@@ -42,11 +42,7 @@ Serve the folder (e.g. `npx serve .`) and open `index.html`. Click **Play** once
 6. **Press Play.** The app sends **human_play** and streams the current project as **tpl.line** to the gateway. The agent (Tish or Node) it, waits ~1.3s, then sends back **tpl.block** (and **tpl.stream_chunk**) on lane **ai-a**. the gateway forwards that to the browser; the app applies the block and you hear the new pattern.
 7. **Direct test:** set **Direct→** to `ai-a`, type e.g. `euclid hi-hat`, click **Send test direct**. The agent replies with a **tpl.block** for that lane.
 
-So: **gateway + agent + Connect + Play** (or **Send test direct**) is what makes the agent “do stuff for reals”; the in-app **Stream demo** and **Full-control sim** are local simulations with no gateway/agent.
-
-**Co-DJ Stream demo** (no hub): **Stream demo** randomly picks **DJ skills** from a unified registry ([`src/codj/StreamDemo.tish`](src/codj/StreamDemo.tish))—human stream may include `bpm` / tracks / steps / mix; agent stream stays within AI-allowed TPL. It then streams **tpl.stream_chunk** + one or two queued **`tpl.block`**s (second block ~one sequence later). **Play** to hear when the playhead reaches the target steps.
-
-**Full-control sim**: streams the same patch as **TPL lines** in the TPL panel, then applies it via **`tpl.block`** on the **human** lane (full project power). **Stream demo** does the same for **ai-a** (lines → then queued blocks). No hub required to watch the line stream.
+So: **gateway + agent + Connect + Play** (or **Send test direct**) is what makes the agent “do stuff for reals”.
 
 **Token stream demo** (see [docs/TOKEN_STREAM_DEMO.md](docs/TOKEN_STREAM_DEMO.md)): `npm run token-demo` — gateway + bot stream.
 

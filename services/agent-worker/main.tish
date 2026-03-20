@@ -1,47 +1,22 @@
 // Co-DJ agent worker (Tish): connect to gateway, join as agent, handle direct (demo patches).
-// Run: tish run --features ws,http,fs,process services/agent-worker/main.tish
-// Optional: use --backend interp for future async/LLM support.
+// Run: tish run --features ws,process services/agent-worker/main.tish
+// Note: primary agent is Node.js (index.js); this is legacy.
 import { WebSocket } from "tish:ws"
-import { readFile, fileExists } from "tish:fs"
 import { process } from "tish:process"
 
-fn loadDotEnv() {
-  let paths = [".env", "../../.env"]
-  let i = 0
-  while (i < paths.length) {
-    if (fileExists(paths[i])) {
-      let content = readFile(paths[i])
-      let lines = content.split("\n")
-      let j = 0
-      while (j < lines.length) {
-        let line = lines[j].trim()
-        if (line.length > 0 && line.indexOf("#") !== 0) {
-          let eq = line.indexOf("=")
-          if (eq > 0) {
-            let k = line.substring(0, eq).trim()
-            let v = line.substring(eq + 1).trim()
-            if (v.startsWith('"') && v.endsWith('"')) { v = v.substring(1, v.length - 1) }
-            if (v.startsWith("'") && v.endsWith("'")) { v = v.substring(1, v.length - 1) }
-            if (typeof process !== "undefined" && process.env) { process.env[k] = v }
-          }
-        }
-        j = j + 1
-      }
-      return
-    }
-    i = i + 1
-  }
-}
-loadDotEnv()
-
-let lane = "ai-a"
-let hub = "ws://127.0.0.1:8765"
+let actorId = "agent-1"
+let hub = "ws://127.0.0.1:35987"
 let session = "default"
 let argv = typeof process !== "undefined" && process.argv ? process.argv : []
 let ai = 0
 while (ai < argv.length) {
+  if (ai + 1 < argv.length && argv[ai] === "--actor-id") {
+    actorId = argv[ai + 1]
+    ai = ai + 2
+    continue
+  }
   if (ai + 1 < argv.length && argv[ai] === "--lane") {
-    lane = argv[ai + 1]
+    actorId = "agent-" + argv[ai + 1]
     ai = ai + 2
     continue
   }
@@ -73,16 +48,18 @@ if (typeof process !== "undefined" && process.env) {
   else if ("MODEL_ACCESS_KEY" in process.env) { GRADIENT_MODEL_ACCESS_KEY = process.env["MODEL_ACCESS_KEY"] }
 }
 
-let AGENT_SYSTEM = "You are lane " + lane + ". Respond with valid TPL (tpl 1, track ...). No markdown."
+let AGENT_SYSTEM = "You are a Co-DJ agent. Respond with valid TPL (tpl 1, track ...). No markdown."
 let TPL_DIRECT = "Output ONLY TPL lines for one track. No markdown."
+
+let SKILL_IDS = ["add_track", "adjust_instrument", "pattern_steps", "pattern_piano", "channel_mix"]
 
 fn buildDemoPatch(text) {
   let lower = text.toLowerCase()
   if (lower.indexOf("euclid") >= 0 || lower.indexOf("hat") >= 0 || lower.indexOf("hihat") >= 0) {
-    return "tpl 1\ntrack AgentHat id " + lane + "_hat gen noise_burst\n  noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1\n  steps euclid 5 16"
+    return "tpl 1\ntrack AgentHat id " + actorId + "_hat gen noise_burst\n  noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1\n  steps euclid 5 16"
   }
   if (lower.indexOf("bass") >= 0 || lower.indexOf("fm") >= 0) {
-    return "tpl 1\ntrack AgentBass id " + lane + "_bass gen fm\n  fm ratio 2 mod_index 5 carrier sine mod square\n  adsr a 0.01 d 0.1 s 0.3 r 0.15\n  steps x . x . x . x . x . x . x . x ."
+    return "tpl 1\ntrack AgentBass id " + actorId + "_bass gen fm\n  fm ratio 2 mod_index 5 carrier sine mod square\n  adsr a 0.01 d 0.1 s 0.3 r 0.15\n  steps x . x . x . x . x . x . x . x ."
   }
   return null
 }
@@ -97,8 +74,8 @@ fn handleDirect(ws, msg) {
     let ps = (msg.perfStep != null && typeof msg.perfStep === "number") ? msg.perfStep : 0
     ws.send(JSON.stringify({
       type: "tpl.block",
-      laneId: lane,
-      authorId: "agent-" + lane,
+      actorId: actorId,
+      authorId: actorId,
       lines: demo.split("\n"),
       effectivePerfStep: ps,
       asap: true
@@ -106,8 +83,45 @@ fn handleDirect(ws, msg) {
   }
 }
 
+// Human play flow: buffer tpl.line from playing actor; after debounce emit stream_chunk then tpl.block
+let playingActorId = null
+let humanLineBuffer = []
+let lastLineAt = 0
+let respondedSincePlay = false
+let DEBOUNCE_MS = 1300
+
+fn streamChunkThenBlock(ws, lines, perfStep) {
+  if (!ws || !ws.send) { return }
+  let text = lines.join("\n")
+  let i = 0
+  while (i < text.length) {
+    ws.send(JSON.stringify({ type: "tpl.stream_chunk", actorId: actorId, authorId: actorId, chunk: text.substring(i, i + 1) }))
+    i = i + 1
+    let _d = 0
+    while (_d < 80000) { _d = _d + 1 }
+  }
+  if (ws && ws.send) {
+    ws.send(JSON.stringify({
+      type: "tpl.block",
+      actorId: actorId,
+      authorId: actorId,
+      lines: lines,
+      effectivePerfStep: perfStep,
+      asap: true
+    }))
+  }
+}
+
+fn handleHumanStream(ws, perfStep) {
+  let demo = buildDemoPatch("euclid hi-hat")
+  if (!demo) { return }
+  let lines = demo.split("\n")
+  console.log("[agent] play response: streaming " + String(lines.length) + " lines -> " + (playingActorId || "?"))
+  streamChunkThenBlock(ws, lines, perfStep)
+  console.log("[agent] sent tpl.stream_chunk + tpl.block")
+}
+
 fn connectHub() {
-  // Gateway: connect to ws URL (no path), first message is join with sessionId
   let url = hub
   if (url.endsWith("/")) { url = url.substring(0, url.length - 1) }
   let ws = null
@@ -118,7 +132,6 @@ fn connectHub() {
     if (ws !== null) { break }
     tries = tries + 1
     console.warn("[agent] connect failed, retry in 2s", url, "attempt", tries)
-    // Busy-wait ~2s (no setTimeout in VM): loop 2e6 empty iterations
     let _w = 0
     while (_w < 2000000) { _w = _w + 1 }
   }
@@ -128,8 +141,14 @@ fn connectHub() {
   }
   activeWs = ws
   console.log("[agent] WebSocket connected (handshake OK), sending join")
-  ws.send(JSON.stringify({ type: "join", sessionId: session, role: "agent", laneId: lane, sinceSeq: {} }))
-  console.log("[agent] joined " + session + " as " + lane)
+  ws.send(JSON.stringify({
+    type: "join",
+    sessionId: session,
+    actorId: actorId,
+    channelIds: ["default"],
+    skillIds: SKILL_IDS
+  }))
+  console.log("[agent] joined " + session + " as " + actorId)
   return ws
 }
 
@@ -140,7 +159,6 @@ fn run() {
   }
   console.log("[agent] enter receive loop")
   let joinedLogged = false
-  // Use receiveTimeout(500) in a loop instead of blocking receive() — keeps process alive on some runtimes
   while (true) {
     let msgObj = null
     try {
@@ -158,15 +176,56 @@ fn run() {
           msg = JSON.parse(raw)
         } catch (e) {
         }
-        if (msg != null && msg.type === "direct" && msg.laneId === lane) {
-          console.log("[agent] got direct: " + (msg.text || ""))
-          handleDirect(ws, msg)
-          console.log("[agent] sent tpl.block")
+        if (msg != null && msg.type === "direct") {
+          let tgt = msg.targetActorId
+          if (tgt === actorId || (tgt == null && msg.laneId === actorId)) {
+            console.log("[agent] got direct: " + (msg.text || ""))
+            handleDirect(ws, msg)
+            console.log("[agent] sent tpl.block")
+          }
+        }
+        else if (msg != null && msg.type === "control") {
+          let op = msg.op || ""
+          if (op === "human_play" || op === "playing_start") {
+            playingActorId = msg.actorId || msg.authorId || null
+            respondedSincePlay = false
+            humanLineBuffer = []
+            lastLineAt = Date.now()
+            console.log("[agent] playing_start, buffering tpl.line from " + (playingActorId || "?"))
+          }
+          else if (op === "human_stop" || op === "playing_stop") {
+            playingActorId = null
+            humanLineBuffer = []
+            respondedSincePlay = false
+            console.log("[agent] playing_stop")
+          }
+        }
+        else if (msg != null && msg.type === "tpl.line") {
+          let from = msg.actorId || msg.authorId || msg.laneId || ""
+          if (playingActorId != null && (from === playingActorId || (playingActorId === "" && from !== actorId))) {
+            let line = msg.line
+            if (typeof line === "string") {
+              humanLineBuffer.push(line)
+              lastLineAt = Date.now()
+            }
+          }
+        }
+        else if (msg != null && msg.type === "presence") {
+          let al = msg.actors ? msg.actors : []
+          console.log("[agent] presence: actors=" + JSON.stringify(al))
         }
         else if (msg != null && msg.type === "joined" && !joinedLogged) {
           joinedLogged = true
           console.log("[agent] received joined, ready")
         }
+      }
+    }
+    if (playingActorId != null && !respondedSincePlay && humanLineBuffer.length > 0) {
+      let elapsed = Date.now() - lastLineAt
+      if (elapsed >= DEBOUNCE_MS) {
+        respondedSincePlay = true
+        let ps = 0
+        handleHumanStream(ws, ps)
       }
     }
   }

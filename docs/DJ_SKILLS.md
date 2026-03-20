@@ -18,23 +18,23 @@ Skills limit what a **lane** (especially AI) may emit. Hub or browser validates.
 
 Same skill ids for every row; **human** and **ai-a** columns show who may use each skill today. Toggling AI access later = flip flags in code, not new skill types.
 
-| skill id | human | ai-a / ai-b | Stream demo emits |
+| skill id | human | ai-a / ai-b |
 |----------|-------|-------------|-------------------|
-| `add_track` | yes | yes | yes |
-| `adjust_instrument` | yes | yes | yes |
-| `pattern_steps` | yes | yes | yes |
-| `pattern_piano` | yes | yes | yes (human more often) |
-| `channel_mix` | yes | yes | yes |
-| `master_mixer` | yes | no (`bpm`, `auto`) | yes (human only) |
-| `transpose_track` | no* | no | stub (registry slot) |
-| `promote_song` | no* | no | stub |
-| `remove_track` | no* | no | stub |
+| `add_track` | yes | yes |
+| `adjust_instrument` | yes | yes |
+| `pattern_steps` | yes | yes |
+| `pattern_piano` | yes | yes |
+| `channel_mix` | yes | yes |
+| `master_mixer` | yes | no (`bpm`, `auto`) |
+| `transpose_track` | no* | no |
+| `promote_song` | no* | no |
+| `remove_track` | no* | no |
 
-\*Not emitted by stream demo yet; same registry entry shape as other skills for future use.
+\*Same registry entry shape for future use.
 
-**Human** may stream full project shape including `bpm` / `tpl` / `auto`. **Agent** must not emit `bpm`, `tpl`, top-level `auto`, or `transpose` (enforced in [`coDjLineAllowedOnLane`](../src/codj/StreamDemo.tish) → [`skillAllowsLine`](../src/codj/Skills.tish)).
+Actors with **`master_mixer`** may stream full project shape including `bpm` / `tpl` / `auto`. Agents (without `master_mixer`) must not emit `bpm`, `tpl`, top-level `auto`, or `transpose` (enforced in [`coDjLineAllowedForSkills`](../src/codj/StreamDemo.tish) → [`skillAllowsLine`](../src/codj/Skills.tish)).
 
-**Implementation:** unified registry + emitters in [`src/codj/StreamDemo.tish`](../src/codj/StreamDemo.tish); `coDjSkillAllowedForLane(skillId, laneId)` for future dynamic policies.
+**Implementation:** [`src/codj/StreamDemo.tish`](../src/codj/StreamDemo.tish) — `coDjLineAllowedForSkills`, `actorHasSkill`; [`src/codj/Skills.tish`](../src/codj/Skills.tish) delegates to it.
 
 ## Default bundles (informal)
 
@@ -44,11 +44,11 @@ Same skill ids for every row; **human** and **ai-a** columns show who may use ea
 
 ## Denied examples
 
-- AI emits `bpm 200` without `master_mixer` on AI lane → **SKILL_DENIED**.
-- AI edits `c0` when `ownerLane` is `human` and not leased → **LEASE_CONFLICT**.
+- AI emits `bpm 200` without `master_mixer` skill → **SKILL_DENIED**.
+- AI edits `c0` when `ownerActorId` is another actor and not leased → **LEASE_CONFLICT**.
 
 ## Implementation
 
-- `src/codj/StreamDemo.tish` — lane matrix helpers, stream demo random TPL, `coDjLineAllowedOnLane`.
-- `src/codj/Skills.tish` — delegates to `coDjLineAllowedOnLane`.
+- `src/codj/StreamDemo.tish` — `coDjLineAllowedForSkills`, `actorHasSkill`.
+- `src/codj/Skills.tish` — delegates to `coDjLineAllowedForSkills`.
 - Hub duplicate check optional.

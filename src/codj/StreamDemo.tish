@@ -1,12 +1,18 @@
-// Unified Co-DJ skill registry: same shape for every skill; lane flags gate who may use each.
-// Stream demo + coDjLineAllowedOnLane (Skills.tish) share this source of truth.
+// Unified Co-DJ skill registry: skills gate which lines each actor may emit.
 
-import { coDjCurrentPerfStep, coDjStepsPerSequence } from './Schedule.tish'
-
-export fn coDjLineAllowedOnLane(line, laneId) {
-  if (laneId === "human") {
-    return true
+/** True if skillIds includes the given skill. */
+fn hasSkill(skillIds, id) {
+  if (!Array.isArray(skillIds)) return false
+  let i = 0
+  while (i < skillIds.length) {
+    if (skillIds[i] === id) return true
+    i = i + 1
   }
+  return false
+}
+
+/** Check if an actor with skillIds may emit this TPL line. */
+export fn coDjLineAllowedForSkills(line, skillIds) {
   let t = line.trim()
   if (t.length === 0 || t.charAt(0) === "#") {
     return true
@@ -14,274 +20,31 @@ export fn coDjLineAllowedOnLane(line, laneId) {
   let sp = t.indexOf(" ")
   let h = sp < 0 ? t : t.substring(0, sp)
   if (h === "bpm" || h === "tpl" || h === "auto" || h === "transpose") {
-    return false
+    return hasSkill(skillIds, "master_mixer")
   }
   return true
 }
 
 fn skillHumanOk(id) {
-  if (id === "add_track") {
-    return true
-  }
-  if (id === "adjust_instrument") {
-    return true
-  }
-  if (id === "pattern_steps") {
-    return true
-  }
-  if (id === "pattern_piano") {
-    return true
-  }
-  if (id === "channel_mix") {
-    return true
-  }
-  if (id === "master_mixer") {
-    return true
-  }
-  if (id === "transpose_track" || id === "promote_song" || id === "remove_track") {
-    return false
-  }
+  if (id === "add_track") return true
+  if (id === "adjust_instrument") return true
+  if (id === "pattern_steps") return true
+  if (id === "pattern_piano") return true
+  if (id === "channel_mix") return true
+  if (id === "master_mixer") return true
+  if (id === "transpose_track" || id === "promote_song" || id === "remove_track") return false
   return false
 }
 
 fn skillAiOk(id) {
-  if (id === "master_mixer" || id === "transpose_track" || id === "promote_song" || id === "remove_track") {
-    return false
-  }
-  if (
-    id === "add_track" ||
-    id === "adjust_instrument" ||
-    id === "pattern_steps" ||
-    id === "pattern_piano" ||
-    id === "channel_mix"
-  ) {
-    return true
-  }
+  if (id === "master_mixer" || id === "transpose_track" || id === "promote_song" || id === "remove_track") return false
+  if (id === "add_track" || id === "adjust_instrument" || id === "pattern_steps" || id === "pattern_piano" || id === "channel_mix") return true
   return false
 }
 
-export fn coDjSkillAllowedForLane(skillId, laneId) {
-  if (laneId === "ai-a" || laneId === "ai-b") {
-    return skillAiOk(skillId)
-  }
+/** True if actor with this skillId may use it. Human-like actors get skillHumanOk; agent-like get skillAiOk. */
+export fn actorHasSkill(skillId, actorId) {
+  if (!actorId || typeof actorId !== "string") return false
+  if (actorId.indexOf("agent") >= 0) return skillAiOk(skillId)
   return skillHumanOk(skillId)
-}
-
-fn rnd(n) {
-  return Math.floor(Math.random() * n)
-}
-
-fn pickEuclid() {
-  let h = 3 + rnd(10)
-  let k = 8 + rnd(8)
-  return "  steps euclid " + String(h) + " " + String(k)
-}
-
-fn pickGrid16() {
-  let pat = [
-    "x . x . x . x . x . x . x . x .",
-    "x x . x x . x x . x x . x x . .",
-    "x . . x . x . . x . x . . x . x"
-  ]
-  return "  steps " + pat[rnd(pat.length)]
-}
-
-fn emitAddTrackLines(trackId, lanePrefix, genRoll) {
-  let lines = []
-  let name = "Stream"
-  if (lanePrefix === "demo_h_") {
-    name = "HumanSim"
-  } else {
-    name = "AgentSim"
-  }
-  let gen = "noise_burst"
-  if (genRoll === 1) {
-    gen = "fm"
-  }
-  if (genRoll === 2) {
-    gen = "basic_osc"
-  }
-  lines.push("track " + name + " id " + trackId + " gen " + gen)
-  lines.push("  mix gain 0.88 pan " + String((rnd(21) - 10) * 0.07))
-  if (gen === "noise_burst") {
-    lines.push(
-      "  noise attack 0.001 decay " +
-        String(0.03 + rnd(5) * 0.01) +
-        " tone " +
-        String(0.5 + rnd(40) * 0.01) +
-        " pitch_follow " +
-        String(0.05 + rnd(15) * 0.01)
-    )
-  }
-  if (gen === "fm") {
-    lines.push(
-      "  fm ratio " +
-        String(1 + rnd(4)) +
-        " mod_index " +
-        String(3 + rnd(12)) +
-        " carrier sine mod square"
-    )
-    lines.push("  adsr a 0.01 d 0.08 s 0.35 r 0.12")
-  }
-  if (gen === "basic_osc") {
-    lines.push("  osc wave sine")
-    lines.push("  adsr a 0.005 d 0.1 s 0.4 r 0.1")
-  }
-  return { lines: lines, gen: gen }
-}
-
-fn emitAdjustLines(gen) {
-  let lines = []
-  if (gen === "noise_burst") {
-    lines.push(
-      "  noise attack 0.001 decay " +
-        String(0.02 + rnd(6) * 0.01) +
-        " tone " +
-        String(0.4 + rnd(50) * 0.01) +
-        " pitch_follow " +
-        String(0.08 + rnd(10) * 0.01)
-    )
-  }
-  if (gen === "fm") {
-    lines.push("  fm ratio " + String(2 + rnd(5)) + " mod_index " + String(4 + rnd(20)) + " carrier sine mod square")
-  }
-  if (gen === "basic_osc") {
-    lines.push("  osc wave square")
-  }
-  return lines
-}
-
-fn emitMasterMixerLine() {
-  let b = 92 + rnd(37)
-  return "bpm " + String(b)
-}
-
-fn emitChannelMixLine() {
-  let g = 0.5 + rnd(40) * 0.01
-  let p = (rnd(21) - 10) * 0.08
-  return "  mix gain " + String(g) + " pan " + String(p)
-}
-
-fn emitPianoNoteLine() {
-  let pit = 48 + rnd(24)
-  let beat = rnd(4) * 0.25
-  return "  note " + String(pit) + " " + String(beat) + " 0.25 v 100"
-}
-
-export fn coDjBuildHumanDemoLines() {
-  let tid = "demo_h_" + String(1000 + rnd(9000))
-  let out = []
-  let skills = []
-  out.push("tpl 1")
-  if (rnd(10) < 4) {
-    out.push(emitMasterMixerLine())
-    skills.push("master_mixer")
-  }
-  let genR = rnd(3)
-  let at = emitAddTrackLines(tid, "demo_h_", genR)
-  let i = 0
-  while (i < at.lines.length) {
-    out.push(at.lines[i])
-    i = i + 1
-  }
-  skills.push("add_track")
-  let extra = 1 + rnd(2)
-  let e = 0
-  while (e < extra) {
-    let r = rnd(4)
-    if (r === 0) {
-      out.push(pickEuclid())
-      skills.push("pattern_steps")
-    } else {
-      if (r === 1) {
-        out.push(pickGrid16())
-        skills.push("pattern_steps")
-      } else {
-        if (r === 2) {
-          out.push(emitChannelMixLine())
-          skills.push("channel_mix")
-        } else {
-          out.push(emitPianoNoteLine())
-          skills.push("pattern_piano")
-        }
-      }
-    }
-    e = e + 1
-  }
-  if (rnd(10) < 5) {
-    let adj = emitAdjustLines(at.gen)
-    let j = 0
-    while (j < adj.length) {
-      out.push(adj[j])
-      j = j + 1
-    }
-    skills.push("adjust_instrument")
-  }
-  return { lines: out, skillIds: skills }
-}
-
-export fn coDjBuildAgentDemoSpec() {
-  let tid = "demo_ai_" + String(1000 + rnd(9000))
-  let primary = []
-  let skills = []
-  primary.push("tpl 1")
-  let genR = rnd(3)
-  let at = emitAddTrackLines(tid, "demo_ai_", genR)
-  let k = 0
-  while (k < at.lines.length) {
-    primary.push(at.lines[k])
-    k = k + 1
-  }
-  skills.push("add_track")
-  if (rnd(10) < 6) {
-    primary.push(pickEuclid())
-    skills.push("pattern_steps")
-  } else {
-    primary.push(pickGrid16())
-    skills.push("pattern_steps")
-  }
-  if (rnd(10) < 4) {
-    primary.push(emitChannelMixLine())
-    skills.push("channel_mix")
-  }
-  let secondPatch = null
-  let secondSkills = []
-  if (rnd(10) < 5) {
-    secondPatch = []
-    secondPatch.push("tpl 1")
-    let gt = "noise_burst"
-    if (at.gen === "fm") {
-      gt = "fm"
-    }
-    if (at.gen === "basic_osc") {
-      gt = "basic_osc"
-    }
-    secondPatch.push("track AgentSim id " + tid + " gen " + gt)
-    let adj2 = emitAdjustLines(at.gen)
-    let a = 0
-    while (a < adj2.length) {
-      secondPatch.push(adj2[a])
-      a = a + 1
-    }
-    secondSkills.push("adjust_instrument")
-    if (rnd(2) === 0) {
-      secondPatch.push(pickEuclid())
-      secondSkills.push("pattern_steps")
-    } else {
-      secondPatch.push(pickGrid16())
-      secondSkills.push("pattern_steps")
-    }
-  }
-  return {
-    primaryLines: primary,
-    secondPatch: secondPatch,
-    skillIds: skills,
-    secondSkillIds: secondSkills,
-    agentTrackId: tid,
-    agentGen: at.gen
-  }
-}
-
-export fn coDjAgentSecondBlockPerfSteps() {
-  return coDjCurrentPerfStep() + coDjStepsPerSequence()
 }

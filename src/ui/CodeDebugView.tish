@@ -339,7 +339,7 @@ export fn CodeDebugView(project, setProject, tplText, setTplText) {
       <div class="tpl-tpl-line-stream-title">{"TPL line stream"}</div>
       <p class="tpl-tpl-line-stream-hint">
         {
-          "Demos emit valid TPL one line at a time (like tpl.line). Full-control sim = same, then applies that text as tpl.block."
+          "Play streams local TPL lines to the hub. Remote TPL arrives from agents as tpl.line / tpl.block."
         }
       </p>
       <div class="tpl-tpl-line-stream-cols">

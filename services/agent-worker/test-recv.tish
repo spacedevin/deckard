@@ -1,0 +1,41 @@
+// Minimal test: connect, send join, receive. Verifies cross-process WebSocket.
+import { WebSocket } from "tish:ws"
+
+let url = "ws://127.0.0.1:35987/"
+let ws = WebSocket(url)
+if (ws === null) {
+  console.log("FAIL: WebSocket connect returned null")
+  process.exit(1)
+}
+console.log("OK: connected")
+ws.send(JSON.stringify({
+  type: "join",
+  sessionId: "default",
+  actorId: "agent-test",
+  channelIds: ["default"],
+  skillIds: ["add_track", "pattern_steps"]
+}))
+console.log("OK: sent join")
+let msg1 = ws.receiveTimeout(3000)
+if (msg1 === null) {
+  console.log("FAIL: receiveTimeout returned null (no joined message)")
+  process.exit(1)
+}
+let raw1 = msg1 != null && msg1.data != null ? msg1.data : null
+if (!raw1 || raw1.indexOf("joined") < 0) {
+  console.log("FAIL: expected joined, got: " + (raw1 || "null"))
+  process.exit(1)
+}
+console.log("OK: received joined")
+let msg2 = ws.receiveTimeout(2000)
+if (msg2 === null) {
+  console.log("FAIL: receiveTimeout returned null (no presence)")
+  process.exit(1)
+}
+let raw2 = msg2 != null && msg2.data != null ? msg2.data : null
+if (!raw2 || raw2.indexOf("presence") < 0) {
+  console.log("FAIL: expected presence, got: " + (raw2 || "null"))
+  process.exit(1)
+}
+console.log("OK: received presence")
+console.log("SUCCESS: cross-process WebSocket works")

@@ -1,4 +1,4 @@
-// Sidecar metadata for co-DJ lanes and track ownership.
+// Sidecar metadata for co-DJ actors and track ownership.
 
 export fn ensureCoDjMeta(project) {
   if (!project.coDjMeta) {
@@ -10,26 +10,34 @@ export fn ensureCoDjMeta(project) {
   let ci = 0
   while (ci < project.channels.length) {
     let id = project.channels[ci].id
-    if (!project.coDjMeta.tracks[id]) {
+    let meta = project.coDjMeta.tracks[id]
+    if (!meta) {
       project.coDjMeta.tracks[id] = {
-        ownerLane: "human",
+        ownerActorId: "human",
         authorId: "human",
         masterLock: false,
         lastTouchedPerfStep: 0
       }
+    } else {
+      if (meta.ownerLane != null && meta.ownerActorId == null) {
+        meta.ownerActorId = meta.ownerLane === "human" ? "human" : ("agent-" + meta.ownerLane)
+      }
+      if (meta.ownerActorId == null) meta.ownerActorId = "human"
+      if (meta.authorId == null) meta.authorId = meta.ownerActorId
     }
-    if (typeof project.coDjMeta.tracks[id].lastTouchedPerfStep !== "number") {
-      project.coDjMeta.tracks[id].lastTouchedPerfStep = 0
+    meta = project.coDjMeta.tracks[id]
+    if (typeof meta.lastTouchedPerfStep !== "number") {
+      meta.lastTouchedPerfStep = 0
     }
     ci = ci + 1
   }
 }
 
-export fn setTrackOwner(project, channelId, laneId, authorId) {
+export fn setTrackOwner(project, channelId, actorId, authorId) {
   ensureCoDjMeta(project)
   let prev = project.coDjMeta.tracks[channelId]
   project.coDjMeta.tracks[channelId] = {
-    ownerLane: laneId,
+    ownerActorId: actorId,
     authorId: authorId,
     masterLock: prev ? prev.masterLock : false,
     lastTouchedPerfStep: prev && typeof prev.lastTouchedPerfStep === "number" ? prev.lastTouchedPerfStep : 0
@@ -40,7 +48,7 @@ export fn setTrackTouched(project, channelId, perfStep) {
   ensureCoDjMeta(project)
   if (!project.coDjMeta.tracks[channelId]) {
     project.coDjMeta.tracks[channelId] = {
-      ownerLane: "human",
+      ownerActorId: "human",
       authorId: "human",
       masterLock: false,
       lastTouchedPerfStep: perfStep
@@ -54,7 +62,7 @@ export fn setMasterLock(project, channelId, locked) {
   ensureCoDjMeta(project)
   if (!project.coDjMeta.tracks[channelId]) {
     project.coDjMeta.tracks[channelId] = {
-      ownerLane: "human",
+      ownerActorId: "human",
       authorId: "human",
       masterLock: locked,
       lastTouchedPerfStep: 0
