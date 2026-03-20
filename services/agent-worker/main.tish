@@ -1,8 +1,8 @@
-// Co-DJ agent worker (Tish): connect to gateway, join as agent, handle direct (demo patches).
-// Run: tish run --features ws,process services/agent-worker/main.tish
-// Note: primary agent is Node.js (index.js); this is legacy.
+// Co-DJ agent worker (Tish): connect to gateway, join as agent, handle direct + human play with LLM.
+// Run: tish run --features ws,process,http services/agent-worker/main.tish
 import { WebSocket } from "tish:ws"
 import { process } from "tish:process"
+import { fetch } from "http"
 
 let actorId = "agent-1"
 let hub = "ws://127.0.0.1:35987"
@@ -48,8 +48,7 @@ if (typeof process !== "undefined" && process.env) {
   else if ("MODEL_ACCESS_KEY" in process.env) { GRADIENT_MODEL_ACCESS_KEY = process.env["MODEL_ACCESS_KEY"] }
 }
 
-let AGENT_SYSTEM = "You are a Co-DJ agent. Respond with valid TPL (tpl 1, track ...). No markdown."
-let TPL_DIRECT = "Output ONLY TPL lines for one track. No markdown."
+let SYSTEM_PROMPT = "You are a Co-DJ agent. Output ONLY valid TPL lines. No markdown, no explanation.\nUse track ids prefixed with \"" + actorId + "_\" (e.g. " + actorId + "_hat, " + actorId + "_bass).\nGenerators: noise_burst (noise attack decay tone pitch_follow + steps), fm (fm ratio mod_index carrier mod + adsr + steps), basic_osc (osc waveform + adsr + steps).\nPatterns: steps with 16 x/. tokens, or steps euclid <hits> 16.\nComplement the human's project: add hi-hats, percussion, bass, or melodic parts that fit the tempo and fill gaps."
 
 let SKILL_IDS = ["add_track", "adjust_instrument", "pattern_steps", "pattern_piano", "channel_mix"]
 
@@ -64,23 +63,133 @@ fn buildDemoPatch(text) {
   return null
 }
 
+fn lineStartsWithSpace(l) {
+  let c = l.charAt(0)
+  return c === " " || c === "\t"
+}
+fn lineStartsWithTplKeyword(t) {
+  let prefixes = ["noise ", "fm ", "osc ", "adsr ", "steps ", "note ", "mix "]
+  let i = 0
+  while (i < prefixes.length) {
+    if (t.indexOf(prefixes[i]) === 0) return true
+    i = i + 1
+  }
+  return false
+}
+
+/** Extract TPL lines from LLM output. Strips markdown, keeps valid TPL. */
+fn extractTplFromResponse(raw) {
+  let s = String(raw || "").trim()
+  let codeBlock = RegExp("```(?:[a-zA-Z0-9_]*)\\n?([\\s\\S]*?)```")
+  let m = s.match(codeBlock)
+  if (m != null && m.length > 1) s = m[1].trim()
+  let all = s.split("\n")
+  let out = []
+  let i = 0
+  while (i < all.length) {
+    let l = all[i]
+    let t = l.trim()
+    if (!t || t.charAt(0) === "#" || t.indexOf("Here") === 0 || t.toLowerCase().indexOf("sure") === 0) {
+      i = i + 1
+      continue
+    }
+    let norm = l.split("\t").join("  ")
+    if (t.indexOf("tpl ") === 0 || t.indexOf("track ") === 0 || t.indexOf("bpm ") === 0 || t.indexOf("auto ") === 0) {
+      out.push(norm)
+    } else if (lineStartsWithSpace(l) && t) {
+      out.push(norm)
+    } else if (out.length > 0 && lineStartsWithTplKeyword(t)) {
+      out.push("  " + t)
+    }
+    i = i + 1
+  }
+  if (out.length === 0) return null
+  let first = out[0].trim()
+  if (first.indexOf("tpl ") !== 0 && first.indexOf("track ") !== 0) return null
+  if (first.indexOf("tpl ") !== 0) {
+    let newOut = ["tpl 1"]
+    let j = 0
+    while (j < out.length) {
+      newOut.push(out[j])
+      j = j + 1
+    }
+    out = newOut
+  }
+  return out
+}
+
+fn callLLM(userPrompt) {
+  if (!GRADIENT_MODEL_ACCESS_KEY || GRADIENT_MODEL_ACCESS_KEY === "") return null
+  try {
+    let url = DO_BASE + "/chat/completions"
+    let bodyObj = {
+      model: DO_MODEL,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userPrompt }
+      ],
+      max_tokens: 1024,
+      temperature: 0.7
+    }
+    let bodyStr = JSON.stringify(bodyObj)
+    let headersObj = {}
+    headersObj["Content-Type"] = "application/json"
+    headersObj["Authorization"] = "Bearer " + GRADIENT_MODEL_ACCESS_KEY
+    let opts = {
+      method: "POST",
+      headers: headersObj,
+      body: bodyStr
+    }
+    let resp = await fetch(url, opts)
+    if (!resp || !resp.ok) {
+      let errText = ""
+      try {
+        let errData = await resp.text()
+        errText = errData
+      } catch (e) {
+        errText = String(resp.status || "unknown")
+      }
+      console.error("[agent] LLM error:", errText)
+      return null
+    }
+    let data = await resp.json()
+    if (!data || typeof data !== "object") return null
+    let choices = data.choices
+    if (!choices || !Array.isArray(choices) || choices.length === 0) return null
+    let msg = choices[0].message
+    if (!msg || typeof msg !== "object") return null
+    let content = msg.content
+    if (!content) return null
+    return extractTplFromResponse(content)
+  } catch (e) {
+    console.error("[agent] LLM fetch failed:", String(e))
+    return null
+  }
+}
+
 let activeWs = null
 
 fn handleDirect(ws, msg) {
   let text = msg.text || "add hi-hat"
-  let demo = buildDemoPatch(text)
-  if (!demo) { return }
-  if (ws && ws.send) {
-    let ps = (msg.perfStep != null && typeof msg.perfStep === "number") ? msg.perfStep : 0
-    ws.send(JSON.stringify({
-      type: "tpl.block",
-      actorId: actorId,
-      authorId: actorId,
-      lines: demo.split("\n"),
-      effectivePerfStep: ps,
-      asap: true
-    }))
+  let ps = (msg.perfStep != null && typeof msg.perfStep === "number") ? msg.perfStep : 0
+  let lines = null
+  if (GRADIENT_MODEL_ACCESS_KEY && GRADIENT_MODEL_ACCESS_KEY !== "") {
+    lines = callLLM("Add a track for: \"" + text + "\". Output ONLY TPL.")
   }
+  if (!lines || lines.length === 0) {
+    let demo = buildDemoPatch(text)
+    if (demo) lines = demo.split("\n")
+  }
+  if (!lines || lines.length === 0 || !ws || !ws.send) return
+  ws.send(JSON.stringify({
+    type: "tpl.block",
+    actorId: actorId,
+    authorId: actorId,
+    lines: lines,
+    effectivePerfStep: ps,
+    asap: true
+  }))
+  console.log("[agent] got direct:", text, "-> sent tpl.block")
 }
 
 // Human play flow: buffer tpl.line from playing actor; after debounce emit stream_chunk then tpl.block
@@ -113,10 +222,18 @@ fn streamChunkThenBlock(ws, lines, perfStep) {
 }
 
 fn handleHumanStream(ws, perfStep) {
-  let demo = buildDemoPatch("euclid hi-hat")
-  if (!demo) { return }
-  let lines = demo.split("\n")
-  console.log("[agent] play response: streaming " + String(lines.length) + " lines -> " + (playingActorId || "?"))
+  let humanTpl = humanLineBuffer.join("\n").trim()
+  let lines = null
+  if (GRADIENT_MODEL_ACCESS_KEY && GRADIENT_MODEL_ACCESS_KEY !== "" && humanTpl.length > 10) {
+    console.log("[agent] calling LLM with", String(humanTpl.length), "chars of human TPL")
+    lines = callLLM("Human's current project TPL (complement it with a new track):\n\n" + humanTpl)
+  }
+  if (!lines || lines.length === 0) {
+    let demo = buildDemoPatch("euclid hi-hat")
+    if (demo) lines = demo.split("\n")
+  }
+  if (!lines || lines.length === 0) return
+  console.log("[agent] play response: streaming", String(lines.length), "lines ->", playingActorId || "?")
   streamChunkThenBlock(ws, lines, perfStep)
   console.log("[agent] sent tpl.stream_chunk + tpl.block")
 }

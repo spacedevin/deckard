@@ -1,14 +1,10 @@
 {
-  "name": "tish-midi-agent-worker",
+  "name": "agent-worker",
   "version": "0.1.0",
   "private": true,
-  "description": "Co-DJ AI lane worker: SQLite log + optional tpl.block demo",
-  "main": "index.js",
+  "description": "Co-DJ agent worker (Tish)",
+  "type": "module",
   "scripts": {
-    "start": "node index.js"
-  },
-  "dependencies": {
-    "better-sqlite3": "^11.6.0",
-    "ws": "^8.18.0"
+    "start": "cd ../../tish && cargo run -p tish -q --features ws,process,http -- run ../tish-midi/services/agent-worker/main.tish"
   }
 }

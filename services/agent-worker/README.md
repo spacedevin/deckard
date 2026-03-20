@@ -12,7 +12,7 @@
 
 ## Human TPL stream (browser **Play**)
 
-When the human presses **Play**, the app sends **`human_play`** then throttled **`tpl.line`** with `laneId: human`. The worker buffers those lines and, after a short debounce, calls the LLM (system prompt includes `docs/TPL_AGENT_GRAMMAR.md`) and emits **`tpl.stream_chunk`** then **`tpl.block`** on this lane. **Stop** sends **`human_stop`**. Without an API key, the human-stream path still emits a small **euclid hat** demo patch.
+When the human presses **Play**, the app sends **`playing_start`** then throttled **`tpl.line`** with `actorId`. The worker buffers those lines and, after a short debounce, calls the LLM (system prompt includes `docs/TPL_AGENT_GRAMMAR.md`) and emits **`tpl.stream_chunk`** then **`tpl.block`** with the agent's `actorId`. **Stop** sends **`playing_stop`**. Without an API key, the human-stream path still emits a small **euclid hat** demo patch.
 
 ## Why nothing happened (demo mode)
 
@@ -25,12 +25,12 @@ When the human presses **Play**, the app sends **`human_play`** then throttled *
 [DigitalOcean serverless inference](https://docs.digitalocean.com/products/gradient-ai-platform/how-to/use-serverless-inference/): put the model access key in `.env` as `GRADIENT_MODEL_ACCESS_KEY`, then:
 
 ```bash
-npm run agent -- --lane ai-a --session default
+npm run agent -- --actor-id agent-1 --session default
 ```
 
 Shell variables override `.env` if both are set.
 
-**Tish agent:** `npm run agent` runs `services/agent-worker/main.tish` (Tish). It responds to **direct** with demo TPL; for real LLM (human stream + async), extend the Tish agent or use a Node-based worker.
+**Tish agent:** `npm run agent` runs `services/agent-worker/main.tish` (Tish). It responds to **direct** and **human play** with LLM-generated TPL (when `GRADIENT_MODEL_ACCESS_KEY` is set) or demo patches.
 
 **Build tish first:** From the **tish** repo run `cargo build --features full`. Use that binary when running the agent (e.g. `../tish/target/debug/tish run services/agent-worker/main.tish` from tish-midi, or ensure `tish` on your PATH is that build). The agent uses `continue` in a `while(true)` loop; the bytecode compiler must be built with the fix for backward jump patching.
 
