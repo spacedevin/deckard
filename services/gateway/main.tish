@@ -1,6 +1,8 @@
 // Co-DJ gateway (Tish): one room per sessionId, fanout JSON, per-lane seq.
 // Connect to ws://host:8765 — first message must be join with sessionId, role, laneId.
-import { Server } from "tish:ws"
+// Node.js ws-compatible API: Server.clients
+// wsBroadcast does send in Rust — avoids Tish Call opcode for method/native in loop
+import { Server, wsSend, wsBroadcast } from "tish:ws"
 import { process } from "tish:process"
 
 let port = 8765
@@ -61,16 +63,11 @@ fn nextSeq(room, laneId) {
   return room.seq[lane]
 }
 
+// Node.js pattern: wss.clients.forEach(client => client.send(data))
+// wsBroadcast(conns, except, data) does this in Rust to avoid Call-of-non-function bug
 fn broadcast(room, msg, except) {
   let s = typeof msg === "string" ? msg : JSON.stringify(msg)
-  let i = 0
-  while (i < room.conns.length) {
-    let c = room.conns[i]
-    if (c !== except && c.ws && c.ws.send) {
-      c.ws.send(s)
-    }
-    i = i + 1
-  }
+  wsBroadcast(room.conns, except, s)
 }
 
 fn clientId() {
@@ -98,7 +95,7 @@ while (true) {
       try {
         msg = JSON.parse(raw)
       } catch (e) {
-        if (conn.ws.send) conn.ws.send(JSON.stringify({ type: "error", code: "BAD_JSON", message: "invalid JSON" }))
+        if (conn.ws != null) wsSend(conn.ws, JSON.stringify({ type: "error", code: "BAD_JSON", message: "invalid JSON" }))
       }
       if (msg != null) {
         if (!conn.joined) {
@@ -115,8 +112,8 @@ while (true) {
               console.log("[gateway] sent joined to role=" + conn.role + " laneId=" + conn.laneId)
               let agentLanes = collectAgentLanes(room)
               let paired = conn.role === "agent" ? null : pairedAgentLane(agentLanes)
-              if (conn.ws.send) {
-                conn.ws.send(JSON.stringify({
+              if (conn.ws != null) {
+                wsSend(conn.ws, JSON.stringify({
                   type: "joined",
                   sessionId: conn.sessionId,
                   you: { laneId: conn.laneId, role: conn.role, clientId: conn.clientId },
@@ -131,7 +128,7 @@ while (true) {
               }
             }
           } else {
-            if (conn.ws.send) conn.ws.send(JSON.stringify({ type: "error", code: "JOIN_FIRST", message: "send join first" }))
+            if (conn.ws != null) wsSend(conn.ws, JSON.stringify({ type: "error", code: "JOIN_FIRST", message: "send join first" }))
           }
         } else {
           console.log("[gateway] recv " + msg.type + " from " + conn.laneId)
@@ -149,7 +146,7 @@ while (true) {
             }
             out.seq = seq
             out.sessionId = conn.sessionId
-            if (msg.type === "tpl.line" || msg.type === "tpl.block" || msg.type === "direct" || msg.type === "tpl.stream_chunk" || msg.type === "control") {
+            if (msg.type === "tpl.line" || msg.type === "tpl.block" || msg.type === "direct" || msg.type === "tpl.stream_chunk") {
               let n = 0
               let bi = 0
               while (bi < room.conns.length) {

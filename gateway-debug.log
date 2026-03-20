@@ -1,0 +1,9 @@
+warning: function `write_u16` is never used
+  --> crates/tish_bytecode/src/peephole.rs:20:4
+   |
+20 | fn write_u16(code: &mut [u8], pos: usize, v: u16) {
+   |    ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+gateway: failed to listen on port 8765

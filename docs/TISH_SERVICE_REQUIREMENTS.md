@@ -7,7 +7,9 @@ This document describes the **capabilities the Tish runtime must provide** so th
 - **WebSocket server**: Accept connections, associate each with a room (e.g. by sessionId from first message or from URL path if HTTP upgrade is supported). Broadcast JSON messages to other clients in the same room. Per-lane sequence numbers.
 - **WebSocket client**: Connect to a URL, send and receive JSON text frames. Used by the agent to connect to the gateway.
 
-**Status:** Implemented in Tish as **`tish:ws`** (feature flag `ws`): `WebSocket(url)` client, `Server({ port })` with `.on('connection', fn)` and `.listen()`. Build with `--features ws` or `full`. Gateway and agent can use this.
+**Status:** Implemented in Tish as **`tish:ws`** (feature flag `ws`): `WebSocket(url)` client, `Server({ port })` with `.on('connection', fn)`, `.listen()`, and **Node.js-compatible** `server.clients` array. Build with `--features ws` or `full`. Gateway and agent can use this.
+
+**Node.js `ws` compatibility:** Same patterns as Node — iterate `server.clients` (or room conns), call `wsSend(ws, data)` (equivalent to `ws.send(data)`).
 
 ## P1 — Optional
 
