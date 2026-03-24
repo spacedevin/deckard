@@ -1,4 +1,4 @@
-import { h, Fragment } from '../tishact/Tishact.tish'
+import { h, Fragment } from 'lattish'
 import { defaultParamsForGeneratorId, normalizeBasicOscWaveform } from '../generators/Registry.tish'
 
 export fn AdsrAmpBlock(p, project, setProject, tplMirrorFlush) {

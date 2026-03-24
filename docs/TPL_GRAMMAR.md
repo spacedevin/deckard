@@ -1,6 +1,6 @@
 # TPL — Tish Patch Language
 
-Streamable, line-oriented patch text for **tish-midi** projects. Optimized for incremental parse (one completed line at a time) and LLM token streams.
+Streamable, line-oriented patch text for **Deckard** projects. Optimized for incremental parse (one completed line at a time) and LLM token streams.
 
 ## UI: local song vs hub stream
 

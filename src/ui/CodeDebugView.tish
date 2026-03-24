@@ -1,4 +1,4 @@
-import { useState, h, Fragment } from '../tishact/Tishact.tish'
+import { useState, h, Fragment } from 'lattish'
 import { emitProject } from '../tpl/Emit.tish'
 import { applyTplSource } from '../tpl/Apply.tish'
 import { tplDocumentToHighlightHtml } from '../tpl/SongEditorHighlight.tish'
@@ -25,7 +25,6 @@ fn flushTplSongEditorFromProject(project, setTplText) {
 
 export fn CodeDebugView(project, setProject, tplText, setTplText) {
   let [tplErr, setTplErr] = useState("")
-  let [tplHubTick, setTplHubTick] = useState(0)
 
   if (typeof window !== "undefined") {
     window.__tplSongEditorEcho = tplText
@@ -50,17 +49,6 @@ export fn CodeDebugView(project, setProject, tplText, setTplText) {
           window.__tplTextarea.value = merged
         }
       }
-    }
-    if (!window.__tplHubPollIv) {
-      window.__tplHubPollIv = setInterval(() => {
-        let b = window.__tplHubPollBump
-        if (b) {
-          b()
-        }
-      }, 450)
-    }
-    window.__tplHubPollBump = () => {
-      setTplHubTick((x) => x + 1)
     }
   }
 
@@ -248,129 +236,17 @@ export fn CodeDebugView(project, setProject, tplText, setTplText) {
     attachSongTextarea()
   }, 0)
 
-  let hubOn = false
-  let hubPaired = ""
-  let localStream = ""
-  let localLane = ""
-  let remoteStream = ""
-  let remoteLane = ""
-  if (typeof window !== "undefined" && window.__coDjWs && window.__coDjWs.readyState === 1) {
-    hubOn = true
-    if (window.__coDjPairedAgentLane) {
-      hubPaired = String(window.__coDjPairedAgentLane)
-    } else {
-      hubPaired = "none"
-    }
-    if (window.__coDjLocalStreamPreview) {
-      localStream = String(window.__coDjLocalStreamPreview)
-    }
-    if (window.__coDjLocalStreamLane) {
-      localLane = String(window.__coDjLocalStreamLane)
-    }
-    if (window.__coDjStreamPreview) {
-      remoteStream = String(window.__coDjStreamPreview)
-    }
-    if (window.__coDjStreamLane) {
-      remoteLane = String(window.__coDjStreamLane)
-    }
-  }
-  let hubBlock = null
-  if (hubOn) {
-    hubBlock = (
-      <div class="tpl-hub-stream">
-        <div class="tpl-hub-stream-head">
-          <span class="tpl-hub-badge">{"Hub"}</span>
-          <span class="tpl-hub-stream-meta">
-            {"paired "}
-            {hubPaired}
-            {" · Press Play to stream project TPL to the session"}
-          </span>
-        </div>
-        <div class="tpl-hub-stream-cols">
-          <div class="tpl-hub-stream-col">
-            <div class="tpl-hub-stream-label">
-              {"Local → hub"}
-              {localLane.length > 0 ? " (" + localLane + ")" : ""}
-            </div>
-            <pre class="tpl-hub-stream-pre">{localStream.length > 0 ? localStream : "—"}</pre>
-          </div>
-          <div class="tpl-hub-stream-col">
-            <div class="tpl-hub-stream-label">
-              {"Remote"}
-              {remoteLane.length > 0 ? " (" + remoteLane + ")" : ""}
-            </div>
-            <pre class="tpl-hub-stream-pre">{remoteStream.length > 0 ? remoteStream : "—"}</pre>
-          </div>
-        </div>
-      </div>
-    )
-  } else {
-    hubBlock = (
-      <div class="tpl-hub-offline">
-        <span class="tpl-hub-offline-label">{"Local"}</span>
-        <span class="tpl-hub-offline-hint">
-          {" — not on hub. Connect for Play→hub. TPL line stream below works offline (demos)."}
-        </span>
-      </div>
-    )
-  }
-
-  let remoteTplBuf = ""
-  let remoteTplLaneLbl = "remote"
-  let localTplBuf = ""
-  let localTplLaneLbl = ""
-  if (typeof window !== "undefined") {
-    if (window.__coDjRemoteTplStream) {
-      remoteTplBuf = String(window.__coDjRemoteTplStream)
-    }
-    if (window.__coDjRemoteTplStreamLane) {
-      remoteTplLaneLbl = String(window.__coDjRemoteTplStreamLane)
-    }
-    if (window.__coDjLocalStreamPreview) {
-      localTplBuf = String(window.__coDjLocalStreamPreview)
-    }
-    if (window.__coDjLocalStreamLane) {
-      localTplLaneLbl = String(window.__coDjLocalStreamLane)
-    }
-  }
-
-  let tplLineStream = (
-    <div class="tpl-tpl-line-stream">
-      <div class="tpl-tpl-line-stream-title">{"TPL line stream"}</div>
-      <p class="tpl-tpl-line-stream-hint">
-        {
-          "Play streams local TPL lines to the hub. Remote TPL arrives from agents as tpl.line / tpl.block."
-        }
-      </p>
-      <div class="tpl-tpl-line-stream-cols">
-        <div class="tpl-tpl-line-stream-col">
-          <div class="tpl-hub-stream-label">
-            {"Local TPL"}
-            {localTplLaneLbl.length > 0 ? " (" + localTplLaneLbl + ")" : ""}
-          </div>
-          <pre class="tpl-tpl-line-stream-pre">{localTplBuf.length > 0 ? localTplBuf : "—"}</pre>
-        </div>
-        <div class="tpl-tpl-line-stream-col">
-          <div class="tpl-hub-stream-label">
-            {"Remote TPL (" + remoteTplLaneLbl + ")"}
-          </div>
-          <pre class="tpl-tpl-line-stream-pre">{remoteTplBuf.length > 0 ? remoteTplBuf : "—"}</pre>
-        </div>
-      </div>
-    </div>
-  )
-
   return (
     <section class="panel code-debug-panel">
       <h2>{"TPL"}</h2>
-      {hubBlock}
-      {tplLineStream}
-      <span class="tpl-hub-poll-anchor" style={{ display: "none" }}>
-        {String(tplHubTick)}
-      </span>
+      <p class="code-debug-hint code-debug-hint-hub">
+        {
+          "WebSocket / hub: use the Co-DJ panel for Connect, stream previews, and the activity log. Play streams your project TPL to the gateway; agents join as separate actors. Nothing duplicated here anymore."
+        }
+      </p>
       <p class="code-debug-hint">
         {
-          "Song editor: Apply / Sync ↔ project. Hub row = socket byte previews when connected."
+          "Song editor: Apply / Sync ↔ project."
         }
       </p>
       <div class="tpl-song-editor-wrap tpl-song-editor-full">

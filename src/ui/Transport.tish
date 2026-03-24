@@ -1,4 +1,4 @@
-import { h, Fragment } from '../tishact/Tishact.tish'
+import { h, Fragment } from 'lattish'
 
 export fn TransportBar(bpm, playing, onPlay, onStop, onBpmInput, onExport, onImport) {
   return <div class="transport-bar">

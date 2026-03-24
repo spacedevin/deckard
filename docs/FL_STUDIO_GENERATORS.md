@@ -1,4 +1,4 @@
-# FL Studio–style generators vs tish-midi
+# FL Studio–style generators vs Deckard
 
 ## How FL Studio structures instruments
 
@@ -17,9 +17,9 @@
 5. **Effects are separate**  
    Insert FX on mixer tracks are another plugin category. Our **mixer strip** is gain, pan, mute, solo (+ shared filter on the bus). **ADSR / synth envelopes live in the generator params**, like Fruity Slicer’s own envelope inside the plugin—not on the mixer fader.
 
-## What we mirror in tish-midi
+## What we mirror in Deckard
 
-| FL concept | tish-midi |
+| FL concept | Deckard |
 |------------|-----------|
 | Pick instrument (generator plugin) | `channel.generatorId` (`basicOsc`, `noiseBurst`, `fmTone`, …) |
 | Plugin-specific patch | `channel.generatorParams` (shape depends on `generatorId`) |

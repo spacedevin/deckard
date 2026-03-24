@@ -1,4 +1,4 @@
-# Agent / LLM editing contract — tish-midi
+# Agent / LLM editing contract — Deckard
 
 ## Prefer these surfaces
 

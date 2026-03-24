@@ -1,6 +1,6 @@
 // Piano roll: zoom, snap, resize L/R, marquee select, drag selection (time + pitch), cursors.
 
-import { h, Fragment } from '../tishact/Tishact.tish'
+import { h, Fragment } from 'lattish'
 import { clearAllSteps } from '../model/Edits.tish'
 
 let PR_KEY_W = 44

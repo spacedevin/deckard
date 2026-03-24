@@ -1,5 +1,0 @@
-// Entry for Counter demo. Build: npm run build:counter
-import { createRoot } from '../Tishact.tish'
-import { CounterApp } from './Counter.tish'
-
-createRoot(document.getElementById('root')).render(CounterApp)

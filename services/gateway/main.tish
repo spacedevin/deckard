@@ -19,7 +19,7 @@ if (server === null) {
 }
 
 console.log("[gateway] listening ws://0.0.0.0:" + port + " — first message: join with sessionId, actorId")
-console.log("[gateway] (If agent gets HTTP 200, ensure only this process uses the port: lsof -i :" + port + ")")
+console.log("[gateway] (If worker gets HTTP 200, ensure only this process uses the port: lsof -i :" + port + ")")
 
 // rooms: array of { id, conns, seq }; seq per actorId (dynamic keys)
 let rooms = []
@@ -55,13 +55,37 @@ fn nextSeq(room, actorId) {
   return room.seq[actorId]
 }
 
-// Node.js pattern: wss.clients.forEach(client => client.send(data))
-// wsBroadcast(conns, except, data) does this in Rust to avoid Call-of-non-function bug
+// Send to all conns in room except sender. Build array of raw ws objects for wsBroadcast.
 fn broadcast(room, msg, except) {
   let s = typeof msg === "string" ? msg : JSON.stringify(msg)
-  let n = wsBroadcast(room.conns, except, s)
-  if (msg != null && typeof msg === "object" && msg.type === "presence") {
-    console.log("[gateway] broadcast presence -> " + String(n) + " recipients (room has " + String(room.conns.length) + " conns)")
+  console.log("[gateway] OUTPUT broadcast " + (msg != null && typeof msg === "object" ? msg.type : "?") + ":", s.length > 200 ? (s.substring(0, 200) + "...") : s)
+  let wsArray = []
+  let exceptWs = null
+  if (except != null && except.ws != null) {
+    exceptWs = except.ws
+  }
+  let i = 0
+  while (i < room.conns.length) {
+    let c = room.conns[i]
+    if (c.ws != null) {
+      if (c !== except) {
+        wsArray.push(c.ws)
+        console.log("[gateway] broadcast: adding conn[" + String(i) + "] actorId=" + (c.actorId || "?") + " ws=ok")
+      } else {
+        console.log("[gateway] broadcast: skipping conn[" + String(i) + "] actorId=" + (c.actorId || "?") + " (sender)")
+      }
+    }
+    i = i + 1
+  }
+  console.log("[gateway] broadcast: wsArray.length=" + String(wsArray.length) + " room.conns.length=" + String(room.conns.length))
+  let n = wsBroadcast(wsArray, exceptWs, s)
+  console.log("[gateway] wsBroadcast returned n=" + String(n))
+  if (msg != null && typeof msg === "object") {
+    if (msg.type === "presence") {
+      console.log("[gateway] broadcast presence -> " + String(n) + " recipients (room has " + String(room.conns.length) + " conns)")
+    } else if (msg.type === "tpl.block" || msg.type === "tpl.line") {
+      console.log("[gateway] broadcast " + msg.type + " -> " + String(n) + " recipients")
+    }
   }
 }
 
@@ -86,13 +110,19 @@ while (true) {
       if (msgObj.data != null) raw = msgObj.data
     }
     if (raw != null) {
+      let rawPreview = raw.length > 120 ? (raw.substring(0, 120) + "... (" + String(raw.length) + " bytes)") : raw
+      console.log("[gateway] INPUT raw preview:", rawPreview)
       let msg = null
       try {
         msg = JSON.parse(raw)
       } catch (e) {
-        if (conn.ws != null) wsSend(conn.ws, JSON.stringify({ type: "error", code: "BAD_JSON", message: "invalid JSON" }))
+        let errPayload = JSON.stringify({ type: "error", code: "BAD_JSON", message: "invalid JSON" })
+        console.log("[gateway] OUTPUT wsSend error:", errPayload)
+        if (conn.ws != null) wsSend(conn.ws, errPayload)
       }
       if (msg != null) {
+        let mt = msg.type != null ? String(msg.type) : "?"
+        console.log("[gateway] INPUT parsed type=" + mt + " from conn actorId=" + (conn.actorId || "?") + " joined=" + String(conn.joined))
         if (!conn.joined) {
           if (msg.type === "join") {
             let aid = null
@@ -101,7 +131,9 @@ while (true) {
               if (typeof v === "string" && v !== "") aid = v
             }
             if (!aid) {
-              if (conn.ws != null) wsSend(conn.ws, JSON.stringify({ type: "error", code: "JOIN_BAD", message: "actorId required" }))
+              let errPayload = JSON.stringify({ type: "error", code: "JOIN_BAD", message: "actorId required" })
+              console.log("[gateway] OUTPUT wsSend error:", errPayload)
+              if (conn.ws != null) wsSend(conn.ws, errPayload)
             } else {
               conn.joined = true
               conn.sessionId = (typeof msg.sessionId === "string" && msg.sessionId !== "") ? msg.sessionId : "default"
@@ -115,26 +147,59 @@ while (true) {
                 console.log("[gateway] joined session=" + conn.sessionId + " actorId=" + conn.actorId)
                 let actors = collectActors(room)
                 if (conn.ws != null) {
-                  wsSend(conn.ws, JSON.stringify({
+                  let joinedPayload = JSON.stringify({
                     type: "joined",
                     sessionId: conn.sessionId,
                     you: { actorId: conn.actorId, clientId: conn.clientId, channelIds: conn.channelIds },
                     actors,
                     replay: []
-                  }))
+                  })
+                  console.log("[gateway] OUTPUT wsSend joined:", joinedPayload.substring(0, 200) + (joinedPayload.length > 200 ? "..." : ""))
+                  wsSend(conn.ws, joinedPayload)
                 }
                 console.log("[gateway] presence update: actors=" + JSON.stringify(actors) + " session=" + conn.sessionId)
                 broadcast(room, { type: "presence", sessionId: conn.sessionId, actors }, null)
               }
             }
           } else {
-            if (conn.ws != null) wsSend(conn.ws, JSON.stringify({ type: "error", code: "JOIN_FIRST", message: "send join first" }))
+            let errPayload = JSON.stringify({ type: "error", code: "JOIN_FIRST", message: "send join first" })
+            console.log("[gateway] OUTPUT wsSend error:", errPayload)
+            if (conn.ws != null) wsSend(conn.ws, errPayload)
           }
         } else {
-          console.log("[gateway] recv " + msg.type + " from " + conn.actorId)
           let actorId = conn.actorId
           let room = getRoom(conn.sessionId)
           if (room != null) {
+            let mt = msg.type != null ? String(msg.type) : ""
+            let n = 0
+            let bi = 0
+            while (bi < room.conns.length) {
+              if (room.conns[bi] !== conn) n = n + 1
+              bi = bi + 1
+            }
+            let doFanout =
+              mt === "tpl.line" ||
+              mt === "tpl.block" ||
+              mt === "direct" ||
+              mt === "tpl.stream_chunk" ||
+              mt === "control"
+            console.log(
+              "[gateway] recv " +
+                mt +
+                " from " +
+                actorId +
+                " session=" +
+                conn.sessionId +
+                " -> " +
+                String(n) +
+                " peer(s), room " +
+                String(room.conns.length) +
+                " conn(s), broadcast=" +
+                String(doFanout)
+            )
+            if (doFanout && n === 0 && (mt === "tpl.block" || mt === "tpl.line")) {
+              console.log("[gateway] note: 0 peers — only sender in room; open another client on same sessionId to receive")
+            }
             let seq = nextSeq(room, actorId)
             let out = {}
             let keys = Object.keys(msg)
@@ -147,15 +212,8 @@ while (true) {
             out.seq = seq
             out.sessionId = conn.sessionId
             out.actorId = actorId
-            if (msg.type === "tpl.line" || msg.type === "tpl.block" || msg.type === "direct" || msg.type === "tpl.stream_chunk" || msg.type === "control") {
-              let n = 0
-              let bi = 0
-              while (bi < room.conns.length) {
-                if (room.conns[bi] !== conn) n = n + 1
-                bi = bi + 1
-              }
+            if (doFanout) {
               broadcast(room, out, conn)
-              console.log("[gateway] fanout " + msg.type + " -> " + String(n) + " peers")
             }
           }
         }

@@ -1,4 +1,4 @@
-# tish-midi
+# Deckard
 
 Minimal FL-style hybrid web DAW in **[Tish](https://github.com/tishlang/tish)** (JS target + JSX): step sequencer, piano roll (canvas), mixer (gain, pan, ADSR, mute/solo), per-channel waveform, master waveform scope, JSON import/export.
 
@@ -21,28 +21,28 @@ Serve the folder (e.g. `npx serve .`) and open `index.html`. Click **Play** once
 | Transport, rack, mixer | DOM + CSS |
 | Piano roll, scope | `<canvas>` |
 
-**Reachability:** `src/main.tish` → `ui/App.tish` pulls in model, audio, schedule, generators, tpl (emit/apply/highlight), and Tishact. Optional counter demo: `src/tishact/examples/counter-main.tish` (`npm run build:counter`). **Removed unused:** `hooks.tish` (dead shim), `tpl/Lexer.tish` (Parser inlines the same concerns).
+**Reachability:** `src/main.tish` → `ui/App.tish` pulls in model, audio, schedule, generators, tpl (emit/apply/highlight), and Lattish. Optional counter demo: `src/lattish/examples/counter-main.tish` (`npm run build:counter`). **Removed unused:** `hooks.tish` (dead shim), `tpl/Lexer.tish` (Parser inlines the same concerns).
 
-## Co-DJ (WebSocket + agents)
+## Co-DJ (WebSocket + actors)
 
-**Order:** gateway → agent → browser.
+**Order:** gateway → worker → browser.
 
-### Quick start: real agent (not just demos)
+### Quick start
 
-1. **Tish CLI** with `ws` (and for agent: `http`, `fs`, `process`). From the **tish** repo: `cargo build -p tish --features full`.
+1. **Tish CLI** with `ws` (and for worker: `http`, `fs`, `process`). From the **tish** repo: `cargo build -p tish --features full`.
 2. **Terminal A — gateway:**  
    `npm run gateway`  
    (listens on **ws://127.0.0.1:35987**; clients connect and send first message `join` with `sessionId`).
-3. **Terminal B — agent:**  
+3. **Terminal B — worker:**  
    `npm run agent`  
-   (or `npm run agent -- --lane ai-a --session default`)  
-   - Tish agent responds to **direct** with demo TPL (euclid hat, bass/fm). For **real LLM** responses, use the Node agent (see [services/agent-worker/README.md](services/agent-worker/README.md)) until async/LLM is wired in Tish.
+   (or `npm run agent -- --actor-id actor-1 --session default`)  
+   - Tish worker responds to **direct** with demo TPL (euclid hat, bass/fm). For LLM responses, set `GRADIENT_MODEL_ACCESS_KEY` (see [services/agent-worker/README.md](services/agent-worker/README.md)).
 4. **Terminal C (or browser):** run the app (`npm run serve`, open **http://localhost:3456**).
-5. In the app: **Co-DJ** panel → **Connect**. Session should be `default` (same as the agent). You should see **Paired lane ai-a** (or “No agent” if the agent isn’t running).
-6. **Press Play.** The app sends **human_play** and streams the current project as **tpl.line** to the gateway. The agent (Tish or Node) it, waits ~1.3s, then sends back **tpl.block** (and **tpl.stream_chunk**) on lane **ai-a**. the gateway forwards that to the browser; the app applies the block and you hear the new pattern.
-7. **Direct test:** set **Direct→** to `ai-a`, type e.g. `euclid hi-hat`, click **Send test direct**. The agent replies with a **tpl.block** for that lane.
+5. In the app: **Co-DJ** panel → **Connect**. Session should be `default` (same as the worker). You should see other actors when the worker is running.
+6. **Press Play.** The app sends **playing_start** and streams the current project as **tpl.line** to the gateway. The worker waits ~1.3s, then sends back **tpl.block** (and **tpl.stream_chunk**). The gateway forwards that to the browser; the app applies the block and you hear the new pattern.
+7. **Direct test:** set **Direct→** to the worker's actor, type e.g. `euclid hi-hat`, click **Send test direct**. The worker replies with a **tpl.block**.
 
-So: **gateway + agent + Connect + Play** (or **Send test direct**) is what makes the agent “do stuff for reals”.
+So: **gateway + worker + Connect + Play** (or **Send test direct**) is what makes the worker “work”.
 
 **Token stream demo** (see [docs/TOKEN_STREAM_DEMO.md](docs/TOKEN_STREAM_DEMO.md)): `npm run token-demo` — gateway + bot stream.
 
@@ -56,7 +56,7 @@ Specs: [docs/WS_AND_AGENTS.md](docs/WS_AND_AGENTS.md), [docs/STREAM_PROTOCOL.md]
 - [docs/GENERATORS.md](docs/GENERATORS.md) — adding a new generator module  
 - [docs/schema/project-v2.json](docs/schema/project-v2.json) — project shape (v1 `waveform` auto-migrates)  
 - [docs/TISH_JS_BUILTINS.md](docs/TISH_JS_BUILTINS.md) — `webAudioCreateContext` / `jsUint8Array`  
-- [docs/TISHACT.md](docs/TISHACT.md) — **Tishact** hooks + `h()` JSX-like DOM (no angle brackets)  
+- [docs/LATTISH.md](docs/LATTISH.md) — **Lattish** hooks + `h()` JSX-like DOM (no angle brackets)  
 - [AGENTS.md](AGENTS.md) — agent editing contract  
 
 ## Upstream Tish changes

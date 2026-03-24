@@ -1,4 +1,4 @@
-import { h, Fragment } from '../tishact/Tishact.tish'
+import { h, Fragment } from 'lattish'
 
 export fn MixerStrip(ch, idx, selected, onSelect, onGain, onPan, onGainCommit, onPanCommit, setProject, project) {
   let selClass = selected ? " mixer-ch-sel" : ""

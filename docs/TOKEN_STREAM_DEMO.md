@@ -2,7 +2,7 @@
 
 End-to-end flow:
 
-1. **`services/token-stream-demo`** connects to the gateway as lane **`demo-stream`**.
+1. **`services/token-stream-demo`** (Tish) connects to the gateway as actor **`stream-demo`**.
 2. For each cycle it sends **`tpl.stream_chunk`** (single characters) so the Co-DJ panel shows a live “token” preview.
 3. Then it sends **`tpl.block`** with **`asap: true`** so the patch applies immediately (no perf-step queue).
 4. You **Play** in the app to hear **WsKick** / **WsHat** on channel ids **`wsdemo_k1`** / **`wsdemo_h1`**.
@@ -14,8 +14,7 @@ End-to-end flow:
 npm run gateway                     # from repo root (Tish gateway)
 
 # Terminal B
-cd services/token-stream-demo && npm install   # once
-npm run token-demo                             # or: npm run token-demo from repo root
+npm run token-demo                             # from repo root (runs Tish stream demo)
 ```
 
 Open the app (e.g. `npm run serve` → http://localhost:3456), go to **Co-DJ**, **Connect** (session **default**), click **Play**.
@@ -32,4 +31,5 @@ Open the app (e.g. `npm run serve` → http://localhost:3456), go to **Co-DJ**, 
 |----------|---------|---------|
 | `CODJ_HUB` | `ws://127.0.0.1:35987` | Gateway base URL |
 | `CODJ_SESSION` | `default` | Session id (must match browser) |
-| `TOKEN_CHUNK_MS` | `12` | Delay between stream chunks (ms) |
+| `STREAM_INTERVAL_MS` | `5000` | Interval between TPL updates (ms) |
+| `TOKEN_CHUNK_MS` | `15` | Delay between stream chunks (ms) |

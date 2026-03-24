@@ -734,6 +734,14 @@ body {
   margin: 0 0 0.5rem 0;
 }
 
+.code-debug-hint-hub {
+  margin-bottom: 0.35rem;
+  padding: 0.4rem 0.5rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-left: 3px solid var(--accent);
+  border-radius: 2px;
+}
+
 .code-debug-textarea {
   width: 100%;
   font-family: "IBM Plex Mono", ui-monospace, monospace;

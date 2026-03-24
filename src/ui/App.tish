@@ -1,4 +1,4 @@
-import { useState, h, Fragment } from '../tishact/Tishact.tish'
+import { useState, h, Fragment } from 'lattish'
 import { defaultProject, projectToJson, projectFromJson } from '../model/Project.tish'
 import { emitProject } from '../tpl/Emit.tish'
 import { CodeDebugView } from './CodeDebugView.tish'
@@ -245,52 +245,51 @@ export fn App() {
     ensureAudio(project, audioStore)
     updateMixerFromProject(project, audioStore)
     let ctx = audioStore.ctx
-    ctx.resume().then(() => {
-      if (playbackTimer) {
-        clearInterval(playbackTimer)
-      }
-      globalTick = 0
-      window.__dawPlaying = true
-      let ms = (60 / project.bpm / 4) * 1000
-      playbackTimer = setInterval(() => {
-        window.__dawPerfStep = globalTick
-        coDjFlushScheduledForStep(globalTick)
-        transportTick(window.__dawProject, audioStore, globalTick)
-        if (globalTick % 64 === 0) {
-          let p = window.__dawProject
-          if (p && audioStore.buses) {
-            let r = pruneStaleTracks(p, audioStore, globalTick, coDjTrackExpirySequences())
-            if (r.removedCount > 0 && window.__coDjSetProject) {
-              window.__coDjSetProject(p)
-            }
-            if (
-              r.removedCount > 0 &&
-              window.__dawSetSelectedCh &&
-              typeof window.__dawSelectedCh === "number" &&
-              window.__dawSelectedCh >= p.channels.length
-            ) {
-              window.__dawSetSelectedCh(p.channels.length > 0 ? p.channels.length - 1 : 0)
-            }
+    if (playbackTimer) {
+      clearInterval(playbackTimer)
+    }
+    globalTick = 0
+    window.__dawPlaying = true
+    let ms = (60 / project.bpm / 4) * 1000
+    playbackTimer = setInterval(() => {
+      window.__dawPerfStep = globalTick
+      coDjFlushScheduledForStep(globalTick)
+      transportTick(window.__dawProject, audioStore, globalTick)
+      if (globalTick % 64 === 0) {
+        let p = window.__dawProject
+        if (p && audioStore.buses) {
+          let r = pruneStaleTracks(p, audioStore, globalTick, coDjTrackExpirySequences())
+          if (r.removedCount > 0 && window.__coDjSetProject) {
+            window.__coDjSetProject(p)
           }
-          if (window.__tplConsumePlayedBlocks) {
-            window.__tplConsumePlayedBlocks(globalTick)
+          if (
+            r.removedCount > 0 &&
+            window.__dawSetSelectedCh &&
+            typeof window.__dawSelectedCh === "number" &&
+            window.__dawSelectedCh >= p.channels.length
+          ) {
+            window.__dawSetSelectedCh(p.channels.length > 0 ? p.channels.length - 1 : 0)
           }
         }
-        if (window.__tplSetPlaybackHighlight) {
-          window.__tplSetPlaybackHighlight(globalTick % 16, true)
+        if (window.__tplConsumePlayedBlocks) {
+          window.__tplConsumePlayedBlocks(globalTick)
         }
-        globalTick = globalTick + 1
-      }, ms)
-      setPlaying(true)
-      if (typeof window !== "undefined" && window.__coDjNotifyHumanPlay) {
-        window.__coDjNotifyHumanPlay(true)
       }
-    })
+      if (window.__tplSetPlaybackHighlight) {
+        window.__tplSetPlaybackHighlight(globalTick % 16, true)
+      }
+      globalTick = globalTick + 1
+    }, ms)
+    setPlaying(true)
+    if (typeof window !== "undefined" && window.__coDjNotifyPlaying) {
+      window.__coDjNotifyPlaying(true)
+    }
+    ctx.resume()
   }
 
   fn onStop() {
-    if (typeof window !== "undefined" && window.__coDjNotifyHumanPlay) {
-      window.__coDjNotifyHumanPlay(false)
+    if (typeof window !== "undefined" && window.__coDjNotifyPlaying) {
+      window.__coDjNotifyPlaying(false)
     }
     if (playbackTimer) {
       clearInterval(playbackTimer)
@@ -315,7 +314,7 @@ export fn App() {
     let blob = projectToJson(project)
     let a = document.createElement("a")
     a.setAttribute("href", "data:application/json;charset=utf-8," + encodeURIComponent(blob))
-    a.setAttribute("download", "tish-midi-project.json")
+    a.setAttribute("download", "decbard-project.json")
     a.click()
   }
 
@@ -391,7 +390,7 @@ export fn App() {
 
   return <div class="daw-root">
     <header class="daw-header">
-      <h1 class="logo">{"tish-midi"}</h1>
+      <h1 class="logo">{"Deckard"}</h1>
       {TransportBar(project.bpm, playing, onPlay, onStop, onBpmInput, onExport, onImport)}
     </header>
     <div class="daw-body">

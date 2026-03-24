@@ -1,0 +1,155 @@
+// Token stream demo (Tish): connect to gateway, stream TPL every 5s.
+// Run: npm run token-demo (from repo root)
+// Demonstrates tpl.stream_chunk (typing) + tpl.block (apply) without LLM.
+import { WebSocket } from "tish:ws"
+import { process } from "tish:process"
+
+let actorId = "stream-demo"
+let hub = "ws://127.0.0.1:35987"
+let session = "default"
+let STREAM_INTERVAL_MS = 5000
+let TOKEN_CHUNK_MS = 15
+let argv = typeof process !== "undefined" && process.argv ? process.argv : []
+let ai = 0
+while (ai < argv.length) {
+  if (ai + 1 < argv.length && argv[ai] === "--hub") {
+    hub = argv[ai + 1]
+    ai = ai + 2
+    continue
+  }
+  if (ai + 1 < argv.length && argv[ai] === "--session") {
+    session = argv[ai + 1]
+    ai = ai + 2
+    continue
+  }
+  ai = ai + 1
+}
+
+if (process != null && process.env) {
+  if ("CODJ_HUB" in process.env && process.env["CODJ_HUB"]) { hub = process.env["CODJ_HUB"] }
+  if ("CODJ_SESSION" in process.env && process.env["CODJ_SESSION"]) { session = process.env["CODJ_SESSION"] }
+  if ("STREAM_INTERVAL_MS" in process.env) {
+    let v = parseInt(process.env["STREAM_INTERVAL_MS"], 10)
+    if (v >= 1000 && v <= 120000) { STREAM_INTERVAL_MS = v }
+  }
+  if ("TOKEN_CHUNK_MS" in process.env) {
+    let v = parseInt(process.env["TOKEN_CHUNK_MS"], 10)
+    if (v >= 5 && v <= 200) { TOKEN_CHUNK_MS = v }
+  }
+}
+
+fn getVariation(index) {
+  if ((index % 7) === 0) {
+    return ["tpl 1", "track WsKick id wsdemo_k1 gen noise_burst", "  noise attack 0.002 decay 0.12 tone 0.15 pitch_follow 0.35", "  steps x . . . x . . . x . . . x . . ."]
+  }
+  if ((index % 7) === 1) {
+    return ["tpl 1", "track WsHat id wsdemo_h1 gen noise_burst", "  noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1", "  steps euclid 5 16"]
+  }
+  if ((index % 7) === 2) {
+    return ["tpl 1", "track WsBass id wsdemo_b1 gen fm", "  fm ratio 2 mod_index 5 carrier sine mod square", "  adsr a 0.01 d 0.1 s 0.3 r 0.15", "  steps x . x . x . x . x . x . x . x ."]
+  }
+  if ((index % 7) === 3) {
+    return ["tpl 1", "track WsHat id wsdemo_h1 gen noise_burst", "  noise attack 0.001 decay 0.04 tone 0.5 pitch_follow 0.1", "  steps euclid 5 16"]
+  }
+  if ((index % 7) === 4) {
+    return ["tpl 1", "track WsHat id wsdemo_h1 gen noise_burst", "  noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1", "  steps euclid 7 16"]
+  }
+  if ((index % 7) === 5) {
+    return ["tpl 1", "bpm " + String((Math.floor(index / 7) % 2 === 0) ? 100 : 130)]
+  }
+  if ((index % 7) === 6) {
+    return ["tpl 1", "track WsHat id wsdemo_h1 gen noise_burst", "  mix gain 0.7 pan 0.2", "  noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1", "  steps euclid 5 16"]
+  }
+  return ["tpl 1", "bpm 118"]
+}
+
+fn streamChunkThenBlock(ws, lines) {
+  if (!ws || !ws.send) { return }
+  let s = lines.join("\n")
+  let i = 0
+  let delayLoops = TOKEN_CHUNK_MS * 5000
+  if (delayLoops < 10000) { delayLoops = 10000 }
+  while (i < s.length) {
+    let ch = s.substring(i, i + 1)
+    ws.send(JSON.stringify({ type: "tpl.stream_chunk", actorId: actorId, authorId: actorId, chunk: ch }))
+    i = i + 1
+    let d = 0
+    while (d < delayLoops) { d = d + 1 }
+  }
+  ws.send(JSON.stringify({ type: "tpl.block", actorId: actorId, authorId: actorId, lines: lines, asap: true }))
+}
+
+fn connectHub() {
+  let url = hub
+  if (url.endsWith("/")) { url = url.substring(0, url.length - 1) }
+  let ws = null
+  let tries = 0
+  while (tries < 10) {
+    console.log("[token-demo] connecting to " + url)
+    ws = WebSocket(url)
+    if (ws !== null) { break }
+    tries = tries + 1
+    console.warn("[token-demo] connect failed, retry in 2s attempt", tries)
+    let w = 0
+    while (w < 2000000) { w = w + 1 }
+  }
+  if (ws === null) {
+    console.error("[token-demo] connect failed after retries")
+    process.exit(1)
+  }
+  console.log("[token-demo] connected, sending join")
+  ws.send(JSON.stringify({
+    type: "join",
+    sessionId: session,
+    actorId: actorId,
+    channelIds: ["default"],
+    skillIds: []
+  }))
+  return ws
+}
+
+fn run() {
+  let ws = connectHub()
+  console.log("[token-demo] streaming every " + String(STREAM_INTERVAL_MS) + "ms, chunk delay " + String(TOKEN_CHUNK_MS) + "ms")
+  let lastSendAt = Date.now()
+  let variationIndex = 0
+  let joinedLogged = false
+  let msgObj = null
+  let raw = null
+  let msg = null
+  let now = 0
+  let lines = []
+
+  while (true) {
+    msgObj = null
+    try {
+      msgObj = ws.receiveTimeout(500)
+    } catch (e) {
+    }
+    if (msgObj != null) {
+      raw = (msgObj.data != null) ? msgObj.data : null
+      if (raw != null) {
+        msg = null
+        try {
+          msg = JSON.parse(raw)
+        } catch (e) {
+        }
+        if (msg != null && msg.type === "joined" && !joinedLogged) {
+          joinedLogged = true
+          console.log("[token-demo] joined session=" + (msg.sessionId || session))
+        }
+      }
+    }
+
+    now = Date.now()
+    if (now - lastSendAt >= STREAM_INTERVAL_MS && ws && ws.send) {
+      lastSendAt = now
+      lines = getVariation(variationIndex)
+      variationIndex = variationIndex + 1
+      console.log("[token-demo] send variation " + String((variationIndex - 1) % 7) + " (" + String(lines.length) + " lines)")
+      streamChunkThenBlock(ws, lines)
+    }
+  }
+}
+
+run()

@@ -1,4 +1,4 @@
-import { createRoot } from './tishact/Tishact.tish'
+import { createRoot } from 'lattish'
 import { App } from './ui/App.tish'
 
 createRoot(document.getElementById("root")).render(App)

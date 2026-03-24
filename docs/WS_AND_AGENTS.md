@@ -1,6 +1,6 @@
-# WebSocket gateway and AI agent workers
+# WebSocket gateway and actor workers
 
-This document specifies how browsers and AI agents (actors) connect to a **session gateway**, exchange TPL and direction text, and how agents persist memory in **SQLite + vectors**.
+This document specifies how actors (browser, worker) connect to a **session gateway**, exchange TPL and direction text, and how workers persist memory in **SQLite + vectors**.
 
 ## 1. Session gateway
 
@@ -17,7 +17,7 @@ First message from client **must** be `join` (must include **`sessionId`** and *
 {
   "type": "join",
   "sessionId": "default",
-  "actorId": "human-uuid-123",
+  "actorId": "actor-uuid-123",
   "channelIds": ["default"],
   "skillIds": ["add_track", "adjust_instrument", "pattern_steps", "pattern_piano", "channel_mix", "master_mixer"]
 }
@@ -30,7 +30,7 @@ Gateway responds:
   "type": "joined",
   "sessionId": "...",
   "you": { "actorId": "...", "clientId": "...", "channelIds": ["default"] },
-  "actors": ["agent-1", "human-xyz"],
+  "actors": ["actor-1", "actor-xyz"],
   "replay": []
 }
 ```
@@ -55,8 +55,8 @@ Agents append `tpl.line` text from the playing actor to a rolling buffer and res
 |--------|-----------|--------|
 | `tpl.line` | any → gateway → fanout | `actorId`, `line`, `authorId`, `seq` (hub-assigned) |
 | `tpl.block` | any → gateway | `actorId`, `lines[]`, `authorId`, optional `effectivePerfStep`, `submitDeadlinePerfStep`, `asap` — see [STREAM_PROTOCOL.md](./STREAM_PROTOCOL.md) |
-| `tpl.stream_chunk` | agent → gateway → browsers | `actorId`, `chunk`, `authorId` (no seq until line commit) |
-| `direct` | browser → gateway → agents | `targetActorId` (target), `text`, `authorId`, optional `perfStep` (host 16th index when sent) |
+| `tpl.stream_chunk` | worker → gateway → browsers | `actorId`, `chunk`, `authorId` (no seq until line commit) |
+| `direct` | any → gateway → target actor | `targetActorId` (target), `text`, `authorId`, optional `perfStep` (host 16th index when sent) |
 | `state.snapshot` | gateway or browser | `hash`, `tplPreview` (truncated), `ts` |
 | `control` | master | `op`, `payload` — see [STREAM_PROTOCOL.md](./STREAM_PROTOCOL.md) |
 | `error` | gateway → client | `code`, `message` |
@@ -68,19 +68,19 @@ Agents append `tpl.line` text from the playing actor to a rolling buffer and res
 
 ### 1.5 Rooms
 
-- One **room** per `sessionId`. All joined clients receive fanout for messages they are allowed to see (agents subscribe to full session; viewers may get filtered events — v1: fanout all).
+- One **room** per `sessionId`. All joined clients receive fanout for messages they are allowed to see (v1: fanout all).
 
-## 2. Agent worker contract
+## 2. Worker contract (actor + skills)
 
 ### 2.1 Process model
 
-- One worker **per agent** per session (e.g. `agent-1`), or a **pool** with one job per `(sessionId, actorId)`.
-- Worker connects with `actorId` (e.g. `agent-1`), `channelIds: ["default"]`, `skillIds: [...]`.
+- One worker **per actor** per session (e.g. `actor-1`), or a **pool** with one job per `(sessionId, actorId)`.
+- Worker connects with `actorId` (e.g. `actor-1`), `channelIds: ["default"]`, `skillIds: [...]`.
 
 ### 2.2 Input loop
 
 1. On each inbound `tpl.line` / `tpl.block` (other actors or merged snapshot): append to local DB, optionally embed chunks.
-2. On each `direct` where `targetActorId` matches this agent's `actorId`: enqueue as **user turn** for LLM.
+2. On each `direct` where `targetActorId` matches this actor's `actorId`: enqueue for response.
 3. On timer or debounce: build context = system prompt + last N messages + **RAG** top-k from `chunks`.
 
 ### 2.3 Output loop
@@ -96,7 +96,7 @@ Agents append `tpl.line` text from the playing actor to a rolling buffer and res
 
 ## 3. SQLite + vector schema
 
-Path: e.g. `~/.tish-midi-sessions/<sessionId>.sqlite` (agent-local) or shared if gateway persists.
+Path: e.g. `~/.deckard-sessions/<sessionId>.sqlite` (agent-local) or shared if gateway persists.
 
 ### 3.1 Tables (SQL)
 

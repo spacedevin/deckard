@@ -1,10 +1,10 @@
-// Co-DJ agent worker (Tish): connect to gateway, join as agent, handle direct + human play with LLM.
+// Co-DJ worker (Tish): connect to gateway, handle direct + playing stream. Actor + skills only.
 // Run: tish run --features ws,process,http services/agent-worker/main.tish
 import { WebSocket } from "tish:ws"
 import { process } from "tish:process"
 import { fetch } from "http"
 
-let actorId = "agent-1"
+let actorId = "actor-1"
 let hub = "ws://127.0.0.1:35987"
 let session = "default"
 let argv = typeof process !== "undefined" && process.argv ? process.argv : []
@@ -16,7 +16,7 @@ while (ai < argv.length) {
     continue
   }
   if (ai + 1 < argv.length && argv[ai] === "--lane") {
-    actorId = "agent-" + argv[ai + 1]
+    actorId = "actor-" + argv[ai + 1]
     ai = ai + 2
     continue
   }
@@ -48,17 +48,17 @@ if (typeof process !== "undefined" && process.env) {
   else if ("MODEL_ACCESS_KEY" in process.env) { GRADIENT_MODEL_ACCESS_KEY = process.env["MODEL_ACCESS_KEY"] }
 }
 
-let SYSTEM_PROMPT = "You are a Co-DJ agent. Output ONLY valid TPL lines. No markdown, no explanation.\nUse track ids prefixed with \"" + actorId + "_\" (e.g. " + actorId + "_hat, " + actorId + "_bass).\nGenerators: noise_burst (noise attack decay tone pitch_follow + steps), fm (fm ratio mod_index carrier mod + adsr + steps), basic_osc (osc waveform + adsr + steps).\nPatterns: steps with 16 x/. tokens, or steps euclid <hits> 16.\nComplement the human's project: add hi-hats, percussion, bass, or melodic parts that fit the tempo and fill gaps."
+let SYSTEM_PROMPT = "You are a Co-DJ actor. Output ONLY valid TPL lines. No markdown, no explanation.\nUse track ids prefixed with \"" + actorId + "_\" (e.g. " + actorId + "_hat, " + actorId + "_bass).\nGenerators: noise_burst (noise attack decay tone pitch_follow + steps), fm (fm ratio mod_index carrier mod + adsr + steps), basic_osc (osc waveform + adsr + steps).\nPatterns: steps with 16 x/. tokens, or steps euclid <hits> 16.\nComplement the project: add hi-hats, percussion, bass, or melodic parts that fit the tempo and fill gaps."
 
 let SKILL_IDS = ["add_track", "adjust_instrument", "pattern_steps", "pattern_piano", "channel_mix"]
 
 fn buildDemoPatch(text) {
   let lower = text.toLowerCase()
   if (lower.indexOf("euclid") >= 0 || lower.indexOf("hat") >= 0 || lower.indexOf("hihat") >= 0) {
-    return "tpl 1\ntrack AgentHat id " + actorId + "_hat gen noise_burst\n  noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1\n  steps euclid 5 16"
+    return "tpl 1\ntrack Hat id " + actorId + "_hat gen noise_burst\n  noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1\n  steps euclid 5 16"
   }
   if (lower.indexOf("bass") >= 0 || lower.indexOf("fm") >= 0) {
-    return "tpl 1\ntrack AgentBass id " + actorId + "_bass gen fm\n  fm ratio 2 mod_index 5 carrier sine mod square\n  adsr a 0.01 d 0.1 s 0.3 r 0.15\n  steps x . x . x . x . x . x . x . x ."
+    return "tpl 1\ntrack Bass id " + actorId + "_bass gen fm\n  fm ratio 2 mod_index 5 carrier sine mod square\n  adsr a 0.01 d 0.1 s 0.3 r 0.15\n  steps x . x . x . x . x . x . x . x ."
   }
   return null
 }
@@ -149,7 +149,7 @@ fn callLLM(userPrompt) {
       } catch (e) {
         errText = String(resp.status || "unknown")
       }
-      console.error("[agent] LLM error:", errText)
+      console.error("[worker] LLM error:", errText)
       return null
     }
     let data = await resp.json()
@@ -162,7 +162,7 @@ fn callLLM(userPrompt) {
     if (!content) return null
     return extractTplFromResponse(content)
   } catch (e) {
-    console.error("[agent] LLM fetch failed:", String(e))
+    console.error("[worker] LLM fetch failed:", String(e))
     return null
   }
 }
@@ -172,29 +172,25 @@ let activeWs = null
 fn handleDirect(ws, msg) {
   let text = msg.text || "add hi-hat"
   let ps = (msg.perfStep != null && typeof msg.perfStep === "number") ? msg.perfStep : 0
-  let lines = null
-  if (GRADIENT_MODEL_ACCESS_KEY && GRADIENT_MODEL_ACCESS_KEY !== "") {
-    lines = callLLM("Add a track for: \"" + text + "\". Output ONLY TPL.")
-  }
-  if (!lines || lines.length === 0) {
-    let demo = buildDemoPatch(text)
-    if (demo) lines = demo.split("\n")
-  }
-  if (!lines || lines.length === 0 || !ws || !ws.send) return
-  ws.send(JSON.stringify({
+  let demo = buildDemoPatch(text)
+  let lines = demo ? demo.split("\n") : null
+  if (!lines || lines.length === 0 || !ws || !ws.send) { return }
+  let payload = JSON.stringify({
     type: "tpl.block",
     actorId: actorId,
     authorId: actorId,
     lines: lines,
     effectivePerfStep: ps,
     asap: true
-  }))
-  console.log("[agent] got direct:", text, "-> sent tpl.block")
+  })
+  console.log("[worker] OUTPUT wsSend:", payload.substring(0, 200) + (payload.length > 200 ? "..." : ""))
+  ws.send(payload)
+  console.log("[worker] got direct:", text, "-> sent tpl.block")
 }
 
-// Human play flow: buffer tpl.line from playing actor; after debounce emit stream_chunk then tpl.block
+// Playing stream: buffer tpl.line from playing actor; after debounce emit stream_chunk then tpl.block
 let playingActorId = null
-let humanLineBuffer = []
+let tplLineBuffer = []
 let lastLineAt = 0
 let respondedSincePlay = false
 let DEBOUNCE_MS = 1300
@@ -204,38 +200,34 @@ fn streamChunkThenBlock(ws, lines, perfStep) {
   let text = lines.join("\n")
   let i = 0
   while (i < text.length) {
-    ws.send(JSON.stringify({ type: "tpl.stream_chunk", actorId: actorId, authorId: actorId, chunk: text.substring(i, i + 1) }))
+    let chunkPayload = JSON.stringify({ type: "tpl.stream_chunk", actorId: actorId, authorId: actorId, chunk: text.substring(i, i + 1) })
+    if (i < 3 || i % 50 === 0) { console.log("[worker] OUTPUT wsSend stream_chunk:", chunkPayload) }
+    ws.send(chunkPayload)
     i = i + 1
     let _d = 0
     while (_d < 80000) { _d = _d + 1 }
   }
   if (ws && ws.send) {
-    ws.send(JSON.stringify({
+    let blockPayload = JSON.stringify({
       type: "tpl.block",
       actorId: actorId,
       authorId: actorId,
       lines: lines,
       effectivePerfStep: perfStep,
       asap: true
-    }))
+    })
+    console.log("[worker] OUTPUT wsSend tpl.block:", blockPayload.substring(0, 300) + (blockPayload.length > 300 ? "..." : ""))
+    ws.send(blockPayload)
   }
 }
 
-fn handleHumanStream(ws, perfStep) {
-  let humanTpl = humanLineBuffer.join("\n").trim()
-  let lines = null
-  if (GRADIENT_MODEL_ACCESS_KEY && GRADIENT_MODEL_ACCESS_KEY !== "" && humanTpl.length > 10) {
-    console.log("[agent] calling LLM with", String(humanTpl.length), "chars of human TPL")
-    lines = callLLM("Human's current project TPL (complement it with a new track):\n\n" + humanTpl)
-  }
-  if (!lines || lines.length === 0) {
-    let demo = buildDemoPatch("euclid hi-hat")
-    if (demo) lines = demo.split("\n")
-  }
+fn handlePlayingStream(ws, perfStep) {
+  let demo = buildDemoPatch("euclid hi-hat")
+  let lines = demo ? demo.split("\n") : null
   if (!lines || lines.length === 0) return
-  console.log("[agent] play response: streaming", String(lines.length), "lines ->", playingActorId || "?")
+  console.log("[worker] play response: streaming", String(lines.length), "lines ->", playingActorId || "?")
   streamChunkThenBlock(ws, lines, perfStep)
-  console.log("[agent] sent tpl.stream_chunk + tpl.block")
+  console.log("[worker] sent tpl.stream_chunk + tpl.block")
 }
 
 fn connectHub() {
@@ -244,77 +236,86 @@ fn connectHub() {
   let ws = null
   let tries = 0
   while (tries < 10) {
-    console.log("[agent] connecting to " + url)
+    console.log("[worker] connecting to " + url)
     ws = WebSocket(url)
     if (ws !== null) { break }
     tries = tries + 1
-    console.warn("[agent] connect failed, retry in 2s", url, "attempt", tries)
+    console.warn("[worker] connect failed, retry in 2s", url, "attempt", tries)
     let _w = 0
     while (_w < 2000000) { _w = _w + 1 }
   }
   if (ws === null) {
-    console.warn("[agent] connect failed after retries", url)
+    console.warn("[worker] connect failed after retries", url)
     return null
   }
   activeWs = ws
-  console.log("[agent] WebSocket connected (handshake OK), sending join")
-  ws.send(JSON.stringify({
+  console.log("[worker] WebSocket connected (handshake OK), sending join")
+  let joinPayload = JSON.stringify({
     type: "join",
     sessionId: session,
     actorId: actorId,
     channelIds: ["default"],
     skillIds: SKILL_IDS
-  }))
-  console.log("[agent] joined " + session + " as " + actorId)
+  })
+  console.log("[worker] OUTPUT wsSend join:", joinPayload)
+  ws.send(joinPayload)
+  console.log("[worker] joined " + session + " as " + actorId)
   return ws
 }
+
+let BLOCK_SEND_INTERVAL_MS = 3000
 
 fn run() {
   let ws = connectHub()
   if (ws === null) {
     process.exit(1)
   }
-  console.log("[agent] enter receive loop")
+  console.log("[worker] enter receive loop")
   let joinedLogged = false
+  let lastBlockSendAt = Date.now()
   while (true) {
     let msgObj = null
     try {
       msgObj = ws.receiveTimeout(500)
     } catch (e) {
-      console.warn("[agent] loop error", e)
+      console.warn("[worker] loop error", e)
     }
     if (msgObj === null) { }
     else {
       let raw = (msgObj != null && msgObj.data != null) ? msgObj.data : null
       if (!raw) { }
       else {
+        console.log("[worker] INPUT raw:", raw.length > 300 ? (raw.substring(0, 300) + "...") : raw)
         let msg = null
         try {
           msg = JSON.parse(raw)
         } catch (e) {
         }
+        if (msg != null) {
+          console.log("[worker] INPUT parsed type=" + (msg.type || "?") + " keys=" + JSON.stringify(Object.keys(msg)))
+        }
         if (msg != null && msg.type === "direct") {
           let tgt = msg.targetActorId
           if (tgt === actorId || (tgt == null && msg.laneId === actorId)) {
-            console.log("[agent] got direct: " + (msg.text || ""))
+            console.log("[worker] got direct: " + (msg.text || ""))
             handleDirect(ws, msg)
-            console.log("[agent] sent tpl.block")
+            console.log("[worker] sent tpl.block")
           }
         }
         else if (msg != null && msg.type === "control") {
           let op = msg.op || ""
-          if (op === "human_play" || op === "playing_start") {
+          if (op === "playing_start") {
             playingActorId = msg.actorId || msg.authorId || null
             respondedSincePlay = false
-            humanLineBuffer = []
+            tplLineBuffer = []
             lastLineAt = Date.now()
-            console.log("[agent] playing_start, buffering tpl.line from " + (playingActorId || "?"))
+            console.log("[worker] playing_start, buffering tpl.line from " + (playingActorId || "?"))
           }
-          else if (op === "human_stop" || op === "playing_stop") {
+          else if (op === "playing_stop") {
             playingActorId = null
-            humanLineBuffer = []
+            tplLineBuffer = []
             respondedSincePlay = false
-            console.log("[agent] playing_stop")
+            console.log("[worker] playing_stop")
           }
         }
         else if (msg != null && msg.type === "tpl.line") {
@@ -322,28 +323,37 @@ fn run() {
           if (playingActorId != null && (from === playingActorId || (playingActorId === "" && from !== actorId))) {
             let line = msg.line
             if (typeof line === "string") {
-              humanLineBuffer.push(line)
+              tplLineBuffer.push(line)
               lastLineAt = Date.now()
             }
           }
         }
         else if (msg != null && msg.type === "presence") {
           let al = msg.actors ? msg.actors : []
-          console.log("[agent] presence: actors=" + JSON.stringify(al))
+          console.log("[worker] presence: actors=" + JSON.stringify(al))
         }
         else if (msg != null && msg.type === "joined" && !joinedLogged) {
           joinedLogged = true
-          console.log("[agent] received joined, ready")
+          console.log("[worker] received joined, ready")
         }
       }
     }
-    if (playingActorId != null && !respondedSincePlay && humanLineBuffer.length > 0) {
+    if (playingActorId != null && !respondedSincePlay && tplLineBuffer.length > 0) {
       let elapsed = Date.now() - lastLineAt
       if (elapsed >= DEBOUNCE_MS) {
         respondedSincePlay = true
         let ps = 0
-        handleHumanStream(ws, ps)
+        handlePlayingStream(ws, ps)
       }
+    }
+    let now = Date.now()
+    if (now - lastBlockSendAt >= BLOCK_SEND_INTERVAL_MS && ws && ws.send) {
+      lastBlockSendAt = now
+      let lines = ["tpl 1", "track Hat id " + actorId + "_hat gen noise_burst", "  noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1", "  steps euclid 5 16"]
+      let payload = JSON.stringify({ type: "tpl.block", actorId: actorId, authorId: actorId, lines: lines, asap: true })
+      console.log("[worker] OUTPUT wsSend periodic tpl.block:", payload.substring(0, 300) + (payload.length > 300 ? "..." : ""))
+      ws.send(payload)
+      console.log("[worker] periodic: sent tpl.block")
     }
   }
 }

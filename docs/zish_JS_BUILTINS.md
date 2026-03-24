@@ -1,4 +1,4 @@
-# JS-only Tish builtins used by tish-midi
+# JS-only Tish builtins used by Deckard
 
 Tish has no `new`. These calls are lowered by `tish compile --target js`:
 

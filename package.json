@@ -1,14 +1,17 @@
 {
-  "name": "tish-midi",
+  "name": "deckard",
   "version": "0.1.0",
   "private": true,
   "description": "Minimal FL-style web DAW in Tish",
   "scripts": {
-    "build": "tish compile --target js --jsx vdom src/main.tish -o dist/bundle.js",
-    "build:counter": "tish compile --target js src/tishact/examples/counter-main.tish -o dist/counter-bundle.js",
+    "build": "cd ../tish && cargo run --bin tish -q -- compile --target js ../tish-midi/src/main.tish -o ../tish-midi/dist/bundle.js",
+    "build:counter": "cd ../tish && cargo run -p tish -- compile --target js src/lattish/examples/counter-main.tish -o dist/counter-bundle.js",
     "serve": "npx --yes serve . -p 3456",
-    "gateway": "cd ../tish && cargo run -p tish -q --features ws,process -- run ../tish-midi/services/gateway/main.tish",
-    "agent": "cd ../tish && cargo run -p tish -q --features ws,process,http,regex -- run ../tish-midi/services/agent-worker/main.tish",
-    "token-demo": "node services/token-stream-demo/index.js"
+    "gateway": "cd ../tish && cargo run --bin tish -q --features ws,process,http -- run ../tish-midi/services/gateway/main.tish",
+    "agent": "cd ../tish && cargo run --bin tish -q --features ws,process,http,regex -- run ../tish-midi/services/agent-worker/main.tish",
+    "token-demo": "cd ../tish && cargo run --bin tish -q --features ws,process -- run ../tish-midi/services/token-stream-demo/main.tish"
+  },
+  "dependencies": {
+    "lattish": "../lattish/"
   }
 }

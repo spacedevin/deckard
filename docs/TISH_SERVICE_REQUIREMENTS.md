@@ -1,6 +1,6 @@
 # Tish service requirements (gaps for gateway + agent)
 
-This document describes the **capabilities the Tish runtime must provide** so that the Co-DJ **gateway** and **agent** can be implemented and run entirely in Tish (no Node/JS). It is written from the perspective of the tish-midi app; the Tish implementation lives in the sibling **tish** repo.
+This document describes the **capabilities the Tish runtime must provide** so that the Co-DJ **gateway** and **agent** can be implemented and run entirely in Tish (no Node/JS). It is written from the perspective of the Deckard app; the Tish implementation lives in the sibling **tish** repo.
 
 ## P0 — WebSocket (blocking both gateway and agent)
 

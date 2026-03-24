@@ -1,4 +1,4 @@
-import { h, Fragment } from '../tishact/Tishact.tish'
+import { h, Fragment } from 'lattish'
 import { toggleStep, clearStep } from '../model/Edits.tish'
 import { generatorLabelById } from '../generators/Registry.tish'
 
