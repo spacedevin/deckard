@@ -1,0 +1,83 @@
+import { automationAt } from '../schedule/Engine.tish'
+import { paramKeyToCamel } from '../tpl/RegistryMap.tish'
+
+// TPL mix param tokens → project field names (channel / actor / master EQ).
+export fn mixParamFromTpl(tok) {
+  let s = String(tok)
+  if (s === "trim") {
+    return "gain"
+  }
+  if (s === "eq_lo") {
+    return "eqLo"
+  }
+  if (s === "eq_mid") {
+    return "eqMid"
+  }
+  if (s === "eq_hi") {
+    return "eqHi"
+  }
+  return paramKeyToCamel(s)
+}
+
+export fn mixParamToTpl(camel) {
+  if (camel === "eqLo") {
+    return "eq_lo"
+  }
+  if (camel === "eqMid") {
+    return "eq_mid"
+  }
+  if (camel === "eqHi") {
+    return "eq_hi"
+  }
+  return String(camel)
+}
+
+export fn isChannelMixParam(p) {
+  return p === "gain" || p === "pan" || p === "eqLo" || p === "eqMid" || p === "eqHi"
+}
+
+export fn isMasterMixParam(p) {
+  return p === "eqLo" || p === "eqMid" || p === "eqHi"
+}
+
+export fn isActorMixParam(p) {
+  return p === "gain" || p === "eqLo" || p === "eqMid" || p === "eqHi"
+}
+
+// Interpolated value or fallback when no lane matches.
+export fn mixerAutomationAt(project, target, laneOrChannelId, param, beat, fallback) {
+  if (!project.mixerAutomations || project.mixerAutomations.length === 0) {
+    return fallback
+  }
+  let i = 0
+  while (i < project.mixerAutomations.length) {
+    let m = project.mixerAutomations[i]
+    if (m.target !== target || m.param !== param) {
+      i = i + 1
+      continue
+    }
+    if (target === "master") {
+      if (m.points && m.points.length > 0) {
+        return automationAt(m.points, beat)
+      }
+      i = i + 1
+      continue
+    }
+    if (target === "channel" && m.channelId === laneOrChannelId) {
+      if (m.points && m.points.length > 0) {
+        return automationAt(m.points, beat)
+      }
+      i = i + 1
+      continue
+    }
+    if (target === "actor" && m.lane === laneOrChannelId) {
+      if (m.points && m.points.length > 0) {
+        return automationAt(m.points, beat)
+      }
+      i = i + 1
+      continue
+    }
+    i = i + 1
+  }
+  return fallback
+}

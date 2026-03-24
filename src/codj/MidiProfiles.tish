@@ -2,19 +2,19 @@
 
 import { coDjSetGainOverlay } from './Overlay.tish'
 
-export fn coDjInitWebMidi(project, setProject) {
+export fn coDjInitWebMidi(project, setProject, rt) {
   if (typeof navigator === "undefined") {
     return
   }
   if (!navigator.requestMIDIAccess) {
     return
   }
-  if (typeof window !== "undefined" && window.__coDjMidiOn) {
+  if (rt && rt.coDjMidiInitialized) {
     return
   }
   navigator.requestMIDIAccess({ sysex: false }).then((access) => {
-    if (typeof window !== "undefined") {
-      window.__coDjMidiOn = true
+    if (rt) {
+      rt.coDjMidiInitialized = true
     }
     let inputs = access.inputs.values()
     let it = inputs.next()

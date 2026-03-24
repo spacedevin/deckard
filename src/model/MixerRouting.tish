@@ -1,0 +1,126 @@
+// Actor lanes for mixer grouping + routing: track → actor bus → master.
+
+import { ensureCoDjMeta } from '../codj/CoDjMeta.tish'
+
+export fn channelActorLane(ch, project) {
+  if (ch.actorLane && String(ch.actorLane) !== "") {
+    return String(ch.actorLane)
+  }
+  ensureCoDjMeta(project)
+  let meta = project.coDjMeta.tracks[ch.id]
+  if (meta && meta.ownerActorId && meta.ownerActorId !== "human") {
+    return String(meta.ownerActorId)
+  }
+  return "local"
+}
+
+export fn collectActorLanes(project) {
+  let out = []
+  let seen = {}
+  let i = 0
+  while (i < project.channels.length) {
+    let lane = channelActorLane(project.channels[i], project)
+    if (!seen[lane]) {
+      seen[lane] = true
+      out.push(lane)
+    }
+    i = i + 1
+  }
+  if (out.length === 0) {
+    out.push("local")
+  }
+  return out
+}
+
+fn defaultActorMixEntry() {
+  return {
+    gain: 1,
+    mute: false,
+    solo: false,
+    eqLo: 0,
+    eqMid: 0,
+    eqHi: 0
+  }
+}
+
+export fn ensureActorMixerEntries(project) {
+  if (!project.actorMixer) {
+    project.actorMixer = {}
+  }
+  let lanes = collectActorLanes(project)
+  let li = 0
+  while (li < lanes.length) {
+    let L = lanes[li]
+    if (!project.actorMixer[L]) {
+      project.actorMixer[L] = defaultActorMixEntry()
+    } else {
+      let a = project.actorMixer[L]
+      if (a.gain === undefined || a.gain === null) {
+        a.gain = 1
+      }
+      if (a.mute === undefined || a.mute === null) {
+        a.mute = false
+      }
+      if (a.solo === undefined || a.solo === null) {
+        a.solo = false
+      }
+      if (a.eqLo === undefined || a.eqLo === null) {
+        a.eqLo = 0
+      }
+      if (a.eqMid === undefined || a.eqMid === null) {
+        a.eqMid = 0
+      }
+      if (a.eqHi === undefined || a.eqHi === null) {
+        a.eqHi = 0
+      }
+    }
+    li = li + 1
+  }
+}
+
+export fn ensureMasterMixer(project) {
+  if (!project.masterMixer) {
+    project.masterMixer = { eqLo: 0, eqMid: 0, eqHi: 0 }
+  } else {
+    let m = project.masterMixer
+    if (m.eqLo === undefined || m.eqLo === null) {
+      m.eqLo = 0
+    }
+    if (m.eqMid === undefined || m.eqMid === null) {
+      m.eqMid = 0
+    }
+    if (m.eqHi === undefined || m.eqHi === null) {
+      m.eqHi = 0
+    }
+  }
+}
+
+export fn anyActorSolo(project) {
+  if (!project.actorMixer) {
+    return false
+  }
+  let keys = Object.keys(project.actorMixer)
+  let i = 0
+  while (i < keys.length) {
+    let row = project.actorMixer[keys[i]]
+    if (row && row.solo) {
+      return true
+    }
+    i = i + 1
+  }
+  return false
+}
+
+export fn actorLaneAudible(project, lane) {
+  if (!project.actorMixer || !project.actorMixer[lane]) {
+    return true
+  }
+  let am = project.actorMixer[lane]
+  if (am.mute) {
+    return false
+  }
+  if (anyActorSolo(project)) {
+    return am.solo
+  }
+  return true
+}

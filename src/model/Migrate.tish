@@ -1,5 +1,6 @@
 import { defaultParamsForGeneratorId, normalizeBasicOscWaveform } from '../generators/Registry.tish'
 import { ensureCoDjMeta } from '../codj/CoDjMeta.tish'
+import { ensureActorMixerEntries, ensureMasterMixer } from './MixerRouting.tish'
 
 export fn migrateChannelGenerator(ch) {
   if (!ch.generatorId || ch.generatorId === "") {
@@ -67,6 +68,9 @@ export fn migrateProjectGenerators(project) {
   if (!project.paramAutomations) {
     project.paramAutomations = []
   }
+  if (!project.mixerAutomations) {
+    project.mixerAutomations = []
+  }
   let mc = 0
   while (mc < project.channels.length) {
     if (!project.channels[mc].generatorSpec) {
@@ -75,4 +79,26 @@ export fn migrateProjectGenerators(project) {
     mc = mc + 1
   }
   ensureCoDjMeta(project)
+  let mx = 0
+  while (mx < project.channels.length) {
+    let ch = project.channels[mx]
+    if (ch.eqLo === undefined || ch.eqLo === null) {
+      ch.eqLo = 0
+    }
+    if (ch.eqMid === undefined || ch.eqMid === null) {
+      ch.eqMid = 0
+    }
+    if (ch.eqHi === undefined || ch.eqHi === null) {
+      ch.eqHi = 0
+    }
+    if (ch.actorLane === undefined || ch.actorLane === null) {
+      ch.actorLane = ""
+    }
+    if (ch.tplLoopBars === undefined) {
+      ch.tplLoopBars = null
+    }
+    mx = mx + 1
+  }
+  ensureMasterMixer(project)
+  ensureActorMixerEntries(project)
 }

@@ -1,7 +1,7 @@
 // Piano roll: zoom, snap, resize L/R, marquee select, drag selection (time + pitch), cursors.
 
 import { h, Fragment } from 'lattish'
-import { clearAllSteps } from '../model/Edits.tish'
+import { clearAllSteps, clampPianoNoteToFirstBar, clampChannelPianoNotesToFirstBar } from '../model/Edits.tish'
 
 let PR_KEY_W = 44
 let PR_H = 220
@@ -9,6 +9,22 @@ let PR_PITCH_MIN = 36
 let PR_PITCH_RANGE = 36
 let PR_EDGE = 7
 let PR_DRAG_THRESH = 4
+
+// Module-local piano-roll interaction state (document listeners + one canvas context).
+let prUi = {
+  zoomIx: 4,
+  lastChIdx: -1,
+  selected: [],
+  ctx: null,
+  chIdx: 0,
+  drag: null,
+  suppressClick: false,
+  globalPianoBound: false
+}
+
+export fn prOneBarBeats() {
+  return 4
+}
 
 export fn prZoomPxAt(ix) {
   if (ix === 0) {
@@ -67,21 +83,21 @@ export fn prClampZoomIx(ix) {
   if (ix > 7) {
     ix = 7
   }
-  window.__prZoomIx = ix
+  prUi.zoomIx = ix
   return ix
 }
 
 export fn prCurrentZoomPx() {
-  let ix = window.__prZoomIx
+  let ix = prUi.zoomIx
   if (ix === undefined || ix === null) {
     ix = 4
-    window.__prZoomIx = 4
+    prUi.zoomIx = 4
   }
   return prZoomPxAt(prClampZoomIx(ix))
 }
 
 export fn prCurrentSnap() {
-  let ix = window.__prZoomIx
+  let ix = prUi.zoomIx
   if (ix === undefined || ix === null) {
     ix = 4
   }
@@ -96,7 +112,7 @@ export fn snapPianoBeat(b, snap) {
 }
 
 export fn getPianoRollSnapLabel() {
-  let ix = window.__prZoomIx
+  let ix = prUi.zoomIx
   if (ix === undefined || ix === null) {
     ix = 4
   }
@@ -146,7 +162,7 @@ fn prPitchRowFromY(canvasY) {
 }
 
 fn prIndexInSelected(idx) {
-  let s = window.__prSelected
+  let s = prUi.selected
   if (!s) {
     return false
   }
@@ -249,7 +265,7 @@ fn prRectIntersects(ax, ay, aw, ah, bx, by, bw, bh) {
 }
 
 fn prUpdateSelectionAfterDelete(deletedIdx) {
-  let s = window.__prSelected
+  let s = prUi.selected
   if (!s) {
     return
   }
@@ -266,24 +282,29 @@ fn prUpdateSelectionAfterDelete(deletedIdx) {
     }
     i = i + 1
   }
-  window.__prSelected = out
+  prUi.selected = out
+}
+
+export fn updatePianoRollCtx(canvas, project, chIdx, setProject) {
+  prUi.ctx = { canvas: canvas, project: project, chIdx: chIdx, setProject: setProject }
+  prUi.chIdx = chIdx
 }
 
 export fn attachPianoRoll(canvas, project, chIdx, setProject) {
   if (!canvas) {
     return
   }
-  if (window.__prLastChIdx !== chIdx) {
-    window.__prSelected = []
+  if (prUi.lastChIdx !== chIdx) {
+    prUi.selected = []
   }
-  window.__prLastChIdx = chIdx
-  if (!window.__prSelected) {
-    window.__prSelected = []
+  prUi.lastChIdx = chIdx
+  if (!prUi.selected) {
+    prUi.selected = []
   }
-  window.__prCtx = { canvas: canvas, project: project, chIdx: chIdx, setProject: setProject }
-  window.__prChIdx = chIdx
-  if (window.__prZoomIx === undefined || window.__prZoomIx === null) {
-    window.__prZoomIx = 4
+  prUi.ctx = { canvas: canvas, project: project, chIdx: chIdx, setProject: setProject }
+  prUi.chIdx = chIdx
+  if (prUi.zoomIx === undefined || prUi.zoomIx === null) {
+    prUi.zoomIx = 4
   }
   let ch = project.channels[chIdx]
   if (!ch) {
@@ -292,11 +313,13 @@ export fn attachPianoRoll(canvas, project, chIdx, setProject) {
   if (!ch.pianoNotes) {
     ch.pianoNotes = []
   }
-  let w = canvas.width
   let h = canvas.height
   let keyW = PR_KEY_W
   let pxPerBeat = prCurrentZoomPx()
   let snap = prCurrentSnap()
+  let barBeats = prOneBarBeats()
+  canvas.width = keyW + Math.ceil(pxPerBeat * barBeats)
+  let w = canvas.width
   let pitchMin = PR_PITCH_MIN
   let pitchRange = PR_PITCH_RANGE
   let ctx2 = canvas.getContext("2d")
@@ -305,7 +328,8 @@ export fn attachPianoRoll(canvas, project, chIdx, setProject) {
   }
   ctx2.fillStyle = "#12141a"
   ctx2.fillRect(0, 0, w, h)
-  let beatMax = (w - keyW) / pxPerBeat + 1
+  clampChannelPianoNotesToFirstBar(ch, snap)
+  let beatMax = barBeats
   let gs = snap
   while (pxPerBeat * gs < 8 && gs < 1) {
     gs = gs * 2
@@ -376,7 +400,7 @@ export fn attachPianoRoll(canvas, project, chIdx, setProject) {
     }
     ni = ni + 1
   }
-  let md = window.__prDrag
+  let md = prUi.drag
   if (md && md.kind === "marquee") {
     let mx0 = md.x0
     let my0 = md.y0
@@ -401,12 +425,12 @@ export fn attachPianoRoll(canvas, project, chIdx, setProject) {
   ctx2.fillStyle = "#6ae4b0"
   ctx2.font = "10px sans-serif"
   ctx2.fillText(
-    "Drag empty: select · Click empty: add · Drag notes: move · Edges: resize · Right-click: delete · " + getPianoRollSnapLabel(),
+    "One bar (4 beats) · Drag empty: select · Click empty: add · Drag notes: move · Edges: resize · Right-click: delete · " + getPianoRollSnapLabel(),
     keyW + 6,
     13
   )
-  if (!window.__prGlobalPianoBound) {
-    window.__prGlobalPianoBound = true
+  if (!prUi.globalPianoBound) {
+    prUi.globalPianoBound = true
     document.addEventListener("mousemove", prDocumentMouseMove)
     document.addEventListener("mouseup", prDocumentMouseUp)
   }
@@ -414,26 +438,26 @@ export fn attachPianoRoll(canvas, project, chIdx, setProject) {
   canvas.onwheel = prCanvasWheel
   canvas.onmousemove = prCanvasMouseMove
   canvas.onmouseleave = prCanvasMouseLeave
-  prSyncRackPreview(window.__prCtx)
+  prSyncRackPreview(prUi.ctx)
 }
 
 fn prCanvasMouseLeave(e) {
-  let c = window.__prCtx
+  let c = prUi.ctx
   if (c && c.canvas) {
     c.canvas.style.cursor = "crosshair"
   }
 }
 
 fn prCanvasMouseMove(e) {
-  let ctx = window.__prCtx
+  let ctx = prUi.ctx
   if (!ctx || !ctx.canvas || !ctx.project) {
     return
   }
-  if (window.__prDrag) {
-    if (window.__prDrag.kind === "move" && window.__prDrag.moved) {
+  if (prUi.drag) {
+    if (prUi.drag.kind === "move" && prUi.drag.moved) {
       ctx.canvas.style.cursor = "grabbing"
     } else {
-      if (window.__prDrag.kind === "resizeL" || window.__prDrag.kind === "resizeR") {
+      if (prUi.drag.kind === "resizeL" || prUi.drag.kind === "resizeR") {
         ctx.canvas.style.cursor = "ew-resize"
       }
     }
@@ -464,7 +488,7 @@ fn prCanvasMouseMove(e) {
 
 fn prCanvasWheel(e) {
   e.preventDefault()
-  let ix = window.__prZoomIx
+  let ix = prUi.zoomIx
   if (ix === undefined || ix === null) {
     ix = 4
   }
@@ -474,7 +498,7 @@ fn prCanvasWheel(e) {
     ix = ix - 1
   }
   prClampZoomIx(ix)
-  let ctx = window.__prCtx
+  let ctx = prUi.ctx
   if (ctx && ctx.canvas && ctx.project) {
     attachPianoRoll(ctx.canvas, ctx.project, ctx.chIdx, ctx.setProject)
     if (ctx.setProject) {
@@ -490,7 +514,7 @@ fn prCanvasMouseDown(e) {
   if (e.button !== 0) {
     return
   }
-  let ctx = window.__prCtx
+  let ctx = prUi.ctx
   if (!ctx || !ctx.project || !ctx.canvas) {
     return
   }
@@ -504,27 +528,27 @@ fn prCanvasMouseDown(e) {
   let hz = pianoNoteHitZone(ch, p.x, p.y, pxPerBeat)
   if (hz.idx >= 0 && hz.zone === "left") {
     let n = ch.pianoNotes[hz.idx]
-    window.__prDrag = {
+    prUi.drag = {
       kind: "resizeL",
       noteIdx: hz.idx,
       endBeat: n.startBeat + n.durBeats
     }
-    window.__prSuppressClick = true
+    prUi.suppressClick = true
     ctx.canvas.style.cursor = "ew-resize"
     return
   }
   if (hz.idx >= 0 && hz.zone === "right") {
-    window.__prDrag = { kind: "resizeR", noteIdx: hz.idx }
-    window.__prSuppressClick = true
+    prUi.drag = { kind: "resizeR", noteIdx: hz.idx }
+    prUi.suppressClick = true
     ctx.canvas.style.cursor = "ew-resize"
     return
   }
   if (hz.idx >= 0 && hz.zone === "mid") {
     let inSel = prIndexInSelected(hz.idx)
     if (!inSel) {
-      window.__prSelected = [hz.idx]
+      prUi.selected = [hz.idx]
     }
-    let incl = window.__prSelected
+    let incl = prUi.selected
     let snaps = []
     let si = 0
     while (si < incl.length) {
@@ -537,7 +561,7 @@ fn prCanvasMouseDown(e) {
     }
     let ptrB = snapPianoBeat((p.x - PR_KEY_W) / pxPerBeat, snap)
     let ptrRow = prPitchRowFromY(p.y)
-    window.__prDrag = {
+    prUi.drag = {
       kind: "move",
       snapshots: snaps,
       ptrBeat0: ptrB,
@@ -547,26 +571,26 @@ fn prCanvasMouseDown(e) {
       startClientY: e.clientY,
       clickIdx: hz.idx
     }
-    window.__prSuppressClick = true
+    prUi.suppressClick = true
     ctx.canvas.style.cursor = "grab"
     return
   }
-  window.__prDrag = {
+  prUi.drag = {
     kind: "marquee",
     x0: p.x,
     y0: p.y,
     x1: p.x,
     y1: p.y
   }
-  window.__prSuppressClick = true
+  prUi.suppressClick = true
 }
 
 fn prDocumentMouseMove(e) {
-  let d = window.__prDrag
+  let d = prUi.drag
   if (!d) {
     return
   }
-  let ctx = window.__prCtx
+  let ctx = prUi.ctx
   if (!ctx || !ctx.project) {
     return
   }
@@ -614,6 +638,7 @@ fn prDocumentMouseMove(e) {
           np = 71
         }
         nn.pitch = np
+        clampPianoNoteToFirstBar(nn, snap)
         sj = sj + 1
       }
       attachPianoRoll(ctx.canvas, ctx.project, ctx.chIdx, null)
@@ -640,6 +665,7 @@ fn prDocumentMouseMove(e) {
       n.durBeats = snap
       n.startBeat = endB - snap
     }
+    clampPianoNoteToFirstBar(n, snap)
   } else {
     let startB = n.startBeat
     let ne = beat
@@ -647,17 +673,18 @@ fn prDocumentMouseMove(e) {
       ne = startB + snap
     }
     n.durBeats = ne - startB
+    clampPianoNoteToFirstBar(n, snap)
   }
   attachPianoRoll(ctx.canvas, ctx.project, ctx.chIdx, null)
 }
 
 fn prDocumentMouseUp(e) {
-  let d = window.__prDrag
+  let d = prUi.drag
   if (!d) {
     return
   }
-  let ctx = window.__prCtx
-  window.__prDrag = null
+  let ctx = prUi.ctx
+  prUi.drag = null
   if (d.kind === "marquee") {
     let mx0 = d.x0
     let my0 = d.y0
@@ -699,8 +726,16 @@ fn prDocumentMouseUp(e) {
         if (defDur > 4) {
           defDur = 4
         }
+        let maxStart = 4 - defDur
+        if (beat > maxStart) {
+          beat = snapPianoBeat(maxStart, snap)
+        }
+        if (beat < 0) {
+          beat = 0
+        }
         ch.pianoNotes.push({ startBeat: beat, durBeats: defDur, pitch: pitch, vel: 100 })
-        window.__prSelected = [ch.pianoNotes.length - 1]
+        clampPianoNoteToFirstBar(ch.pianoNotes[ch.pianoNotes.length - 1], snap)
+        prUi.selected = [ch.pianoNotes.length - 1]
         attachPianoRoll(ctx.canvas, ctx.project, ctx.chIdx, ctx.setProject)
         if (ctx.setProject) {
           ctx.setProject(ctx.project)
@@ -719,7 +754,7 @@ fn prDocumentMouseUp(e) {
           }
           ei = ei + 1
         }
-        window.__prSelected = sel
+        prUi.selected = sel
         attachPianoRoll(ctx.canvas, ctx.project, ctx.chIdx, ctx.setProject)
         if (ctx.setProject) {
           ctx.setProject(ctx.project)
@@ -732,6 +767,9 @@ fn prDocumentMouseUp(e) {
     return
   }
   if (d.kind === "move") {
+    if (d.moved && ctx && ctx.project) {
+      clampChannelPianoNotesToFirstBar(ctx.project.channels[ctx.chIdx], prCurrentSnap())
+    }
     if (!d.moved) {
       if (d.snapshots.length > 1) {
         let keep = []
@@ -740,9 +778,9 @@ fn prDocumentMouseUp(e) {
           keep.push(d.snapshots[k].idx)
           k = k + 1
         }
-        window.__prSelected = keep
+        prUi.selected = keep
       } else {
-        window.__prSelected = [d.clickIdx]
+        prUi.selected = [d.clickIdx]
       }
       if (ctx && ctx.canvas && ctx.project) {
         attachPianoRoll(ctx.canvas, ctx.project, ctx.chIdx, ctx.setProject)
@@ -760,7 +798,7 @@ fn prDocumentMouseUp(e) {
     }
     return
   }
-  window.__prSuppressClick = true
+  prUi.suppressClick = true
   if (ctx && ctx.setProject) {
     ctx.setProject(ctx.project)
   }
@@ -797,12 +835,10 @@ export fn PianoRollCanvas(project, chIdx, setProject, dragRef) {
 }
 
 export fn PianoRollZoomBar(project, setProject) {
-  if (typeof window !== "undefined") {
-    if (window.__prZoomIx === undefined || window.__prZoomIx === null) {
-      window.__prZoomIx = 4
-    }
-    prClampZoomIx(window.__prZoomIx)
+  if (prUi.zoomIx === undefined || prUi.zoomIx === null) {
+    prUi.zoomIx = 4
   }
+  prClampZoomIx(prUi.zoomIx)
   let label = getPianoRollSnapLabel()
   return <div class="piano-roll-toolbar">
     <span class="piano-roll-toolbar-label">{"Zoom"}</span>
@@ -811,7 +847,7 @@ export fn PianoRollZoomBar(project, setProject) {
       class="piano-roll-zoom-btn"
       title={"Zoom out (coarser grid)"}
       onclick={() => {
-        let ix = window.__prZoomIx
+        let ix = prUi.zoomIx
         if (ix === undefined || ix === null) {
           ix = 4
         }
@@ -828,7 +864,7 @@ export fn PianoRollZoomBar(project, setProject) {
       class="piano-roll-zoom-btn"
       title={"Zoom in (finer grid)"}
       onclick={() => {
-        let ix = window.__prZoomIx
+        let ix = prUi.zoomIx
         if (ix === undefined || ix === null) {
           ix = 4
         }
@@ -859,7 +895,7 @@ export fn rackPianoPreviewSig(ch) {
 }
 
 export fn pianoRollVisualSig(project, chIdx) {
-  let z = window.__prZoomIx
+  let z = prUi.zoomIx
   if (z === undefined || z === null) {
     z = 4
   }
@@ -899,21 +935,6 @@ export fn drawRackPianoPreview(canvas, ch) {
     return
   }
   let beatEnd = 4.0
-  let ni = 0
-  while (ni < notes.length) {
-    let n = notes[ni]
-    let e = n.startBeat + n.durBeats
-    if (e > beatEnd) {
-      beatEnd = e
-    }
-    ni = ni + 1
-  }
-  if (beatEnd < 4) {
-    beatEnd = 4
-  }
-  if (beatEnd > 64) {
-    beatEnd = 64
-  }
   let pad = 3
   let plotW = w - pad * 2
   let pxPerBeat = plotW / beatEnd

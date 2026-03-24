@@ -1,19 +1,18 @@
 import { sixteenthSeconds, automationAt } from '../schedule/Engine.tish'
-import { playHitAt, channelAudible, syncChannelBuses } from './Engine.tish'
+import { playHitAt, channelAudible, updateMixerFromProject } from './Engine.tish'
 import { generatorChannelAtBeat } from './ParamAtBeat.tish'
+import { tplLoopOnBarBoundary, tplLoopSkipsChannel } from '../tpl/LoopState.tish'
 
 export fn transportTick(project, store, globalStep) {
   if (!store.ctx) {
     return
   }
-  syncChannelBuses(project, store)
+  tplLoopOnBarBoundary(project, globalStep)
   let stepInBar = globalStep % 16
   let beat = globalStep * 0.25
+  updateMixerFromProject(project, store, beat)
   let ctx = store.ctx
   let t = ctx.currentTime + 0.04
-  if (store.master && project.automation && project.automation.masterGain && project.automation.masterGain.length > 0) {
-    store.master.gain.value = automationAt(project.automation.masterGain, beat)
-  }
   let bend = 0
   if (project.automation && project.automation.pitchBend && project.automation.pitchBend.length > 0) {
     bend = automationAt(project.automation.pitchBend, stepInBar * 0.25)
@@ -21,6 +20,10 @@ export fn transportTick(project, store, globalStep) {
   let bi = 0
   while (bi < project.channels.length) {
     if (!channelAudible(project, bi)) {
+      bi = bi + 1
+      continue
+    }
+    if (tplLoopSkipsChannel(project, bi)) {
       bi = bi + 1
       continue
     }

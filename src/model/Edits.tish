@@ -40,8 +40,50 @@ export fn setGeneratorAdsr(ch, a, d, s, r) {
   ch.generatorParams.release = r
 }
 
+export fn clampPianoNoteToFirstBar(n, minDur) {
+  let bar = 4
+  let md = minDur
+  if (md === undefined || md === null || md <= 0) {
+    md = 0.0078125
+  }
+  if (n.startBeat < 0) {
+    n.startBeat = 0
+  }
+  if (n.startBeat >= bar) {
+    n.startBeat = bar - md
+  }
+  if (n.startBeat < 0) {
+    n.startBeat = 0
+  }
+  if (n.startBeat + n.durBeats > bar) {
+    n.durBeats = bar - n.startBeat
+  }
+  if (n.durBeats < md) {
+    n.durBeats = md
+    if (n.startBeat + n.durBeats > bar) {
+      n.startBeat = bar - md
+      if (n.startBeat < 0) {
+        n.startBeat = 0
+      }
+    }
+  }
+}
+
+export fn clampChannelPianoNotesToFirstBar(ch, minDur) {
+  if (!ch.pianoNotes) {
+    return
+  }
+  let i = 0
+  while (i < ch.pianoNotes.length) {
+    clampPianoNoteToFirstBar(ch.pianoNotes[i], minDur)
+    i = i + 1
+  }
+}
+
 export fn addPianoNote(ch, startBeat, durBeats, pitch, vel) {
-  ch.pianoNotes.push({ startBeat: startBeat, durBeats: durBeats, pitch: pitch, vel: vel })
+  let n = { startBeat: startBeat, durBeats: durBeats, pitch: pitch, vel: vel }
+  clampPianoNoteToFirstBar(n, 0.0078125)
+  ch.pianoNotes.push(n)
 }
 
 export fn removePianoNoteAt(ch, idx) {

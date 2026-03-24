@@ -1,34 +1,261 @@
 import { h, Fragment } from 'lattish'
+import { ensureMasterMixer, ensureActorMixerEntries } from '../model/MixerRouting.tish'
 
-export fn MixerStrip(ch, idx, selected, onSelect, onGain, onPan, onGainCommit, onPanCommit, setProject, project) {
+fn eqVal(v) {
+  if (v === undefined || v === null) {
+    return 0
+  }
+  return v
+}
+
+/** Master output EQ (dB); main level still from automation.masterGain. */
+export fn MasterMixerStrip(project, setProject, onLiveMixer) {
+  ensureMasterMixer(project)
+  let m = project.masterMixer
+  return (
+    <div class="mixer-master-strip">
+      <div class="mixer-strip-tier-label">{"Master"}</div>
+      <div class="mixer-master-inner">
+        <div class="mixer-eq3">
+          <label class="mixer-eq-cell">
+            {"Lo "}
+            <input
+              type="range"
+              class="mixer-eq-slider"
+              min="-12"
+              max="12"
+              value={String(Math.round(eqVal(m.eqLo)))}
+              onmousedown={(e) => e.stopPropagation()}
+              oninput={(e) => {
+                m.eqLo = Number(e.target.value)
+                setProject(project)
+                if (onLiveMixer) {
+                  onLiveMixer()
+                }
+              }}
+            />
+          </label>
+          <label class="mixer-eq-cell">
+            {"Mid "}
+            <input
+              type="range"
+              class="mixer-eq-slider"
+              min="-12"
+              max="12"
+              value={String(Math.round(eqVal(m.eqMid)))}
+              onmousedown={(e) => e.stopPropagation()}
+              oninput={(e) => {
+                m.eqMid = Number(e.target.value)
+                setProject(project)
+                if (onLiveMixer) {
+                  onLiveMixer()
+                }
+              }}
+            />
+          </label>
+          <label class="mixer-eq-cell">
+            {"Hi "}
+            <input
+              type="range"
+              class="mixer-eq-slider"
+              min="-12"
+              max="12"
+              value={String(Math.round(eqVal(m.eqHi)))}
+              onmousedown={(e) => e.stopPropagation()}
+              oninput={(e) => {
+                m.eqHi = Number(e.target.value)
+                setProject(project)
+                if (onLiveMixer) {
+                  onLiveMixer()
+                }
+              }}
+            />
+          </label>
+        </div>
+        <span class="mixer-master-hint">{"Output level: masterGain automation"}</span>
+      </div>
+    </div>
+  )
+}
+
+export fn ActorMixerStrip(lane, project, setProject, onLiveMixer) {
+  ensureActorMixerEntries(project)
+  let a = project.actorMixer[lane]
+  let trimPct = Math.round((a.gain != null ? a.gain : 1) * 100)
+  return (
+    <div class="mixer-actor-strip">
+      <div class="mixer-strip-tier-label">{"Actor"}</div>
+      <div class="mixer-actor-inner">
+        <div class="mixer-actor-name">{lane === "local" ? "Local / host" : lane}</div>
+        <label class="mixer-trim-label">{"Trim "}
+          <input
+            type="range"
+            class="mixer-trim"
+            min="0"
+            max="150"
+            value={String(trimPct)}
+            onmousedown={(e) => e.stopPropagation()}
+            oninput={(e) => {
+              a.gain = Number(e.target.value) / 100
+              setProject(project)
+              if (onLiveMixer) {
+                onLiveMixer()
+              }
+            }}
+          />
+        </label>
+        <div class="mixer-eq3 mixer-eq3-compact">
+          <label class="mixer-eq-cell">
+            {"Lo"}
+            <input
+              type="range"
+              class="mixer-eq-slider"
+              min="-12"
+              max="12"
+              value={String(Math.round(eqVal(a.eqLo)))}
+              onmousedown={(e) => e.stopPropagation()}
+              oninput={(e) => {
+                a.eqLo = Number(e.target.value)
+                setProject(project)
+                if (onLiveMixer) {
+                  onLiveMixer()
+                }
+              }}
+            />
+          </label>
+          <label class="mixer-eq-cell">
+            {"Mid"}
+            <input
+              type="range"
+              class="mixer-eq-slider"
+              min="-12"
+              max="12"
+              value={String(Math.round(eqVal(a.eqMid)))}
+              onmousedown={(e) => e.stopPropagation()}
+              oninput={(e) => {
+                a.eqMid = Number(e.target.value)
+                setProject(project)
+                if (onLiveMixer) {
+                  onLiveMixer()
+                }
+              }}
+            />
+          </label>
+          <label class="mixer-eq-cell">
+            {"Hi"}
+            <input
+              type="range"
+              class="mixer-eq-slider"
+              min="-12"
+              max="12"
+              value={String(Math.round(eqVal(a.eqHi)))}
+              onmousedown={(e) => e.stopPropagation()}
+              oninput={(e) => {
+                a.eqHi = Number(e.target.value)
+                setProject(project)
+                if (onLiveMixer) {
+                  onLiveMixer()
+                }
+              }}
+            />
+          </label>
+        </div>
+        <div class="mixer-toggles" onmousedown={(e) => e.stopPropagation()}>
+          <label><input type="checkbox" checked={a.mute} onchange={(e) => {
+            a.mute = e.target.checked
+            setProject(project)
+            if (onLiveMixer) {
+              onLiveMixer()
+            }
+          }} />{" M"}</label>
+          <label><input type="checkbox" checked={a.solo} onchange={(e) => {
+            a.solo = e.target.checked
+            setProject(project)
+            if (onLiveMixer) {
+              onLiveMixer()
+            }
+          }} />{" S"}</label>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export fn TrackMixerStrip(ch, idx, selected, onSelect, onTrim, onPan, onTrimCommit, onPanCommit, onEq, onEqCommit, setProject, project) {
   let selClass = selected ? " mixer-ch-sel" : ""
-  return <div class={"mixer-strip" + selClass}>
-    <div class="mixer-name" onclick={() => onSelect(idx)} title={"Select channel"}>{ch.name}</div>
-    <label class="mixer-fader-label">{"Gain"}</label>
-    <input
-      type="range"
-      class="mixer-fader"
-      min="0"
-      max="100"
-      value={String(Math.round(ch.gain * 100))}
-      onmousedown={(e) => e.stopPropagation()}
-      oninput={(e) => onGain(idx, e)}
-      onchange={() => onGainCommit()}
-    />
-    <label class="mixer-fader-label">{"Pan"}</label>
-    <input
-      type="range"
-      class="mixer-fader"
-      min="-100"
-      max="100"
-      value={String(Math.round(ch.pan * 100))}
-      onmousedown={(e) => e.stopPropagation()}
-      oninput={(e) => onPan(idx, e)}
-      onchange={() => onPanCommit()}
-    />
-    <div class="mixer-toggles" onmousedown={(e) => e.stopPropagation()}>
-      <label><input type="checkbox" checked={ch.mute} onchange={(e) => { ch.mute = e.target.checked; setProject(project) }} />{" M"}</label>
-      <label><input type="checkbox" checked={ch.solo} onchange={(e) => { ch.solo = e.target.checked; setProject(project) }} />{" S"}</label>
+  let trimPct = Math.round((ch.gain != null ? ch.gain : 0.85) * 100)
+  return <div class={"mixer-track-strip" + selClass}>
+    <div class="mixer-strip-tier-label">{"Track"}</div>
+    <div class="mixer-track-inner">
+      <div class="mixer-name" onclick={() => onSelect(idx)} title={"Select channel"}>{ch.name}</div>
+      <label class="mixer-trim-label">{"Trim "}
+        <input
+          type="range"
+          class="mixer-trim"
+          min="0"
+          max="100"
+          value={String(trimPct)}
+          onmousedown={(e) => e.stopPropagation()}
+          oninput={(e) => onTrim(idx, e)}
+          onchange={() => onTrimCommit()}
+        />
+      </label>
+      <div class="mixer-eq3 mixer-eq3-compact">
+        <label class="mixer-eq-cell">
+          {"Lo"}
+          <input
+            type="range"
+            class="mixer-eq-slider"
+            min="-12"
+            max="12"
+            value={String(Math.round(eqVal(ch.eqLo)))}
+            onmousedown={(e) => e.stopPropagation()}
+            oninput={(e) => onEq(idx, "eqLo", e)}
+            onchange={() => onEqCommit()}
+          />
+        </label>
+        <label class="mixer-eq-cell">
+          {"Mid"}
+          <input
+            type="range"
+            class="mixer-eq-slider"
+            min="-12"
+            max="12"
+            value={String(Math.round(eqVal(ch.eqMid)))}
+            onmousedown={(e) => e.stopPropagation()}
+            oninput={(e) => onEq(idx, "eqMid", e)}
+            onchange={() => onEqCommit()}
+          />
+        </label>
+        <label class="mixer-eq-cell">
+          {"Hi"}
+          <input
+            type="range"
+            class="mixer-eq-slider"
+            min="-12"
+            max="12"
+            value={String(Math.round(eqVal(ch.eqHi)))}
+            onmousedown={(e) => e.stopPropagation()}
+            oninput={(e) => onEq(idx, "eqHi", e)}
+            onchange={() => onEqCommit()}
+          />
+        </label>
+      </div>
+      <label class="mixer-fader-label">{"Pan"}</label>
+      <input
+        type="range"
+        class="mixer-pan"
+        min="-100"
+        max="100"
+        value={String(Math.round(ch.pan * 100))}
+        onmousedown={(e) => e.stopPropagation()}
+        oninput={(e) => onPan(idx, e)}
+        onchange={() => onPanCommit()}
+      />
+      <div class="mixer-toggles" onmousedown={(e) => e.stopPropagation()}>
+        <label><input type="checkbox" checked={ch.mute} onchange={(e) => { ch.mute = e.target.checked; setProject(project) }} />{" M"}</label>
+        <label><input type="checkbox" checked={ch.solo} onchange={(e) => { ch.solo = e.target.checked; setProject(project) }} />{" S"}</label>
+      </div>
     </div>
   </div>
 }

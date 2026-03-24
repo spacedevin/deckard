@@ -13,15 +13,15 @@ export fn coDjMaxLookaheadPerfSteps() {
   return coDjStepsPerSequence() * coDjMaxSequenceLookahead()
 }
 
-export fn coDjEnsureSchedule() {
-  if (typeof window !== "undefined" && !window.__coDjScheduled) {
-    window.__coDjScheduled = []
+export fn coDjEnsureSchedule(rt) {
+  if (rt && !rt.coDjScheduled) {
+    rt.coDjScheduled = []
   }
 }
 
-export fn coDjCurrentPerfStep() {
-  if (typeof window !== "undefined" && typeof window.__dawPerfStep === "number") {
-    return window.__dawPerfStep
+export fn coDjCurrentPerfStep(rt) {
+  if (rt && typeof rt.perfStep === "number") {
+    return rt.perfStep
   }
   return 0
 }
@@ -47,8 +47,8 @@ export fn coDjStripPerfStepDirective(src) {
 }
 
 // Returns { status: "late" } | { status: "asap", tpl } | { status: "queued", tpl }
-export fn coDjHandleIncomingTplBlock(src, actorId, authorId, envEffective, envDeadline, envAsap, pushLog) {
-  coDjEnsureSchedule()
+export fn coDjHandleIncomingTplBlock(src, actorId, authorId, envEffective, envDeadline, envAsap, pushLog, rt) {
+  coDjEnsureSchedule(rt)
   let st = coDjStripPerfStepDirective(src)
   let tpl = st.tpl
   let eff = st.effectivePerfStep
@@ -58,7 +58,7 @@ export fn coDjHandleIncomingTplBlock(src, actorId, authorId, envEffective, envDe
       eff = Math.floor(ne)
     }
   }
-  let now = coDjCurrentPerfStep()
+  let now = coDjCurrentPerfStep(rt)
   let dl = null
   if (envDeadline !== undefined && envDeadline !== null) {
     let nd = Number(envDeadline)
@@ -84,9 +84,9 @@ export fn coDjHandleIncomingTplBlock(src, actorId, authorId, envEffective, envDe
     }
     return { status: "asap", tpl: tpl }
   }
-  window.__coDjScheduled.push({
+  rt.coDjScheduled.push({
     effectivePerfStep: eff,
-    actorId: laneId,
+    actorId: actorId,
     authorId: authorId,
     tpl: tpl
   })
@@ -96,9 +96,9 @@ export fn coDjHandleIncomingTplBlock(src, actorId, authorId, envEffective, envDe
   return { status: "queued", tpl: tpl }
 }
 
-export fn coDjSortScheduled() {
-  coDjEnsureSchedule()
-  let a = window.__coDjScheduled
+export fn coDjSortScheduled(rt) {
+  coDjEnsureSchedule(rt)
+  let a = rt.coDjScheduled
   let i = 0
   while (i < a.length) {
     let j = i + 1
@@ -114,14 +114,14 @@ export fn coDjSortScheduled() {
   }
 }
 
-export fn coDjFlushScheduledForStep(perfStep) {
-  coDjEnsureSchedule()
-  coDjSortScheduled()
-  let arr = window.__coDjScheduled
+export fn coDjFlushScheduledForStep(perfStep, rt) {
+  coDjEnsureSchedule(rt)
+  coDjSortScheduled(rt)
+  let arr = rt.coDjScheduled
   let kept = []
-  let ap = window.__coDjApplyScheduledTpl
-  let after = window.__coDjAfterScheduled
-  let log = window.__coDjPushLog
+  let ap = rt.coDjApplyScheduledTpl
+  let after = rt.coDjAfterScheduled
+  let log = rt.coDjPushLog
   let i = 0
   while (i < arr.length) {
     let it = arr[i]
@@ -141,5 +141,5 @@ export fn coDjFlushScheduledForStep(perfStep) {
     }
     i = i + 1
   }
-  window.__coDjScheduled = kept
+  rt.coDjScheduled = kept
 }

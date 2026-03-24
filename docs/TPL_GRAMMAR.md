@@ -11,7 +11,7 @@ There is a **single** TPL editor (Apply / Sync, step highlight). **Stream vs loc
 | **Not connected** | Banner: *Local — not on hub.* Edit the song locally. |
 | **Co-DJ connected** | Banner: **Hub** + **Local → hub** preview (what you send on Play) and **Remote** (agent `tpl.stream_chunk` tail). |
 
-**Append a line to the song from JS** (e.g. LLM): `window.__tplStreamAppendLine("track kick id c0 gen noise_burst")` — appends to the main editor with a newline.
+**Append a line from JS** (e.g. LLM tooling wired to the app): call `streamAppendLine` on the `DeckardRuntime` object held in `App`’s `useRef` (`src/ui/DeckardRuntime.tish`). The TPL panel assigns it when the mirror textarea mounts — e.g. `runtime.streamAppendLine("track kick id c0 gen noise_burst")` appends a newline-terminated line to the live editor state.
 
 ## Version header
 
@@ -35,12 +35,32 @@ Must appear before track-specific lines (recommended first non-comment line).
 ## Track block
 
 ```
-track <displayName> id <channelId> gen <generatorId>
+track <displayName> id <channelId> gen <generatorId> [ * <N|inf|infinite> ]
   ...
 ```
 
 - **generatorId** (TPL): `noise_burst`, `fm`, `basic_osc`, `fm_tone` → internal `noiseBurst`, `fmTone`, `basicOsc`.
 - Indented lines (2+ spaces or tab) belong to this track until the next top-level statement (`track`, `auto`, `bpm`, `tpl`).
+
+### Loop / repeat (bar cap)
+
+- **One loop** = **one bar** = **16 transport steps** (the same grid as the step sequencer and `globalStep % 16`).
+- **Default:** if you omit `*` and any `loops` line, the track repeats **forever** (current behavior).
+- **Finite:** `* 4` on the track header or an indented line `loops 4` means: after **4 complete bars** have elapsed since **Play** (or since this track block was last applied for that `id`), the track **stops sounding** until the next Play or until the same `id` is applied again (counter resets).
+- **Infinite (explicit):** `* inf`, `* infinite`, or `loops inf` / `loops infinite`.
+- **Precedence:** if both header `*` and body `loops` appear, **`loops` in the body wins** (last author wins for that block).
+- **Apply / Sync:** when the project is emitted back into the editor, a finite cap is written as **` * N` on the `track` line** (not a separate `loops` line), so the header form is preserved.
+
+Example:
+
+```
+track Fill id c9 gen noise_burst * 2
+  mix gain 0.8
+  noise decay 0.08 tone 0.4 pitch_follow 0.2
+  steps x x x x x x x x x x x x x x x x
+```
+
+After two bars, that channel is silent for scheduling (mixer mute is unchanged). Re-sending a `track … id c9 …` block resets the bar counter and `tplLoopBars` for `c9`.
 
 ### Mix
 
@@ -76,8 +96,9 @@ Example: `steps euclid 5 16` — five hits distributed across 16 steps.
 note <midi> <startBeat> <durBeats> v <velocity>
 ```
 
-- **Beats** are in **quarter-note units** (1 beat = one quarter note). The **piano roll** snaps to a **zoom-dependent grid** (wheel or **±**): from **1 beat** down to **1/128 beat**. **TPL** may use any numeric `startBeat` / `durBeats`; emit prints them with `String(...)` so exact values you type are kept.
-- **DurBeats** is note length in the same units. New piano notes use duration **4× current snap** (max 4 beats).
+- **Beats** are in **quarter-note units** (1 beat = one quarter note). The **piano roll** shows **one bar only** (4 beats) and snaps to a **zoom-dependent grid** (wheel or **±**): from **1 beat** down to **1/128 beat**.
+- **Single-bar rule:** every note must lie in the **first bar**: `0 <= startBeat < 4` and `startBeat + durBeats <= 4`. Apply rejects the line with an error if not satisfied (streaming stays strict).
+- **DurBeats** is note length in the same units. New piano notes use duration **4× current snap**, capped so the note stays inside the bar.
 
 Multiple `note` lines append in order of appearance. Re-applying a full track block that contains `note` lines **replaces** all notes for that channel (see streaming note below).
 
@@ -147,6 +168,36 @@ auto <channelId> gen <paramName>
 
 Stored in `project.paramAutomations[]`. At playback, values are interpolated by **beat** (`beat = globalStep * 0.25` per step tick) and merged into `generatorParams` for that channel when a note fires.
 
+### Mixer (track / actor / master)
+
+Interpolated every transport tick into the Web Audio mixer (same beat timeline as `master_gain`).
+
+**Track** — `gain` (fader), `pan`, `eq_lo`, `eq_mid`, `eq_hi` (dB, same as static `mix` line):
+
+```
+auto <channelId> mix <gain|pan|eq_lo|eq_mid|eq_hi>
+  <beat> <value>
+  ...
+```
+
+**Actor bus** (lane id, e.g. `local`) — trim is `gain` or alias `trim`:
+
+```
+auto actor <lane> mix <gain|trim|eq_lo|eq_mid|eq_hi>
+  <beat> <value>
+  ...
+```
+
+**Master** — output EQ only (output level stays `auto master_gain`):
+
+```
+auto master mix <eq_lo|eq_mid|eq_hi>
+  <beat> <value>
+  ...
+```
+
+Stored in `project.mixerAutomations[]`. Applying TPL merges lanes by target + id + param (same pattern as `gen` automations: lanes present in the patch replace previous ones for that key).
+
 ## Streaming rules
 
 1. Strip comments; ignore empty lines.
@@ -163,6 +214,7 @@ Stored in `project.paramAutomations[]`. At playback, values are interpolated by 
 | `note` | Piano roll |
 | `mix` | Mixer strip |
 | `auto` … `gen` | Plugin parameter automation |
+| `auto` … `mix` | Mixer automation (track / `actor` lane / `master` EQ) |
 | `gen_block` | Complex plugin internal graph (future) |
 
 ## Strudel / Sonic Pi roadmap (syntax hooks)
@@ -177,7 +229,7 @@ Documented for future grammar; not all are implemented in Apply v1.
 | Polymeter | `pattern_len 12` |
 | Key / scale | `key E minor`, degree-based edits |
 | FX blocks | `fx reverb … end fx` |
-| Repeat / rate | `repeat 2`, `slow 2` / `fast 2` |
+| Repeat / rate | Bar caps: `* N` / `loops N` (implemented); `repeat 2`, `slow 2` / `fast 2` (future) |
 | Rings | `vel_cycle 80 72 90` |
 | Sync / launch | `sync_bar` |
 | MIDI / OSC | `midi_out …`, `osc …` |

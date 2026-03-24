@@ -1,0 +1,17 @@
+import { emptyProjectShell } from './Project.tish'
+import { applyTplSource } from '../tpl/Apply.tish'
+import { migrateProjectGenerators } from './Migrate.tish'
+import { defaultDeckardTplText } from './DefaultDeckardTpl.tish'
+
+// Parse TPL into a fresh project (empty channels + shell presets/automation, then tracks from text).
+export fn loadProjectFromTpl(source) {
+  let p = emptyProjectShell()
+  migrateProjectGenerators(p)
+  let r = applyTplSource(p, source)
+  migrateProjectGenerators(p)
+  return { project: p, errors: r.errors }
+}
+
+export fn loadDefaultDeckardProject() {
+  return loadProjectFromTpl(defaultDeckardTplText())
+}

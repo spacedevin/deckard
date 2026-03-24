@@ -1,0 +1,66 @@
+// Runtime bar counts for TPL tplLoopBars (finite loops). Keyed by channel id.
+
+let barsDone = {}
+let exhausted = {}
+
+export fn tplLoopResetAll() {
+  barsDone = {}
+  exhausted = {}
+}
+
+export fn tplLoopResetChannel(id) {
+  barsDone[id] = 0
+  exhausted[id] = false
+}
+
+export fn tplLoopOnBarBoundary(project, globalStep) {
+  if (globalStep <= 0 || globalStep % 16 !== 0) {
+    return
+  }
+  if (!project || !project.channels) {
+    return
+  }
+  let i = 0
+  while (i < project.channels.length) {
+    let ch = project.channels[i]
+    let cap = ch.tplLoopBars
+    if (cap === undefined || cap === null) {
+      i = i + 1
+      continue
+    }
+    let n = Math.floor(Number(cap))
+    if (n < 1 || n !== n) {
+      i = i + 1
+      continue
+    }
+    let id = ch.id
+    let prev = barsDone[id]
+    if (prev === undefined || prev === null) {
+      prev = 0
+    }
+    barsDone[id] = prev + 1
+    if (barsDone[id] >= n) {
+      exhausted[id] = true
+    }
+    i = i + 1
+  }
+}
+
+export fn tplLoopSkipsChannel(project, chIdx) {
+  if (!project || !project.channels) {
+    return false
+  }
+  let ch = project.channels[chIdx]
+  if (!ch) {
+    return false
+  }
+  let cap = ch.tplLoopBars
+  if (cap === undefined || cap === null) {
+    return false
+  }
+  let n = Math.floor(Number(cap))
+  if (n < 1) {
+    return false
+  }
+  return exhausted[ch.id] === true
+}

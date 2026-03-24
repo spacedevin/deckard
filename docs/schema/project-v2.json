@@ -29,6 +29,57 @@
           "points": { "$ref": "#/$defs/automationLane" }
         }
       }
+    },
+    "mixerAutomations": {
+      "type": "array",
+      "description": "Mixer lanes: track gain/pan/EQ, actor trim/EQ, master EQ (TPL auto … mix …)",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["target", "channelId", "param", "points"],
+            "properties": {
+              "target": { "const": "channel" },
+              "channelId": { "type": "string" },
+              "param": { "type": "string" },
+              "points": { "$ref": "#/$defs/automationLane" }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["target", "lane", "param", "points"],
+            "properties": {
+              "target": { "const": "actor" },
+              "lane": { "type": "string" },
+              "param": { "type": "string" },
+              "points": { "$ref": "#/$defs/automationLane" }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["target", "param", "points"],
+            "properties": {
+              "target": { "const": "master" },
+              "param": { "type": "string" },
+              "points": { "$ref": "#/$defs/automationLane" }
+            }
+          }
+        ]
+      }
+    },
+    "masterMixer": {
+      "type": "object",
+      "description": "Master bus 3-band EQ (dB); output level is automation.masterGain",
+      "properties": {
+        "eqLo": { "type": "number" },
+        "eqMid": { "type": "number" },
+        "eqHi": { "type": "number" }
+      }
+    },
+    "actorMixer": {
+      "type": "object",
+      "description": "Per-actor-lane bus: trim, mute/solo, 3-band EQ (dB)",
+      "additionalProperties": { "$ref": "#/$defs/actorMixRow" }
     }
   },
   "$defs": {
@@ -43,12 +94,27 @@
         }
       }
     },
+    "actorMixRow": {
+      "type": "object",
+      "properties": {
+        "gain": { "type": "number", "description": "Actor bus trim (linear)" },
+        "mute": { "type": "boolean" },
+        "solo": { "type": "boolean" },
+        "eqLo": { "type": "number" },
+        "eqMid": { "type": "number" },
+        "eqHi": { "type": "number" }
+      }
+    },
     "channel": {
       "type": "object",
       "required": ["id", "name", "generatorId", "generatorParams", "gain", "pan", "mute", "solo", "attack", "decay", "sustain", "release", "stepPitch", "steps", "pianoNotes"],
       "properties": {
         "id": { "type": "string" },
         "name": { "type": "string" },
+        "actorLane": {
+          "type": "string",
+          "description": "Mixer / bus grouping; empty = infer from coDjMeta or 'local'"
+        },
         "generatorId": {
           "type": "string",
           "description": "Instrument plugin id: basicOsc | noiseBurst | fmTone | …"
@@ -58,7 +124,14 @@
           "description": "Shape depends on generatorId; see docs/GENERATORS.md"
         },
         "waveform": { "type": "string", "description": "Legacy v1; migrated into basicOsc.generatorParams.waveform" },
-        "gain": { "type": "number" },
+        "gain": { "type": "number", "description": "Track trim (linear), pre-fader" },
+        "eqLo": { "type": "number", "description": "Track EQ lowshelf gain dB" },
+        "eqMid": { "type": "number", "description": "Track EQ mid peaking gain dB" },
+        "eqHi": { "type": "number", "description": "Track EQ highshelf gain dB" },
+        "tplLoopBars": {
+          "type": ["integer", "null"],
+          "description": "Finite bar repeat cap from TPL (* N / loops N); null = infinite"
+        },
         "pan": { "type": "number" },
         "mute": { "type": "boolean" },
         "solo": { "type": "boolean" },

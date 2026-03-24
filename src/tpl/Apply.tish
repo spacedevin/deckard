@@ -1,8 +1,16 @@
 import { makeChannel, defaultParamsForGeneratorId } from '../model/Project.tish'
 import { paramKeyToCamel } from './RegistryMap.tish'
+import {
+  mixParamFromTpl,
+  isChannelMixParam,
+  isMasterMixParam,
+  isActorMixParam
+} from '../audio/MixerAutomation.tish'
 import { euclideanPattern } from './Euclidean.tish'
 import { parseGenBlock } from './TplExtension.tish'
 import { parseProgram } from './Parser.tish'
+import { tplLoopResetChannel } from './LoopState.tish'
+import { ensureMasterMixer, ensureActorMixerEntries } from '../model/MixerRouting.tish'
 
 export fn findChannelById(project, id) {
   let i = 0
@@ -89,7 +97,12 @@ export fn parseBoolish(s) {
   return false
 }
 
-export fn applyTrackBody(project, ch, body, genBlocks, errors) {
+export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
+  let hl = headerLoopBars
+  if (hl === undefined) {
+    hl = null
+  }
+  ch.tplLoopBars = hl
   let noteLines = []
   let hadSteps = false
   let transposeSemi = 0
@@ -103,7 +116,27 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors) {
       continue
     }
     let h = t[0]
-    if (h === "mix") {
+    if (h === "loops") {
+      if (t.length >= 2) {
+        let v = t[1]
+        if (v === "inf" || v === "infinite") {
+          ch.tplLoopBars = null
+        } else {
+          let n = Math.floor(Number(v))
+          if (n >= 1 && n === n) {
+            ch.tplLoopBars = n
+          } else {
+            errors.push({ line: row.lineNo, msg: "loops: expected positive integer or inf/infinite" })
+          }
+        }
+      }
+    } else {
+    if (h === "step_pitch" && t.length >= 2) {
+      let sp = Math.floor(Number(t[1]))
+      if (sp === sp && sp >= 0 && sp <= 127) {
+        ch.stepPitch = sp
+      }
+    } else if (h === "mix") {
       let mi = 1
       while (mi < t.length) {
         if (t[mi] === "gain" && mi + 1 < t.length) {
@@ -126,6 +159,21 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors) {
           mi = mi + 2
           continue
         }
+        if (t[mi] === "eq_lo" && mi + 1 < t.length) {
+          ch.eqLo = Number(t[mi + 1])
+          mi = mi + 2
+          continue
+        }
+        if (t[mi] === "eq_mid" && mi + 1 < t.length) {
+          ch.eqMid = Number(t[mi + 1])
+          mi = mi + 2
+          continue
+        }
+        if (t[mi] === "eq_hi" && mi + 1 < t.length) {
+          ch.eqHi = Number(t[mi + 1])
+          mi = mi + 2
+          continue
+        }
         mi = mi + 1
       }
     } else {
@@ -139,12 +187,21 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors) {
       } else {
         if (h === "note") {
           if (t.length >= 6 && t[4] === "v") {
-            noteLines.push({
-              pitch: Math.floor(Number(t[1])),
-              startBeat: Number(t[2]),
-              durBeats: Number(t[3]),
-              vel: Math.floor(Number(t[5]))
-            })
+            let sb = Number(t[2])
+            let db = Number(t[3])
+            if (sb < 0 || sb >= 4 || sb + db > 4 + 0.0001) {
+              errors.push({
+                line: row.lineNo,
+                msg: "note: must fit in first bar (0<=start<4, start+dur<=4)"
+              })
+            } else {
+              noteLines.push({
+                pitch: Math.floor(Number(t[1])),
+                startBeat: sb,
+                durBeats: db,
+                vel: Math.floor(Number(t[5]))
+              })
+            }
           }
         } else {
           if (h === "transpose") {
@@ -189,6 +246,7 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors) {
           }
         }
       }
+    }
     }
     bi = bi + 1
   }
@@ -240,8 +298,13 @@ export fn applyAutos(project, autos) {
   if (!project.paramAutomations) {
     project.paramAutomations = []
   }
+  if (!project.mixerAutomations) {
+    project.mixerAutomations = []
+  }
   let fromTpl = []
   let touched = {}
+  let mixFromTpl = []
+  let mixTouched = {}
   let ai = 0
   while (ai < autos.length) {
     let au = autos[ai]
@@ -249,16 +312,59 @@ export fn applyAutos(project, autos) {
     if (hdr.length >= 1 && hdr[0] === "master_gain") {
       project.automation.masterGain = sortPointsByBeat(au.points)
     } else {
-      if (hdr.length >= 3 && hdr[1] === "gen") {
-        let cid = hdr[0]
-        let prm = paramKeyToCamel(hdr[2])
-        let tk = cid + "\t" + prm
-        touched[tk] = true
-        fromTpl.push({
-          channelId: cid,
-          param: prm,
-          points: sortPointsByBeat(au.points)
-        })
+      if (hdr.length >= 4 && hdr[0] === "actor" && hdr[2] === "mix") {
+        let lane = hdr[1]
+        let prm = mixParamFromTpl(hdr[3])
+        if (isActorMixParam(prm)) {
+          let mtk = "actor\t" + lane + "\t" + prm
+          mixTouched[mtk] = true
+          mixFromTpl.push({
+            target: "actor",
+            lane: lane,
+            param: prm,
+            points: sortPointsByBeat(au.points)
+          })
+        }
+      } else {
+        if (hdr.length >= 3 && hdr[0] === "master" && hdr[1] === "mix") {
+          let prm2 = mixParamFromTpl(hdr[2])
+          if (isMasterMixParam(prm2)) {
+            let mtk2 = "master\t" + prm2
+            mixTouched[mtk2] = true
+            mixFromTpl.push({
+              target: "master",
+              param: prm2,
+              points: sortPointsByBeat(au.points)
+            })
+          }
+        } else {
+          if (hdr.length >= 3 && hdr[1] === "mix") {
+            let cid = hdr[0]
+            let prm3 = mixParamFromTpl(hdr[2])
+            if (isChannelMixParam(prm3)) {
+              let mtk3 = "channel\t" + cid + "\t" + prm3
+              mixTouched[mtk3] = true
+              mixFromTpl.push({
+                target: "channel",
+                channelId: cid,
+                param: prm3,
+                points: sortPointsByBeat(au.points)
+              })
+            }
+          } else {
+            if (hdr.length >= 3 && hdr[1] === "gen") {
+              let cid4 = hdr[0]
+              let prm4 = paramKeyToCamel(hdr[2])
+              let tk = cid4 + "\t" + prm4
+              touched[tk] = true
+              fromTpl.push({
+                channelId: cid4,
+                param: prm4,
+                points: sortPointsByBeat(au.points)
+              })
+            }
+          }
+        }
       }
     }
     ai = ai + 1
@@ -279,6 +385,117 @@ export fn applyAutos(project, autos) {
     fi = fi + 1
   }
   project.paramAutomations = merged
+  let mixMerged = []
+  let mj = 0
+  while (mj < project.mixerAutomations.length) {
+    let mx = project.mixerAutomations[mj]
+    let mk = ""
+    if (mx.target === "master") {
+      mk = "master\t" + mx.param
+    } else {
+      if (mx.target === "actor") {
+        mk = "actor\t" + mx.lane + "\t" + mx.param
+      } else {
+        mk = "channel\t" + mx.channelId + "\t" + mx.param
+      }
+    }
+    if (!mixTouched[mk]) {
+      mixMerged.push(mx)
+    }
+    mj = mj + 1
+  }
+  let fk = 0
+  while (fk < mixFromTpl.length) {
+    mixMerged.push(mixFromTpl[fk])
+    fk = fk + 1
+  }
+  project.mixerAutomations = mixMerged
+}
+
+export fn applyMasterMixFromTokens(project, tokens) {
+  if (!tokens || tokens.length === 0) {
+    return
+  }
+  ensureMasterMixer(project)
+  let m = project.masterMixer
+  let mi = 0
+  while (mi + 1 < tokens.length) {
+    let k = tokens[mi]
+    let v = Number(tokens[mi + 1])
+    if (v === v) {
+      if (k === "eq_lo") {
+        m.eqLo = v
+      } else {
+        if (k === "eq_mid") {
+          m.eqMid = v
+        } else {
+          if (k === "eq_hi") {
+            m.eqHi = v
+          }
+        }
+      }
+    }
+    mi = mi + 2
+  }
+}
+
+export fn applyActorMixRows(project, rows) {
+  if (!rows || rows.length === 0) {
+    return
+  }
+  ensureActorMixerEntries(project)
+  let ri = 0
+  while (ri < rows.length) {
+    let row = rows[ri]
+    let lane = row.lane
+    if (!project.actorMixer[lane]) {
+      project.actorMixer[lane] = { gain: 1, mute: false, solo: false, eqLo: 0, eqMid: 0, eqHi: 0 }
+    }
+    let a = project.actorMixer[lane]
+    let t = row.tokens
+    let mi = 0
+    while (mi + 1 < t.length) {
+      let k = t[mi]
+      let raw = t[mi + 1]
+      if (k === "gain" || k === "trim") {
+        let gv = Number(raw)
+        if (gv === gv) {
+          a.gain = gv
+        }
+      } else {
+        if (k === "eq_lo") {
+          let n = Number(raw)
+          if (n === n) {
+            a.eqLo = n
+          }
+        } else {
+          if (k === "eq_mid") {
+            let n2 = Number(raw)
+            if (n2 === n2) {
+              a.eqMid = n2
+            }
+          } else {
+            if (k === "eq_hi") {
+              let n3 = Number(raw)
+              if (n3 === n3) {
+                a.eqHi = n3
+              }
+            } else {
+              if (k === "mute") {
+                a.mute = parseBoolish(raw)
+              } else {
+                if (k === "solo") {
+                  a.solo = parseBoolish(raw)
+                }
+              }
+            }
+          }
+        }
+      }
+      mi = mi + 2
+    }
+    ri = ri + 1
+  }
 }
 
 export fn applyParsed(project, parsed) {
@@ -299,8 +516,19 @@ export fn applyParsed(project, parsed) {
       ch.generatorId = tb.generatorId
       ch.generatorParams = defaultParamsForGeneratorId(tb.generatorId)
     }
-    applyTrackBody(project, ch, tb.body, tb.genBlocks, errs)
+    let hdrLoop = tb.loopBars
+    if (hdrLoop === undefined) {
+      hdrLoop = null
+    }
+    applyTrackBody(project, ch, tb.body, tb.genBlocks, errs, hdrLoop)
+    tplLoopResetChannel(tb.id)
     ti = ti + 1
+  }
+  if (parsed.masterMixTokens !== null && parsed.masterMixTokens !== undefined) {
+    applyMasterMixFromTokens(project, parsed.masterMixTokens)
+  }
+  if (parsed.actorMixRows && parsed.actorMixRows.length > 0) {
+    applyActorMixRows(project, parsed.actorMixRows)
   }
   applyAutos(project, parsed.autos)
   return { errors: errs }

@@ -3,6 +3,7 @@
 import { makeChannel, defaultParamsForGeneratorId } from '../model/Project.tish'
 import { parseProgram } from '../tpl/Parser.tish'
 import { applyTrackBody, applyAutos } from '../tpl/Apply.tish'
+import { tplLoopResetChannel } from '../tpl/LoopState.tish'
 import { findChannelById } from '../tpl/Apply.tish'
 import { ensureCoDjMeta, setTrackOwner, setTrackTouched } from './CoDjMeta.tish'
 
@@ -31,9 +32,7 @@ export fn applyCoDjTplSource(project, source, actorId, authorId, currentPerfStep
   ensureCoDjMeta(project)
   let perfStep = currentPerfStep
   if (perfStep === undefined || perfStep === null) {
-    perfStep = typeof window !== "undefined" && typeof window.__dawPerfStep === "number"
-      ? window.__dawPerfStep
-      : 0
+    perfStep = 0
   }
   let parsed = parseProgram(source)
   let errs = parsed.errors
@@ -64,7 +63,12 @@ export fn applyCoDjTplSource(project, source, actorId, authorId, currentPerfStep
       }
     }
     setTrackTouched(project, tb.id, perfStep)
-    applyTrackBody(project, ch, tb.body, tb.genBlocks, errs)
+    let hdrLoop = tb.loopBars
+    if (hdrLoop === undefined) {
+      hdrLoop = null
+    }
+    applyTrackBody(project, ch, tb.body, tb.genBlocks, errs, hdrLoop)
+    tplLoopResetChannel(tb.id)
     ti = ti + 1
   }
   if (actorHasMasterMixer(actorId)) {

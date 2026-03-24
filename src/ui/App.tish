@@ -1,12 +1,15 @@
-import { useState, h, Fragment } from 'lattish'
-import { defaultProject, projectToJson, projectFromJson } from '../model/Project.tish'
+import { useState, useRef, h, Fragment } from 'lattish'
+import { projectToJson, projectFromJson } from '../model/Project.tish'
+import { loadDefaultDeckardProject } from '../model/ProjectLoad.tish'
 import { emitProject } from '../tpl/Emit.tish'
 import { CodeDebugView } from './CodeDebugView.tish'
 import { migrateProjectGenerators } from '../model/Migrate.tish'
 import { ensureAudio, updateMixerFromProject } from '../audio/Engine.tish'
 import { transportTick } from '../audio/Playback.tish'
+import { tplLoopResetAll } from '../tpl/LoopState.tish'
 import { TransportBar } from './Transport.tish'
-import { MixerStrip } from './Mixer.tish'
+import { MasterMixerStrip, ActorMixerStrip, TrackMixerStrip } from './Mixer.tish'
+import { collectActorLanes, channelActorLane, ensureActorMixerEntries } from '../model/MixerRouting.tish'
 import { ChannelRow } from './ChannelRack.tish'
 import { InstrumentPanel } from './InstrumentPanel.tish'
 import { CoDjPanel } from './CoDjPanel.tish'
@@ -16,127 +19,143 @@ import {
   attachPianoRoll,
   drawRackPianoPreview,
   pianoRollVisualSig,
-  rackPianoPreviewSig
+  rackPianoPreviewSig,
+  updatePianoRollCtx
 } from './PianoRoll.tish'
 import { drawScopeCanvas } from './Scope.tish'
 import { coDjInitWebMidi } from '../codj/MidiProfiles.tish'
 import { coDjFlushScheduledForStep } from '../codj/Schedule.tish'
 import { pruneStaleTracks, coDjTrackExpirySequences } from '../codj/Prune.tish'
+import { createDeckardRuntime } from './DeckardRuntime.tish'
+
+let initialDeckardBoot = loadDefaultDeckardProject()
+if (initialDeckardBoot.errors.length > 0 && typeof console !== "undefined" && console.warn) {
+  let ei = 0
+  while (ei < initialDeckardBoot.errors.length) {
+    console.warn("default TPL L" + String(initialDeckardBoot.errors[ei].line) + ": " + initialDeckardBoot.errors[ei].msg)
+    ei = ei + 1
+  }
+}
 
 let audioStore = {}
 let playbackTimer = null
 let globalTick = 0
 export fn App() {
-  let [project, setProject] = useState(defaultProject())
+  let [project, setProject] = useState(initialDeckardBoot.project)
   migrateProjectGenerators(project)
   let tplInit = emitProject(project)
   let [tplText, setTplText] = useState(tplInit)
   let [selectedCh, setSelectedCh] = useState(3)
   let [playing, setPlaying] = useState(false)
-  window.__dawProject = project
-  window.__dawSelectedCh = selectedCh
-  window.__dawSetSelectedCh = setSelectedCh
-  if (typeof window !== "undefined") {
-    window.__tplEnsureStreamSeeded = () => {
-      if (
-        !window.__coDjWs ||
-        window.__coDjWs.readyState !== 1 ||
-        !Array.isArray(window.__tplSessionStream) ||
-        window.__tplSessionStream.length > 0
-      ) {
-        return
-      }
-      let cur = ""
-      if (window.__tplGetSongText) {
-        cur = window.__tplGetSongText()
-      }
-      if (!cur || cur.trim().length === 0) {
-        return
-      }
-      let lineArr = cur.split("\n")
-      let step = typeof window.__dawPerfStep === "number" ? window.__dawPerfStep : 0
-      window.__tplSessionStream.push({ lines: lineArr, effectivePerfStep: step })
+
+  fn touchMixer() {
+    updateMixerFromProject(project, audioStore)
+  }
+
+  let rtRef = useRef(null)
+  if (!rtRef.current) {
+    rtRef.current = createDeckardRuntime()
+  }
+  let rt = rtRef.current
+  rt.project = project
+  rt.setProject = setProject
+  rt.setTplText = setTplText
+  rt.selectedCh = selectedCh
+  rt.setSelectedCh = setSelectedCh
+  rt.playing = playing
+
+  rt.ensureStreamSeeded = () => {
+    if (!rt.coDjWs || rt.coDjWs.readyState !== 1 || !Array.isArray(rt.tplSessionStream) || rt.tplSessionStream.length > 0) {
+      return
     }
-    window.__tplAppendStreamedBlock = (lineArray, effectivePerfStep) => {
-      if (!lineArray || lineArray.length === 0) {
-        return
-      }
-      if (typeof window !== "undefined") {
-        window.__tplLastAppliedLineCount = lineArray.length
-        window.__tplLastAppliedAt = typeof Date !== "undefined" && Date.now ? Date.now() : 0
-      }
-      let step = effectivePerfStep
-      if (step === undefined || step === null) {
-        step = typeof window.__dawPerfStep === "number" ? window.__dawPerfStep : 0
-      }
-      let streamMode =
-        window.__coDjWs && window.__coDjWs.readyState === 1 && Array.isArray(window.__tplSessionStream)
-      if (streamMode) {
-        if (!window.__tplSessionStream) {
-          window.__tplSessionStream = []
-        }
-        if (window.__tplEnsureStreamSeeded) {
-          window.__tplEnsureStreamSeeded()
-        }
-        window.__tplSessionStream.push({ lines: lineArray, effectivePerfStep: step })
-        let parts = []
-        let pi = 0
-        while (pi < window.__tplSessionStream.length) {
-          parts.push(window.__tplSessionStream[pi].lines.join("\n"))
-          pi = pi + 1
-        }
-        let next = parts.join("\n\n") + "\n"
-        setTplText(next)
-        if (window.__tplSetSongText) {
-          window.__tplSetSongText(next)
-        }
-      } else {
-        setTplText((prev) => {
-          let s = prev.trimEnd()
-          let sep = s.length > 0 && !s.endsWith("\n") ? "\n\n" : "\n"
-          let next = s + sep + lineArray.join("\n") + "\n"
-          if (window.__tplSetSongText) {
-            window.__tplSetSongText(next)
-          }
-          return next
-        })
-      }
+    let cur = ""
+    if (rt.getSongText) {
+      cur = rt.getSongText()
     }
-    window.__tplConsumePlayedBlocks = (perfStep) => {
-      if (!window.__coDjWs || window.__coDjWs.readyState !== 1 || !Array.isArray(window.__tplSessionStream)) {
-        return
+    if (!cur || cur.trim().length === 0) {
+      return
+    }
+    let lineArr = cur.split("\n")
+    let step = typeof rt.perfStep === "number" ? rt.perfStep : 0
+    rt.tplSessionStream.push({ lines: lineArr, effectivePerfStep: step })
+  }
+  rt.appendStreamedBlock = (lineArray, effectivePerfStep) => {
+    if (!lineArray || lineArray.length === 0) {
+      return
+    }
+    rt.tplLastAppliedLineCount = lineArray.length
+    rt.tplLastAppliedAt = typeof Date !== "undefined" && Date.now ? Date.now() : 0
+    let step = effectivePerfStep
+    if (step === undefined || step === null) {
+      step = typeof rt.perfStep === "number" ? rt.perfStep : 0
+    }
+    let streamMode = rt.coDjWs && rt.coDjWs.readyState === 1 && Array.isArray(rt.tplSessionStream)
+    if (streamMode) {
+      if (!rt.tplSessionStream) {
+        rt.tplSessionStream = []
       }
-      let seq = 64
-      let arr = window.__tplSessionStream
-      let keep = []
-      let j = 0
-      while (j < arr.length) {
-        if (arr[j].effectivePerfStep + seq > perfStep) {
-          keep.push(arr[j])
-        }
-        j = j + 1
+      if (rt.ensureStreamSeeded) {
+        rt.ensureStreamSeeded()
       }
-      window.__tplSessionStream = keep
-      if (keep.length === 0) {
-        return
-      }
+      rt.tplSessionStream.push({ lines: lineArray, effectivePerfStep: step })
       let parts = []
       let pi = 0
-      while (pi < keep.length) {
-        parts.push(keep[pi].lines.join("\n"))
+      while (pi < rt.tplSessionStream.length) {
+        parts.push(rt.tplSessionStream[pi].lines.join("\n"))
         pi = pi + 1
       }
       let next = parts.join("\n\n") + "\n"
       setTplText(next)
-      if (window.__tplSetSongText) {
-        window.__tplSetSongText(next)
+      if (rt.setSongText) {
+        rt.setSongText(next)
       }
+    } else {
+      setTplText((prev) => {
+        let s = prev.trimEnd()
+        let sep = s.length > 0 && !s.endsWith("\n") ? "\n\n" : "\n"
+        let next = s + sep + lineArray.join("\n") + "\n"
+        if (rt.setSongText) {
+          rt.setSongText(next)
+        }
+        return next
+      })
+    }
+  }
+  rt.consumePlayedBlocks = (perfStep) => {
+    if (!rt.coDjWs || rt.coDjWs.readyState !== 1 || !Array.isArray(rt.tplSessionStream)) {
+      return
+    }
+    let seq = 64
+    let arr = rt.tplSessionStream
+    let keep = []
+    let j = 0
+    while (j < arr.length) {
+      if (arr[j].effectivePerfStep + seq > perfStep) {
+        keep.push(arr[j])
+      }
+      j = j + 1
+    }
+    rt.tplSessionStream = keep
+    if (keep.length === 0) {
+      return
+    }
+    let parts = []
+    let pi = 0
+    while (pi < keep.length) {
+      parts.push(keep[pi].lines.join("\n"))
+      pi = pi + 1
+    }
+    let next = parts.join("\n\n") + "\n"
+    setTplText(next)
+    if (rt.setSongText) {
+      rt.setSongText(next)
     }
   }
 
   fn tplMirrorFlush() {
     try {
-      let p = window.__dawProject
+      let r = rtRef.current
+      let p = r.project
       if (!p) {
         return
       }
@@ -144,13 +163,14 @@ export fn App() {
       setTplText(e)
       setTimeout(() => {
         try {
-          let p2 = window.__dawProject
+          let r2 = rtRef.current
+          let p2 = r2.project
           if (!p2) {
             return
           }
           let e2 = emitProject(p2)
-          if (window.__tplSetSongText) {
-            window.__tplSetSongText(e2)
+          if (r2.setSongText) {
+            r2.setSongText(e2)
           }
           setTplText(e2)
         } catch (err2) {
@@ -170,12 +190,11 @@ export fn App() {
     try {
       let e = emitProject(p)
       setTplText(e)
-      if (typeof window !== "undefined") {
-        if (window.__tplSetSongText) {
-          window.__tplSetSongText(e)
-        }
-        window.__tplLastHighlightSource = null
+      let r = rtRef.current
+      if (r.setSongText) {
+        r.setSongText(e)
       }
+      r.tplLastHighlightSource = null
     } catch (err) {
       if (typeof console !== "undefined" && console.warn) {
         console.warn("syncProjectToTplEditor", err)
@@ -186,42 +205,43 @@ export fn App() {
   fn setProjectFromUI(p) {
     setProject(p)
     setTimeout(() => {
-      let proj = window.__dawProject
+      let r = rtRef.current
+      let proj = r.project
       if (proj) {
         syncProjectToTplEditor(proj)
       }
     }, 0)
   }
   setTimeout(() => {
-    coDjInitWebMidi(project, setProject)
+    coDjInitWebMidi(project, setProject, rtRef.current)
   }, 100)
   setTimeout(() => {
+    let r = rtRef.current
     let pr = document.querySelector(".piano-roll")
     if (pr) {
       let sig = pianoRollVisualSig(project, selectedCh)
-      if (window.__prSkipRedrawSig !== sig || window.__prSkipRedrawEl !== pr) {
-        window.__prSkipRedrawSig = sig
-        window.__prSkipRedrawEl = pr
+      if (r.prSkipRedrawSig !== sig || r.prSkipRedrawEl !== pr) {
+        r.prSkipRedrawSig = sig
+        r.prSkipRedrawEl = pr
         attachPianoRoll(pr, project, selectedCh, setProjectFromUI)
       } else {
-        window.__prCtx = { canvas: pr, project: project, chIdx: selectedCh, setProject: setProjectFromUI }
-        window.__prChIdx = selectedCh
+        updatePianoRollCtx(pr, project, selectedCh, setProjectFromUI)
       }
     }
-    if (!window.__rackPrSigCache) {
-      window.__rackPrSigCache = []
+    if (!r.rackPrSigCache) {
+      r.rackPrSigCache = []
     }
-    if (!window.__rackPrNode) {
-      window.__rackPrNode = []
+    if (!r.rackPrNode) {
+      r.rackPrNode = []
     }
     let rpi = 0
     while (rpi < project.channels.length) {
       let rackCv = document.getElementById("rack-pr-" + String(rpi))
       if (rackCv) {
         let rsig = rackPianoPreviewSig(project.channels[rpi])
-        if (window.__rackPrSigCache[rpi] !== rsig || window.__rackPrNode[rpi] !== rackCv) {
-          window.__rackPrSigCache[rpi] = rsig
-          window.__rackPrNode[rpi] = rackCv
+        if (r.rackPrSigCache[rpi] !== rsig || r.rackPrNode[rpi] !== rackCv) {
+          r.rackPrSigCache[rpi] = rsig
+          r.rackPrNode[rpi] = rackCv
           drawRackPianoPreview(rackCv, project.channels[rpi])
         }
       }
@@ -229,8 +249,8 @@ export fn App() {
     }
   }, 0)
 
-  if (!window.__dawScopeRaf) {
-    window.__dawScopeRaf = true
+  if (!rt.dawScopeStarted) {
+    rt.dawScopeStarted = true
     fn scopeFrame() {
       let sc2 = document.querySelector(".scope-canvas")
       if (sc2 && audioStore.analyser) {
@@ -249,55 +269,57 @@ export fn App() {
       clearInterval(playbackTimer)
     }
     globalTick = 0
-    window.__dawPlaying = true
+    tplLoopResetAll()
+    rt.playing = true
     let ms = (60 / project.bpm / 4) * 1000
     playbackTimer = setInterval(() => {
-      window.__dawPerfStep = globalTick
-      coDjFlushScheduledForStep(globalTick)
-      transportTick(window.__dawProject, audioStore, globalTick)
+      let r = rtRef.current
+      r.perfStep = globalTick
+      coDjFlushScheduledForStep(globalTick, r)
+      transportTick(r.project, audioStore, globalTick)
       if (globalTick % 64 === 0) {
-        let p = window.__dawProject
+        let p = r.project
         if (p && audioStore.buses) {
-          let r = pruneStaleTracks(p, audioStore, globalTick, coDjTrackExpirySequences())
-          if (r.removedCount > 0 && window.__coDjSetProject) {
-            window.__coDjSetProject(p)
+          let res = pruneStaleTracks(p, audioStore, globalTick, coDjTrackExpirySequences())
+          if (res.removedCount > 0 && r.setProject) {
+            r.setProject(p)
           }
           if (
-            r.removedCount > 0 &&
-            window.__dawSetSelectedCh &&
-            typeof window.__dawSelectedCh === "number" &&
-            window.__dawSelectedCh >= p.channels.length
+            res.removedCount > 0 &&
+            r.setSelectedCh &&
+            typeof r.selectedCh === "number" &&
+            r.selectedCh >= p.channels.length
           ) {
-            window.__dawSetSelectedCh(p.channels.length > 0 ? p.channels.length - 1 : 0)
+            r.setSelectedCh(p.channels.length > 0 ? p.channels.length - 1 : 0)
           }
         }
-        if (window.__tplConsumePlayedBlocks) {
-          window.__tplConsumePlayedBlocks(globalTick)
+        if (r.consumePlayedBlocks) {
+          r.consumePlayedBlocks(globalTick)
         }
       }
-      if (window.__tplSetPlaybackHighlight) {
-        window.__tplSetPlaybackHighlight(globalTick % 16, true)
+      if (r.setPlaybackHighlight) {
+        r.setPlaybackHighlight(globalTick % 16, true)
       }
       globalTick = globalTick + 1
     }, ms)
     setPlaying(true)
-    if (typeof window !== "undefined" && window.__coDjNotifyPlaying) {
-      window.__coDjNotifyPlaying(true)
+    if (rt.coDjNotifyPlaying) {
+      rt.coDjNotifyPlaying(true)
     }
     ctx.resume()
   }
 
   fn onStop() {
-    if (typeof window !== "undefined" && window.__coDjNotifyPlaying) {
-      window.__coDjNotifyPlaying(false)
+    if (rt.coDjNotifyPlaying) {
+      rt.coDjNotifyPlaying(false)
     }
     if (playbackTimer) {
       clearInterval(playbackTimer)
       playbackTimer = null
     }
-    window.__dawPlaying = false
-    if (window.__tplSetPlaybackHighlight) {
-      window.__tplSetPlaybackHighlight(0, false)
+    rt.playing = false
+    if (rt.setPlaybackHighlight) {
+      rt.setPlaybackHighlight(0, false)
     }
     setPlaying(false)
   }
@@ -325,15 +347,17 @@ export fn App() {
         let p = projectFromJson(s)
         migrateProjectGenerators(p)
         setProject(p)
-        window.__prSkipRedrawSig = null
-        window.__rackPrSigCache = []
-        window.__rackPrNode = []
+        let r = rtRef.current
+        r.prSkipRedrawSig = null
+        r.rackPrSigCache = []
+        r.rackPrNode = []
         let em = emitProject(p)
         setTplText(em)
         setTimeout(() => {
-          let e2 = emitProject(window.__dawProject)
-          if (window.__tplSetSongText) {
-            window.__tplSetSongText(e2)
+          let r2 = rtRef.current
+          let e2 = emitProject(r2.project)
+          if (r2.setSongText) {
+            r2.setSongText(e2)
           }
           setTplText(e2)
         }, 0)
@@ -343,42 +367,96 @@ export fn App() {
     }
   }
 
-  fn onGain(idx, e) {
+  fn onTrim(idx, e) {
     project.channels[idx].gain = Number(e.target.value) / 100
     updateMixerFromProject(project, audioStore)
+    setProjectFromUI(project)
   }
 
-  fn onGainCommit() {
+  fn onTrimCommit() {
+    setProjectFromUI(project)
+  }
+
+  fn onEq(idx, key, e) {
+    let v = Number(e.target.value)
+    let ch = project.channels[idx]
+    if (key === "eqLo") {
+      ch.eqLo = v
+    } else if (key === "eqMid") {
+      ch.eqMid = v
+    } else if (key === "eqHi") {
+      ch.eqHi = v
+    }
+    updateMixerFromProject(project, audioStore)
+    setProjectFromUI(project)
+  }
+
+  fn onEqCommit() {
     setProjectFromUI(project)
   }
 
   fn onPan(idx, e) {
     project.channels[idx].pan = Number(e.target.value) / 100
     updateMixerFromProject(project, audioStore)
+    setProjectFromUI(project)
   }
 
   fn onPanCommit() {
     setProjectFromUI(project)
   }
 
-  let mixers = []
-  let mi = 0
-  while (mi < project.channels.length) {
-    mixers.push(
-      MixerStrip(
-        project.channels[mi],
-        mi,
-        mi === selectedCh,
-        setSelectedCh,
-        onGain,
-        onPan,
-        onGainCommit,
-        onPanCommit,
-        setProjectFromUI,
-        project
-      )
+  ensureActorMixerEntries(project)
+  let rawLanes = collectActorLanes(project)
+  let lanes = rawLanes.slice()
+  lanes.sort((a, b) => {
+    if (a === "local") {
+      return -1
+    }
+    if (b === "local") {
+      return 1
+    }
+    if (a < b) {
+      return -1
+    }
+    if (a > b) {
+      return 1
+    }
+    return 0
+  })
+  let mixerBlocks = []
+  let li = 0
+  while (li < lanes.length) {
+    let L = lanes[li]
+    let trackStrips = []
+    let ti = 0
+    while (ti < project.channels.length) {
+      if (channelActorLane(project.channels[ti], project) === L) {
+        trackStrips.push(
+          TrackMixerStrip(
+            project.channels[ti],
+            ti,
+            ti === selectedCh,
+            setSelectedCh,
+            onTrim,
+            onPan,
+            onTrimCommit,
+            onPanCommit,
+            onEq,
+            onEqCommit,
+            setProjectFromUI,
+            project
+          )
+        )
+      }
+      ti = ti + 1
+    }
+    mixerBlocks.push(
+      <div class="mixer-actor-block" key={"lane-" + L}>
+        {ActorMixerStrip(L, project, setProjectFromUI, touchMixer)}
+        <div class="mixer-track-row">{trackStrips}</div>
+      </div>
     )
-    mi = mi + 1
+    li = li + 1
   }
 
   let channels = []
@@ -404,18 +482,21 @@ export fn App() {
         {PianoRollCanvas(project, selectedCh, setProjectFromUI, null)}
       </section>
       {InstrumentPanel(project, selectedCh, setProjectFromUI, tplMirrorFlush)}
-      {CoDjPanel(project, setProject, tplMirrorFlush)}
-      {CodeDebugView(project, setProject, tplText, setTplText)}
+      {CoDjPanel(project, setProject, tplMirrorFlush, rt)}
+      {CodeDebugView(project, setProject, tplText, setTplText, rt)}
       <aside class="panel mixer-panel">
-        <h2>{"Mixer"}</h2>
-        <div class="scope-wrap">
-          <div class="scope-head">
-            <span class="scope-title">{"Master"}</span>
-            <span class="scope-badge">{"live"}</span>
+        <h2>{"Mixer (track → actor → master)"}</h2>
+        <div class="mixer-panel-head">
+          <div class="scope-wrap">
+            <div class="scope-head">
+              <span class="scope-title">{"Master"}</span>
+              <span class="scope-badge">{"live"}</span>
+            </div>
+            <canvas class="scope-canvas" width="320" height="96" />
           </div>
-          <canvas class="scope-canvas" width="320" height="96" />
+          {MasterMixerStrip(project, setProjectFromUI, touchMixer)}
         </div>
-        <div class="mixer-strips">{mixers}</div>
+        <div class="mixer-lanes">{mixerBlocks}</div>
       </aside>
     </div>
     <footer class="daw-foot">{"TPL: docs/TPL_GRAMMAR.md · Generators: docs/FL_STUDIO_GENERATORS.md · Schema: docs/schema/project-v2.json"}</footer>

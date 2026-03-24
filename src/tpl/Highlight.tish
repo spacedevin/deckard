@@ -17,6 +17,7 @@ BODY_KEYS["fm"] = true
 BODY_KEYS["osc"] = true
 BODY_KEYS["adsr"] = true
 BODY_KEYS["transpose"] = true
+BODY_KEYS["loops"] = true
 BODY_KEYS["gen_block"] = true
 BODY_KEYS["end"] = true
 

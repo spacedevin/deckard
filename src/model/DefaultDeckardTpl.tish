@@ -1,0 +1,45 @@
+// Bundled default — keep in sync with projects/default.deckard.tpl
+
+export fn defaultDeckardTplText() {
+  return (
+    "tpl 1\n" +
+    "bpm 118\n" +
+    "\n" +
+    "track Kick id c0 gen noise_burst\n" +
+    "  mix gain 0.85 pan 0 eq_lo 0 eq_mid 0 eq_hi 0\n" +
+    "  step_pitch 36\n" +
+    "  noise attack 0.002 decay 0.12 tone 0.15 pitch_follow 0.35\n" +
+    "  steps x . . . x . . . x . . . x . . .\n" +
+    "\n" +
+    "track Snare id c1 gen noise_burst\n" +
+    "  mix gain 0.85 pan 0 eq_lo 0 eq_mid 0 eq_hi 0\n" +
+    "  step_pitch 38\n" +
+    "  noise attack 0.002 decay 0.09 tone 0.55 pitch_follow 0.2\n" +
+    "  steps . . . . x . . . . . . . x . . .\n" +
+    "\n" +
+    "track HiHat id c2 gen noise_burst\n" +
+    "  mix gain 0.85 pan 0 eq_lo 0 eq_mid 0 eq_hi 0\n" +
+    "  step_pitch 42\n" +
+    "  noise attack 0.001 decay 0.035 tone 0.85 pitch_follow 0.05\n" +
+    "  steps x . x . x . x . x . x . x . x .\n" +
+    "\n" +
+    "track Bass id c3 gen fm\n" +
+    "  mix gain 0.85 pan 0 eq_lo 0 eq_mid 0 eq_hi 0\n" +
+    "  step_pitch 48\n" +
+    "  fm ratio 1 mod_index 6 carrier sine mod sine\n" +
+    "  adsr a 0.008 d 0.12 s 0.35 r 0.15\n" +
+    "  note 48 0 0.5 v 90\n" +
+    "  note 50 1 0.5 v 85\n" +
+    "  note 52 2 0.5 v 88\n" +
+    "  note 53 3 0.5 v 80\n" +
+    "\n" +
+    "master_mix eq_lo 0 eq_mid 0 eq_hi 0\n" +
+    "\n" +
+    "actor_mix local gain 1 eq_lo 0 eq_mid 0 eq_hi 0\n" +
+    "\n" +
+    "auto master_gain\n" +
+    "  0 1\n" +
+    "  16 1\n" +
+    "\n"
+  )
+}

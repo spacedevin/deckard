@@ -37,6 +37,8 @@ export fn parseProgram(source) {
   let bpm = null
   let tracks = []
   let autos = []
+  let masterMixTokens = null
+  let actorMixRows = []
 
   let raw = source.split("\n")
   let i = 0
@@ -138,22 +140,49 @@ export fn parseProgram(source) {
     }
     if (head === "track") {
       if (toks.length >= 6 && toks[2] === "id" && toks[4] === "gen") {
+        let loopBars = null
+        if (toks.length >= 8 && toks[6] === "*") {
+          let lx = toks[7]
+          if (lx === "inf" || lx === "infinite") {
+            loopBars = null
+          } else {
+            if (isNumberToken(lx)) {
+              let nn = Math.floor(Number(lx))
+              if (nn >= 1) {
+                loopBars = nn
+              } else {
+                errors.push({ line: i, msg: "track * N: N must be a positive integer" })
+              }
+            } else {
+              errors.push({ line: i, msg: "track * N: expected number or inf/infinite" })
+            }
+          }
+        }
         currentTrack = {
           name: toks[1],
           id: toks[3],
           generatorId: normalizeGeneratorId(toks[5]),
+          loopBars: loopBars,
           body: [],
           genBlocks: []
         }
         tracks.push(currentTrack)
       } else {
-        errors.push({ line: i, msg: "track: expected track <name> id <id> gen <generatorId>" })
+        errors.push({ line: i, msg: "track: expected track <name> id <id> gen <generatorId> [ * <N|inf> ]" })
       }
       continue
     }
     if (head === "auto") {
       currentAuto = { lineNo: i, header: toks.slice(1), points: [] }
       autos.push(currentAuto)
+      continue
+    }
+    if (head === "master_mix") {
+      masterMixTokens = toks.slice(1)
+      continue
+    }
+    if (head === "actor_mix" && toks.length >= 2) {
+      actorMixRows.push({ lineNo: i, lane: toks[1], tokens: toks.slice(2) })
       continue
     }
 
@@ -174,6 +203,8 @@ export fn parseProgram(source) {
     bpm: bpm,
     tracks: tracks,
     autos: autos,
+    masterMixTokens: masterMixTokens,
+    actorMixRows: actorMixRows,
     errors: errors
   }
 }

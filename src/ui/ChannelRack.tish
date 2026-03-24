@@ -1,6 +1,7 @@
 import { h, Fragment } from 'lattish'
 import { toggleStep, clearStep } from '../model/Edits.tish'
 import { generatorLabelById } from '../generators/Registry.tish'
+import { tplLoopSkipsChannel } from '../tpl/LoopState.tish'
 
 export fn StepRow(ch, chIdx, project, setProject) {
   fn cell(si) {
@@ -53,6 +54,9 @@ export fn RackPatternArea(ch, chIdx, project, setProject, onSelectCh) {
 
 export fn ChannelRow(ch, chIdx, project, setProject, selected, onSelect) {
   let rowCls = selected ? "channel-row channel-row-sel" : "channel-row"
+  if (tplLoopSkipsChannel(project, chIdx)) {
+    rowCls = rowCls + " channel-row-tpl-exhausted"
+  }
   let gid = ch.generatorId
   if (!gid) {
     gid = "basicOsc"

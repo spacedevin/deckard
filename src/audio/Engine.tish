@@ -1,67 +1,194 @@
-// Web Audio graph + channel bus (generators dispatch separately).
+// Web Audio: track (EQ + trim + pan) → actor bus (EQ + trim) → master (EQ + gain) → analyser.
 
 import { automationAt } from '../schedule/Engine.tish'
+import { mixerAutomationAt } from './MixerAutomation.tish'
 import { coDjEffectiveGain } from '../codj/Overlay.tish'
 import { dispatchPlayNote } from '../generators/Dispatch.tish'
+import {
+  channelActorLane,
+  collectActorLanes,
+  ensureActorMixerEntries,
+  ensureMasterMixer,
+  actorLaneAudible
+} from '../model/MixerRouting.tish'
 
-export fn buildChannelBus(ctx, ch, master) {
+fn makeShelf(ctx, t, freq, q) {
+  let f = ctx.createBiquadFilter()
+  f.type = t
+  f.frequency.value = freq
+  f.Q.value = q
+  f.gain.value = 0
+  return f
+}
+
+fn connectTrackEq(ctx, filt, ch, gainAfterEq) {
+  let tLo = makeShelf(ctx, "lowshelf", 220, 0.85)
+  let tMid = ctx.createBiquadFilter()
+  tMid.type = "peaking"
+  tMid.frequency.value = 1400
+  tMid.Q.value = 0.85
+  tMid.gain.value = ch.eqMid != null ? ch.eqMid : 0
+  let tHi = makeShelf(ctx, "highshelf", 5200, 0.7)
+  tLo.gain.value = ch.eqLo != null ? ch.eqLo : 0
+  tHi.gain.value = ch.eqHi != null ? ch.eqHi : 0
+  filt.connect(tLo)
+  tLo.connect(tMid)
+  tMid.connect(tHi)
+  tHi.connect(gainAfterEq)
+  return { lo: tLo, mid: tMid, hi: tHi }
+}
+
+/** Per-channel bus: filter → 3-band EQ → trim → pan → actor summing node. */
+export fn buildChannelBus(ctx, ch, actorSummingGain) {
   let pan = ctx.createStereoPanner()
   pan.pan.value = ch.pan
   let g = ctx.createGain()
-  g.gain.value = ch.gain
+  g.gain.value = ch.gain != null ? ch.gain : 0.85
   let filt = ctx.createBiquadFilter()
   filt.type = "lowpass"
   filt.frequency.value = ch.filterCutoff
   filt.Q.value = ch.filterQ
-  filt.connect(g)
+  let teq = connectTrackEq(ctx, filt, ch, g)
   g.connect(pan)
-  pan.connect(master)
-  return { input: filt, gainNode: g, panNode: pan, filterNode: filt }
+  pan.connect(actorSummingGain)
+  return {
+    input: filt,
+    gainNode: g,
+    panNode: pan,
+    filterNode: filt,
+    eqLo: teq.lo,
+    eqMid: teq.mid,
+    eqHi: teq.hi
+  }
+}
+
+fn connectActorEq(ctx, summingGain, am, trimGain, masterSum) {
+  let aLo = makeShelf(ctx, "lowshelf", 220, 0.85)
+  let aMid = ctx.createBiquadFilter()
+  aMid.type = "peaking"
+  aMid.frequency.value = 1400
+  aMid.Q.value = 0.85
+  let aHi = makeShelf(ctx, "highshelf", 5200, 0.7)
+  if (am) {
+    aLo.gain.value = am.eqLo != null ? am.eqLo : 0
+    aMid.gain.value = am.eqMid != null ? am.eqMid : 0
+    aHi.gain.value = am.eqHi != null ? am.eqHi : 0
+  }
+  summingGain.connect(aLo)
+  aLo.connect(aMid)
+  aMid.connect(aHi)
+  aHi.connect(trimGain)
+  trimGain.connect(masterSum)
+  return { lo: aLo, mid: aMid, hi: aHi }
+}
+
+/** Actor lane: all track pans sum into summingGain → EQ → trim → master sum. */
+export fn buildActorBus(ctx, project, lane, masterSum) {
+  ensureActorMixerEntries(project)
+  let am = project.actorMixer[lane]
+  let summingGain = ctx.createGain()
+  summingGain.gain.value = 1
+  let trimGain = ctx.createGain()
+  trimGain.gain.value = am && am.gain != null ? am.gain : 1
+  let eq = connectActorEq(ctx, summingGain, am, trimGain, masterSum)
+  return {
+    lane: lane,
+    summingGain: summingGain,
+    trimGain: trimGain,
+    eqLo: eq.lo,
+    eqMid: eq.mid,
+    eqHi: eq.hi
+  }
+}
+
+fn ensureActorBus(project, store, lane) {
+  if (!store.ctx || !store.masterSum) {
+    return
+  }
+  if (!store.actorBuses) {
+    store.actorBuses = {}
+  }
+  if (store.actorBuses[lane]) {
+    return
+  }
+  ensureActorMixerEntries(project)
+  store.actorBuses[lane] = buildActorBus(store.ctx, project, lane, store.masterSum)
 }
 
 export fn ensureAudio(project, store) {
   if (store.ctx) {
     return store
   }
+  ensureMasterMixer(project)
+  ensureActorMixerEntries(project)
   let ctx = webAudioCreateContext()
-  let master = ctx.createGain()
+  let masterGain = ctx.createGain()
   let mg = [{ beat: 0, value: 1 }]
   if (project.automation && project.automation.masterGain && project.automation.masterGain.length > 0) {
     mg = project.automation.masterGain
   }
-  master.gain.value = automationAt(mg, 0)
+  masterGain.gain.value = automationAt(mg, 0)
+  let mLo = makeShelf(ctx, "lowshelf", 220, 0.85)
+  let mMid = ctx.createBiquadFilter()
+  mMid.type = "peaking"
+  mMid.frequency.value = 1400
+  mMid.Q.value = 0.85
+  let mHi = makeShelf(ctx, "highshelf", 5200, 0.7)
+  if (project.masterMixer) {
+    mLo.gain.value = project.masterMixer.eqLo != null ? project.masterMixer.eqLo : 0
+    mMid.gain.value = project.masterMixer.eqMid != null ? project.masterMixer.eqMid : 0
+    mHi.gain.value = project.masterMixer.eqHi != null ? project.masterMixer.eqHi : 0
+  }
+  let masterSum = ctx.createGain()
+  masterSum.gain.value = 1
+  masterSum.connect(mLo)
+  mLo.connect(mMid)
+  mMid.connect(mHi)
+  mHi.connect(masterGain)
   let analyser = ctx.createAnalyser()
   analyser.fftSize = 512
-  master.connect(analyser)
+  masterGain.connect(analyser)
   analyser.connect(ctx.destination)
   store.analyser = analyser
+  store.ctx = ctx
+  store.master = masterGain
+  store.masterSum = masterSum
+  store.masterEq = { lo: mLo, mid: mMid, hi: mHi }
+  store.actorBuses = {}
+  let lanes = collectActorLanes(project)
+  let li = 0
+  while (li < lanes.length) {
+    let L = lanes[li]
+    store.actorBuses[L] = buildActorBus(ctx, project, L, masterSum)
+    li = li + 1
+  }
   let buses = []
   let ci = 0
   while (ci < project.channels.length) {
-    buses.push(buildChannelBus(ctx, project.channels[ci], master))
+    let lane = channelActorLane(project.channels[ci], project)
+    let ab = store.actorBuses[lane]
+    buses.push(buildChannelBus(ctx, project.channels[ci], ab.summingGain))
     ci = ci + 1
   }
-  store.ctx = ctx
-  store.master = master
   store.buses = buses
   return store
 }
 
-/** Agent / TPL can add channels after audio init; extend buses so playHitAt has a valid graph. */
 export fn syncChannelBuses(project, store) {
   if (!store.ctx || !store.master || !store.buses) {
     return
   }
   let ctx = store.ctx
-  let master = store.master
   while (store.buses.length < project.channels.length) {
     let idx = store.buses.length
     let ch = project.channels[idx]
-    store.buses.push(buildChannelBus(ctx, ch, master))
+    let lane = channelActorLane(ch, project)
+    ensureActorBus(project, store, lane)
+    let ab = store.actorBuses[lane]
+    store.buses.push(buildChannelBus(ctx, ch, ab.summingGain))
   }
 }
 
-/** Disconnect one bus from the graph and remove it from store.buses. Call before splicing project.channels. */
 export fn removeChannelBusAt(store, index) {
   if (!store.buses || index < 0 || index >= store.buses.length) {
     return
@@ -75,26 +202,93 @@ export fn removeChannelBusAt(store, index) {
   store.buses.splice(index, 1)
 }
 
-export fn updateMixerFromProject(project, store) {
+export fn updateMixerFromProject(project, store, atBeat) {
   if (!store.buses) {
     return
   }
+  ensureMasterMixer(project)
+  ensureActorMixerEntries(project)
   syncChannelBuses(project, store)
+  let live = typeof atBeat === "number"
+  let gainBeat = 0
+  if (live) {
+    gainBeat = atBeat
+  }
+  let mg2 = [{ beat: 0, value: 1 }]
+  if (project.automation && project.automation.masterGain && project.automation.masterGain.length > 0) {
+    mg2 = project.automation.masterGain
+  }
+  if (store.master) {
+    store.master.gain.value = automationAt(mg2, gainBeat)
+  }
   let mi = 0
   while (mi < project.channels.length) {
     let ch = project.channels[mi]
     let b = store.buses[mi]
-    b.gainNode.gain.value = coDjEffectiveGain(project, mi)
-    b.panNode.pan.value = ch.pan
+    let gFall = coDjEffectiveGain(project, mi)
+    let pFall = ch.pan != null ? ch.pan : 0
+    let loFall = ch.eqLo != null ? ch.eqLo : 0
+    let midFall = ch.eqMid != null ? ch.eqMid : 0
+    let hiFall = ch.eqHi != null ? ch.eqHi : 0
+    if (live) {
+      b.gainNode.gain.value = mixerAutomationAt(project, "channel", ch.id, "gain", atBeat, gFall)
+      b.panNode.pan.value = mixerAutomationAt(project, "channel", ch.id, "pan", atBeat, pFall)
+      b.eqLo.gain.value = mixerAutomationAt(project, "channel", ch.id, "eqLo", atBeat, loFall)
+      b.eqMid.gain.value = mixerAutomationAt(project, "channel", ch.id, "eqMid", atBeat, midFall)
+      b.eqHi.gain.value = mixerAutomationAt(project, "channel", ch.id, "eqHi", atBeat, hiFall)
+    } else {
+      b.gainNode.gain.value = gFall
+      b.panNode.pan.value = pFall
+      b.eqLo.gain.value = loFall
+      b.eqMid.gain.value = midFall
+      b.eqHi.gain.value = hiFall
+    }
     b.filterNode.frequency.value = ch.filterCutoff
     mi = mi + 1
   }
-  if (store.master) {
-    let mg2 = [{ beat: 0, value: 1 }]
-    if (project.automation && project.automation.masterGain && project.automation.masterGain.length > 0) {
-      mg2 = project.automation.masterGain
+  if (store.masterEq && project.masterMixer) {
+    let m = project.masterMixer
+    if (live) {
+      store.masterEq.lo.gain.value = mixerAutomationAt(project, "master", "", "eqLo", atBeat, m.eqLo != null ? m.eqLo : 0)
+      store.masterEq.mid.gain.value = mixerAutomationAt(project, "master", "", "eqMid", atBeat, m.eqMid != null ? m.eqMid : 0)
+      store.masterEq.hi.gain.value = mixerAutomationAt(project, "master", "", "eqHi", atBeat, m.eqHi != null ? m.eqHi : 0)
+    } else {
+      store.masterEq.lo.gain.value = m.eqLo != null ? m.eqLo : 0
+      store.masterEq.mid.gain.value = m.eqMid != null ? m.eqMid : 0
+      store.masterEq.hi.gain.value = m.eqHi != null ? m.eqHi : 0
     }
-    store.master.gain.value = automationAt(mg2, 0)
+  }
+  if (store.actorBuses && project.actorMixer) {
+    let lanes = collectActorLanes(project)
+    let ai = 0
+    while (ai < lanes.length) {
+      let L = lanes[ai]
+      let ab = store.actorBuses[L]
+      let am = project.actorMixer[L]
+      if (ab && am) {
+        if (live) {
+          ab.eqLo.gain.value = mixerAutomationAt(project, "actor", L, "eqLo", atBeat, am.eqLo != null ? am.eqLo : 0)
+          ab.eqMid.gain.value = mixerAutomationAt(project, "actor", L, "eqMid", atBeat, am.eqMid != null ? am.eqMid : 0)
+          ab.eqHi.gain.value = mixerAutomationAt(project, "actor", L, "eqHi", atBeat, am.eqHi != null ? am.eqHi : 0)
+          let trimBase = am.gain != null ? am.gain : 1
+          let trim = mixerAutomationAt(project, "actor", L, "gain", atBeat, trimBase)
+          if (!actorLaneAudible(project, L)) {
+            trim = 0
+          }
+          ab.trimGain.gain.value = trim
+        } else {
+          ab.eqLo.gain.value = am.eqLo != null ? am.eqLo : 0
+          ab.eqMid.gain.value = am.eqMid != null ? am.eqMid : 0
+          ab.eqHi.gain.value = am.eqHi != null ? am.eqHi : 0
+          let trim2 = am.gain != null ? am.gain : 1
+          if (!actorLaneAudible(project, L)) {
+            trim2 = 0
+          }
+          ab.trimGain.gain.value = trim2
+        }
+      }
+      ai = ai + 1
+    }
   }
 }
 
@@ -115,7 +309,14 @@ export fn anySolo(project) {
 
 export fn channelAudible(project, idx) {
   let ch = project.channels[idx]
+  if (!ch) {
+    return false
+  }
   if (ch.mute) {
+    return false
+  }
+  let lane = channelActorLane(ch, project)
+  if (!actorLaneAudible(project, lane)) {
     return false
   }
   if (anySolo(project)) {

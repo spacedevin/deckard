@@ -1,4 +1,6 @@
 import { formatTplBeat, formatTplFloat } from './Format.tish'
+import { mixParamToTpl } from '../audio/MixerAutomation.tish'
+import { collectActorLanes } from '../model/MixerRouting.tish'
 
 export fn generatorIdToTpl(id) {
   if (id === "noiseBurst") {
@@ -24,15 +26,15 @@ export fn emitProject(project) {
     if (!gid) {
       gid = "basicOsc"
     }
-    o =
-      o +
-      "track " +
-      ch.name +
-      " id " +
-      ch.id +
-      " gen " +
-      generatorIdToTpl(gid) +
-      "\n"
+    o = o + "track " + ch.name + " id " + ch.id + " gen " + generatorIdToTpl(gid)
+    let tlb = ch.tplLoopBars
+    if (tlb !== undefined && tlb !== null) {
+      let tn = Math.floor(Number(tlb))
+      if (tn >= 1 && tn === tn) {
+        o = o + " * " + String(tn)
+      }
+    }
+    o = o + "\n"
     o = o + "  mix gain " + formatTplFloat(ch.gain) + " pan " + formatTplFloat(ch.pan)
     if (ch.mute) {
       o = o + " mute 1"
@@ -40,7 +42,14 @@ export fn emitProject(project) {
     if (ch.solo) {
       o = o + " solo 1"
     }
+    let loV = ch.eqLo != null ? ch.eqLo : 0
+    let midV = ch.eqMid != null ? ch.eqMid : 0
+    let hiV = ch.eqHi != null ? ch.eqHi : 0
+    o = o + " eq_lo " + formatTplFloat(loV) + " eq_mid " + formatTplFloat(midV) + " eq_hi " + formatTplFloat(hiV)
     o = o + "\n"
+    if (ch.stepPitch != null && ch.stepPitch !== 36) {
+      o = o + "  step_pitch " + String(Math.floor(ch.stepPitch)) + "\n"
+    }
 
     let p = ch.generatorParams
     if (!p) {
@@ -147,6 +156,47 @@ export fn emitProject(project) {
     ci = ci + 1
   }
 
+  if (project.masterMixer) {
+    let mm = project.masterMixer
+    o =
+      o +
+      "master_mix eq_lo " +
+      formatTplFloat(mm.eqLo != null ? mm.eqLo : 0) +
+      " eq_mid " +
+      formatTplFloat(mm.eqMid != null ? mm.eqMid : 0) +
+      " eq_hi " +
+      formatTplFloat(mm.eqHi != null ? mm.eqHi : 0) +
+      "\n\n"
+  }
+  let mixLanes = collectActorLanes(project)
+  let lix = 0
+  while (lix < mixLanes.length) {
+    let Ln = mixLanes[lix]
+    if (project.actorMixer && project.actorMixer[Ln]) {
+      let amx = project.actorMixer[Ln]
+      o = o + "actor_mix " + Ln + " gain " + formatTplFloat(amx.gain != null ? amx.gain : 1)
+      o =
+        o +
+        " eq_lo " +
+        formatTplFloat(amx.eqLo != null ? amx.eqLo : 0) +
+        " eq_mid " +
+        formatTplFloat(amx.eqMid != null ? amx.eqMid : 0) +
+        " eq_hi " +
+        formatTplFloat(amx.eqHi != null ? amx.eqHi : 0)
+      if (amx.mute) {
+        o = o + " mute 1"
+      }
+      if (amx.solo) {
+        o = o + " solo 1"
+      }
+      o = o + "\n"
+    }
+    lix = lix + 1
+  }
+  if (mixLanes.length > 0) {
+    o = o + "\n"
+  }
+
   if (project.automation && project.automation.masterGain && project.automation.masterGain.length > 0) {
     o = o + "auto master_gain\n"
     let mi = 0
@@ -178,6 +228,31 @@ export fn emitProject(project) {
       }
       o = o + "\n"
       pai = pai + 1
+    }
+  }
+
+  if (project.mixerAutomations && project.mixerAutomations.length > 0) {
+    let mxi = 0
+    while (mxi < project.mixerAutomations.length) {
+      let mx = project.mixerAutomations[mxi]
+      let pkey = mixParamToTpl(mx.param)
+      if (mx.target === "master") {
+        o = o + "auto master mix " + pkey + "\n"
+      } else {
+        if (mx.target === "actor") {
+          o = o + "auto actor " + mx.lane + " mix " + pkey + "\n"
+        } else {
+          o = o + "auto " + mx.channelId + " mix " + pkey + "\n"
+        }
+      }
+      let mqj = 0
+      while (mqj < mx.points.length) {
+        let qm = mx.points[mqj]
+        o = o + "  " + formatTplBeat(qm.beat) + " " + formatTplFloat(qm.value) + "\n"
+        mqj = mqj + 1
+      }
+      o = o + "\n"
+      mxi = mxi + 1
     }
   }
 
