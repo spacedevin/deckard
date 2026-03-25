@@ -1,4 +1,4 @@
-// Decorative patch bay (no audio routing). Matrix FM uses the Patch tab for real modulation.
+// Decorative patch bay (no audio routing). Matrix FM is edited on the Instrument tab.
 
 import { h } from 'lattish'
 
@@ -27,7 +27,7 @@ export fn PatchBayPanel() {
         <h2 class="patch-bay-title">{"Patch bay"}</h2>
         <p class="patch-bay-sub">
           {
-            "Illustrative routing layout. Deckard does not patch audio here yet. For FM/RM operator graphs, pick Matrix FM on the Instrument tab and edit the matrix on this Patch tab."
+            "Illustrative routing layout. Deckard does not patch audio here yet. For FM/RM, choose Matrix FM on the Instrument tab and edit the matrix there."
           }
         </p>
         <div class="patch-bay-cols">

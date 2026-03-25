@@ -15,8 +15,9 @@ import {
   ensureInstrumentPresets
 } from '../model/InstrumentPresets.tish'
 import { parseGenBlock, defaultMatrixFmRawLines } from '../tpl/TplExtension.tish'
+import { MatrixFmPanel } from './MatrixFmPanel.tish'
 
-export fn InstrumentPanel(project, selectedCh, setProject, tplMirrorFlush, setWorkspaceTab) {
+export fn InstrumentPanel(project, selectedCh, setProject, tplMirrorFlush) {
   ensureInstrumentPresets(project)
   let ch = null
   if (selectedCh >= 0 && selectedCh < project.channels.length) {
@@ -55,9 +56,6 @@ export fn InstrumentPanel(project, selectedCh, setProject, tplMirrorFlush, setWo
             ) {
               ch.generatorSpec = parseGenBlock("matrix_fm", defaultMatrixFmRawLines())
             }
-            if (setWorkspaceTab) {
-              setWorkspaceTab("patch")
-            }
           }
           setProject(project)
           if (tplMirrorFlush) {
@@ -91,8 +89,11 @@ export fn InstrumentPanel(project, selectedCh, setProject, tplMirrorFlush, setWo
     <div class="gen-pick-row">{genBtns}</div>
     <p class="instr-desc">{desc}</p>
     <div class="instr-params-wrap">
-      {GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, setWorkspaceTab)}
+      {GeneratorParamPanel(ch, project, setProject, tplMirrorFlush)}
     </div>
+    {gid === "matrixFm" ? (
+      <div class="matrixfm-panel-wrap">{MatrixFmPanel(ch, project, setProject, tplMirrorFlush)}</div>
+    ) : null}
     <div class="preset-block">
       <h3 class="preset-title">{"Presets"}</h3>
       <p class="preset-hint">{"Save this track’s sound or load a stored patch (per generator)."}</p>

@@ -304,20 +304,26 @@ input[type="range"]::-moz-range-thumb {
   background: transparent;
 }
 
-.matrixfm-patch-wrap {
+.matrixfm-panel-wrap {
   max-height: min(75vh, 640px);
   overflow: auto;
   min-width: 0;
+  margin-top: 0.5rem;
   padding-right: 0.15rem;
 }
 
-.instr-matrixfm-cta {
-  padding: 0.65rem;
+.instr-matrixfm-hint {
+  padding: 0.45rem 0.5rem;
   border: 1px dashed var(--border);
   border-radius: 4px;
-  font-size: 0.68rem;
+  font-size: 0.65rem;
   color: var(--muted);
   line-height: 1.45;
+  margin-bottom: 0.35rem;
+}
+
+.instr-matrixfm-hint p {
+  margin: 0;
 }
 
 .btn-deck-outline {
@@ -710,7 +716,7 @@ input[type="range"]::-moz-range-thumb {
 .sytrus-op-card-top {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.35rem;
 }
 
@@ -751,6 +757,70 @@ input[type="range"]::-moz-range-thumb {
   color: var(--muted);
   min-width: 1.6rem;
   text-align: right;
+}
+
+.sytrus-op-card-mid {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.sytrus-wave-ic-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.sytrus-wave-ic-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.95rem;
+  height: 1.95rem;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #0a0a0a;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.sytrus-wave-ic-btn:hover {
+  border-color: #555;
+}
+
+.sytrus-wave-ic-btn-active {
+  background: var(--accent-green);
+  border-color: var(--accent-green);
+}
+
+.sytrus-wave-ic-img {
+  width: 1.2rem;
+  height: 1.2rem;
+  display: block;
+  pointer-events: none;
+  user-select: none;
+}
+
+.sytrus-op-env-wrap,
+.sytrus-filter-env-wrap {
+  margin-top: 0.35rem;
+}
+
+.sytrus-env-bg {
+  display: block;
+  width: 100%;
+  height: 52px;
+  border-radius: 4px;
+  background-color: #060606;
+  border: 1px solid #1e1e1e;
+}
+
+.sytrus-filter-env-wrap .sytrus-env-bg {
+  height: 40px;
 }
 
 .sytrus-op-adsr,

@@ -1,6 +1,5 @@
 // Serialize / mutate Matrix FM graph ↔ TPL lines (keeps generatorSpec.raw + .graph in sync).
 
-import { parseMatrixFmGraph } from './TplExtension.tish'
 import { formatTplFloat } from './Format.tish'
 
 export fn sortedStringKeys(obj) {
@@ -201,9 +200,9 @@ export fn syncMatrixFmSpecFromGraph(spec) {
   if (!spec || !spec.graph) {
     return
   }
-  let lines = matrixFmGraphToLines(spec.graph)
-  spec.raw = lines
-  spec.graph = parseMatrixFmGraph(lines)
+  /** Only refresh `raw` for emit / TPL mirror. Do not replace `graph`: handlers close over the
+   *  graph object from the last render; re-parsing would orphan mutations and freeze sliders / previews. */
+  spec.raw = matrixFmGraphToLines(spec.graph)
 }
 
 export fn matrixFmNextOpId(graph) {

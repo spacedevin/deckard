@@ -12,7 +12,6 @@ import { MasterMixerStrip, ActorMixerStrip, TrackMixerStrip } from './Mixer.tish
 import { collectActorLanes, channelActorLane, ensureActorMixerEntries } from '../model/MixerRouting.tish'
 import { ChannelRow } from './ChannelRack.tish'
 import { InstrumentPanel } from './InstrumentPanel.tish'
-import { MatrixFmPanel } from './MatrixFmPanel.tish'
 import { PatchBayPanel } from './PatchBayPanel.tish'
 import { CoDjPanel } from './CoDjPanel.tish'
 import {
@@ -510,25 +509,9 @@ export fn App() {
       </div>
     )
   } else if (workspaceTab === "patch") {
-    let pch = null
-    if (selectedCh >= 0 && selectedCh < project.channels.length) {
-      pch = project.channels[selectedCh]
-    }
-    let pgid = "basicOsc"
-    if (pch && pch.generatorId) {
-      pgid = pch.generatorId
-    }
-    if (pch && pgid === "matrixFm") {
-      mainWorkspace = (
-        <div class="matrixfm-patch-wrap">
-          {MatrixFmPanel(pch, project, setProjectFromUI, tplMirrorFlush)}
-        </div>
-      )
-    } else {
-      mainWorkspace = PatchBayPanel()
-    }
+    mainWorkspace = PatchBayPanel()
   } else {
-    mainWorkspace = InstrumentPanel(project, selectedCh, setProjectFromUI, tplMirrorFlush, setWorkspaceTab)
+    mainWorkspace = InstrumentPanel(project, selectedCh, setProjectFromUI, tplMirrorFlush)
   }
 
   let tabSeq = workspaceTab === "sequencer" ? "deck-tab deck-tab-active" : "deck-tab"

@@ -101,7 +101,7 @@ fn fmWaveTile(waveId, label, current, setter, project, setProject, tplMirrorFlus
   )
 }
 
-export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, setWorkspaceTab) {
+export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush) {
   let id = ch.generatorId
   if (!id) {
     id = "basicOsc"
@@ -231,19 +231,8 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, setWorksp
       }
     }
     return (
-      <div class="instr-matrixfm-cta">
-        <p>{"Matrix FM: operators, modulation matrix, filters, and routes are on the Patch tab."}</p>
-        {setWorkspaceTab ? (
-          <button
-            type="button"
-            class="btn-deck-outline"
-            onclick={() => {
-              setWorkspaceTab("patch")
-            }}
-          >
-            {"Open patch"}
-          </button>
-        ) : null}
+      <div class="instr-matrixfm-hint">
+        <p>{"Matrix FM: operator graph, modulation matrix, filters, and routing are below."}</p>
       </div>
     )
   }

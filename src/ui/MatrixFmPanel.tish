@@ -45,6 +45,188 @@ fn sliderStepToFreq(sl) {
   return Math.round(Math.exp(lo + t * (hi - lo)))
 }
 
+/** Same visual timing as basicOsc deck envelope (GeneratorParams). */
+fn matrixFmEnvelopePathD(a, d, s, r) {
+  let W = 100
+  let H = 44
+  let hold = 0.12
+  let aa = numOr(a, 0)
+  let dd = numOr(d, 0)
+  let rr = numOr(r, 0)
+  if (aa < 0) {
+    aa = 0
+  }
+  if (dd < 0) {
+    dd = 0
+  }
+  if (rr < 0) {
+    rr = 0
+  }
+  let ss = numOr(s, 0.5)
+  if (ss < 0) {
+    ss = 0
+  }
+  if (ss > 1) {
+    ss = 1
+  }
+  let T = aa + dd + hold + rr
+  if (T < 0.0005) {
+    T = 0.0005
+  }
+  let xA = (aa / T) * W
+  let xAD = ((aa + dd) / T) * W
+  let xADS = ((aa + dd + hold) / T) * W
+  let yS = H * (1 - ss)
+  return (
+    "M 0 " +
+    String(H) +
+    " L " +
+    String(xA) +
+    " 0 L " +
+    String(xAD) +
+    " " +
+    String(yS) +
+    " L " +
+    String(xADS) +
+    " " +
+    String(yS) +
+    " L " +
+    String(W) +
+    " " +
+    String(H)
+  )
+}
+
+fn matrixFmSvgDataUrl(svgMarkup) {
+  if (typeof encodeURIComponent !== "undefined") {
+    return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgMarkup)
+  }
+  return ""
+}
+
+/** Data-URL SVG as CSS background: same namespace fix as img, and style updates repaint reliably. */
+fn matrixFmEnvPreviewBlock(a, d, s, r) {
+  let pathD = matrixFmEnvelopePathD(a, d, s, r)
+  let svg =
+    "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 44\"><path fill=\"none\" stroke=\"#e8c040\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"" +
+    pathD +
+    "\"/></svg>"
+  let url = matrixFmSvgDataUrl(svg)
+  return (
+    <div
+      class="sytrus-env-bg"
+      style={{
+        backgroundImage: "url(\"" + url + "\")",
+        backgroundSize: "100% 100%",
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "center"
+      }}
+    />
+  )
+}
+
+/** Lucide v0.469.0 geometry (ISC): Waves, Square, Zap, Triangle, AudioWaveform — vendored as strings
+ *  because the Tish bundle does not import npm; inline svg/path also fails (wrong DOM namespace).
+ *  Source: lucide npm package, dist/esm/icons. */
+fn matrixFmLucideIconSvg(shape, strokeHex) {
+  let st =
+    " fill=\"none\" stroke=\"" +
+    strokeHex +
+    "\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\""
+  if (shape === "sine") {
+    return (
+      "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">" +
+      "<path d=\"M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1\"" +
+      st +
+      "/>" +
+      "<path d=\"M2 12c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1\"" +
+      st +
+      "/>" +
+      "<path d=\"M2 18c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1\"" +
+      st +
+      "/></svg>"
+    )
+  }
+  if (shape === "square") {
+    return (
+      "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">" +
+      "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"" +
+      st +
+      "/></svg>"
+    )
+  }
+  if (shape === "sawtooth") {
+    return (
+      "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">" +
+      "<path d=\"M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z\"" +
+      st +
+      "/></svg>"
+    )
+  }
+  if (shape === "triangle") {
+    return (
+      "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">" +
+      "<path d=\"M13.73 4a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z\"" +
+      st +
+      "/></svg>"
+    )
+  }
+  if (shape === "noise") {
+    return (
+      "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">" +
+      "<path d=\"M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2\"" +
+      st +
+      "/></svg>"
+    )
+  }
+  return (
+    "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M3 12h18\"" + st + "/></svg>"
+  )
+}
+
+fn matrixFmWaveIconDataUrl(shape, active) {
+  let stroke = active ? "#0a0a0a" : "#f0f0f0"
+  return matrixFmSvgDataUrl(matrixFmLucideIconSvg(shape, stroke))
+}
+
+fn matrixFmOpWavePicker(waveVal, oidCopy, g, commit) {
+  let choices = ["sine", "square", "sawtooth", "triangle", "noise"]
+  let titles = ["Sine", "Square", "Saw", "Triangle", "Noise"]
+  let btns = []
+  let ci = 0
+  while (ci < choices.length) {
+    let w = choices[ci]
+    let cls = "sytrus-wave-ic-btn"
+    if (waveVal === w) {
+      cls = cls + " sytrus-wave-ic-btn-active"
+    }
+    let wCopy = w
+    let isAct = waveVal === w
+    btns.push(
+      <button
+        type="button"
+        class={cls}
+        title={titles[ci]}
+        key={"wav" + oidCopy + w}
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={() => {
+          g.ops[oidCopy].wave = wCopy
+          commit()
+        }}
+      >
+        <img
+          class="sytrus-wave-ic-img"
+          src={matrixFmWaveIconDataUrl(w, isAct)}
+          alt=""
+          draggable={false}
+        />
+      </button>
+    )
+    ci = ci + 1
+  }
+  return <div class="sytrus-wave-ic-row">{btns}</div>
+}
+
 export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
   if (
     !ch.generatorSpec ||
@@ -186,37 +368,24 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
       <div class="sytrus-op-card" key={"op" + oid}>
         <div class="sytrus-op-card-top">
           <span class="sytrus-op-badge">{"OP " + oid}</span>
-          <select
-            class="sytrus-op-wave"
-            value={wv}
-            onmousedown={(e) => e.stopPropagation()}
-            onclick={(e) => e.stopPropagation()}
-            onchange={(e) => {
-              g.ops[oidCopy].wave = e.target.value
-              commit()
-            }}
-          >
-            <option value="sine">{"sine"}</option>
-            <option value="sawtooth">{"saw"}</option>
-            <option value="square">{"square"}</option>
-            <option value="triangle">{"tri"}</option>
-            <option value="noise">{"noise"}</option>
-          </select>
-          <label class="sytrus-op-ratio">
-            {"×"}
-            <input
-              type="range"
-              min="25"
-              max="3200"
-              value={String(Math.round(ratio * 100))}
-              onmousedown={(e) => e.stopPropagation()}
-              oninput={(e) => {
-                g.ops[oidCopy].ratio = Number(e.target.value) / 100
-                commit()
-              }}
-            />
-            <span class="sytrus-op-ratio-val">{String(Math.round(ratio * 100) / 100)}</span>
-          </label>
+          <div class="sytrus-op-card-mid">
+            {matrixFmOpWavePicker(wv, oidCopy, g, commit)}
+            <label class="sytrus-op-ratio">
+              {"×"}
+              <input
+                type="range"
+                min="25"
+                max="3200"
+                value={String(Math.round(ratio * 100))}
+                onmousedown={(e) => e.stopPropagation()}
+                oninput={(e) => {
+                  g.ops[oidCopy].ratio = Number(e.target.value) / 100
+                  commit()
+                }}
+              />
+              <span class="sytrus-op-ratio-val">{String(Math.round(ratio * 100) / 100)}</span>
+            </label>
+          </div>
           <button
             type="button"
             class="sytrus-icon-btn"
@@ -231,7 +400,7 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
           </button>
         </div>
         <div class="sytrus-op-adsr">
-          <span class="sytrus-adsr-lbl">{"Env"}</span>
+          <span class="sytrus-adsr-lbl">{"ADSR"}</span>
           <label>
             {"A"}
             <input
@@ -289,6 +458,7 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
             />
           </label>
         </div>
+        <div class="sytrus-op-env-wrap">{matrixFmEnvPreviewBlock(a, d, s, rr)}</div>
       </div>
     )
     oi = oi + 1
@@ -378,12 +548,12 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
             {"Amt"}
             <input
               type="range"
-              min="-4000"
-              max="4000"
-              value={String(Math.round(famt))}
+              min="0"
+              max="8000"
+              value={String(Math.round(famt + 4000))}
               onmousedown={(e) => e.stopPropagation()}
               oninput={(e) => {
-                g.filterEnvs[fidCopy].amount = Number(e.target.value)
+                g.filterEnvs[fidCopy].amount = Number(e.target.value) - 4000
                 commit()
               }}
             />
@@ -445,6 +615,7 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
             />
           </label>
         </div>
+        <div class="sytrus-filter-env-wrap">{matrixFmEnvPreviewBlock(fa, fdd, fs, fr)}</div>
       </div>
     )
     fi = fi + 1

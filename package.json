@@ -13,5 +13,8 @@
   },
   "dependencies": {
     "lattish": "../lattish/"
+  },
+  "devDependencies": {
+    "lucide": "^0.469.0"
   }
 }
