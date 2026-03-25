@@ -16,7 +16,7 @@ import {
 } from '../model/InstrumentPresets.tish'
 import { parseGenBlock, defaultMatrixFmRawLines } from '../tpl/TplExtension.tish'
 
-export fn InstrumentPanel(project, selectedCh, setProject, tplMirrorFlush) {
+export fn InstrumentPanel(project, selectedCh, setProject, tplMirrorFlush, setWorkspaceTab) {
   ensureInstrumentPresets(project)
   let ch = null
   if (selectedCh >= 0 && selectedCh < project.channels.length) {
@@ -55,6 +55,9 @@ export fn InstrumentPanel(project, selectedCh, setProject, tplMirrorFlush) {
             ) {
               ch.generatorSpec = parseGenBlock("matrix_fm", defaultMatrixFmRawLines())
             }
+            if (setWorkspaceTab) {
+              setWorkspaceTab("patch")
+            }
           }
           setProject(project)
           if (tplMirrorFlush) {
@@ -88,7 +91,7 @@ export fn InstrumentPanel(project, selectedCh, setProject, tplMirrorFlush) {
     <div class="gen-pick-row">{genBtns}</div>
     <p class="instr-desc">{desc}</p>
     <div class="instr-params-wrap">
-      {GeneratorParamPanel(ch, project, setProject, tplMirrorFlush)}
+      {GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, setWorkspaceTab)}
     </div>
     <div class="preset-block">
       <h3 class="preset-title">{"Presets"}</h3>

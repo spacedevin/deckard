@@ -15,6 +15,7 @@ import {
   ensureMatrixFmOpEnv,
   ensureMatrixFmFilterEnv
 } from '../tpl/MatrixFmGraph.tish'
+import { parseGenBlock, defaultMatrixFmRawLines } from '../tpl/TplExtension.tish'
 
 fn numOr(x, def) {
   if (typeof x === "number" && x === x) {
@@ -45,6 +46,15 @@ fn sliderStepToFreq(sl) {
 }
 
 export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
+  if (
+    !ch.generatorSpec ||
+    ch.generatorSpec.kind !== "matrixFm" ||
+    !ch.generatorSpec.raw ||
+    ch.generatorSpec.raw.length === 0
+  ) {
+    ch.generatorSpec = parseGenBlock("matrix_fm", defaultMatrixFmRawLines())
+    setProject(project)
+  }
   let spec = ch.generatorSpec
   let g = spec.graph
   if (!g.ops) {

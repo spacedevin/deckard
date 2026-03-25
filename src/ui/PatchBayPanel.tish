@@ -1,0 +1,56 @@
+// Decorative patch bay (no audio routing). Matrix FM uses the Patch tab for real modulation.
+
+import { h } from 'lattish'
+
+fn patchNodeOut(label) {
+  return (
+    <div class="patch-node" key={label}>
+      <span class="patch-node-jack" />
+      <span>{label}</span>
+    </div>
+  )
+}
+
+fn patchNodeIn(label) {
+  return (
+    <div class="patch-node" key={label}>
+      <span class="patch-node-jack" />
+      <span>{label}</span>
+    </div>
+  )
+}
+
+export fn PatchBayPanel() {
+  return (
+    <section class="panel patch-bay-panel">
+      <div class="patch-bay">
+        <h2 class="patch-bay-title">{"Patch bay"}</h2>
+        <p class="patch-bay-sub">
+          {
+            "Illustrative routing layout. Deckard does not patch audio here yet. For FM/RM operator graphs, pick Matrix FM on the Instrument tab and edit the matrix on this Patch tab."
+          }
+        </p>
+        <div class="patch-bay-cols">
+          <div class="patch-bay-col patch-bay-col-out">
+            <div class="patch-bay-col-label">{"Out"}</div>
+            <div class="patch-node-list">
+              {patchNodeOut("OSC 1")}
+              {patchNodeOut("OSC 2")}
+              {patchNodeOut("LFO")}
+              {patchNodeOut("ENV")}
+            </div>
+          </div>
+          <div class="patch-bay-col patch-bay-col-in">
+            <div class="patch-bay-col-label">{"In"}</div>
+            <div class="patch-node-list">
+              {patchNodeIn("Filter")}
+              {patchNodeIn("Reverb")}
+              {patchNodeIn("Delay")}
+              {patchNodeIn("Chorus")}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}

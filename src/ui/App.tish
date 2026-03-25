@@ -12,6 +12,8 @@ import { MasterMixerStrip, ActorMixerStrip, TrackMixerStrip } from './Mixer.tish
 import { collectActorLanes, channelActorLane, ensureActorMixerEntries } from '../model/MixerRouting.tish'
 import { ChannelRow } from './ChannelRack.tish'
 import { InstrumentPanel } from './InstrumentPanel.tish'
+import { MatrixFmPanel } from './MatrixFmPanel.tish'
+import { PatchBayPanel } from './PatchBayPanel.tish'
 import { CoDjPanel } from './CoDjPanel.tish'
 import {
   PianoRollCanvas,
@@ -47,6 +49,7 @@ export fn App() {
   let [tplText, setTplText] = useState(tplInit)
   let [selectedCh, setSelectedCh] = useState(3)
   let [playing, setPlaying] = useState(false)
+  let [workspaceTab, setWorkspaceTab] = useState("sequencer")
 
   fn touchMixer() {
     updateMixerFromProject(project, audioStore)
@@ -466,24 +469,67 @@ export fn App() {
     ci = ci + 1
   }
 
+  let mainWorkspace = null
+  if (workspaceTab === "sequencer") {
+    mainWorkspace = (
+      <Fragment>
+        <section class="panel rack-panel">
+          <h2>{"Channel rack + step sequencer"}</h2>
+          {channels}
+        </section>
+        <section class="panel piano-panel">
+          <h2>{"Piano roll (channel "}{String(selectedCh + 1)}{")"}</h2>
+          {PianoRollZoomBar(project, setProjectFromUI)}
+          {PianoRollCanvas(project, selectedCh, setProjectFromUI, null)}
+        </section>
+        {CoDjPanel(project, setProject, tplMirrorFlush, rt)}
+        {CodeDebugView(project, setProject, tplText, setTplText, rt)}
+      </Fragment>
+    )
+  } else if (workspaceTab === "patch") {
+    let pch = null
+    if (selectedCh >= 0 && selectedCh < project.channels.length) {
+      pch = project.channels[selectedCh]
+    }
+    let pgid = "basicOsc"
+    if (pch && pch.generatorId) {
+      pgid = pch.generatorId
+    }
+    if (pch && pgid === "matrixFm") {
+      mainWorkspace = (
+        <div class="matrixfm-patch-wrap">
+          {MatrixFmPanel(pch, project, setProjectFromUI, tplMirrorFlush)}
+        </div>
+      )
+    } else {
+      mainWorkspace = PatchBayPanel()
+    }
+  } else {
+    mainWorkspace = InstrumentPanel(project, selectedCh, setProjectFromUI, tplMirrorFlush, setWorkspaceTab)
+  }
+
+  let tabSeq = workspaceTab === "sequencer" ? "deck-tab deck-tab-active" : "deck-tab"
+  let tabPatch = workspaceTab === "patch" ? "deck-tab deck-tab-active" : "deck-tab"
+  let tabInstr = workspaceTab === "instrument" ? "deck-tab deck-tab-active" : "deck-tab"
+
   return <div class="daw-root">
     <header class="daw-header">
       <h1 class="logo">{"Deckard"}</h1>
       {TransportBar(project.bpm, playing, onPlay, onStop, onBpmInput, onExport, onImport)}
+      <nav class="daw-workspace-tabs">
+        <button type="button" class={tabSeq} onclick={() => setWorkspaceTab("sequencer")}>
+          {"Sequencer"}
+        </button>
+        <button type="button" class={tabPatch} onclick={() => setWorkspaceTab("patch")}>
+          {"Patch"}
+        </button>
+        <button type="button" class={tabInstr} onclick={() => setWorkspaceTab("instrument")}>
+          {"Instrument"}
+        </button>
+      </nav>
     </header>
     <div class="daw-body">
-      <section class="panel rack-panel">
-        <h2>{"Channel rack + step sequencer"}</h2>
-        {channels}
-      </section>
-      <section class="panel piano-panel">
-        <h2>{"Piano roll (channel "}{String(selectedCh + 1)}{")"}</h2>
-        {PianoRollZoomBar(project, setProjectFromUI)}
-        {PianoRollCanvas(project, selectedCh, setProjectFromUI, null)}
-      </section>
-      {InstrumentPanel(project, selectedCh, setProjectFromUI, tplMirrorFlush)}
-      {CoDjPanel(project, setProject, tplMirrorFlush, rt)}
-      {CodeDebugView(project, setProject, tplText, setTplText, rt)}
+      <div class="daw-main-stack">{mainWorkspace}</div>
       <aside class="panel mixer-panel">
         <h2>{"Mixer (track → actor → master)"}</h2>
         <div class="mixer-panel-head">

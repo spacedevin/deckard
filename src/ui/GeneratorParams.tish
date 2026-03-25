@@ -1,29 +1,107 @@
-import { h, Fragment } from 'lattish'
+import { h } from 'lattish'
 import { defaultParamsForGeneratorId, normalizeBasicOscWaveform } from '../generators/Registry.tish'
 import { parseGenBlock, defaultMatrixFmRawLines } from '../tpl/TplExtension.tish'
-import { MatrixFmPanel } from './MatrixFmPanel.tish'
+
+fn adsrEnvelopePathD(a, d, s, r) {
+  let W = 100
+  let H = 44
+  let hold = 0.12
+  let T = a + d + hold + r
+  if (T < 0.0005) {
+    T = 0.0005
+  }
+  let xA = (a / T) * W
+  let xAD = ((a + d) / T) * W
+  let xADS = ((a + d + hold) / T) * W
+  let yS = H * (1 - s)
+  return "M 0 " + String(H) + " L " + String(xA) + " 0 L " + String(xAD) + " " + String(yS) + " L " + String(xADS) + " " + String(yS) + " L " + String(W) + " " + String(H)
+}
 
 export fn AdsrAmpBlock(p, project, setProject, tplMirrorFlush) {
   let a = p.attack > 0 ? p.attack : 0.005
   let d = p.decay > 0 ? p.decay : 0.08
   let s = p.sustain >= 0 && p.sustain <= 1 ? p.sustain : 0.4
   let r = p.release > 0 ? p.release : 0.12
+  let pathD = adsrEnvelopePathD(a, d, s, r)
   fn commitParams() {
     setProject(project)
     if (tplMirrorFlush) {
       tplMirrorFlush()
     }
   }
-  return <div class="gen-adsr-block">
-    <div class="gen-adsr-title">{"Amplitude ADSR"}</div>
-    <label class="gen-row">{"A "}<input type="range" min="1" max="500" value={String(Math.round(a * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.attack = Number(e.target.value) / 1000 }} onchange={commitParams} /></label>
-    <label class="gen-row">{"D "}<input type="range" min="1" max="500" value={String(Math.round(d * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.decay = Number(e.target.value) / 1000 }} onchange={commitParams} /></label>
-    <label class="gen-row">{"S "}<input type="range" min="0" max="100" value={String(Math.round(s * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.sustain = Number(e.target.value) / 100 }} onchange={commitParams} /></label>
-    <label class="gen-row">{"R "}<input type="range" min="1" max="800" value={String(Math.round(r * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.release = Number(e.target.value) / 1000 }} onchange={commitParams} /></label>
-  </div>
+  return (
+    <div class="deck-module">
+      <h3 class="deck-module-h">{"Envelope"}</h3>
+      <div class="deck-adsr-sliders">
+        <div class="deck-adsr-cell">
+          <label>{"A"}</label>
+          <input type="range" min="1" max="500" value={String(Math.round(a * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.attack = Number(e.target.value) / 1000 }} onchange={commitParams} />
+          <span class="deck-adsr-val">{String(Math.round(a * 1000))}</span>
+        </div>
+        <div class="deck-adsr-cell">
+          <label>{"D"}</label>
+          <input type="range" min="1" max="500" value={String(Math.round(d * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.decay = Number(e.target.value) / 1000 }} onchange={commitParams} />
+          <span class="deck-adsr-val">{String(Math.round(d * 1000))}</span>
+        </div>
+        <div class="deck-adsr-cell">
+          <label>{"S"}</label>
+          <input type="range" min="0" max="100" value={String(Math.round(s * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.sustain = Number(e.target.value) / 100 }} onchange={commitParams} />
+          <span class="deck-adsr-val">{String(Math.round(s * 100))}</span>
+        </div>
+        <div class="deck-adsr-cell">
+          <label>{"R"}</label>
+          <input type="range" min="1" max="800" value={String(Math.round(r * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.release = Number(e.target.value) / 1000 }} onchange={commitParams} />
+          <span class="deck-adsr-val">{String(Math.round(r * 1000))}</span>
+        </div>
+      </div>
+      <svg class="deck-env-svg" viewBox="0 0 100 44" preserveAspectRatio="none">
+        <path d={pathD} />
+      </svg>
+    </div>
+  )
 }
 
-export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush) {
+fn waveTile(waveId, label, current, p, project, setProject, tplMirrorFlush, keyWave) {
+  let active = current === waveId ? " deck-wave-tile-active" : ""
+  return (
+    <button
+      type="button"
+      class={"deck-wave-tile" + active}
+      key={keyWave}
+      onclick={() => {
+        p.waveform = waveId
+        setProject(project)
+        if (tplMirrorFlush) {
+          tplMirrorFlush()
+        }
+      }}
+    >
+      {label}
+    </button>
+  )
+}
+
+fn fmWaveTile(waveId, label, current, setter, project, setProject, tplMirrorFlush, keyWave) {
+  let active = current === waveId ? " deck-wave-tile-active" : ""
+  return (
+    <button
+      type="button"
+      class={"deck-wave-tile" + active}
+      key={keyWave}
+      onclick={() => {
+        setter(waveId)
+        setProject(project)
+        if (tplMirrorFlush) {
+          tplMirrorFlush()
+        }
+      }}
+    >
+      {label}
+    </button>
+  )
+}
+
+export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, setWorkspaceTab) {
   let id = ch.generatorId
   if (!id) {
     id = "basicOsc"
@@ -34,30 +112,20 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush) {
   let p = ch.generatorParams
   if (id === "basicOsc") {
     let w = normalizeBasicOscWaveform(p.waveform)
-    return <article class="gen-params gen-params-stack">
-      <div class="gen-row-pair">
-        <span class="gen-params-label">{"Wave"}</span>
-        <select
-          class="gen-params-select"
-          value={w}
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={(e) => e.stopPropagation()}
-          onchange={(e) => {
-            p.waveform = e.target.value
-            setProject(project)
-            if (tplMirrorFlush) {
-              tplMirrorFlush()
-            }
-          }}
-        >
-          <option value="sine">{"sine"}</option>
-          <option value="square">{"square"}</option>
-          <option value="sawtooth">{"sawtooth"}</option>
-          <option value="triangle">{"triangle"}</option>
-        </select>
-      </div>
-      {AdsrAmpBlock(p, project, setProject, tplMirrorFlush)}
-    </article>
+    return (
+      <article class="gen-params gen-params-stack">
+        <div class="deck-module">
+          <h3 class="deck-module-h">{"Osc"}</h3>
+          <div class="deck-wave-grid">
+            {waveTile("sine", "Sin", w, p, project, setProject, tplMirrorFlush, "w-sine")}
+            {waveTile("square", "Sqr", w, p, project, setProject, tplMirrorFlush, "w-square")}
+            {waveTile("sawtooth", "Saw", w, p, project, setProject, tplMirrorFlush, "w-saw")}
+            {waveTile("triangle", "Tri", w, p, project, setProject, tplMirrorFlush, "w-tri")}
+          </div>
+        </div>
+        {AdsrAmpBlock(p, project, setProject, tplMirrorFlush)}
+      </article>
+    )
   }
   if (id === "noiseBurst") {
     let rise = p.attack > 0 ? p.attack : 0.002
@@ -70,72 +138,84 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush) {
         tplMirrorFlush()
       }
     }
-    return <section class="gen-params gen-params-stack">
-      <div class="gen-adsr-title">{"Hit shape"}</div>
-      <label class="gen-row">{"Attack "}<input type="range" min="1" max="150" value={String(Math.round(rise * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.attack = Number(e.target.value) / 1000 }} onchange={commitNoise} /></label>
-      <label class="gen-row">{"Decay "}<input type="range" min="2" max="400" value={String(Math.round(dec * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.decay = Number(e.target.value) / 1000 }} onchange={commitNoise} /></label>
-      <label class="gen-row">{"Tone "}<input type="range" min="0" max="100" value={String(Math.round(tone * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.tone = Number(e.target.value) / 100 }} onchange={commitNoise} /></label>
-      <label class="gen-row">{"Pitch→filter "}<input type="range" min="0" max="100" value={String(Math.round(pf * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.pitchFollow = Number(e.target.value) / 100 }} onchange={commitNoise} /></label>
-    </section>
+    return (
+      <section class="gen-params gen-params-stack">
+        <div class="deck-module">
+          <h3 class="deck-module-h">{"Shape"}</h3>
+          <label class="gen-row">
+            {"Attack "}
+            <input type="range" min="1" max="150" value={String(Math.round(rise * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.attack = Number(e.target.value) / 1000 }} onchange={commitNoise} />
+          </label>
+          <label class="gen-row">
+            {"Decay "}
+            <input type="range" min="2" max="400" value={String(Math.round(dec * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.decay = Number(e.target.value) / 1000 }} onchange={commitNoise} />
+          </label>
+        </div>
+        <div class="deck-module">
+          <h3 class="deck-module-h">{"Tone"}</h3>
+          <label class="gen-row">
+            {"Tone "}
+            <input type="range" min="0" max="100" value={String(Math.round(tone * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.tone = Number(e.target.value) / 100 }} onchange={commitNoise} />
+          </label>
+          <label class="gen-row">
+            {"Pitch→filter "}
+            <input type="range" min="0" max="100" value={String(Math.round(pf * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.pitchFollow = Number(e.target.value) / 100 }} onchange={commitNoise} />
+          </label>
+        </div>
+      </section>
+    )
   }
   if (id === "fmTone") {
     let ratio = p.ratio > 0 ? p.ratio : 2
     let idx = p.modIndex >= 0 ? p.modIndex : 4
-    let cw = p.carrierWave ? p.carrierWave : "sine"
-    let mw = p.modWave ? p.modWave : "sine"
+    let cw = normalizeBasicOscWaveform(p.carrierWave ? p.carrierWave : "sine")
+    let mw = normalizeBasicOscWaveform(p.modWave ? p.modWave : "sine")
     fn commitFm() {
       setProject(project)
       if (tplMirrorFlush) {
         tplMirrorFlush()
       }
     }
-    return <div class="gen-params gen-params-stack">
-      <label class="gen-row">{"Ratio "}<input type="range" min="1" max="1600" value={String(Math.round(ratio * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.ratio = Number(e.target.value) / 100 }} onchange={commitFm} /></label>
-      <label class="gen-row">{"FM index "}<input type="range" min="0" max="480" value={String(Math.round(idx * 10))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.modIndex = Number(e.target.value) / 10 }} onchange={commitFm} /></label>
-      <div class="gen-row-pair">
-        <span class="gen-params-label">{"Carrier wave"}</span>
-        <select
-          class="gen-params-select"
-          value={cw}
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={(e) => e.stopPropagation()}
-          onchange={(e) => {
-            p.carrierWave = e.target.value
-            setProject(project)
-            if (tplMirrorFlush) {
-              tplMirrorFlush()
-            }
-          }}
-        >
-          <option value="sine">{"sine"}</option>
-          <option value="square">{"square"}</option>
-          <option value="sawtooth">{"saw"}</option>
-          <option value="triangle">{"tri"}</option>
-        </select>
+    fn setCar(v) {
+      p.carrierWave = v
+    }
+    fn setMod(v) {
+      p.modWave = v
+    }
+    return (
+      <div class="gen-params gen-params-stack">
+        <div class="deck-module">
+          <h3 class="deck-module-h">{"FM"}</h3>
+          <label class="gen-row">
+            {"Ratio "}
+            <input type="range" min="1" max="1600" value={String(Math.round(ratio * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.ratio = Number(e.target.value) / 100 }} onchange={commitFm} />
+          </label>
+          <label class="gen-row">
+            {"FM index "}
+            <input type="range" min="0" max="480" value={String(Math.round(idx * 10))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.modIndex = Number(e.target.value) / 10 }} onchange={commitFm} />
+          </label>
+        </div>
+        <div class="deck-module">
+          <h3 class="deck-module-h">{"Carrier"}</h3>
+          <div class="deck-wave-grid">
+            {fmWaveTile("sine", "Sin", cw, setCar, project, setProject, tplMirrorFlush, "c-sine")}
+            {fmWaveTile("square", "Sqr", cw, setCar, project, setProject, tplMirrorFlush, "c-square")}
+            {fmWaveTile("sawtooth", "Saw", cw, setCar, project, setProject, tplMirrorFlush, "c-saw")}
+            {fmWaveTile("triangle", "Tri", cw, setCar, project, setProject, tplMirrorFlush, "c-tri")}
+          </div>
+        </div>
+        <div class="deck-module">
+          <h3 class="deck-module-h">{"Modulator"}</h3>
+          <div class="deck-wave-grid">
+            {fmWaveTile("sine", "Sin", mw, setMod, project, setProject, tplMirrorFlush, "m-sine")}
+            {fmWaveTile("square", "Sqr", mw, setMod, project, setProject, tplMirrorFlush, "m-square")}
+            {fmWaveTile("sawtooth", "Saw", mw, setMod, project, setProject, tplMirrorFlush, "m-saw")}
+            {fmWaveTile("triangle", "Tri", mw, setMod, project, setProject, tplMirrorFlush, "m-tri")}
+          </div>
+        </div>
+        {AdsrAmpBlock(p, project, setProject, tplMirrorFlush)}
       </div>
-      <div class="gen-row-pair">
-        <span class="gen-params-label">{"Modulator wave"}</span>
-        <select
-          class="gen-params-select"
-          value={mw}
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={(e) => e.stopPropagation()}
-          onchange={(e) => {
-            p.modWave = e.target.value
-            setProject(project)
-            if (tplMirrorFlush) {
-              tplMirrorFlush()
-            }
-          }}
-        >
-          <option value="sine">{"sine"}</option>
-          <option value="square">{"square"}</option>
-          <option value="sawtooth">{"saw"}</option>
-          <option value="triangle">{"tri"}</option>
-        </select>
-      </div>
-      {AdsrAmpBlock(p, project, setProject, tplMirrorFlush)}
-    </div>
+    )
   }
   if (id === "matrixFm") {
     if (
@@ -146,11 +226,25 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush) {
     ) {
       ch.generatorSpec = parseGenBlock("matrix_fm", defaultMatrixFmRawLines())
       setProject(project)
+      if (tplMirrorFlush) {
+        tplMirrorFlush()
+      }
     }
     return (
-      <article class="gen-params gen-params-stack gen-params-matrixfm">
-        {MatrixFmPanel(ch, project, setProject, tplMirrorFlush)}
-      </article>
+      <div class="instr-matrixfm-cta">
+        <p>{"Matrix FM: operators, modulation matrix, filters, and routes are on the Patch tab."}</p>
+        {setWorkspaceTab ? (
+          <button
+            type="button"
+            class="btn-deck-outline"
+            onclick={() => {
+              setWorkspaceTab("patch")
+            }}
+          >
+            {"Open patch"}
+          </button>
+        ) : null}
+      </div>
     )
   }
   return <div class="gen-params" />
