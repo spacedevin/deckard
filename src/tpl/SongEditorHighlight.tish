@@ -4,13 +4,19 @@ import { tokenize } from './Parser.tish'
 import { classifyLine, isKeyword, isStepToken } from './Highlight.tish'
 
 fn escapeHtml(s) {
-  let x = s.split("&").join("&amp;")
+  if (s == null || s === undefined) {
+    return ""
+  }
+  let x = String(s).split("&").join("&amp;")
   x = x.split("<").join("&lt;")
   x = x.split(">").join("&gt;")
   return x
 }
 
 fn lineIndentAndCore(line) {
+  if (line == null) {
+    return { indent: 0, core: "", tail: "" }
+  }
   let a = 0
   while (a < line.length) {
     let c = line.charAt(a)
@@ -97,7 +103,11 @@ fn highlightCoreHtml(core, indentStr, tailStr, activeStep, playing) {
 
 export fn tplDocumentToHighlightHtml(source, playbackStep, playing, lastAppliedLineCount, lastAppliedAt) {
   let active = Math.floor(playbackStep) % 16
-  let lines = source.split("\n")
+  let src = source
+  if (src == null || src === undefined) {
+    src = ""
+  }
+  let lines = String(src).split("\n")
   let totalLines = lines.length
   let now = typeof Date !== "undefined" && Date.now ? Date.now() : 0
   let updatedWindowMs = 32000

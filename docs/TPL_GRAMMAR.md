@@ -39,7 +39,7 @@ track <displayName> id <channelId> gen <generatorId> [ * <N|inf|infinite> ]
   ...
 ```
 
-- **generatorId** (TPL): `noise_burst`, `fm`, `basic_osc`, `fm_tone` → internal `noiseBurst`, `fmTone`, `basicOsc`.
+- **generatorId** (TPL): `noise_burst`, `fm`, `basic_osc`, `fm_tone`, `matrix_fm` → internal `noiseBurst`, `fmTone`, `basicOsc`, `matrixFm`.
 - Indented lines (2+ spaces or tab) belong to this track until the next top-level statement (`track`, `auto`, `bpm`, `tpl`).
 
 ### Loop / repeat (bar cap)
@@ -144,7 +144,24 @@ gen_block <generatorId>
 end gen_block
 ```
 
-Body is stored under `channel.generatorSpec` (e.g. `raw` array of lines) until a **TplExtension** parser exists for that id. Extensibility for slicer-style graphs.
+Body is stored under `channel.generatorSpec` (`raw` array of lines). For **`matrix_fm`**, the same block is parsed into `generatorSpec.graph` (operators, `mod` matrix, `filter`, `route`). Use `track … gen matrix_fm` plus:
+
+```
+gen_block matrix_fm
+  op 1 wave sine ratio 0.5
+  op 2 wave saw ratio 1.0
+  env op 1 a 0.01 d 0.5 s 0.8 r 0.1
+  mod fm 2 1 4.0
+  mod rm 3 2 1.0
+  filter 1 type lp24 cutoff 400 res 0.6
+  env filter 1 a 0.1 d 0.4 s 0.1 r 0.2 amount 2000
+  route op 1 filter 1 1.0
+  route op 4 out 0.2
+  route filter 1 out 1.0
+end gen_block
+```
+
+See [`docs/TPL_EXTENSION.md`](TPL_EXTENSION.md) and [`docs/GENERATORS.md`](GENERATORS.md).
 
 ## Automation
 

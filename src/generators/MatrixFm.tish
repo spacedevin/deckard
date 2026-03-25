@@ -1,0 +1,332 @@
+import { midiToHz } from '../schedule/Engine.tish'
+import { scheduleAdsrAmpEnvelope } from './AdsrAmpSchedule.tish'
+import { playBasicOsc } from './BasicOsc.tish'
+
+fn mergeOpEnv(e) {
+  let a = 0.005
+  let d = 0.1
+  let s = 0.35
+  let r = 0.12
+  if (e) {
+    if (e.a != null) {
+      a = e.a
+    }
+    if (e.d != null) {
+      d = e.d
+    }
+    if (e.s != null) {
+      s = e.s
+    }
+    if (e.r != null) {
+      r = e.r
+    }
+  }
+  return { a: a, d: d, s: s, r: r }
+}
+
+fn mergeFilterEnv(e) {
+  let o = mergeOpEnv(e)
+  let amt = 0
+  if (e && e.amount != null) {
+    amt = e.amount
+  }
+  return { a: o.a, d: o.d, s: o.s, r: o.r, amount: amt }
+}
+
+fn clampHz(h) {
+  if (h < 20) {
+    return 20
+  }
+  if (h > 20000) {
+    return 20000
+  }
+  return h
+}
+
+fn scheduleAdsrCutoff(param, t, base, amount, a, d, s, r, durSec) {
+  let gate = durSec > 0 ? durSec : 0.001
+  let tDecayEnd = t + a + d
+  let susPlateau = Math.max(tDecayEnd, t + gate - r)
+  let releaseEnd = t + gate + r
+  if (releaseEnd <= susPlateau) {
+    releaseEnd = susPlateau + Math.max(r, 0.02)
+  }
+  let peakF = clampHz(base + amount)
+  let susF = clampHz(base + amount * s)
+  let b0 = clampHz(base)
+  param.setValueAtTime(b0, t)
+  param.linearRampToValueAtTime(peakF, t + a)
+  param.linearRampToValueAtTime(susF, tDecayEnd)
+  param.setValueAtTime(susF, susPlateau)
+  param.linearRampToValueAtTime(b0, releaseEnd)
+  return releaseEnd
+}
+
+fn makeNoiseBuffer(ctx) {
+  let sr = ctx.sampleRate
+  let n = Math.floor(sr * 2)
+  if (n < 256) {
+    n = 256
+  }
+  let buf = ctx.createBuffer(1, n, sr)
+  let data = buf.getChannelData(0)
+  let i = 0
+  while (i < n) {
+    data[i] = Math.random() * 2 - 1
+    i = i + 1
+  }
+  return buf
+}
+
+fn filterNeedsTwoStages(tp) {
+  let s = String(tp).toLowerCase()
+  return s.indexOf("24") >= 0 || s === "lp24" || s === "hp24"
+}
+
+fn setupBiquadType(bq, tp) {
+  let s = String(tp).toLowerCase()
+  if (s.indexOf("hp") >= 0) {
+    bq.type = "highpass"
+  } else {
+    bq.type = "lowpass"
+  }
+}
+
+export fn playMatrixFm(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  let spec = ch.generatorSpec
+  let graph = spec ? spec.graph : null
+  let ops = graph ? graph.ops : null
+  let opKeys = ops ? Object.keys(ops) : []
+  if (!graph || opKeys.length === 0) {
+    playBasicOsc(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+
+  let nMidi = Math.floor(midi + bendSemis)
+  let Fc = 440
+  if (nMidi >= 0 && nMidi <= 127) {
+    Fc = midiToHz(nMidi)
+  }
+
+  let v = vel / 127
+  if (v < 0) {
+    v = 0
+  }
+  if (v > 1) {
+    v = 1
+  }
+
+  let opEnvs = graph.opEnvs ? graph.opEnvs : {}
+  let filterEnvs = graph.filterEnvs ? graph.filterEnvs : {}
+  let filtersDef = graph.filters ? graph.filters : {}
+  let mods = graph.mods ? graph.mods : []
+  let routes = graph.routes ? graph.routes : []
+
+  let opOsc = {}
+  let opIsNoise = {}
+  let opTail = {}
+  let opEnvGain = {}
+  let toStopOsc = []
+  let toStopNoise = []
+
+  let maxEnd = 0
+
+  let ki = 0
+  while (ki < opKeys.length) {
+    let oid = opKeys[ki]
+    let od = ops[oid]
+    let wave = od.wave ? od.wave : "sine"
+    let ratio = od.ratio != null && od.ratio > 0 ? od.ratio : 1
+    let hz = Fc * ratio
+
+    let srcNode = null
+    if (wave === "noise") {
+      let nb = ctx.createBufferSource()
+      nb.buffer = makeNoiseBuffer(ctx)
+      nb.loop = true
+      srcNode = nb
+      opIsNoise[oid] = true
+      toStopNoise.push(nb)
+    } else {
+      let osc = ctx.createOscillator()
+      osc.type = wave
+      osc.frequency.value = hz
+      opOsc[oid] = osc
+      opIsNoise[oid] = false
+      srcNode = osc
+      toStopOsc.push(osc)
+    }
+    opTail[oid] = srcNode
+    ki = ki + 1
+  }
+
+  let miRm = 0
+  while (miRm < mods.length) {
+    let md = mods[miRm]
+    if (md.type === "rm" && md.src !== md.dst) {
+      let tailD = opTail[md.dst]
+      let tailS = opTail[md.src]
+      if (tailD && tailS) {
+        let rmG = ctx.createGain()
+        rmG.gain.value = 0
+        tailD.connect(rmG)
+        let scale = ctx.createGain()
+        let amt = md.amount != null && md.amount === md.amount ? md.amount : 1
+        scale.gain.value = amt * 0.4
+        tailS.connect(scale)
+        scale.connect(rmG.gain)
+        opTail[md.dst] = rmG
+      }
+    }
+    miRm = miRm + 1
+  }
+
+  let ki2 = 0
+  while (ki2 < opKeys.length) {
+    let oid = opKeys[ki2]
+    let tail = opTail[oid]
+    let eg = ctx.createGain()
+    eg.gain.value = 0
+    tail.connect(eg)
+    opEnvGain[oid] = eg
+
+    let envDef = mergeOpEnv(opEnvs[oid])
+    let peak = v
+    let slev = envDef.s * v
+    let tEnd = scheduleAdsrAmpEnvelope(eg, t, peak, slev, envDef.a, envDef.d, envDef.r, durSec)
+    if (tEnd > maxEnd) {
+      maxEnd = tEnd
+    }
+    ki2 = ki2 + 1
+  }
+
+  let mi2 = 0
+  while (mi2 < mods.length) {
+    let md = mods[mi2]
+    if (md.type === "fm" && md.dst) {
+      let car = opOsc[md.dst]
+      if (car && !opIsNoise[md.dst]) {
+        let modTap = opTail[md.src]
+        if (modTap) {
+          let dg = ctx.createGain()
+          let ratioD = ops[md.dst].ratio != null && ops[md.dst].ratio > 0 ? ops[md.dst].ratio : 1
+          let hzDst = Fc * ratioD
+          let amt = md.amount != null && md.amount === md.amount ? md.amount : 1
+          let depthHz = hzDst * amt * 0.12
+          if (depthHz < 0.5) {
+            depthHz = 0.5
+          }
+          if (depthHz > 8000) {
+            depthHz = 8000
+          }
+          dg.gain.value = depthHz
+          modTap.connect(dg)
+          dg.connect(car.frequency)
+        }
+      }
+    }
+    mi2 = mi2 + 1
+  }
+
+  let filterKeys = Object.keys(filtersDef)
+  let filterFirst = {}
+  let filterLast = {}
+  let filterSecond = {}
+  let fi = 0
+  while (fi < filterKeys.length) {
+    let fid = filterKeys[fi]
+    let fd = filtersDef[fid]
+    let bq1 = ctx.createBiquadFilter()
+    setupBiquadType(bq1, fd.type)
+    let c0 = clampHz(fd.cutoff != null ? fd.cutoff : 8000)
+    bq1.frequency.value = c0
+    let qv = fd.res != null ? fd.res : 0.7
+    bq1.Q.value = Math.min(40, Math.max(0.0001, qv * 8))
+    filterFirst[fid] = bq1
+    let last = bq1
+    filterSecond[fid] = null
+    if (filterNeedsTwoStages(fd.type)) {
+      let bq2 = ctx.createBiquadFilter()
+      setupBiquadType(bq2, fd.type)
+      bq2.frequency.value = c0
+      bq2.Q.value = bq1.Q.value
+      bq1.connect(bq2)
+      last = bq2
+      filterSecond[fid] = bq2
+    }
+    filterLast[fid] = last
+
+    let fe = mergeFilterEnv(filterEnvs[fid])
+    if (fe.amount != null && fe.amount !== 0) {
+      let tfe = scheduleAdsrCutoff(bq1.frequency, t, c0, fe.amount, fe.a, fe.d, fe.s, fe.r, durSec)
+      let bq2b = filterSecond[fid]
+      if (bq2b) {
+        scheduleAdsrCutoff(bq2b.frequency, t, c0, fe.amount, fe.a, fe.d, fe.s, fe.r, durSec)
+      }
+      if (tfe > maxEnd) {
+        maxEnd = tfe
+      }
+    }
+    fi = fi + 1
+  }
+
+  let outSum = ctx.createGain()
+  outSum.gain.value = 1
+  outSum.connect(bus.input)
+
+  let ri = 0
+  while (ri < routes.length) {
+    let rt = routes[ri]
+    let vol = rt.volume != null && rt.volume === rt.volume ? rt.volume : 1
+    let rg = ctx.createGain()
+    rg.gain.value = vol * v
+    let srcN = null
+    if (rt.srcKind === "op") {
+      srcN = opEnvGain[rt.srcId]
+    } else {
+      if (rt.srcKind === "filter") {
+        srcN = filterLast[rt.srcId]
+      }
+    }
+    if (srcN) {
+      srcN.connect(rg)
+      if (rt.dstKind === "filter") {
+        let fin = filterFirst[rt.dstId]
+        if (fin) {
+          rg.connect(fin)
+        }
+      } else {
+        if (rt.dstKind === "out") {
+          rg.connect(outSum)
+        }
+      }
+    }
+    ri = ri + 1
+  }
+
+  if (routes.length === 0) {
+    let firstId = opKeys[0]
+    if (firstId && opEnvGain[firstId]) {
+      let rg2 = ctx.createGain()
+      rg2.gain.value = v
+      opEnvGain[firstId].connect(rg2)
+      rg2.connect(outSum)
+    }
+  }
+
+  let tStop = maxEnd + 0.12
+  let si = 0
+  while (si < toStopOsc.length) {
+    let o = toStopOsc[si]
+    o.start(t)
+    o.stop(tStop)
+    si = si + 1
+  }
+  let sn = 0
+  while (sn < toStopNoise.length) {
+    let ns = toStopNoise[sn]
+    ns.start(t)
+    ns.stop(tStop)
+    sn = sn + 1
+  }
+}

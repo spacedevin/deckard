@@ -235,6 +235,364 @@ body {
   gap: 0.2rem;
 }
 
+/* Matrix FM — Sytrus-inspired operator / matrix / filter UI */
+.gen-params-matrixfm {
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 0.15rem;
+}
+
+.sytrus-panel {
+  font-size: 0.68rem;
+  color: var(--text);
+  background: linear-gradient(165deg, #12151c 0%, #0d0f14 100%);
+  border: 1px solid #2e3545;
+  border-radius: 6px;
+  padding: 0.5rem 0.45rem 0.55rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.sytrus-panel-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  margin-bottom: 0.55rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.sytrus-panel-title {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+  text-shadow: 0 0 12px rgba(255, 107, 53, 0.25);
+}
+
+.sytrus-panel-sub {
+  font-size: 0.58rem;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+.sytrus-section {
+  margin-bottom: 0.55rem;
+}
+
+.sytrus-section:last-child {
+  margin-bottom: 0;
+}
+
+.sytrus-section-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9aa3b5;
+}
+
+.sytrus-hint {
+  font-size: 0.55rem;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+
+.sytrus-empty {
+  font-size: 0.62rem;
+  color: var(--muted);
+  margin: 0.25rem 0;
+}
+
+.sytrus-add-btn {
+  font-size: 0.58rem;
+  font-weight: 700;
+  padding: 0.2rem 0.45rem;
+  border-radius: 3px;
+  border: 1px solid #c44d28;
+  background: rgba(255, 107, 53, 0.12);
+  color: #ffb89a;
+  cursor: pointer;
+}
+
+.sytrus-add-btn:hover:not(:disabled) {
+  background: rgba(255, 107, 53, 0.22);
+}
+
+.sytrus-add-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.sytrus-icon-btn {
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0.05rem 0.3rem;
+  border: none;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.sytrus-icon-btn:hover {
+  color: #ff8a6b;
+  background: rgba(255, 107, 53, 0.15);
+}
+
+.sytrus-op-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.sytrus-op-card {
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid #333a4a;
+  border-radius: 4px;
+  padding: 0.35rem 0.4rem;
+}
+
+.sytrus-op-card-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.sytrus-op-badge {
+  font-weight: 800;
+  font-size: 0.62rem;
+  color: var(--mint);
+  min-width: 2.4rem;
+}
+
+.sytrus-op-wave {
+  font-size: 0.6rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  max-width: 5.5rem;
+}
+
+.sytrus-op-ratio {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.58rem;
+  color: var(--muted);
+}
+
+.sytrus-op-ratio input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.sytrus-op-ratio-val {
+  font-size: 0.55rem;
+  color: #8b93a8;
+  min-width: 1.6rem;
+  text-align: right;
+}
+
+.sytrus-op-adsr,
+.sytrus-filter-env {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.4rem;
+  margin-top: 0.35rem;
+  padding-top: 0.3rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.sytrus-op-adsr label,
+.sytrus-filter-env label {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  font-size: 0.52rem;
+  color: var(--muted);
+}
+
+.sytrus-op-adsr input[type="range"],
+.sytrus-filter-env input[type="range"] {
+  width: 3.2rem;
+  min-width: 0;
+}
+
+.sytrus-adsr-lbl {
+  font-size: 0.52rem;
+  font-weight: 700;
+  color: #6a7388;
+  margin-right: 0.15rem;
+}
+
+.sytrus-matrix-wrap {
+  overflow-x: auto;
+  margin: 0 -0.15rem;
+  padding: 0 0.15rem;
+}
+
+.sytrus-matrix {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.55rem;
+}
+
+.sytrus-matrix th,
+.sytrus-matrix td {
+  border: 1px solid #2a3140;
+  padding: 0.2rem 0.25rem;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.sytrus-matrix-corner {
+  background: #141820;
+  min-width: 1.6rem;
+}
+
+.sytrus-matrix-th {
+  background: linear-gradient(180deg, #1c2230 0%, #151a24 100%);
+  color: var(--accent);
+  font-weight: 700;
+  min-width: 4.2rem;
+}
+
+.sytrus-matrix-rowhdr {
+  background: #151a22;
+  color: var(--mint);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.sytrus-matrix-diag {
+  background: #0f1218;
+  color: #3d4558;
+}
+
+.sytrus-matrix-cell {
+  background: rgba(255, 107, 53, 0.03);
+  min-width: 4.5rem;
+}
+
+.sytrus-mod-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  align-items: stretch;
+}
+
+.sytrus-mod-lbl {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.05rem;
+  font-size: 0.5rem;
+  color: #7a8294;
+}
+
+.sytrus-mod-lbl input[type="range"] {
+  width: 100%;
+  min-width: 3rem;
+}
+
+.sytrus-filter-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.sytrus-filter-card {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid #333b4d;
+  border-radius: 4px;
+  padding: 0.35rem 0.4rem;
+}
+
+.sytrus-filter-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.25rem;
+}
+
+.sytrus-filter-badge {
+  font-weight: 800;
+  font-size: 0.62rem;
+  color: #9db7ff;
+  min-width: 1.8rem;
+}
+
+.sytrus-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.58rem;
+  color: var(--muted);
+  margin-bottom: 0.2rem;
+}
+
+.sytrus-filter-row input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.sytrus-hz-lbl {
+  font-size: 0.55rem;
+  color: #8b93a8;
+  min-width: 3.2rem;
+}
+
+.sytrus-routes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.sytrus-route-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.3rem 0.35rem;
+  border-radius: 4px;
+  border: 1px solid #2a3140;
+}
+
+.sytrus-route-sel {
+  font-size: 0.55rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  max-width: 4rem;
+}
+
+.sytrus-route-arrow {
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 0.65rem;
+}
+
+.sytrus-route-vol input[type="range"] {
+  width: 3.5rem;
+  vertical-align: middle;
+}
+
 .gen-row {
   font-size: 0.65rem;
   color: var(--muted);

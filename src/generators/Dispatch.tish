@@ -1,6 +1,7 @@
 import { playBasicOsc } from './BasicOsc.tish'
 import { playNoiseBurst } from './NoiseBurst.tish'
 import { playFmTone } from './FmTone.tish'
+import { playMatrixFm } from './MatrixFm.tish'
 
 export fn dispatchPlayNote(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   if (!bus || !bus.input) {
@@ -16,6 +17,10 @@ export fn dispatchPlayNote(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   }
   if (id === "fmTone") {
     playFmTone(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+  if (id === "matrixFm") {
+    playMatrixFm(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
     return
   }
   playBasicOsc(ctx, bus, t, midi, vel, durSec, ch, bendSemis)

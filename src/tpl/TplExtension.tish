@@ -1,14 +1,199 @@
-// Per-generator gen_block parse/emit hooks (scaffold for graph generators).
+// Per-generator gen_block parse/emit hooks (graph generators).
+
+import { tokenize, isNumberToken } from './Parser.tish'
+import { normalizeGeneratorId } from './RegistryMap.tish'
+import { normalizeBasicOscWaveform } from '../generators/Registry.tish'
+
+/// Parse `key val key val ...` from toks[start] onward into a plain object (numbers when numeric).
+fn parseKvPairs(toks, start) {
+  let o = {}
+  let i = start
+  while (i + 1 < toks.length) {
+    let k = toks[i]
+    let v = toks[i + 1]
+    if (isNumberToken(v)) {
+      o[k] = Number(v)
+    } else {
+      o[k] = v
+    }
+    i = i + 2
+  }
+  return o
+}
+
+/// ADSR + optional `amount` for filter envelopes: `a 0.1 d 0.2 s 0.5 r 0.1 amount 2000`
+fn parseEnvSegment(toks, start) {
+  let o = { a: null, d: null, s: null, r: null, amount: null }
+  let i = start
+  while (i + 1 < toks.length) {
+    let k = toks[i]
+    let v = toks[i + 1]
+    if (!isNumberToken(v)) {
+      break
+    }
+    let n = Number(v)
+    if (k === "a") {
+      o.a = n
+    } else {
+      if (k === "d") {
+        o.d = n
+      } else {
+        if (k === "s") {
+          o.s = n
+        } else {
+          if (k === "r") {
+            o.r = n
+          } else {
+            if (k === "amount") {
+              o.amount = n
+            }
+          }
+        }
+      }
+    }
+    i = i + 2
+  }
+  return o
+}
+
+fn normalizeOpDef(raw) {
+  let w = raw.wave ? String(raw.wave).toLowerCase() : "sine"
+  if (w === "noise") {
+    return { wave: "noise", ratio: raw.ratio != null ? raw.ratio : 1 }
+  }
+  return {
+    wave: normalizeBasicOscWaveform(w),
+    ratio: raw.ratio != null && raw.ratio > 0 ? raw.ratio : 1
+  }
+}
+
+fn normalizeFilterDef(raw) {
+  let t = raw.type ? String(raw.type).toLowerCase() : "lp12"
+  let co = raw.cutoff != null ? raw.cutoff : 8000
+  let rq = raw.res != null ? raw.res : raw.q != null ? raw.q : 0.7
+  return { type: t, cutoff: co, res: rq }
+}
+
+/// Starter patch when picking Matrix FM in the UI or loading a legacy preset without `generatorSpec`.
+export fn defaultMatrixFmRawLines() {
+  return [
+    "op 1 wave sine ratio 1.0",
+    "op 2 wave sine ratio 1.0",
+    "mod fm 2 1 3.0",
+    "env op 1 a 0.005 d 0.1 s 0.35 r 0.12",
+    "env op 2 a 0.005 d 0.08 s 0.4 r 0.1",
+    "route op 1 out 1.0"
+  ]
+}
+
+export fn parseMatrixFmGraph(lines) {
+  let ops = {}
+  let opEnvs = {}
+  let filterEnvs = {}
+  let filters = {}
+  let mods = []
+  let routes = []
+  let li = 0
+  while (li < lines.length) {
+    let toks = tokenize(lines[li])
+    if (toks.length === 0) {
+      li = li + 1
+      continue
+    }
+    let h = toks[0]
+    if (h === "op" && toks.length >= 3) {
+      let oid = String(toks[1])
+      let raw = parseKvPairs(toks, 2)
+      ops[oid] = normalizeOpDef(raw)
+    } else {
+      if (h === "env" && toks.length >= 4 && toks[1] === "op") {
+        let oid = String(toks[2])
+        opEnvs[oid] = parseEnvSegment(toks, 3)
+      } else {
+        if (h === "env" && toks.length >= 4 && toks[1] === "filter") {
+          let fid = String(toks[2])
+          filterEnvs[fid] = parseEnvSegment(toks, 3)
+        } else {
+          if (h === "mod" && toks.length >= 5) {
+            mods.push({
+              type: String(toks[1]).toLowerCase(),
+              src: String(toks[2]),
+              dst: String(toks[3]),
+              amount: Number(toks[4])
+            })
+          } else {
+            if (h === "filter" && toks.length >= 3) {
+              let fid = String(toks[1])
+              let raw = parseKvPairs(toks, 2)
+              filters[fid] = normalizeFilterDef(raw)
+            } else {
+              if (h === "route") {
+                if (toks.length >= 6 && toks[3] === "filter") {
+                  routes.push({
+                    srcKind: String(toks[1]),
+                    srcId: String(toks[2]),
+                    dstKind: "filter",
+                    dstId: String(toks[4]),
+                    volume: Number(toks[5])
+                  })
+                } else {
+                  if (toks.length >= 5 && toks[3] === "out") {
+                    routes.push({
+                      srcKind: String(toks[1]),
+                      srcId: String(toks[2]),
+                      dstKind: "out",
+                      dstId: "",
+                      volume: Number(toks[4])
+                    })
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    li = li + 1
+  }
+  return {
+    ops: ops,
+    opEnvs: opEnvs,
+    filterEnvs: filterEnvs,
+    filters: filters,
+    mods: mods,
+    routes: routes
+  }
+}
 
 export fn parseGenBlock(generatorId, lines) {
-  return { kind: generatorId, version: 1, raw: lines }
+  let tplHeaderId = generatorId
+  let nid = normalizeGeneratorId(generatorId)
+  if (nid === "matrixFm") {
+    let graph = parseMatrixFmGraph(lines)
+    return {
+      kind: "matrixFm",
+      tplHeaderId: tplHeaderId,
+      version: 2,
+      raw: lines,
+      graph: graph
+    }
+  }
+  return {
+    kind: nid,
+    tplHeaderId: tplHeaderId,
+    version: 1,
+    raw: lines
+  }
 }
 
 export fn emitGenBlock(spec) {
   if (!spec || !spec.raw) {
     return ""
   }
-  let gid = spec.kind ? spec.kind : "unknown"
+  let gid = spec.tplHeaderId
+  if (!gid) {
+    gid = spec.kind ? spec.kind : "unknown"
+  }
   let out = "gen_block " + gid + "\n"
   let ri = 0
   while (ri < spec.raw.length) {

@@ -37,6 +37,9 @@ export fn CodeDebugView(project, setProject, tplText, setTplText, rt) {
           cur = rt.tplTextarea.value
         }
       }
+      if (cur == null) {
+        cur = ""
+      }
       if (cur.length > 0 && !cur.endsWith("\n")) {
         cur = cur + "\n"
       }
@@ -91,6 +94,9 @@ export fn CodeDebugView(project, setProject, tplText, setTplText, rt) {
     if (rt && rt.tplTextarea) {
       return rt.tplTextarea.value
     }
+    if (tplText == null) {
+      return ""
+    }
     return tplText
   }
 
@@ -98,9 +104,13 @@ export fn CodeDebugView(project, setProject, tplText, setTplText, rt) {
     let val = getTextareaValue()
     let r = applyTplSource(project, val)
     let errStr = ""
+    let errList = r.errors
+    if (!errList) {
+      errList = []
+    }
     let ei = 0
-    while (ei < r.errors.length) {
-      errStr = errStr + "L" + String(r.errors[ei].line) + ": " + r.errors[ei].msg + "\n"
+    while (ei < errList.length) {
+      errStr = errStr + "L" + String(errList[ei].line) + ": " + errList[ei].msg + "\n"
       ei = ei + 1
     }
     setTplErr(errStr)
@@ -260,7 +270,7 @@ export fn CodeDebugView(project, setProject, tplText, setTplText, rt) {
           {"Sync from project"}
         </button>
       </div>
-      {tplErr.length > 0 ? <pre class="code-debug-errors">{tplErr}</pre> : null}
+      {tplErr != null && tplErr.length > 0 ? <pre class="code-debug-errors">{tplErr}</pre> : null}
     </section>
   )
 }

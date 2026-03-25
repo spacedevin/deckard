@@ -31,6 +31,9 @@ export fn isStepToken(s) {
 
 // Returns { kind: "steps" | "note" | "keyword" | "plain", tokens: [...], stepIndices: [0..15] for steps lines }.
 export fn classifyLine(line) {
+  if (line == null || line === undefined) {
+    return { kind: "plain", tokens: [], stepIndices: [] }
+  }
   let t = line.trim()
   if (t.length === 0) {
     return { kind: "plain", tokens: [], stepIndices: [] }

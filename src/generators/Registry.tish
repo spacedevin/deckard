@@ -16,6 +16,11 @@ export fn generatorCatalog() {
       id: "fmTone",
       label: "FM tone",
       description: "Two-operator FM + ADSR in generator params."
+    },
+    {
+      id: "matrixFm",
+      label: "Matrix FM",
+      description: "Multi-operator FM/RM graph via TPL gen_block (Sytrus-style)."
     }
   ]
 }
@@ -94,6 +99,9 @@ export fn defaultParamsForGeneratorId(id) {
       sustain: 0.4,
       release: 0.12
     }
+  }
+  if (id === "matrixFm") {
+    return {}
   }
   return {}
 }

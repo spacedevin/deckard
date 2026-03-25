@@ -40,7 +40,11 @@ export fn parseProgram(source) {
   let masterMixTokens = null
   let actorMixRows = []
 
-  let raw = source.split("\n")
+  let src = source
+  if (src == null || src === undefined) {
+    src = ""
+  }
+  let raw = String(src).split("\n")
   let i = 0
   let currentTrack = null
   let currentAuto = null

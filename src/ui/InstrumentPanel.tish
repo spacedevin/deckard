@@ -14,6 +14,7 @@ import {
   applyInstrumentPresetToChannel,
   ensureInstrumentPresets
 } from '../model/InstrumentPresets.tish'
+import { parseGenBlock, defaultMatrixFmRawLines } from '../tpl/TplExtension.tish'
 
 export fn InstrumentPanel(project, selectedCh, setProject, tplMirrorFlush) {
   ensureInstrumentPresets(project)
@@ -45,6 +46,16 @@ export fn InstrumentPanel(project, selectedCh, setProject, tplMirrorFlush) {
         onclick={() => {
           ch.generatorId = gidCopy
           ch.generatorParams = deepCloneParams(defaultParamsForGeneratorId(gidCopy))
+          if (gidCopy === "matrixFm") {
+            if (
+              !ch.generatorSpec ||
+              ch.generatorSpec.kind !== "matrixFm" ||
+              !ch.generatorSpec.raw ||
+              ch.generatorSpec.raw.length === 0
+            ) {
+              ch.generatorSpec = parseGenBlock("matrix_fm", defaultMatrixFmRawLines())
+            }
+          }
           setProject(project)
           if (tplMirrorFlush) {
             setTimeout(() => {

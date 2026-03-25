@@ -11,6 +11,9 @@ export fn normalizeGeneratorId(tplId) {
   if (s === "basic_osc" || s === "basicosc" || s === "osc") {
     return "basicOsc"
   }
+  if (s === "matrix_fm" || s === "matrixfm") {
+    return "matrixFm"
+  }
   return s
 }
 

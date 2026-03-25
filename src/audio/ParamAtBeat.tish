@@ -17,5 +17,9 @@ export fn generatorChannelAtBeat(project, ch, beat) {
       i = i + 1
     }
   }
-  return { generatorId: ch.generatorId, generatorParams: gp }
+  return {
+    generatorId: ch.generatorId,
+    generatorParams: gp,
+    generatorSpec: ch.generatorSpec
+  }
 }

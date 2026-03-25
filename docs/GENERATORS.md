@@ -31,3 +31,7 @@ Call your `play...` when `ch.generatorId === "yourId"`. Unknown ids fall back to
 ## 6. Schema
 
 Extend [`docs/schema/project-v2.json`](schema/project-v2.json) with a `generatorParams` shape for your id (optional JSON Schema oneOf).
+
+## Matrix FM (`matrixFm`)
+
+Sytrus-style multi-operator graph: define the patch in TPL with `track … gen matrix_fm` and an indented `gen_block matrix_fm` … `end gen_block`. Parsed graph lives in `channel.generatorSpec.graph`; see [`docs/TPL_GRAMMAR.md`](TPL_GRAMMAR.md) and [`docs/TPL_EXTENSION.md`](TPL_EXTENSION.md).

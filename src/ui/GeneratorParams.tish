@@ -1,5 +1,7 @@
 import { h, Fragment } from 'lattish'
 import { defaultParamsForGeneratorId, normalizeBasicOscWaveform } from '../generators/Registry.tish'
+import { parseGenBlock, defaultMatrixFmRawLines } from '../tpl/TplExtension.tish'
+import { MatrixFmPanel } from './MatrixFmPanel.tish'
 
 export fn AdsrAmpBlock(p, project, setProject, tplMirrorFlush) {
   let a = p.attack > 0 ? p.attack : 0.005
@@ -134,6 +136,22 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush) {
       </div>
       {AdsrAmpBlock(p, project, setProject, tplMirrorFlush)}
     </div>
+  }
+  if (id === "matrixFm") {
+    if (
+      !ch.generatorSpec ||
+      ch.generatorSpec.kind !== "matrixFm" ||
+      !ch.generatorSpec.raw ||
+      ch.generatorSpec.raw.length === 0
+    ) {
+      ch.generatorSpec = parseGenBlock("matrix_fm", defaultMatrixFmRawLines())
+      setProject(project)
+    }
+    return (
+      <article class="gen-params gen-params-stack gen-params-matrixfm">
+        {MatrixFmPanel(ch, project, setProject, tplMirrorFlush)}
+      </article>
+    )
   }
   return <div class="gen-params" />
 }

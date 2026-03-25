@@ -1,0 +1,369 @@
+// Serialize / mutate Matrix FM graph ↔ TPL lines (keeps generatorSpec.raw + .graph in sync).
+
+import { parseMatrixFmGraph } from './TplExtension.tish'
+import { formatTplFloat } from './Format.tish'
+
+export fn sortedStringKeys(obj) {
+  if (!obj) {
+    return []
+  }
+  let k = Object.keys(obj)
+  let n = k.length
+  let a = 0
+  while (a < n) {
+    let b = a + 1
+    while (b < n) {
+      let na = Number(k[a])
+      let nb = Number(k[b])
+      let va = na === na ? na : 1000000000
+      let vb = nb === nb ? nb : 1000000000
+      if (va > vb || (va === vb && k[a] > k[b])) {
+        let t = k[a]
+        k[a] = k[b]
+        k[b] = t
+      }
+      b = b + 1
+    }
+    a = a + 1
+  }
+  return k
+}
+
+/// Tish → JS compile breaks `delete obj[k]`; rebuild objects without the key.
+fn omitObjectKey(obj, omitKey) {
+  let out = {}
+  if (!obj) {
+    return out
+  }
+  let k = Object.keys(obj)
+  let i = 0
+  while (i < k.length) {
+    let kn = k[i]
+    if (kn !== omitKey) {
+      out[kn] = obj[kn]
+    }
+    i = i + 1
+  }
+  return out
+}
+
+fn waveToTpl(w) {
+  let s = String(w).toLowerCase()
+  if (s === "noise") {
+    return "noise"
+  }
+  if (s === "sawtooth") {
+    return "saw"
+  }
+  if (s === "square") {
+    return "square"
+  }
+  if (s === "triangle") {
+    return "tri"
+  }
+  return "sine"
+}
+
+fn envOpLine(oid, e) {
+  if (!e) {
+    return ""
+  }
+  if (e.a == null && e.d == null && e.s == null && e.r == null) {
+    return ""
+  }
+  let s = "env op " + oid
+  if (e.a != null) {
+    s = s + " a " + formatTplFloat(e.a)
+  }
+  if (e.d != null) {
+    s = s + " d " + formatTplFloat(e.d)
+  }
+  if (e.s != null) {
+    s = s + " s " + formatTplFloat(e.s)
+  }
+  if (e.r != null) {
+    s = s + " r " + formatTplFloat(e.r)
+  }
+  return s
+}
+
+fn envFilterLine(fid, e) {
+  if (!e) {
+    return ""
+  }
+  if (e.a == null && e.d == null && e.s == null && e.r == null && e.amount == null) {
+    return ""
+  }
+  let s = "env filter " + fid
+  if (e.a != null) {
+    s = s + " a " + formatTplFloat(e.a)
+  }
+  if (e.d != null) {
+    s = s + " d " + formatTplFloat(e.d)
+  }
+  if (e.s != null) {
+    s = s + " s " + formatTplFloat(e.s)
+  }
+  if (e.r != null) {
+    s = s + " r " + formatTplFloat(e.r)
+  }
+  if (e.amount != null) {
+    s = s + " amount " + formatTplFloat(e.amount)
+  }
+  return s
+}
+
+export fn matrixFmGraphToLines(graph) {
+  let lines = []
+  let opIds = sortedStringKeys(graph.ops)
+  let oi = 0
+  while (oi < opIds.length) {
+    let oid = opIds[oi]
+    let op = graph.ops[oid]
+    let wv = waveToTpl(op.wave)
+    if (wv === "noise") {
+      lines.push("op " + oid + " wave noise")
+    } else {
+      lines.push("op " + oid + " wave " + wv + " ratio " + formatTplFloat(op.ratio))
+    }
+    oi = oi + 1
+  }
+  let ei = 0
+  while (ei < opIds.length) {
+    let oid2 = opIds[ei]
+    let ev = graph.opEnvs[oid2]
+    if (ev) {
+      let ln = envOpLine(oid2, ev)
+      if (ln.length > 0) {
+        lines.push(ln)
+      }
+    }
+    ei = ei + 1
+  }
+  let mi = 0
+  while (mi < graph.mods.length) {
+    let m = graph.mods[mi]
+    lines.push("mod " + m.type + " " + m.src + " " + m.dst + " " + formatTplFloat(m.amount))
+    mi = mi + 1
+  }
+  let fids = sortedStringKeys(graph.filters)
+  let fi = 0
+  while (fi < fids.length) {
+    let fid = fids[fi]
+    let fd = graph.filters[fid]
+    lines.push(
+      "filter " +
+        fid +
+        " type " +
+        fd.type +
+        " cutoff " +
+        formatTplFloat(fd.cutoff) +
+        " res " +
+        formatTplFloat(fd.res)
+    )
+    fi = fi + 1
+  }
+  let fei = 0
+  while (fei < fids.length) {
+    let fid2 = fids[fei]
+    let fev = graph.filterEnvs[fid2]
+    if (fev) {
+      let fln = envFilterLine(fid2, fev)
+      if (fln.length > 0) {
+        lines.push(fln)
+      }
+    }
+    fei = fei + 1
+  }
+  let ri = 0
+  while (ri < graph.routes.length) {
+    let rt = graph.routes[ri]
+    if (rt.dstKind === "filter") {
+      lines.push(
+        "route " +
+          rt.srcKind +
+          " " +
+          rt.srcId +
+          " filter " +
+          rt.dstId +
+          " " +
+          formatTplFloat(rt.volume)
+      )
+    } else {
+      lines.push("route " + rt.srcKind + " " + rt.srcId + " out " + formatTplFloat(rt.volume))
+    }
+    ri = ri + 1
+  }
+  return lines
+}
+
+export fn syncMatrixFmSpecFromGraph(spec) {
+  if (!spec || !spec.graph) {
+    return
+  }
+  let lines = matrixFmGraphToLines(spec.graph)
+  spec.raw = lines
+  spec.graph = parseMatrixFmGraph(lines)
+}
+
+export fn matrixFmNextOpId(graph) {
+  let i = 1
+  while (i <= 8) {
+    let id = String(i)
+    if (!graph.ops[id]) {
+      return id
+    }
+    i = i + 1
+  }
+  return ""
+}
+
+export fn matrixFmNextFilterId(graph) {
+  let i = 1
+  while (i <= 6) {
+    let id = String(i)
+    if (!graph.filters[id]) {
+      return id
+    }
+    i = i + 1
+  }
+  return ""
+}
+
+export fn ensureMatrixFmOpEnv(graph, oid) {
+  if (!graph.opEnvs[oid]) {
+    graph.opEnvs[oid] = { a: 0.005, d: 0.1, s: 0.35, r: 0.12 }
+  }
+}
+
+export fn ensureMatrixFmFilterEnv(graph, fid) {
+  if (!graph.filterEnvs[fid]) {
+    graph.filterEnvs[fid] = { a: 0.1, d: 0.2, s: 0.3, r: 0.15, amount: 0 }
+  }
+}
+
+export fn addMatrixFmOperator(graph) {
+  let id = matrixFmNextOpId(graph)
+  if (id.length === 0) {
+    return ""
+  }
+  graph.ops[id] = { wave: "sine", ratio: 1 }
+  ensureMatrixFmOpEnv(graph, id)
+  return id
+}
+
+export fn removeMatrixFmOperator(graph, oid) {
+  graph.ops = omitObjectKey(graph.ops, oid)
+  graph.opEnvs = omitObjectKey(graph.opEnvs, oid)
+  let newMods = []
+  let mi = 0
+  while (mi < graph.mods.length) {
+    let m = graph.mods[mi]
+    if (m.src !== oid && m.dst !== oid) {
+      newMods.push(m)
+    }
+    mi = mi + 1
+  }
+  graph.mods = newMods
+  let newRt = []
+  let ri = 0
+  while (ri < graph.routes.length) {
+    let rt = graph.routes[ri]
+    let drop = false
+    if (rt.srcKind === "op" && rt.srcId === oid) {
+      drop = true
+    }
+    if (!drop) {
+      newRt.push(rt)
+    }
+    ri = ri + 1
+  }
+  graph.routes = newRt
+}
+
+export fn addMatrixFmFilter(graph) {
+  let id = matrixFmNextFilterId(graph)
+  if (id.length === 0) {
+    return ""
+  }
+  graph.filters[id] = { type: "lp24", cutoff: 4000, res: 0.6 }
+  ensureMatrixFmFilterEnv(graph, id)
+  return id
+}
+
+export fn removeMatrixFmFilter(graph, fid) {
+  graph.filters = omitObjectKey(graph.filters, fid)
+  graph.filterEnvs = omitObjectKey(graph.filterEnvs, fid)
+  let newRt = []
+  let ri = 0
+  while (ri < graph.routes.length) {
+    let rt = graph.routes[ri]
+    let drop = false
+    if (rt.srcKind === "filter" && rt.srcId === fid) {
+      drop = true
+    }
+    if (rt.dstKind === "filter" && rt.dstId === fid) {
+      drop = true
+    }
+    if (!drop) {
+      newRt.push(rt)
+    }
+    ri = ri + 1
+  }
+  graph.routes = newRt
+}
+
+export fn findModAmount(graph, typ, src, dst) {
+  let mi = 0
+  while (mi < graph.mods.length) {
+    let m = graph.mods[mi]
+    if (m.type === typ && m.src === src && m.dst === dst) {
+      return m.amount
+    }
+    mi = mi + 1
+  }
+  return 0
+}
+
+export fn setModAmount(graph, typ, src, dst, amount) {
+  let newMods = []
+  let mi = 0
+  while (mi < graph.mods.length) {
+    let m = graph.mods[mi]
+    if (!(m.type === typ && m.src === src && m.dst === dst)) {
+      newMods.push(m)
+    }
+    mi = mi + 1
+  }
+  if (amount > 0.02) {
+    newMods.push({ type: typ, src: src, dst: dst, amount: amount })
+  }
+  graph.mods = newMods
+}
+
+export fn addMatrixFmRoute(graph, srcKind, srcId, dstKind, dstId, volume) {
+  let row = {
+    srcKind: srcKind,
+    srcId: srcId,
+    dstKind: dstKind,
+    dstId: dstId,
+    volume: volume
+  }
+  graph.routes.push(row)
+}
+
+export fn removeMatrixFmRouteAt(graph, index) {
+  let idx = Math.floor(Number(index))
+  if (idx < 0 || idx >= graph.routes.length) {
+    return
+  }
+  let newR = []
+  let ri = 0
+  while (ri < graph.routes.length) {
+    if (ri !== idx) {
+      newR.push(graph.routes[ri])
+    }
+    ri = ri + 1
+  }
+  graph.routes = newR
+}

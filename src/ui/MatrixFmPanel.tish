@@ -1,0 +1,703 @@
+// Sytrus-style Matrix FM editor: operators, modulation matrix, filters, routing.
+
+import { h } from 'lattish'
+import {
+  sortedStringKeys,
+  syncMatrixFmSpecFromGraph,
+  addMatrixFmOperator,
+  removeMatrixFmOperator,
+  addMatrixFmFilter,
+  removeMatrixFmFilter,
+  findModAmount,
+  setModAmount,
+  addMatrixFmRoute,
+  removeMatrixFmRouteAt,
+  ensureMatrixFmOpEnv,
+  ensureMatrixFmFilterEnv
+} from '../tpl/MatrixFmGraph.tish'
+
+fn numOr(x, def) {
+  if (typeof x === "number" && x === x) {
+    return x
+  }
+  return def
+}
+
+fn freqToSliderStep(hz) {
+  let lo = Math.log(20)
+  let hi = Math.log(20000)
+  let h = hz
+  if (h < 20) {
+    h = 20
+  }
+  if (h > 20000) {
+    h = 20000
+  }
+  let t = (Math.log(h) - lo) / (hi - lo)
+  return Math.round(t * 1000)
+}
+
+fn sliderStepToFreq(sl) {
+  let lo = Math.log(20)
+  let hi = Math.log(20000)
+  let t = sl / 1000
+  return Math.round(Math.exp(lo + t * (hi - lo)))
+}
+
+export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
+  let spec = ch.generatorSpec
+  let g = spec.graph
+  if (!g.ops) {
+    g.ops = {}
+  }
+  if (!g.opEnvs) {
+    g.opEnvs = {}
+  }
+  if (!g.filterEnvs) {
+    g.filterEnvs = {}
+  }
+  if (!g.filters) {
+    g.filters = {}
+  }
+  if (!g.mods) {
+    g.mods = []
+  }
+  if (!g.routes) {
+    g.routes = []
+  }
+
+  fn commit() {
+    syncMatrixFmSpecFromGraph(spec)
+    setProject(project)
+    if (tplMirrorFlush) {
+      tplMirrorFlush()
+    }
+  }
+
+  let opIds = sortedStringKeys(g.ops)
+  let filterIds = sortedStringKeys(g.filters)
+
+  let opHeaderCells = []
+  let hi = 0
+  while (hi < opIds.length) {
+    let sid = opIds[hi]
+    opHeaderCells.push(
+      <th class="sytrus-matrix-th" key={"h" + sid}>
+        {sid}
+      </th>
+    )
+    hi = hi + 1
+  }
+
+  let matrixRows = []
+  let rdi = 0
+  while (rdi < opIds.length) {
+    let dst = opIds[rdi]
+    let rowCells = []
+    rowCells.push(
+      <th class="sytrus-matrix-rowhdr" key={"r" + dst}>
+        {dst}
+      </th>
+    )
+    let sci = 0
+    while (sci < opIds.length) {
+      let src = opIds[sci]
+      if (src === dst) {
+        rowCells.push(
+          <td class="sytrus-matrix-diag" key={dst + "_" + src}>
+            {"·"}
+          </td>
+        )
+      } else {
+        let fmV = findModAmount(g, "fm", src, dst)
+        let rmV = findModAmount(g, "rm", src, dst)
+        let srcCopy = src
+        let dstCopy = dst
+        rowCells.push(
+          <td class="sytrus-matrix-cell" key={dst + "_" + src}>
+            <div class="sytrus-mod-pair">
+              <label class="sytrus-mod-lbl">
+                {"FM"}
+                <input
+                  type="range"
+                  min="0"
+                  max="800"
+                  value={String(Math.round(fmV * 100))}
+                  onmousedown={(e) => e.stopPropagation()}
+                  oninput={(e) => {
+                    setModAmount(g, "fm", srcCopy, dstCopy, Number(e.target.value) / 100)
+                    commit()
+                  }}
+                />
+              </label>
+              <label class="sytrus-mod-lbl">
+                {"RM"}
+                <input
+                  type="range"
+                  min="0"
+                  max="300"
+                  value={String(Math.round(rmV * 100))}
+                  onmousedown={(e) => e.stopPropagation()}
+                  oninput={(e) => {
+                    setModAmount(g, "rm", srcCopy, dstCopy, Number(e.target.value) / 100)
+                    commit()
+                  }}
+                />
+              </label>
+            </div>
+          </td>
+        )
+      }
+      sci = sci + 1
+    }
+    matrixRows.push(
+      <tr key={"row" + dst}>
+        {rowCells}
+      </tr>
+    )
+    rdi = rdi + 1
+  }
+
+  let opStrips = []
+  let oi = 0
+  while (oi < opIds.length) {
+    let oid = opIds[oi]
+    ensureMatrixFmOpEnv(g, oid)
+    let op = g.ops[oid]
+    let ev = g.opEnvs[oid]
+    let wv = op.wave ? op.wave : "sine"
+    let ratio = op.ratio > 0 ? op.ratio : 1
+    let a = numOr(ev.a, 0.005)
+    let d = numOr(ev.d, 0.1)
+    let s = numOr(ev.s, 0.35)
+    let rr = numOr(ev.r, 0.12)
+    let oidCopy = oid
+    opStrips.push(
+      <div class="sytrus-op-card" key={"op" + oid}>
+        <div class="sytrus-op-card-top">
+          <span class="sytrus-op-badge">{"OP " + oid}</span>
+          <select
+            class="sytrus-op-wave"
+            value={wv}
+            onmousedown={(e) => e.stopPropagation()}
+            onclick={(e) => e.stopPropagation()}
+            onchange={(e) => {
+              g.ops[oidCopy].wave = e.target.value
+              commit()
+            }}
+          >
+            <option value="sine">{"sine"}</option>
+            <option value="sawtooth">{"saw"}</option>
+            <option value="square">{"square"}</option>
+            <option value="triangle">{"tri"}</option>
+            <option value="noise">{"noise"}</option>
+          </select>
+          <label class="sytrus-op-ratio">
+            {"×"}
+            <input
+              type="range"
+              min="25"
+              max="3200"
+              value={String(Math.round(ratio * 100))}
+              onmousedown={(e) => e.stopPropagation()}
+              oninput={(e) => {
+                g.ops[oidCopy].ratio = Number(e.target.value) / 100
+                commit()
+              }}
+            />
+            <span class="sytrus-op-ratio-val">{String(Math.round(ratio * 100) / 100)}</span>
+          </label>
+          <button
+            type="button"
+            class="sytrus-icon-btn"
+            title={"Remove operator"}
+            onmousedown={(e) => e.stopPropagation()}
+            onclick={() => {
+              removeMatrixFmOperator(g, oidCopy)
+              commit()
+            }}
+          >
+            {"×"}
+          </button>
+        </div>
+        <div class="sytrus-op-adsr">
+          <span class="sytrus-adsr-lbl">{"Env"}</span>
+          <label>
+            {"A"}
+            <input
+              type="range"
+              min="1"
+              max="500"
+              value={String(Math.round(a * 1000))}
+              onmousedown={(e) => e.stopPropagation()}
+              oninput={(e) => {
+                g.opEnvs[oidCopy].a = Number(e.target.value) / 1000
+                commit()
+              }}
+            />
+          </label>
+          <label>
+            {"D"}
+            <input
+              type="range"
+              min="1"
+              max="800"
+              value={String(Math.round(d * 1000))}
+              onmousedown={(e) => e.stopPropagation()}
+              oninput={(e) => {
+                g.opEnvs[oidCopy].d = Number(e.target.value) / 1000
+                commit()
+              }}
+            />
+          </label>
+          <label>
+            {"S"}
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={String(Math.round(s * 100))}
+              onmousedown={(e) => e.stopPropagation()}
+              oninput={(e) => {
+                g.opEnvs[oidCopy].s = Number(e.target.value) / 100
+                commit()
+              }}
+            />
+          </label>
+          <label>
+            {"R"}
+            <input
+              type="range"
+              min="1"
+              max="800"
+              value={String(Math.round(rr * 1000))}
+              onmousedown={(e) => e.stopPropagation()}
+              oninput={(e) => {
+                g.opEnvs[oidCopy].r = Number(e.target.value) / 1000
+                commit()
+              }}
+            />
+          </label>
+        </div>
+      </div>
+    )
+    oi = oi + 1
+  }
+
+  let filterBlocks = []
+  let fi = 0
+  while (fi < filterIds.length) {
+    let fid = filterIds[fi]
+    ensureMatrixFmFilterEnv(g, fid)
+    let fd = g.filters[fid]
+    let fe = g.filterEnvs[fid]
+    let ftype = fd.type ? fd.type : "lp24"
+    let co = numOr(fd.cutoff, 8000)
+    let rq = numOr(fd.res, 0.6)
+    let fa = numOr(fe.a, 0.1)
+    let fdd = numOr(fe.d, 0.2)
+    let fs = numOr(fe.s, 0.3)
+    let fr = numOr(fe.r, 0.15)
+    let famt = numOr(fe.amount, 0)
+    let fidCopy = fid
+    let coSlider = freqToSliderStep(co)
+    filterBlocks.push(
+      <div class="sytrus-filter-card" key={"flt" + fid}>
+        <div class="sytrus-filter-top">
+          <span class="sytrus-filter-badge">{"F " + fid}</span>
+          <select
+            class="sytrus-op-wave"
+            value={ftype}
+            onmousedown={(e) => e.stopPropagation()}
+            onclick={(e) => e.stopPropagation()}
+            onchange={(e) => {
+              g.filters[fidCopy].type = e.target.value
+              commit()
+            }}
+          >
+            <option value="lp12">{"LP 12dB"}</option>
+            <option value="lp24">{"LP 24dB"}</option>
+            <option value="hp12">{"HP 12dB"}</option>
+            <option value="hp24">{"HP 24dB"}</option>
+          </select>
+          <button
+            type="button"
+            class="sytrus-icon-btn"
+            title={"Remove filter"}
+            onmousedown={(e) => e.stopPropagation()}
+            onclick={() => {
+              removeMatrixFmFilter(g, fidCopy)
+              commit()
+            }}
+          >
+            {"×"}
+          </button>
+        </div>
+        <label class="sytrus-filter-row">
+          {"Cutoff "}
+          <input
+            type="range"
+            min="0"
+            max="1000"
+            value={String(coSlider)}
+            onmousedown={(e) => e.stopPropagation()}
+            oninput={(e) => {
+              g.filters[fidCopy].cutoff = sliderStepToFreq(Number(e.target.value))
+              commit()
+            }}
+          />
+          <span class="sytrus-hz-lbl">{String(Math.round(co)) + " Hz"}</span>
+        </label>
+        <label class="sytrus-filter-row">
+          {"Res "}
+          <input
+            type="range"
+            min="5"
+            max="100"
+            value={String(Math.round(rq * 100))}
+            onmousedown={(e) => e.stopPropagation()}
+            oninput={(e) => {
+              g.filters[fidCopy].res = Number(e.target.value) / 100
+              commit()
+            }}
+          />
+        </label>
+        <div class="sytrus-filter-env">
+          <span class="sytrus-adsr-lbl">{"Cutoff env ±Hz"}</span>
+          <label>
+            {"Amt"}
+            <input
+              type="range"
+              min="-4000"
+              max="4000"
+              value={String(Math.round(famt))}
+              onmousedown={(e) => e.stopPropagation()}
+              oninput={(e) => {
+                g.filterEnvs[fidCopy].amount = Number(e.target.value)
+                commit()
+              }}
+            />
+          </label>
+          <label>
+            {"A"}
+            <input
+              type="range"
+              min="1"
+              max="500"
+              value={String(Math.round(fa * 1000))}
+              onmousedown={(e) => e.stopPropagation()}
+              oninput={(e) => {
+                g.filterEnvs[fidCopy].a = Number(e.target.value) / 1000
+                commit()
+              }}
+            />
+          </label>
+          <label>
+            {"D"}
+            <input
+              type="range"
+              min="1"
+              max="800"
+              value={String(Math.round(fdd * 1000))}
+              onmousedown={(e) => e.stopPropagation()}
+              oninput={(e) => {
+                g.filterEnvs[fidCopy].d = Number(e.target.value) / 1000
+                commit()
+              }}
+            />
+          </label>
+          <label>
+            {"S"}
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={String(Math.round(fs * 100))}
+              onmousedown={(e) => e.stopPropagation()}
+              oninput={(e) => {
+                g.filterEnvs[fidCopy].s = Number(e.target.value) / 100
+                commit()
+              }}
+            />
+          </label>
+          <label>
+            {"R"}
+            <input
+              type="range"
+              min="1"
+              max="800"
+              value={String(Math.round(fr * 1000))}
+              onmousedown={(e) => e.stopPropagation()}
+              oninput={(e) => {
+                g.filterEnvs[fidCopy].r = Number(e.target.value) / 1000
+                commit()
+              }}
+            />
+          </label>
+        </div>
+      </div>
+    )
+    fi = fi + 1
+  }
+
+  let routeRows = []
+  let rri = 0
+  while (rri < g.routes.length) {
+    let rt = g.routes[rri]
+    let ridx = rri
+    let sk = rt.srcKind ? rt.srcKind : "op"
+    let dk = rt.dstKind ? rt.dstKind : "out"
+    routeRows.push(
+      <div class="sytrus-route-row" key={"rt" + String(rri)}>
+        <select
+          class="sytrus-route-sel"
+          value={sk}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={(e) => e.stopPropagation()}
+          onchange={(e) => {
+            let nk = e.target.value
+            g.routes[ridx].srcKind = nk
+            if (nk === "filter") {
+              if (filterIds.length > 0) {
+                g.routes[ridx].srcId = filterIds[0]
+              } else {
+                g.routes[ridx].srcId = "1"
+              }
+            } else {
+              if (opIds.length > 0) {
+                g.routes[ridx].srcId = opIds[0]
+              } else {
+                g.routes[ridx].srcId = "1"
+              }
+            }
+            commit()
+          }}
+        >
+          <option value="op">{"op"}</option>
+          <option value="filter">{"filter"}</option>
+        </select>
+        <select
+          class="sytrus-route-sel"
+          value={rt.srcId}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={(e) => e.stopPropagation()}
+          onchange={(e) => {
+            g.routes[ridx].srcId = e.target.value
+            commit()
+          }}
+        >
+          {routeIdOptions(sk, opIds, filterIds)}
+        </select>
+        <span class="sytrus-route-arrow">{"→"}</span>
+        <select
+          class="sytrus-route-sel"
+          value={dk}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={(e) => e.stopPropagation()}
+          onchange={(e) => {
+            g.routes[ridx].dstKind = e.target.value
+            if (e.target.value === "out") {
+              g.routes[ridx].dstId = ""
+            } else {
+              if (filterIds.length > 0) {
+                g.routes[ridx].dstId = filterIds[0]
+              }
+            }
+            commit()
+          }}
+        >
+          <option value="filter">{"filter"}</option>
+          <option value="out">{"main"}</option>
+        </select>
+        <select
+          class="sytrus-route-sel"
+          value={rt.dstId ? rt.dstId : filterIds.length > 0 ? filterIds[0] : "1"}
+          disabled={dk === "filter" ? false : true}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={(e) => e.stopPropagation()}
+          onchange={(e) => {
+            g.routes[ridx].dstId = e.target.value
+            commit()
+          }}
+        >
+          {filterIdOptions(filterIds)}
+        </select>
+        <label class="sytrus-route-vol">
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={String(Math.round(numOr(rt.volume, 1) * 100))}
+            onmousedown={(e) => e.stopPropagation()}
+            oninput={(e) => {
+              g.routes[ridx].volume = Number(e.target.value) / 100
+              commit()
+            }}
+          />
+        </label>
+        <button
+          type="button"
+          class="sytrus-icon-btn"
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={() => {
+            removeMatrixFmRouteAt(g, ridx)
+            commit()
+          }}
+        >
+          {"×"}
+        </button>
+      </div>
+    )
+    rri = rri + 1
+  }
+
+  let canAddOp = opIds.length < 8
+  let canAddFlt = filterIds.length < 6
+
+  return (
+    <div class="sytrus-panel">
+      <div class="sytrus-panel-head">
+        <span class="sytrus-panel-title">{"MATRIX FM"}</span>
+        <span class="sytrus-panel-sub">{"operators · modulation · filters · bus"}</span>
+      </div>
+
+      <section class="sytrus-section">
+        <div class="sytrus-section-h">
+          <span>{"Operators"}</span>
+          <button
+            type="button"
+            class="sytrus-add-btn"
+            disabled={!canAddOp}
+            onmousedown={(e) => e.stopPropagation()}
+            onclick={() => {
+              addMatrixFmOperator(g)
+              commit()
+            }}
+          >
+            {"+ Op"}
+          </button>
+        </div>
+        <div class="sytrus-op-grid">{opStrips}</div>
+      </section>
+
+      <section class="sytrus-section">
+        <div class="sytrus-section-h">
+          <span>{"Modulation matrix"}</span>
+          <span class="sytrus-hint">{"columns = source · rows = destination"}</span>
+        </div>
+        {opIds.length === 0 ? (
+          <p class="sytrus-empty">{"Add an operator to edit the matrix."}</p>
+        ) : (
+          <div class="sytrus-matrix-wrap">
+            <table class="sytrus-matrix">
+              <thead>
+                <tr>
+                  <th class="sytrus-matrix-corner" />
+                  {opHeaderCells}
+                </tr>
+              </thead>
+              <tbody>{matrixRows}</tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section class="sytrus-section">
+        <div class="sytrus-section-h">
+          <span>{"Filters"}</span>
+          <button
+            type="button"
+            class="sytrus-add-btn"
+            disabled={!canAddFlt}
+            onmousedown={(e) => e.stopPropagation()}
+            onclick={() => {
+              addMatrixFmFilter(g)
+              commit()
+            }}
+          >
+            {"+ Filter"}
+          </button>
+        </div>
+        <div class="sytrus-filter-grid">{filterBlocks}</div>
+      </section>
+
+      <section class="sytrus-section">
+        <div class="sytrus-section-h">
+          <span>{"Routing"}</span>
+          <button
+            type="button"
+            class="sytrus-add-btn"
+            onmousedown={(e) => e.stopPropagation()}
+            onclick={() => {
+              let sk0 = "op"
+              let sid0 = opIds.length > 0 ? opIds[0] : "1"
+              let dk0 = "out"
+              let did0 = ""
+              if (filterIds.length > 0) {
+                dk0 = "filter"
+                did0 = filterIds[0]
+              }
+              addMatrixFmRoute(g, sk0, sid0, dk0, did0, 1)
+              commit()
+            }}
+          >
+            {"+ Route"}
+          </button>
+        </div>
+        <div class="sytrus-routes">{routeRows}</div>
+      </section>
+    </div>
+  )
+}
+
+fn routeIdOptions(kind, opIds, filterIds) {
+  let opts = []
+  if (kind === "filter") {
+    let fi = 0
+    while (fi < filterIds.length) {
+      let id = filterIds[fi]
+      opts.push(
+        <option value={id} key={"roidf" + id}>
+          {id}
+        </option>
+      )
+      fi = fi + 1
+    }
+    if (opts.length === 0) {
+      opts.push(<option value="1">{"1"}</option>)
+    }
+  } else {
+    let oi = 0
+    while (oi < opIds.length) {
+      let id = opIds[oi]
+      opts.push(
+        <option value={id} key={"roido" + id}>
+          {id}
+        </option>
+      )
+      oi = oi + 1
+    }
+    if (opts.length === 0) {
+      opts.push(<option value="1">{"1"}</option>)
+    }
+  }
+  return opts
+}
+
+fn filterIdOptions(filterIds) {
+  let opts = []
+  let fi = 0
+  while (fi < filterIds.length) {
+    let id = filterIds[fi]
+    opts.push(
+      <option value={id} key={"fdst" + id}>
+        {id}
+      </option>
+    )
+    fi = fi + 1
+  }
+  if (opts.length === 0) {
+    opts.push(<option value="1">{"1"}</option>)
+  }
+  return opts
+}

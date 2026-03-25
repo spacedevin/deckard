@@ -105,6 +105,86 @@
         "eqHi": { "type": "number" }
       }
     },
+    "matrixFmGraph": {
+      "type": "object",
+      "description": "Parsed gen_block matrix_fm DSL (kind matrixFm, version 2)",
+      "required": ["ops", "opEnvs", "filterEnvs", "filters", "mods", "routes"],
+      "properties": {
+        "ops": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "wave": { "type": "string" },
+              "ratio": { "type": "number" }
+            }
+          }
+        },
+        "opEnvs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "a": { "type": ["number", "null"] },
+              "d": { "type": ["number", "null"] },
+              "s": { "type": ["number", "null"] },
+              "r": { "type": ["number", "null"] }
+            }
+          }
+        },
+        "filterEnvs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "a": { "type": ["number", "null"] },
+              "d": { "type": ["number", "null"] },
+              "s": { "type": ["number", "null"] },
+              "r": { "type": ["number", "null"] },
+              "amount": { "type": ["number", "null"] }
+            }
+          }
+        },
+        "filters": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string" },
+              "cutoff": { "type": "number" },
+              "res": { "type": "number" }
+            }
+          }
+        },
+        "mods": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type", "src", "dst", "amount"],
+            "properties": {
+              "type": { "type": "string", "enum": ["fm", "rm"] },
+              "src": { "type": "string" },
+              "dst": { "type": "string" },
+              "amount": { "type": "number" }
+            }
+          }
+        },
+        "routes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["srcKind", "srcId", "dstKind", "dstId", "volume"],
+            "properties": {
+              "srcKind": { "type": "string", "enum": ["op", "filter"] },
+              "srcId": { "type": "string" },
+              "dstKind": { "type": "string", "enum": ["filter", "out"] },
+              "dstId": { "type": "string" },
+              "volume": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
     "channel": {
       "type": "object",
       "required": ["id", "name", "generatorId", "generatorParams", "gain", "pan", "mute", "solo", "attack", "decay", "sustain", "release", "stepPitch", "steps", "pianoNotes"],
@@ -117,7 +197,7 @@
         },
         "generatorId": {
           "type": "string",
-          "description": "Instrument plugin id: basicOsc | noiseBurst | fmTone | …"
+          "description": "Instrument plugin id: basicOsc | noiseBurst | fmTone | matrixFm | …"
         },
         "generatorParams": {
           "type": "object",
@@ -145,8 +225,27 @@
         "steps": { "type": "array", "minItems": 16, "maxItems": 16 },
         "pianoNotes": { "type": "array" },
         "generatorSpec": {
-          "type": ["object", "null"],
-          "description": "Heavy generator graph/raw (TPL gen_block); optional"
+          "description": "Heavy generator graph/raw (TPL gen_block); optional",
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["kind", "version", "raw"],
+              "properties": {
+                "kind": { "type": "string" },
+                "tplHeaderId": { "type": "string" },
+                "version": { "type": "integer" },
+                "raw": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Original gen_block body lines (round-trip)"
+                },
+                "graph": {
+                  "oneOf": [{ "$ref": "#/$defs/matrixFmGraph" }, { "type": "object" }]
+                }
+              }
+            }
+          ]
         }
       }
     }
