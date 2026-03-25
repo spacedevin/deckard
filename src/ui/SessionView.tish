@@ -1,0 +1,185 @@
+import { h, Fragment } from 'lattish'
+import {
+  ensureProjectSession,
+  findClipOnChannel,
+  sessionArmScene,
+  sessionArmTrackClip,
+  sessionStopAllTracks
+} from '../model/Session.tish'
+
+fn clipAccentClass(clipId) {
+  let h = 0
+  let i = 0
+  while (i < clipId.length) {
+    h = (h * 31 + clipId.charCodeAt(i)) % 360
+    i = i + 1
+  }
+  return "session-clip-hue-" + String(h % 6)
+}
+
+export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi) {
+  ensureProjectSession(project)
+  let sc = project.session.sceneCount
+  let activeScene = 0
+  if (rt.sessionActiveScene !== undefined && rt.sessionActiveScene !== null) {
+    activeScene = Math.floor(Number(rt.sessionActiveScene))
+  }
+  if (activeScene < 0 || activeScene >= sc) {
+    activeScene = 0
+  }
+
+  fn armScene(si) {
+    sessionArmScene(project, rt, si)
+    if (bumpSessionUi) {
+      bumpSessionUi()
+    }
+    setProjectFromUI(project)
+  }
+
+  fn armCell(trackIdx, clipId) {
+    sessionArmTrackClip(project, rt, trackIdx, clipId)
+    if (bumpSessionUi) {
+      bumpSessionUi()
+    }
+    setProjectFromUI(project)
+  }
+
+  fn stopAll() {
+    sessionStopAllTracks(project, rt)
+    if (bumpSessionUi) {
+      bumpSessionUi()
+    }
+    setProjectFromUI(project)
+  }
+
+  let sceneHeaders = []
+  let sh = 0
+  while (sh < sc) {
+    let si = sh
+    let hdrCls = "session-scene-head"
+    if (si === activeScene) {
+      hdrCls = hdrCls + " session-scene-head-active"
+    }
+    sceneHeaders.push(
+      <div class={hdrCls} key={"sc-h-" + String(si)}>
+        <span class="session-scene-label">{"SCENE "}{String(si + 1)}</span>
+        <button type="button" class="btn-session-launch" onclick={() => armScene(si)}>
+          {"Launch"}
+        </button>
+      </div>
+    )
+    sh = sh + 1
+  }
+
+  let rows = []
+  let ti = 0
+  while (ti < project.channels.length) {
+    let ch = project.channels[ti]
+    let tix = ti
+    let cells = []
+    let sj = 0
+    while (sj < sc) {
+      let slotClipId = ""
+      if (project.session.slots[tix] && project.session.slots[tix][sj] !== undefined) {
+        slotClipId = project.session.slots[tix][sj]
+      }
+      let clip = null
+      if (slotClipId && slotClipId.length > 0) {
+        clip = findClipOnChannel(ch, slotClipId)
+      }
+      let armed = ""
+      if (rt.sessionArmedClipIds && rt.sessionArmedClipIds[tix] !== undefined) {
+        armed = rt.sessionArmedClipIds[tix]
+      }
+      let isPlaying = playing && armed === slotClipId && slotClipId.length > 0
+      let sjCopy = sj
+      let clipIdCopy = slotClipId
+      if (!clip) {
+        cells.push(
+          <div class="session-cell session-cell-empty" key={"c-" + String(tix) + "-" + String(sj)}>
+            <span class="session-cell-dash">{"—"}</span>
+          </div>
+        )
+      } else {
+        let bars = clip.bars != null ? Math.floor(Number(clip.bars)) : 1
+        if (bars < 1 || bars !== bars) {
+          bars = 1
+        }
+        let nm = clip.name && String(clip.name).length > 0 ? String(clip.name) : clip.id
+        let cellCls = "session-cell " + clipAccentClass(clip.id)
+        if (isPlaying) {
+          cellCls = cellCls + " session-cell-playing"
+        }
+        cells.push(
+          <button
+            type="button"
+            class={cellCls}
+            key={"c-" + String(tix) + "-" + String(sj)}
+            onclick={() => armCell(tix, clipIdCopy)}
+            title={"Arm clip on this track"}
+          >
+            <span class="session-cell-name">{nm}</span>
+            <span class="session-cell-meta">
+              {isPlaying ? "■" : "▶"}{" · "}{String(bars)}{" bar"}
+              {bars === 1 ? "" : "s"}
+            </span>
+          </button>
+        )
+      }
+      sj = sj + 1
+    }
+    let rowLaunchCls = "btn-session-row-launch"
+    if (playing && project.session.slots[tix] && project.session.slots[tix][activeScene]) {
+      let ac = project.session.slots[tix][activeScene]
+      if (ac && rt.sessionArmedClipIds && rt.sessionArmedClipIds[tix] === ac) {
+        rowLaunchCls = rowLaunchCls + " btn-session-row-launch-on"
+      }
+    }
+    rows.push(
+      <div class="session-track-row" key={"row-" + String(tix)}>
+        <div class="session-track-label">
+          <span class="session-track-name">{ch.name}</span>
+          <span class="session-track-mini">{"M S"}</span>
+        </div>
+        <div class="session-cells">{cells}</div>
+        <button
+          type="button"
+          class={rowLaunchCls}
+          title={"Arm clip from active scene column"}
+          onclick={() => {
+            let cid = ""
+            if (project.session.slots[tix] && project.session.slots[tix][activeScene]) {
+              cid = project.session.slots[tix][activeScene]
+            }
+            armCell(tix, cid)
+          }}
+        >
+          {"▶"}
+        </button>
+      </div>
+    )
+    ti = ti + 1
+  }
+
+  return (
+    <section class="panel session-panel">
+      <div class="session-panel-head">
+        <div class="session-brand">
+          <span class="session-dot" />
+          <span class="session-title">{"SESSION"}</span>
+        </div>
+        <button type="button" class="btn-session-stop-all" onclick={stopAll}>
+          {"Stop all clips"}
+        </button>
+      </div>
+      <p class="session-hint">
+        {"Launch a scene to arm every track’s slot in that column. Click a clip to arm one track. Patterns loop over each clip’s bar length (hub-friendly)."}
+      </p>
+      <div class="session-grid-wrap">
+        <div class="session-corner" />
+        <div class="session-scene-row">{sceneHeaders}</div>
+        {rows}
+      </div>
+    </section>
+  )
+}

@@ -1,6 +1,7 @@
 import { formatTplBeat, formatTplFloat } from './Format.tish'
 import { mixParamToTpl } from '../audio/MixerAutomation.tish'
 import { collectActorLanes } from '../model/MixerRouting.tish'
+import { syncAllMainClipsFromChannels, ensureProjectSession } from '../model/Session.tish'
 
 export fn generatorIdToTpl(id) {
   if (id === "noiseBurst") {
@@ -16,6 +17,8 @@ export fn generatorIdToTpl(id) {
 }
 
 export fn emitProject(project) {
+  syncAllMainClipsFromChannels(project)
+  ensureProjectSession(project)
   let o = "tpl 1\n"
   o = o + "bpm " + formatTplFloat(project.bpm) + "\n\n"
 
@@ -164,6 +167,87 @@ export fn emitProject(project) {
 
     o = o + "\n"
     ci = ci + 1
+  }
+
+  o = o + "session_scenes " + String(Math.floor(Number(project.session.sceneCount))) + "\n"
+  let sti = 0
+  while (sti < project.channels.length) {
+    let scj = 0
+    while (scj < project.session.sceneCount) {
+      let slotId = ""
+      if (project.session.slots[sti] && project.session.slots[sti][scj] !== undefined) {
+        slotId = project.session.slots[sti][scj]
+      }
+      if (slotId === undefined || slotId === null) {
+        slotId = ""
+      }
+      o =
+        o +
+        "session_slot " +
+        project.channels[sti].id +
+        " " +
+        String(scj) +
+        " " +
+        (slotId === "" ? "-" : slotId) +
+        "\n"
+      scj = scj + 1
+    }
+    sti = sti + 1
+  }
+  o = o + "\n"
+  let eci = 0
+  while (eci < project.channels.length) {
+    let ech = project.channels[eci]
+    if (ech.sessionClips) {
+      let cx = 0
+      while (cx < ech.sessionClips.length) {
+        let cl = ech.sessionClips[cx]
+        o = o + "clip " + cl.id + " channel " + ech.id + " bars " + String(Math.floor(Number(cl.bars)))
+        if (cl.name && String(cl.name).length > 0) {
+          o = o + " name " + String(cl.name)
+        }
+        o = o + "\n"
+        let pn = cl.pianoNotes
+        if (pn && pn.length > 0) {
+          let nk = 0
+          while (nk < pn.length) {
+            let n = pn[nk]
+            o =
+              o +
+              "  note " +
+              String(n.pitch) +
+              " " +
+              String(n.startBeat) +
+              " " +
+              String(n.durBeats) +
+              " v " +
+              String(n.vel) +
+              "\n"
+            nk = nk + 1
+          }
+        } else {
+          o = o + "  steps "
+          let sk = 0
+          while (cl.steps && sk < cl.steps.length) {
+            if (sk > 0) {
+              o = o + " "
+            }
+            o = o + (cl.steps[sk].on ? "x" : ".")
+            sk = sk + 1
+          }
+          o = o + "\n"
+        }
+        if (cl.tplLoopBars !== undefined && cl.tplLoopBars !== null) {
+          let tn = Math.floor(Number(cl.tplLoopBars))
+          if (tn >= 1 && tn === tn) {
+            o = o + "  loops " + String(tn) + "\n"
+          }
+        }
+        o = o + "\n"
+        cx = cx + 1
+      }
+    }
+    eci = eci + 1
   }
 
   if (project.masterMixer) {

@@ -63,6 +63,8 @@ export fn createDeckardRuntime() {
     rackPrNode: [],
     prSkipRedrawSig: null,
     prSkipRedrawEl: null,
-    dawScopeStarted: false
+    dawScopeStarted: false,
+    sessionArmedClipIds: [],
+    sessionActiveScene: 0
   }
 }

@@ -29,6 +29,8 @@ import { coDjInitWebMidi } from '../codj/MidiProfiles.tish'
 import { coDjFlushScheduledForStep } from '../codj/Schedule.tish'
 import { pruneStaleTracks, coDjTrackExpirySequences } from '../codj/Prune.tish'
 import { createDeckardRuntime } from './DeckardRuntime.tish'
+import { sessionArmScene, mirrorStepToggleToMainClip, mirrorClearStepToMainClip } from '../model/Session.tish'
+import { SessionView } from './SessionView.tish'
 
 let initialDeckardBoot = loadDefaultDeckardProject()
 if (initialDeckardBoot.errors.length > 0 && typeof console !== "undefined" && console.warn) {
@@ -50,6 +52,11 @@ export fn App() {
   let [selectedCh, setSelectedCh] = useState(3)
   let [playing, setPlaying] = useState(false)
   let [workspaceTab, setWorkspaceTab] = useState("sequencer")
+  let [sessionUiGen, setSessionUiGen] = useState(0)
+
+  fn bumpSessionUi() {
+    setSessionUiGen(sessionUiGen + 1)
+  }
 
   fn touchMixer() {
     updateMixerFromProject(project, audioStore)
@@ -60,6 +67,12 @@ export fn App() {
     rtRef.current = createDeckardRuntime()
   }
   let rt = rtRef.current
+  rt.mirrorStepToSessionClip = (ch, si) => {
+    mirrorStepToggleToMainClip(ch, si)
+  }
+  rt.mirrorClearStepToSessionClip = (ch, si) => {
+    mirrorClearStepToMainClip(ch, si)
+  }
   rt.project = project
   rt.setProject = setProject
   rt.setTplText = setTplText
@@ -273,13 +286,18 @@ export fn App() {
     }
     globalTick = 0
     tplLoopResetAll()
+    let scn = 0
+    if (rt.sessionActiveScene !== undefined && rt.sessionActiveScene !== null) {
+      scn = Math.floor(Number(rt.sessionActiveScene))
+    }
+    sessionArmScene(project, rt, scn)
     rt.playing = true
     let ms = (60 / project.bpm / 4) * 1000
     playbackTimer = setInterval(() => {
       let r = rtRef.current
       r.perfStep = globalTick
       coDjFlushScheduledForStep(globalTick, r)
-      transportTick(r.project, audioStore, globalTick)
+      transportTick(r.project, audioStore, globalTick, r)
       if (globalTick % 64 === 0) {
         let p = r.project
         if (p && audioStore.buses) {
@@ -465,7 +483,7 @@ export fn App() {
   let channels = []
   let ci = 0
   while (ci < project.channels.length) {
-    channels.push(ChannelRow(project.channels[ci], ci, project, setProjectFromUI, ci === selectedCh, setSelectedCh))
+    channels.push(ChannelRow(project.channels[ci], ci, project, setProjectFromUI, ci === selectedCh, setSelectedCh, rt))
     ci = ci + 1
   }
 
@@ -483,8 +501,13 @@ export fn App() {
           {PianoRollCanvas(project, selectedCh, setProjectFromUI, null)}
         </section>
         {CoDjPanel(project, setProject, tplMirrorFlush, rt)}
-        {CodeDebugView(project, setProject, tplText, setTplText, rt)}
       </Fragment>
+    )
+  } else if (workspaceTab === "session") {
+    mainWorkspace = (
+      <div class="session-workspace-wrap" key={"sv-" + String(sessionUiGen)}>
+        {SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi)}
+      </div>
     )
   } else if (workspaceTab === "patch") {
     let pch = null
@@ -509,6 +532,7 @@ export fn App() {
   }
 
   let tabSeq = workspaceTab === "sequencer" ? "deck-tab deck-tab-active" : "deck-tab"
+  let tabSession = workspaceTab === "session" ? "deck-tab deck-tab-active" : "deck-tab"
   let tabPatch = workspaceTab === "patch" ? "deck-tab deck-tab-active" : "deck-tab"
   let tabInstr = workspaceTab === "instrument" ? "deck-tab deck-tab-active" : "deck-tab"
 
@@ -520,6 +544,9 @@ export fn App() {
         <button type="button" class={tabSeq} onclick={() => setWorkspaceTab("sequencer")}>
           {"Sequencer"}
         </button>
+        <button type="button" class={tabSession} onclick={() => setWorkspaceTab("session")}>
+          {"Session"}
+        </button>
         <button type="button" class={tabPatch} onclick={() => setWorkspaceTab("patch")}>
           {"Patch"}
         </button>
@@ -529,7 +556,10 @@ export fn App() {
       </nav>
     </header>
     <div class="daw-body">
-      <div class="daw-main-stack">{mainWorkspace}</div>
+      <div class="daw-workspace-column">
+        <div class="daw-main-stack">{mainWorkspace}</div>
+        <div class="daw-tpl-dock">{CodeDebugView(project, setProject, tplText, setTplText, rt, true)}</div>
+      </div>
       <aside class="panel mixer-panel">
         <h2>{"Mixer (track → actor → master)"}</h2>
         <div class="mixer-panel-head">

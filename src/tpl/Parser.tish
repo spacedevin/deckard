@@ -39,6 +39,10 @@ export fn parseProgram(source) {
   let autos = []
   let masterMixTokens = null
   let actorMixRows = []
+  let clipBlocks = []
+  let sessionSceneCount = null
+  let sessionSlots = []
+  let currentClip = null
 
   let src = source
   if (src == null || src === undefined) {
@@ -111,6 +115,11 @@ export fn parseProgram(source) {
       continue
     }
 
+    if (isIndented && currentClip) {
+      currentClip.body.push({ lineNo: i, tokens: toks, raw: trimmed })
+      continue
+    }
+
     if (isIndented && currentTrack) {
       if (toks.length >= 1 && toks[0] === "gen_block" && toks.length >= 2) {
         inGenBlock = true
@@ -142,7 +151,48 @@ export fn parseProgram(source) {
     if (head === "@" && toks.length >= 3 && toks[1] === "perf_step") {
       continue
     }
+    if (head === "session_scenes" && toks.length >= 2) {
+      currentClip = null
+      sessionSceneCount = Math.floor(Number(toks[1]))
+      continue
+    }
+    if (head === "session_slot" && toks.length >= 4) {
+      currentClip = null
+      let cid = toks[3]
+      if (cid === "-" || cid === ".") {
+        cid = ""
+      }
+      sessionSlots.push({
+        channelId: toks[1],
+        scene: Math.floor(Number(toks[2])),
+        clipId: cid
+      })
+      continue
+    }
+    if (head === "clip" && toks.length >= 6 && toks[2] === "channel" && toks[4] === "bars") {
+      let br = Math.floor(Number(toks[5]))
+      if (br < 1 || br !== br) {
+        errors.push({ line: i, msg: "clip: bars must be >= 1" })
+        br = 1
+      }
+      let disp = ""
+      if (toks.length >= 8 && toks[6] === "name") {
+        disp = toks.slice(7).join(" ")
+      }
+      currentClip = {
+        clipId: toks[1],
+        channelId: toks[3],
+        bars: br,
+        displayName: disp,
+        body: []
+      }
+      clipBlocks.push(currentClip)
+      currentTrack = null
+      currentAuto = null
+      continue
+    }
     if (head === "track") {
+      currentClip = null
       if (toks.length >= 6 && toks[2] === "id" && toks[4] === "gen") {
         let loopBars = null
         if (toks.length >= 8 && toks[6] === "*") {
@@ -177,15 +227,18 @@ export fn parseProgram(source) {
       continue
     }
     if (head === "auto") {
+      currentClip = null
       currentAuto = { lineNo: i, header: toks.slice(1), points: [] }
       autos.push(currentAuto)
       continue
     }
     if (head === "master_mix") {
+      currentClip = null
       masterMixTokens = toks.slice(1)
       continue
     }
     if (head === "actor_mix" && toks.length >= 2) {
+      currentClip = null
       actorMixRows.push({ lineNo: i, lane: toks[1], tokens: toks.slice(2) })
       continue
     }
@@ -209,6 +262,9 @@ export fn parseProgram(source) {
     autos: autos,
     masterMixTokens: masterMixTokens,
     actorMixRows: actorMixRows,
+    clipBlocks: clipBlocks,
+    sessionSceneCount: sessionSceneCount,
+    sessionSlots: sessionSlots,
     errors: errors
   }
 }

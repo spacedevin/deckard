@@ -1,0 +1,374 @@
+// Session / clip launcher: named patterns per track, grid of scenes (columns).
+// Channel rack + piano still edit ch.steps / ch.pianoNotes; main clip mirrors for emit + playback.
+
+import { makeStep } from './Project.tish'
+
+export fn defaultMainClipId(ch) {
+  return ch.id + "_main"
+}
+
+export fn copySteps16FromChannel(ch) {
+  let out = []
+  let si = 0
+  while (si < 16) {
+    let st = ch.steps[si]
+    out.push(makeStep(st.on, st.vel != null ? st.vel : 100))
+    si = si + 1
+  }
+  return out
+}
+
+export fn tileStepsPattern(base16, bars) {
+  let b = Math.floor(Number(bars))
+  if (b < 1 || b !== b) {
+    b = 1
+  }
+  let out = []
+  let bi = 0
+  while (bi < b) {
+    let si = 0
+    while (si < 16) {
+      out.push(makeStep(base16[si].on, base16[si].vel))
+      si = si + 1
+    }
+    bi = bi + 1
+  }
+  return out
+}
+
+export fn copyPianoNotes(arr) {
+  if (!arr || arr.length === 0) {
+    return []
+  }
+  let out = []
+  let i = 0
+  while (i < arr.length) {
+    let n = arr[i]
+    out.push({
+      startBeat: n.startBeat,
+      durBeats: n.durBeats,
+      pitch: n.pitch,
+      vel: n.vel
+    })
+    i = i + 1
+  }
+  return out
+}
+
+export fn ensureChannelSessionClips(ch) {
+  if (!ch.sessionClips) {
+    ch.sessionClips = []
+  }
+  if (ch.sessionClips.length > 0) {
+    return
+  }
+  let bars = 1
+  if (ch.tplLoopBars !== undefined && ch.tplLoopBars !== null) {
+    let tn = Math.floor(Number(ch.tplLoopBars))
+    if (tn >= 1 && tn === tn) {
+      bars = tn
+    }
+  }
+  let base = copySteps16FromChannel(ch)
+  ch.sessionClips.push({
+    id: defaultMainClipId(ch),
+    name: ch.name,
+    bars: bars,
+    steps: tileStepsPattern(base, bars),
+    pianoNotes: copyPianoNotes(ch.pianoNotes),
+    tplLoopBars: ch.tplLoopBars != null ? ch.tplLoopBars : null
+  })
+}
+
+export fn findClipOnChannel(ch, clipId) {
+  if (!ch.sessionClips) {
+    return null
+  }
+  let i = 0
+  while (i < ch.sessionClips.length) {
+    if (ch.sessionClips[i].id === clipId) {
+      return ch.sessionClips[i]
+    }
+    i = i + 1
+  }
+  return null
+}
+
+/** Keep first bar of main clip aligned with channel rack (multi-bar = tiled pattern). */
+export fn mirrorStepToggleToMainClip(ch, stepIdx) {
+  ensureChannelSessionClips(ch)
+  let c0 = ch.sessionClips[0]
+  if (!c0 || !c0.steps) {
+    return
+  }
+  let on = ch.steps[stepIdx].on
+  let vel = ch.steps[stepIdx].vel != null ? ch.steps[stepIdx].vel : 100
+  let pos = stepIdx
+  while (pos < c0.steps.length) {
+    c0.steps[pos].on = on
+    c0.steps[pos].vel = vel
+    pos = pos + 16
+  }
+}
+
+export fn mirrorClearStepToMainClip(ch, stepIdx) {
+  ensureChannelSessionClips(ch)
+  let c0 = ch.sessionClips[0]
+  if (!c0 || !c0.steps) {
+    return
+  }
+  let pos = stepIdx
+  while (pos < c0.steps.length) {
+    c0.steps[pos].on = false
+    pos = pos + 16
+  }
+}
+
+/** Before emit / hub preview: main clip reflects rack + piano + tpl bar cap. */
+export fn syncMainClipFromChannel(ch) {
+  ensureChannelSessionClips(ch)
+  let c0 = ch.sessionClips[0]
+  let bars = 1
+  if (ch.tplLoopBars !== undefined && ch.tplLoopBars !== null) {
+    let tn = Math.floor(Number(ch.tplLoopBars))
+    if (tn >= 1 && tn === tn) {
+      bars = tn
+    }
+  }
+  c0.bars = bars
+  c0.steps = tileStepsPattern(copySteps16FromChannel(ch), bars)
+  c0.pianoNotes = copyPianoNotes(ch.pianoNotes)
+  c0.tplLoopBars = ch.tplLoopBars != null ? ch.tplLoopBars : null
+}
+
+export fn syncAllMainClipsFromChannels(project) {
+  if (!project || !project.channels) {
+    return
+  }
+  let i = 0
+  while (i < project.channels.length) {
+    syncMainClipFromChannel(project.channels[i])
+    i = i + 1
+  }
+}
+
+export fn ensureProjectSession(project) {
+  if (!project.channels) {
+    return
+  }
+  let ci = 0
+  while (ci < project.channels.length) {
+    ensureChannelSessionClips(project.channels[ci])
+    ci = ci + 1
+  }
+  if (!project.session) {
+    project.session = { sceneCount: 4, slots: [] }
+  }
+  let sc = Math.floor(Number(project.session.sceneCount))
+  if (sc < 1 || sc !== sc) {
+    sc = 4
+  }
+  project.session.sceneCount = sc
+  if (!project.session.slots) {
+    project.session.slots = []
+  }
+  while (project.session.slots.length < project.channels.length) {
+    let row = []
+    let sj = 0
+    while (sj < sc) {
+      row.push("")
+      sj = sj + 1
+    }
+    project.session.slots.push(row)
+  }
+  let ti = 0
+  while (ti < project.channels.length) {
+    let ch = project.channels[ti]
+    let row = project.session.slots[ti]
+    while (row.length < sc) {
+      row.push("")
+    }
+    if (row[0] === undefined || row[0] === null || row[0] === "") {
+      row[0] = defaultMainClipId(ch)
+    }
+    ti = ti + 1
+  }
+  while (project.session.slots.length > project.channels.length) {
+    project.session.slots.pop()
+  }
+}
+
+export fn sessionArmScene(project, rt, sceneIdx) {
+  ensureProjectSession(project)
+  let sc = project.session.sceneCount
+  let s = Math.floor(Number(sceneIdx))
+  if (s < 0 || s >= sc || s !== s) {
+    s = 0
+  }
+  rt.sessionActiveScene = s
+  if (!rt.sessionArmedClipIds) {
+    rt.sessionArmedClipIds = []
+  }
+  let ti = 0
+  while (ti < project.channels.length) {
+    let slot = ""
+    if (project.session.slots[ti] && project.session.slots[ti][s] !== undefined) {
+      slot = project.session.slots[ti][s]
+    }
+    if (slot === undefined || slot === null) {
+      slot = ""
+    }
+    rt.sessionArmedClipIds[ti] = slot
+    ti = ti + 1
+  }
+}
+
+export fn sessionArmTrackClip(project, rt, trackIdx, clipId) {
+  ensureProjectSession(project)
+  if (!rt.sessionArmedClipIds) {
+    rt.sessionArmedClipIds = []
+  }
+  let cid = clipId
+  if (cid === undefined || cid === null) {
+    cid = ""
+  }
+  rt.sessionArmedClipIds[trackIdx] = cid
+}
+
+export fn sessionStopAllTracks(project, rt) {
+  ensureProjectSession(project)
+  if (!rt.sessionArmedClipIds) {
+    rt.sessionArmedClipIds = []
+  }
+  let ti = 0
+  while (ti < project.channels.length) {
+    rt.sessionArmedClipIds[ti] = ""
+    ti = ti + 1
+  }
+}
+
+/** Clip used for audio + loop cap, or null to fall back to channel.steps / ch.pianoNotes (no session). */
+export fn playbackClipForChannel(project, rt, chIdx) {
+  if (!project || !project.channels || chIdx < 0 || chIdx >= project.channels.length) {
+    return null
+  }
+  let ch = project.channels[chIdx]
+  if (!ch.sessionClips || ch.sessionClips.length === 0) {
+    return null
+  }
+  if (!rt || !rt.sessionArmedClipIds) {
+    return findClipOnChannel(ch, defaultMainClipId(ch))
+  }
+  let armed = rt.sessionArmedClipIds[chIdx]
+  if (armed === "") {
+    return { silent: true }
+  }
+  if (armed === undefined || armed === null) {
+    return findClipOnChannel(ch, defaultMainClipId(ch))
+  }
+  let cl = findClipOnChannel(ch, armed)
+  if (!cl) {
+    return { silent: true }
+  }
+  return cl
+}
+
+/** Ensure clip.steps.length === clip.bars * 16 (tile first bar if needed). */
+export fn normalizeClipStepLength(clip) {
+  if (!clip) {
+    return
+  }
+  let b = Math.max(1, Math.floor(clip.bars))
+  clip.bars = b
+  let want = b * 16
+  if (!clip.steps) {
+    clip.steps = []
+  }
+  if (clip.steps.length === want) {
+    return
+  }
+  if (clip.steps.length > want) {
+    clip.steps = clip.steps.slice(0, want)
+    return
+  }
+  if (clip.steps.length === 0) {
+    let i = 0
+    while (i < want) {
+      clip.steps.push(makeStep(false, 100))
+      i = i + 1
+    }
+    return
+  }
+  let base = []
+  let si = 0
+  while (si < 16) {
+    let st = clip.steps[si]
+    if (!st) {
+      base.push(makeStep(false, 100))
+    } else {
+      base.push(makeStep(st.on, st.vel != null ? st.vel : 100))
+    }
+    si = si + 1
+  }
+  clip.steps = tileStepsPattern(base, b)
+}
+
+export fn clipPatternSpanSteps(clip) {
+  if (!clip || clip.silent || !clip.steps) {
+    return 16
+  }
+  let L = clip.steps.length
+  if (L < 16) {
+    return 16
+  }
+  return L
+}
+
+export fn clipLoopBarsCap(clip) {
+  if (!clip || clip.silent) {
+    return null
+  }
+  if (clip.tplLoopBars === undefined || clip.tplLoopBars === null) {
+    return null
+  }
+  let n = Math.floor(Number(clip.tplLoopBars))
+  if (n < 1 || n !== n) {
+    return null
+  }
+  return n
+}
+
+/** Finite bar cap for loop exhaustion (active clip tplLoopBars, else channel header). */
+export fn effectiveTplLoopCap(project, rt, chIdx) {
+  if (!project || !project.channels || chIdx < 0 || chIdx >= project.channels.length) {
+    return null
+  }
+  let ch = project.channels[chIdx]
+  if (!rt) {
+    if (ch.tplLoopBars === undefined || ch.tplLoopBars === null) {
+      return null
+    }
+    let n0 = Math.floor(Number(ch.tplLoopBars))
+    if (n0 >= 1 && n0 === n0) {
+      return n0
+    }
+    return null
+  }
+  let cl = playbackClipForChannel(project, rt, chIdx)
+  if (cl && cl.silent) {
+    return null
+  }
+  if (cl && !cl.silent) {
+    let c1 = clipLoopBarsCap(cl)
+    if (c1 !== null) {
+      return c1
+    }
+  }
+  if (ch.tplLoopBars !== undefined && ch.tplLoopBars !== null) {
+    let n2 = Math.floor(Number(ch.tplLoopBars))
+    if (n2 >= 1 && n2 === n2) {
+      return n2
+    }
+  }
+  return null
+}

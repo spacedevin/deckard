@@ -1,4 +1,11 @@
-import { makeChannel, defaultParamsForGeneratorId } from '../model/Project.tish'
+import { makeChannel, defaultParamsForGeneratorId, makeStep, makeSteps16 } from '../model/Project.tish'
+import {
+  findClipOnChannel,
+  ensureChannelSessionClips,
+  ensureProjectSession,
+  tileStepsPattern,
+  normalizeClipStepLength
+} from '../model/Session.tish'
 import { paramKeyToCamel } from './RegistryMap.tish'
 import {
   mixParamFromTpl,
@@ -291,6 +298,228 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
   }
 }
 
+export fn applyClipStepsLiteral(clip, toks, startIdx) {
+  let bars = Math.max(1, Math.floor(clip.bars))
+  let want = bars * 16
+  let avail = toks.length - startIdx
+  let base = []
+  let si = 0
+  while (si < 16) {
+    let on = false
+    let vel = 100
+    if (startIdx + si < toks.length) {
+      let t = toks[startIdx + si]
+      if (t === "x" || t === "X" || t === "1") {
+        on = true
+      }
+    }
+    base.push(makeStep(on, vel))
+    si = si + 1
+  }
+  if (avail >= want) {
+    let out = []
+    let j = 0
+    while (j < want) {
+      let t2 = toks[startIdx + j]
+      let on2 = t2 === "x" || t2 === "X" || t2 === "1"
+      out.push(makeStep(on2, 100))
+      j = j + 1
+    }
+    clip.steps = out
+  } else {
+    clip.steps = tileStepsPattern(base, bars)
+  }
+}
+
+export fn applyClipPatternBody(ch, clip, body, errors) {
+  clip.tplLoopBars = null
+  let noteLines = []
+  let hadSteps = false
+  let transposeSemi = 0
+  let sawTranspose = false
+  let maxBeat = Math.max(4, clip.bars * 4)
+  let bi = 0
+  while (bi < body.length) {
+    let row = body[bi]
+    let t = row.tokens
+    if (t.length === 0) {
+      bi = bi + 1
+      continue
+    }
+    let h = t[0]
+    if (h === "loops") {
+      if (t.length >= 2) {
+        let v = t[1]
+        if (v === "inf" || v === "infinite") {
+          clip.tplLoopBars = null
+        } else {
+          let n = Math.floor(Number(v))
+          if (n >= 1 && n === n) {
+            clip.tplLoopBars = n
+          } else {
+            errors.push({ line: row.lineNo, msg: "clip loops: expected positive integer or inf" })
+          }
+        }
+      }
+    } else {
+      if (h === "steps") {
+        hadSteps = true
+        if (t.length >= 4 && t[1] === "euclid") {
+          let tmp = { steps: makeSteps16() }
+          applyStepsEuclid(tmp, Number(t[2]), Number(t[3]))
+          clip.steps = tileStepsPattern(tmp.steps, Math.max(1, Math.floor(clip.bars)))
+        } else {
+          applyClipStepsLiteral(clip, t, 1)
+        }
+      } else {
+        if (h === "note") {
+          if (t.length >= 6 && t[4] === "v") {
+            let sb = Number(t[2])
+            let db = Number(t[3])
+            if (sb < 0 || sb + db > maxBeat + 0.0001) {
+              errors.push({
+                line: row.lineNo,
+                msg: "clip note: must fit in clip (0 .. bars*4 beats)"
+              })
+            } else {
+              noteLines.push({
+                pitch: Math.floor(Number(t[1])),
+                startBeat: sb,
+                durBeats: db,
+                vel: Math.floor(Number(t[5]))
+              })
+            }
+          }
+        } else {
+          if (h === "transpose") {
+            if (t.length >= 2) {
+              transposeSemi = Math.floor(Number(t[1]))
+              sawTranspose = true
+            }
+          }
+        }
+      }
+    }
+    bi = bi + 1
+  }
+
+  if (noteLines.length > 0) {
+    clip.pianoNotes = []
+    let ni = 0
+    while (ni < noteLines.length) {
+      clip.pianoNotes.push({
+        startBeat: noteLines[ni].startBeat,
+        durBeats: noteLines[ni].durBeats,
+        pitch: noteLines[ni].pitch,
+        vel: noteLines[ni].vel
+      })
+      ni = ni + 1
+    }
+  } else {
+    if (hadSteps) {
+      clip.pianoNotes = []
+    }
+  }
+
+  if (sawTranspose) {
+    let pi = 0
+    while (pi < clip.pianoNotes.length) {
+      clip.pianoNotes[pi].pitch = clip.pianoNotes[pi].pitch + transposeSemi
+      pi = pi + 1
+    }
+  }
+
+  if (clip.pianoNotes.length > 0) {
+    let zi = 0
+    while (zi < clip.steps.length) {
+      clip.steps[zi].on = false
+      zi = zi + 1
+    }
+  }
+
+  normalizeClipStepLength(clip)
+}
+
+export fn applySessionClipBlocks(project, clipBlocks, errors) {
+  if (!clipBlocks || clipBlocks.length === 0) {
+    return
+  }
+  let bi = 0
+  while (bi < clipBlocks.length) {
+    let blk = clipBlocks[bi]
+    let ch = findChannelById(project, blk.channelId)
+    if (!ch) {
+      errors.push({ line: 0, msg: "clip " + blk.clipId + ": unknown channel " + blk.channelId })
+      bi = bi + 1
+      continue
+    }
+    ensureChannelSessionClips(ch)
+    let clip = findClipOnChannel(ch, blk.clipId)
+    if (!clip) {
+      clip = {
+        id: blk.clipId,
+        name: blk.displayName && blk.displayName.length > 0 ? blk.displayName : blk.clipId,
+        bars: blk.bars,
+        steps: [],
+        pianoNotes: [],
+        tplLoopBars: null
+      }
+      let j = 0
+      let want = Math.max(1, Math.floor(blk.bars)) * 16
+      while (j < want) {
+        clip.steps.push(makeStep(false, 100))
+        j = j + 1
+      }
+      ch.sessionClips.push(clip)
+    }
+    clip.bars = blk.bars
+    if (blk.displayName && blk.displayName.length > 0) {
+      clip.name = blk.displayName
+    }
+    applyClipPatternBody(ch, clip, blk.body, errors)
+    tplLoopResetChannel(ch.id)
+    bi = bi + 1
+  }
+}
+
+export fn applySessionGrid(project, sceneCount, slots) {
+  ensureProjectSession(project)
+  if (sceneCount !== null && sceneCount !== undefined) {
+    let sc = Math.floor(Number(sceneCount))
+    if (sc >= 1 && sc === sc) {
+      project.session.sceneCount = sc
+    }
+  }
+  if (!slots || slots.length === 0) {
+    return
+  }
+  let si = 0
+  while (si < slots.length) {
+    let s = slots[si]
+    let tidx = 0
+    while (tidx < project.channels.length) {
+      if (project.channels[tidx].id === s.channelId) {
+        break
+      }
+      tidx = tidx + 1
+    }
+    if (tidx >= project.channels.length) {
+      si = si + 1
+      continue
+    }
+    ensureProjectSession(project)
+    let scn = project.session.sceneCount
+    while (project.session.slots[tidx].length < scn) {
+      project.session.slots[tidx].push("")
+    }
+    let scIdx = Math.floor(Number(s.scene))
+    if (scIdx >= 0 && scIdx < scn) {
+      project.session.slots[tidx][scIdx] = s.clipId
+    }
+    si = si + 1
+  }
+}
+
 export fn applyAutos(project, autos) {
   if (!project.automation) {
     project.automation = { pitchBend: [], masterGain: [] }
@@ -524,6 +753,9 @@ export fn applyParsed(project, parsed) {
     tplLoopResetChannel(tb.id)
     ti = ti + 1
   }
+  applySessionClipBlocks(project, parsed.clipBlocks ? parsed.clipBlocks : [], errs)
+  applySessionGrid(project, parsed.sessionSceneCount, parsed.sessionSlots ? parsed.sessionSlots : [])
+  ensureProjectSession(project)
   if (parsed.masterMixTokens !== null && parsed.masterMixTokens !== undefined) {
     applyMasterMixFromTokens(project, parsed.masterMixTokens)
   }

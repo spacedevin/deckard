@@ -1,6 +1,7 @@
 import { defaultParamsForGeneratorId, normalizeBasicOscWaveform } from '../generators/Registry.tish'
 import { ensureCoDjMeta } from '../codj/CoDjMeta.tish'
 import { ensureActorMixerEntries, ensureMasterMixer } from './MixerRouting.tish'
+import { ensureProjectSession } from './Session.tish'
 
 export fn migrateChannelGenerator(ch) {
   if (!ch.generatorId || ch.generatorId === "") {
@@ -101,4 +102,5 @@ export fn migrateProjectGenerators(project) {
   }
   ensureMasterMixer(project)
   ensureActorMixerEntries(project)
+  ensureProjectSession(project)
 }

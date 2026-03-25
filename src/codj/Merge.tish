@@ -2,7 +2,13 @@
 
 import { makeChannel, defaultParamsForGeneratorId } from '../model/Project.tish'
 import { parseProgram } from '../tpl/Parser.tish'
-import { applyTrackBody, applyAutos } from '../tpl/Apply.tish'
+import {
+  applyTrackBody,
+  applyAutos,
+  applySessionClipBlocks,
+  applySessionGrid
+} from '../tpl/Apply.tish'
+import { ensureProjectSession } from '../model/Session.tish'
 import { tplLoopResetChannel } from '../tpl/LoopState.tish'
 import { findChannelById } from '../tpl/Apply.tish'
 import { ensureCoDjMeta, setTrackOwner, setTrackTouched } from './CoDjMeta.tish'
@@ -72,6 +78,9 @@ export fn applyCoDjTplSource(project, source, actorId, authorId, currentPerfStep
     ti = ti + 1
   }
   if (actorHasMasterMixer(actorId)) {
+    applySessionClipBlocks(project, parsed.clipBlocks ? parsed.clipBlocks : [], errs)
+    applySessionGrid(project, parsed.sessionSceneCount, parsed.sessionSlots ? parsed.sessionSlots : [])
+    ensureProjectSession(project)
     applyAutos(project, parsed.autos)
   }
   return { errors: errs, applied: true }

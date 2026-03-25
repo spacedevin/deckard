@@ -1,5 +1,7 @@
 // Runtime bar counts for TPL tplLoopBars (finite loops). Keyed by channel id.
 
+import { effectiveTplLoopCap } from '../model/Session.tish'
+
 let barsDone = {}
 let exhausted = {}
 
@@ -13,7 +15,7 @@ export fn tplLoopResetChannel(id) {
   exhausted[id] = false
 }
 
-export fn tplLoopOnBarBoundary(project, globalStep) {
+export fn tplLoopOnBarBoundary(project, globalStep, rt) {
   if (globalStep <= 0 || globalStep % 16 !== 0) {
     return
   }
@@ -23,13 +25,8 @@ export fn tplLoopOnBarBoundary(project, globalStep) {
   let i = 0
   while (i < project.channels.length) {
     let ch = project.channels[i]
-    let cap = ch.tplLoopBars
-    if (cap === undefined || cap === null) {
-      i = i + 1
-      continue
-    }
-    let n = Math.floor(Number(cap))
-    if (n < 1 || n !== n) {
+    let n = effectiveTplLoopCap(project, rt, i)
+    if (n === null || n === undefined) {
       i = i + 1
       continue
     }
@@ -46,7 +43,7 @@ export fn tplLoopOnBarBoundary(project, globalStep) {
   }
 }
 
-export fn tplLoopSkipsChannel(project, chIdx) {
+export fn tplLoopSkipsChannel(project, chIdx, rt) {
   if (!project || !project.channels) {
     return false
   }
@@ -54,12 +51,8 @@ export fn tplLoopSkipsChannel(project, chIdx) {
   if (!ch) {
     return false
   }
-  let cap = ch.tplLoopBars
-  if (cap === undefined || cap === null) {
-    return false
-  }
-  let n = Math.floor(Number(cap))
-  if (n < 1) {
+  let n = effectiveTplLoopCap(project, rt, chIdx)
+  if (n === null || n === undefined) {
     return false
   }
   return exhausted[ch.id] === true

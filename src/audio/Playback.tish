@@ -2,19 +2,20 @@ import { sixteenthSeconds, automationAt } from '../schedule/Engine.tish'
 import { playHitAt, channelAudible, updateMixerFromProject } from './Engine.tish'
 import { generatorChannelAtBeat } from './ParamAtBeat.tish'
 import { tplLoopOnBarBoundary, tplLoopSkipsChannel } from '../tpl/LoopState.tish'
+import { playbackClipForChannel, clipPatternSpanSteps } from '../model/Session.tish'
 
-export fn transportTick(project, store, globalStep) {
+export fn transportTick(project, store, globalStep, rt) {
   if (!store.ctx) {
     return
   }
-  tplLoopOnBarBoundary(project, globalStep)
-  let stepInBar = globalStep % 16
+  tplLoopOnBarBoundary(project, globalStep, rt)
   let beat = globalStep * 0.25
   updateMixerFromProject(project, store, beat)
   let ctx = store.ctx
   let t = ctx.currentTime + 0.04
   let bend = 0
   if (project.automation && project.automation.pitchBend && project.automation.pitchBend.length > 0) {
+    let stepInBar = globalStep % 16
     bend = automationAt(project.automation.pitchBend, stepInBar * 0.25)
   }
   let bi = 0
@@ -23,17 +24,32 @@ export fn transportTick(project, store, globalStep) {
       bi = bi + 1
       continue
     }
-    if (tplLoopSkipsChannel(project, bi)) {
+    if (tplLoopSkipsChannel(project, bi, rt)) {
       bi = bi + 1
       continue
     }
     let ch = project.channels[bi]
     let bus = store.buses[bi]
-    if (ch.pianoNotes.length > 0) {
+    let pclip = playbackClipForChannel(project, rt, bi)
+    if (pclip && pclip.silent) {
+      bi = bi + 1
+      continue
+    }
+    let useSteps = ch.steps
+    let usePiano = ch.pianoNotes
+    let span = 16
+    if (pclip && !pclip.silent) {
+      useSteps = pclip.steps
+      usePiano = pclip.pianoNotes
+      span = clipPatternSpanSteps(pclip)
+    }
+    let stepInPat = globalStep % span
+    if (usePiano && usePiano.length > 0) {
       let pi = 0
-      while (pi < ch.pianoNotes.length) {
-        let n = ch.pianoNotes[pi]
-        if ((globalStep % 16) === (Math.floor(n.startBeat * 4 + 0.0001) % 16)) {
+      while (pi < usePiano.length) {
+        let n = usePiano[pi]
+        let noteStep = Math.floor(n.startBeat * 4 + 0.0001)
+        if (noteStep >= 0 && noteStep < span && stepInPat === noteStep) {
           let sec = (n.durBeats * 60) / project.bpm
           let gch2 = generatorChannelAtBeat(project, ch, n.startBeat)
           playHitAt(ctx, bus, t, n.pitch, n.vel, sec, gch2, bend)
@@ -41,10 +57,10 @@ export fn transportTick(project, store, globalStep) {
         pi = pi + 1
       }
     } else {
-      if (ch.steps[stepInBar].on) {
+      if (useSteps && useSteps.length > stepInPat && useSteps[stepInPat].on) {
         let dur = sixteenthSeconds(project.bpm) * 0.85
         let gch = generatorChannelAtBeat(project, ch, beat)
-        playHitAt(ctx, bus, t, ch.stepPitch, ch.steps[stepInBar].vel, dur, gch, bend)
+        playHitAt(ctx, bus, t, ch.stepPitch, useSteps[stepInPat].vel, dur, gch, bend)
       }
     }
     bi = bi + 1

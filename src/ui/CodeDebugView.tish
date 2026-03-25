@@ -23,8 +23,13 @@ fn flushTplSongEditorFromProject(project, setTplText, rt) {
   }, 0)
 }
 
-export fn CodeDebugView(project, setProject, tplText, setTplText, rt) {
+export fn CodeDebugView(project, setProject, tplText, setTplText, rt, dock) {
   let [tplErr, setTplErr] = useState("")
+  let docked = dock === true
+  let taRows = 22
+  if (docked) {
+    taRows = 12
+  }
 
   if (rt) {
     rt.tplSongEditorEcho = tplText
@@ -201,7 +206,7 @@ export fn CodeDebugView(project, setProject, tplText, setTplText, rt) {
     pre.setAttribute("aria-hidden", "true")
     let ta = document.createElement("textarea")
     ta.className = "tpl-song-input-layer"
-    ta.rows = 22
+    ta.rows = taRows
     ta.placeholder = "TPL song…"
     rt.tplSongEditorEcho = tplText
     ta.value = tplText
@@ -242,20 +247,33 @@ export fn CodeDebugView(project, setProject, tplText, setTplText, rt) {
     attachSongTextarea()
   }, 0)
 
+  let panelCls = "panel code-debug-panel"
+  if (docked) {
+    panelCls = panelCls + " code-debug-panel--dock"
+  }
+  let editorWrapCls = "tpl-song-editor-wrap tpl-song-editor-full"
+  if (docked) {
+    editorWrapCls = editorWrapCls + " tpl-song-editor-dock"
+  }
+
   return (
-    <section class="panel code-debug-panel">
+    <section class={panelCls}>
       <h2>{"TPL"}</h2>
-      <p class="code-debug-hint code-debug-hint-hub">
-        {
-          "WebSocket / hub: use the Co-DJ panel for Connect, stream previews, and the activity log. Play streams your project TPL to the gateway; agents join as separate actors. Nothing duplicated here anymore."
-        }
-      </p>
-      <p class="code-debug-hint">
-        {
-          "Song editor: Apply / Sync ↔ project."
-        }
-      </p>
-      <div class="tpl-song-editor-wrap tpl-song-editor-full">
+      {docked ? (
+        <p class="code-debug-hint code-debug-hint-dock">
+          {"Co-DJ: use the Sequencer tab. Apply / Sync updates the project."}
+        </p>
+      ) : (
+        <Fragment>
+          <p class="code-debug-hint code-debug-hint-hub">
+            {
+              "WebSocket / hub: use the Co-DJ panel for Connect, stream previews, and the activity log. Play streams your project TPL to the gateway; agents join as separate actors. Nothing duplicated here anymore."
+            }
+          </p>
+          <p class="code-debug-hint">{"Song editor: Apply / Sync ↔ project."}</p>
+        </Fragment>
+      )}
+      <div class={editorWrapCls}>
         <div id="tpl-song-textarea-slot" class="tpl-song-textarea-slot" />
       </div>
       <div class="tpl-playback-strip-wrap">

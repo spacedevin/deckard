@@ -3,7 +3,7 @@ import { toggleStep, clearStep } from '../model/Edits.tish'
 import { generatorLabelById } from '../generators/Registry.tish'
 import { tplLoopSkipsChannel } from '../tpl/LoopState.tish'
 
-export fn StepRow(ch, chIdx, project, setProject) {
+export fn StepRow(ch, chIdx, project, setProject, rt) {
   fn cell(si) {
     let on = ch.steps[si].on
     let cls = on ? "step step-on" : "step"
@@ -14,12 +14,18 @@ export fn StepRow(ch, chIdx, project, setProject) {
       onclick={(e) => {
         e.stopPropagation()
         toggleStep(project.channels[chIdx], si)
+        if (rt && rt.mirrorStepToSessionClip) {
+          rt.mirrorStepToSessionClip(project.channels[chIdx], si)
+        }
         setProject(project)
       }}
       oncontextmenu={(e) => {
         e.preventDefault()
         e.stopPropagation()
         clearStep(project.channels[chIdx], si)
+        if (rt && rt.mirrorClearStepToSessionClip) {
+          rt.mirrorClearStepToSessionClip(project.channels[chIdx], si)
+        }
         setProject(project)
       }}
     >{""}</button>
@@ -30,7 +36,7 @@ export fn StepRow(ch, chIdx, project, setProject) {
   </div>
 }
 
-export fn RackPatternArea(ch, chIdx, project, setProject, onSelectCh) {
+export fn RackPatternArea(ch, chIdx, project, setProject, onSelectCh, rt) {
   let pn = ch.pianoNotes
   if (!pn) {
     pn = []
@@ -49,12 +55,12 @@ export fn RackPatternArea(ch, chIdx, project, setProject, onSelectCh) {
       title={"Piano roll — " + String(pn.length) + " note(s). Click to edit this track."}
     />
   }
-  return StepRow(ch, chIdx, project, setProject)
+  return StepRow(ch, chIdx, project, setProject, rt)
 }
 
-export fn ChannelRow(ch, chIdx, project, setProject, selected, onSelect) {
+export fn ChannelRow(ch, chIdx, project, setProject, selected, onSelect, rt) {
   let rowCls = selected ? "channel-row channel-row-sel" : "channel-row"
-  if (tplLoopSkipsChannel(project, chIdx)) {
+  if (tplLoopSkipsChannel(project, chIdx, rt)) {
     rowCls = rowCls + " channel-row-tpl-exhausted"
   }
   let gid = ch.generatorId
@@ -69,6 +75,6 @@ export fn ChannelRow(ch, chIdx, project, setProject, selected, onSelect) {
       </div>
       <div class="ch-instr-badge">{badge}</div>
     </div>
-    {RackPatternArea(ch, chIdx, project, setProject, onSelect)}
+    {RackPatternArea(ch, chIdx, project, setProject, onSelect, rt)}
   </div>
 }

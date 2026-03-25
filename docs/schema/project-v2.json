@@ -80,9 +80,45 @@
       "type": "object",
       "description": "Per-actor-lane bus: trim, mute/solo, 3-band EQ (dB)",
       "additionalProperties": { "$ref": "#/$defs/actorMixRow" }
+    },
+    "session": {
+      "type": "object",
+      "description": "Clip launcher grid: scenes = columns, slots[trackIdx][sceneIdx] = clip id or empty",
+      "properties": {
+        "sceneCount": { "type": "integer", "minimum": 1 },
+        "slots": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
     }
   },
   "$defs": {
+    "sessionClip": {
+      "type": "object",
+      "required": ["id", "name", "bars", "steps", "pianoNotes"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "bars": { "type": "integer", "minimum": 1 },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["on", "vel"],
+            "properties": {
+              "on": { "type": "boolean" },
+              "vel": { "type": "number" }
+            }
+          }
+        },
+        "pianoNotes": { "type": "array" },
+        "tplLoopBars": { "type": ["integer", "null"] }
+      }
+    },
     "automationLane": {
       "type": "array",
       "items": {
@@ -208,6 +244,11 @@
         "eqLo": { "type": "number", "description": "Track EQ lowshelf gain dB" },
         "eqMid": { "type": "number", "description": "Track EQ mid peaking gain dB" },
         "eqHi": { "type": "number", "description": "Track EQ highshelf gain dB" },
+        "sessionClips": {
+          "type": "array",
+          "description": "Named patterns for Session view / TPL clip blocks; main clip id is {channelId}_main",
+          "items": { "$ref": "#/$defs/sessionClip" }
+        },
         "tplLoopBars": {
           "type": ["integer", "null"],
           "description": "Finite bar repeat cap from TPL (* N / loops N); null = infinite"
