@@ -1,6 +1,7 @@
 // Channel = routing (gain, pan, mute, solo) + generatorId + generatorParams (sound + ADSR per plugin).
 
 import { defaultParamsForGeneratorId } from '../generators/Registry.tish'
+import { matrixFmFactoryInstrumentPresets } from './MatrixFmPresets.tish'
 
 export fn makeStep(on, vel) {
   return { on: on, vel: vel }
@@ -46,39 +47,46 @@ export fn makeChannel(id, name, stepPitch, generatorId) {
 
 // Empty shell merged with TPL via loadProjectFromTpl (channels come from the song text).
 export fn emptyProjectShell() {
+  let instrumentPresets = [
+    {
+      presetId: "factory_kick",
+      name: "Kick punch",
+      generatorId: "noiseBurst",
+      params: { attack: 0.002, decay: 0.12, tone: 0.15, pitchFollow: 0.35 }
+    },
+    {
+      presetId: "factory_hat",
+      name: "Hat tight",
+      generatorId: "noiseBurst",
+      params: { attack: 0.001, decay: 0.035, tone: 0.85, pitchFollow: 0.05 }
+    },
+    {
+      presetId: "factory_bass_fm",
+      name: "Bass growl",
+      generatorId: "fmTone",
+      params: {
+        ratio: 1,
+        modIndex: 8,
+        carrierWave: "sine",
+        modWave: "square",
+        attack: 0.005,
+        decay: 0.1,
+        sustain: 0.3,
+        release: 0.2
+      }
+    }
+  ]
+  let mxPresets = matrixFmFactoryInstrumentPresets()
+  let mxi = 0
+  while (mxi < mxPresets.length) {
+    instrumentPresets.push(mxPresets[mxi])
+    mxi = mxi + 1
+  }
   return {
     version: 2,
     bpm: 120,
     channels: [],
-    instrumentPresets: [
-      {
-        presetId: "factory_kick",
-        name: "Kick punch",
-        generatorId: "noiseBurst",
-        params: { attack: 0.002, decay: 0.12, tone: 0.15, pitchFollow: 0.35 }
-      },
-      {
-        presetId: "factory_hat",
-        name: "Hat tight",
-        generatorId: "noiseBurst",
-        params: { attack: 0.001, decay: 0.035, tone: 0.85, pitchFollow: 0.05 }
-      },
-      {
-        presetId: "factory_bass_fm",
-        name: "Bass growl",
-        generatorId: "fmTone",
-        params: {
-          ratio: 1,
-          modIndex: 8,
-          carrierWave: "sine",
-          modWave: "square",
-          attack: 0.005,
-          decay: 0.1,
-          sustain: 0.3,
-          release: 0.2
-        }
-      }
-    ],
+    instrumentPresets: instrumentPresets,
     automation: {
       pitchBend: [{ beat: 0, value: 0 }, { beat: 4, value: 0 }],
       masterGain: [{ beat: 0, value: 1 }, { beat: 16, value: 1 }]

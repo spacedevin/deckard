@@ -1,0 +1,288 @@
+// Factory Matrix FM patches (EDM-focused). Parsed at init for instrumentPresets.generatorSpec.
+
+import { parseGenBlock } from '../tpl/TplExtension.tish'
+
+fn mp(id, name, lines) {
+  return {
+    presetId: id,
+    name: name,
+    generatorId: "matrixFm",
+    params: {},
+    generatorSpec: parseGenBlock("matrix_fm", lines)
+  }
+}
+
+export fn matrixFmFactoryInstrumentPresets() {
+  let out = []
+
+  out.push(
+    mp(
+      "mx_dub_growl",
+      "Matrix · Dub growl bass",
+      [
+        "op 1 wave sine ratio 1",
+        "op 2 wave saw ratio 0.5",
+        "op 3 wave square ratio 2",
+        "op 4 wave noise",
+        "env op 1 a 0.002 d 0.14 s 0.22 r 0.28",
+        "env op 2 a 0.008 d 0.42 s 0.58 r 0.22",
+        "env op 3 a 0.004 d 0.18 s 0 r 0.14",
+        "mod fm 2 1 5.2",
+        "mod fm 3 1 2.6",
+        "mod rm 3 2 0.75",
+        "filter 1 type lp24 cutoff 200 res 0.52",
+        "env filter 1 a 0.04 d 0.38 s 0.12 r 0.22 amount 1100",
+        "route op 1 filter 1 1",
+        "route op 4 out 0.14",
+        "route filter 1 out 1"
+      ]
+    )
+  )
+
+  out.push(
+    mp(
+      "mx_pluck_neon",
+      "Matrix · Neon pluck lead",
+      [
+        "op 1 wave sine ratio 1",
+        "op 2 wave saw ratio 2",
+        "op 3 wave sine ratio 3",
+        "env op 1 a 0.002 d 0.11 s 0 r 0.2",
+        "env op 2 a 0.003 d 0.07 s 0 r 0.11",
+        "env op 3 a 0.001 d 0.14 s 0 r 0.18",
+        "mod fm 2 1 3.6",
+        "mod fm 3 1 1.15",
+        "filter 1 type lp24 cutoff 3200 res 0.42",
+        "env filter 1 a 0.008 d 0.14 s 0.08 r 0.11 amount -2200",
+        "route op 1 filter 1 0.95",
+        "route filter 1 out 1"
+      ]
+    )
+  )
+
+  out.push(
+    mp(
+      "mx_reese_wide",
+      "Matrix · Wide reese bass",
+      [
+        "op 1 wave saw ratio 1",
+        "op 2 wave saw ratio 1.015",
+        "env op 1 a 0.018 d 0.32 s 0.88 r 0.38",
+        "env op 2 a 0.018 d 0.32 s 0.88 r 0.38",
+        "mod fm 2 1 0.35",
+        "filter 1 type lp24 cutoff 380 res 0.38",
+        "route op 1 filter 1 0.52",
+        "route op 2 filter 1 0.52",
+        "route filter 1 out 1"
+      ]
+    )
+  )
+
+  out.push(
+    mp(
+      "mx_trap_808",
+      "Matrix · Trap 808 knock",
+      [
+        "op 1 wave sine ratio 1",
+        "op 2 wave square ratio 0.5",
+        "env op 1 a 0.001 d 0.38 s 0 r 0.07",
+        "env op 2 a 0.002 d 0.22 s 0 r 0.09",
+        "mod fm 2 1 6.5",
+        "filter 1 type lp24 cutoff 280 res 0.32",
+        "env filter 1 a 0.02 d 0.25 s 0 r 0.15 amount 350",
+        "route op 1 filter 1 1",
+        "route filter 1 out 1"
+      ]
+    )
+  )
+
+  out.push(
+    mp(
+      "mx_psy_squelch",
+      "Matrix · Psy squelch lead",
+      [
+        "op 1 wave sine ratio 1",
+        "op 2 wave square ratio 1.5",
+        "op 3 wave saw ratio 3",
+        "env op 1 a 0.003 d 0.18 s 0.12 r 0.11",
+        "env op 2 a 0.004 d 0.09 s 0 r 0.09",
+        "env op 3 a 0.002 d 0.07 s 0 r 0.07",
+        "mod fm 2 1 4.2",
+        "mod fm 3 2 1.9",
+        "filter 1 type lp24 cutoff 2200 res 0.5",
+        "route op 1 filter 1 1",
+        "route filter 1 out 1"
+      ]
+    )
+  )
+
+  out.push(
+    mp(
+      "mx_supersaw_stack",
+      "Matrix · Supersaw stack",
+      [
+        "op 1 wave saw ratio 1",
+        "op 2 wave saw ratio 1.008",
+        "op 3 wave saw ratio 2",
+        "env op 1 a 0.006 d 0.22 s 0.72 r 0.32",
+        "env op 2 a 0.006 d 0.22 s 0.72 r 0.32",
+        "env op 3 a 0.006 d 0.22 s 0.68 r 0.32",
+        "mod fm 2 1 0.45",
+        "mod fm 3 1 0.28",
+        "filter 1 type lp24 cutoff 6800 res 0.32",
+        "route op 1 filter 1 0.38",
+        "route op 2 filter 1 0.36",
+        "route op 3 filter 1 0.34",
+        "route filter 1 out 1"
+      ]
+    )
+  )
+
+  out.push(
+    mp(
+      "mx_deep_house_bass",
+      "Matrix · Deep house bass",
+      [
+        "op 1 wave sine ratio 1",
+        "op 2 wave triangle ratio 1.5",
+        "env op 1 a 0.008 d 0.48 s 0.38 r 0.32",
+        "env op 2 a 0.012 d 0.52 s 0.32 r 0.28",
+        "mod fm 2 1 2.25",
+        "filter 1 type lp24 cutoff 520 res 0.48",
+        "env filter 1 a 0.12 d 0.45 s 0.18 r 0.28 amount 480",
+        "route op 1 filter 1 1",
+        "route filter 1 out 1"
+      ]
+    )
+  )
+
+  out.push(
+    mp(
+      "mx_bright_lead",
+      "Matrix · Bright festival lead",
+      [
+        "op 1 wave square ratio 1",
+        "op 2 wave saw ratio 2",
+        "op 3 wave sine ratio 4",
+        "env op 1 a 0.001 d 0.07 s 0.18 r 0.14",
+        "env op 2 a 0.002 d 0.055 s 0.14 r 0.11",
+        "env op 3 a 0.001 d 0.1 s 0 r 0.09",
+        "mod fm 2 1 2.9",
+        "mod fm 3 1 1.45",
+        "filter 1 type lp12 cutoff 7200 res 0.28",
+        "route op 1 filter 1 0.88",
+        "route filter 1 out 1"
+      ]
+    )
+  )
+
+  out.push(
+    mp(
+      "mx_airy_pad",
+      "Matrix · Airy pad",
+      [
+        "op 1 wave sine ratio 1",
+        "op 2 wave triangle ratio 2",
+        "op 3 wave sine ratio 0.5",
+        "env op 1 a 0.45 d 0.52 s 0.78 r 0.85",
+        "env op 2 a 0.48 d 0.55 s 0.72 r 0.88",
+        "env op 3 a 0.52 d 0.58 s 0.68 r 0.92",
+        "mod fm 2 1 0.55",
+        "mod fm 3 1 0.32",
+        "filter 1 type lp24 cutoff 1200 res 0.22",
+        "env filter 1 a 0.75 d 0.55 s 0.45 r 1.1 amount 900",
+        "route op 1 filter 1 0.48",
+        "route op 2 filter 1 0.44",
+        "route op 3 filter 1 0.4",
+        "route filter 1 out 1"
+      ]
+    )
+  )
+
+  out.push(
+    mp(
+      "mx_metallic_clank",
+      "Matrix · Metallic clank",
+      [
+        "op 1 wave sine ratio 2.5",
+        "op 2 wave square ratio 5",
+        "env op 1 a 0.001 d 0.055 s 0 r 0.035",
+        "env op 2 a 0.001 d 0.045 s 0 r 0.028",
+        "mod fm 2 1 7.2",
+        "filter 1 type hp12 cutoff 720 res 0.48",
+        "route op 1 filter 1 0.82",
+        "route filter 1 out 1"
+      ]
+    )
+  )
+
+  out.push(
+    mp(
+      "mx_future_bass_wobble",
+      "Matrix · Future bass wobble",
+      [
+        "op 1 wave sine ratio 1",
+        "op 2 wave saw ratio 1.5",
+        "op 3 wave square ratio 2.5",
+        "op 4 wave noise",
+        "env op 1 a 0.003 d 0.2 s 0.35 r 0.2",
+        "env op 2 a 0.006 d 0.35 s 0.5 r 0.18",
+        "env op 3 a 0.004 d 0.15 s 0 r 0.12",
+        "mod fm 2 1 4.5",
+        "mod fm 3 1 2",
+        "mod rm 4 1 0.25",
+        "filter 1 type lp24 cutoff 400 res 0.62",
+        "env filter 1 a 0.06 d 0.2 s 0.25 r 0.18 amount 2800",
+        "route op 1 filter 1 0.92",
+        "route filter 1 out 1"
+      ]
+    )
+  )
+
+  out.push(
+    mp(
+      "mx_stab_chord",
+      "Matrix · Stab chord layer",
+      [
+        "op 1 wave saw ratio 1",
+        "op 2 wave saw ratio 1.25",
+        "op 3 wave square ratio 1.5",
+        "env op 1 a 0.0015 d 0.14 s 0 r 0.16",
+        "env op 2 a 0.0015 d 0.14 s 0 r 0.16",
+        "env op 3 a 0.0015 d 0.14 s 0 r 0.16",
+        "mod fm 2 1 0.9",
+        "mod fm 3 1 0.6",
+        "filter 1 type lp24 cutoff 2400 res 0.4",
+        "env filter 1 a 0.02 d 0.12 s 0 r 0.14 amount -800",
+        "route op 1 filter 1 0.36",
+        "route op 2 filter 1 0.34",
+        "route op 3 filter 1 0.32",
+        "route filter 1 out 1"
+      ]
+    )
+  )
+
+  out.push(
+    mp(
+      "mx_sub_layer",
+      "Matrix · Sub + bite layer",
+      [
+        "op 1 wave sine ratio 1",
+        "op 2 wave sine ratio 2",
+        "op 3 wave saw ratio 3",
+        "env op 1 a 0.005 d 0.55 s 0.65 r 0.45",
+        "env op 2 a 0.008 d 0.4 s 0.4 r 0.35",
+        "env op 3 a 0.004 d 0.25 s 0.2 r 0.25",
+        "mod fm 3 2 1.8",
+        "mod fm 2 1 1.2",
+        "filter 1 type lp24 cutoff 900 res 0.4",
+        "route op 1 filter 1 0.65",
+        "route op 2 filter 1 0.45",
+        "route op 3 filter 1 0.35",
+        "route filter 1 out 1"
+      ]
+    )
+  )
+
+  return out
+}
