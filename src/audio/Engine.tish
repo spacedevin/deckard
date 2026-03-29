@@ -121,7 +121,7 @@ export fn ensureAudio(project, store) {
   }
   ensureMasterMixer(project)
   ensureActorMixerEntries(project)
-  let ctx = webAudioCreateContext()
+  let ctx = new AudioContext()
   let masterGain = ctx.createGain()
   let mg = [{ beat: 0, value: 1 }]
   if (project.automation && project.automation.masterGain && project.automation.masterGain.length > 0) {

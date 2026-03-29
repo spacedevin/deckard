@@ -35,7 +35,7 @@ export fn drawScopeCanvas(canvas, analyser) {
   let w = cssW
   let h = cssH
   let n = analyser.frequencyBinCount
-  let buf = jsUint8Array(n)
+  let buf = new Uint8Array(n)
   analyser.getByteTimeDomainData(buf)
   let t = 0
   if (typeof Date !== "undefined" && Date.now) {
