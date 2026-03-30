@@ -1,0 +1,40 @@
+// DJ-style deck split: each channel is on the live deck or cue (local prep) deck.
+// project.transportMainDeck picks which deck is heard on the main output.
+
+export fn normalizeMainDeck(project) {
+  if (!project) {
+    return "live"
+  }
+  let md = project.transportMainDeck
+  if (md === "local") {
+    return "local"
+  }
+  return "live"
+}
+
+export fn normalizeChannelDeck(ch) {
+  if (!ch) {
+    return "live"
+  }
+  let d = ch.deck
+  if (d === "local") {
+    return "local"
+  }
+  return "live"
+}
+
+/** Channel is routed to the deck currently sent to main output (for note triggers + gain). */
+export fn channelHeardOnMainDeck(project, ch) {
+  if (!ch) {
+    return false
+  }
+  return normalizeMainDeck(project) === normalizeChannelDeck(ch)
+}
+
+/** Multiply channel fader output: 0 when this channel is on the other deck. */
+export fn deckMainOutGainMultiplier(project, ch) {
+  if (channelHeardOnMainDeck(project, ch)) {
+    return 1
+  }
+  return 0
+}

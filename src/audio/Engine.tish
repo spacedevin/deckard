@@ -11,6 +11,7 @@ import {
   ensureMasterMixer,
   actorLaneAudible
 } from '../model/MixerRouting.tish'
+import { channelHeardOnMainDeck, deckMainOutGainMultiplier } from '../model/DeckRouting.tish'
 
 fn makeShelf(ctx, t, freq, q) {
   let f = ctx.createBiquadFilter()
@@ -230,14 +231,16 @@ export fn updateMixerFromProject(project, store, atBeat) {
     let loFall = ch.eqLo != null ? ch.eqLo : 0
     let midFall = ch.eqMid != null ? ch.eqMid : 0
     let hiFall = ch.eqHi != null ? ch.eqHi : 0
+    let deckMul = deckMainOutGainMultiplier(project, ch)
     if (live) {
-      b.gainNode.gain.value = mixerAutomationAt(project, "channel", ch.id, "gain", atBeat, gFall)
+      b.gainNode.gain.value =
+        mixerAutomationAt(project, "channel", ch.id, "gain", atBeat, gFall) * deckMul
       b.panNode.pan.value = mixerAutomationAt(project, "channel", ch.id, "pan", atBeat, pFall)
       b.eqLo.gain.value = mixerAutomationAt(project, "channel", ch.id, "eqLo", atBeat, loFall)
       b.eqMid.gain.value = mixerAutomationAt(project, "channel", ch.id, "eqMid", atBeat, midFall)
       b.eqHi.gain.value = mixerAutomationAt(project, "channel", ch.id, "eqHi", atBeat, hiFall)
     } else {
-      b.gainNode.gain.value = gFall
+      b.gainNode.gain.value = gFall * deckMul
       b.panNode.pan.value = pFall
       b.eqLo.gain.value = loFall
       b.eqMid.gain.value = midFall
@@ -321,6 +324,9 @@ export fn channelAudible(project, idx) {
   }
   if (anySolo(project)) {
     return ch.solo
+  }
+  if (!channelHeardOnMainDeck(project, ch)) {
+    return false
   }
   return true
 }

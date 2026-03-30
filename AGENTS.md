@@ -18,7 +18,7 @@
 
 ## Audio / compiler
 
-- **`webAudioCreateContext()`** and **`jsUint8Array(n)`** are JS-target compiler builtins (see [docs/TISH_JS_BUILTINS.md](docs/TISH_JS_BUILTINS.md)). Do not replace with hand-written `.js` shims in app code.
+- **Web Audio / typed arrays**: use **`new AudioContext()`** and **`new Uint8Array(n)`** in JS-target builds (see [docs/TISH_JS_BUILTINS.md](docs/TISH_JS_BUILTINS.md)). Do not replace with hand-written `.js` shims in app code.
 
 ## UI files
 

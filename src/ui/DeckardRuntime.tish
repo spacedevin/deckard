@@ -10,6 +10,9 @@ export fn createDeckardRuntime() {
     setSelectedCh: null,
     playing: false,
     perfStep: 0,
+    /** Next transport step index (after last tick); null when stopped. */
+    transportNextTick: null,
+    bumpSeqPromoteUi: null,
     playbackUiStep: 0,
     coDjScheduled: [],
     getSongText: null,
@@ -65,6 +68,9 @@ export fn createDeckardRuntime() {
     prSkipRedrawEl: null,
     dawScopeStarted: false,
     sessionArmedClipIds: [],
-    sessionActiveScene: 0
+    sessionActiveScene: 0,
+    sessionQueuedClipIds: [],
+    sessionQueuePending: false,
+    sessionQueuedScene: null
   }
 }

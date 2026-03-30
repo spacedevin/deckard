@@ -25,10 +25,23 @@ import {
 } from './PianoRoll.tish'
 import { drawScopeCanvas } from './Scope.tish'
 import { coDjInitWebMidi } from '../codj/MidiProfiles.tish'
-import { coDjFlushScheduledForStep } from '../codj/Schedule.tish'
+import {
+  coDjFlushScheduledForStep,
+  coDjStepsPerBar,
+  coDjStepsUntilBarBoundary
+} from '../codj/Schedule.tish'
 import { pruneStaleTracks, coDjTrackExpirySequences } from '../codj/Prune.tish'
 import { createDeckardRuntime } from './DeckardRuntime.tish'
-import { sessionArmScene, mirrorStepToggleToMainClip, mirrorClearStepToMainClip } from '../model/Session.tish'
+import {
+  ensureProjectSession,
+  sessionArmScene,
+  sessionCommitQueued,
+  sessionQueueScene,
+  sessionPlayingSceneIndex,
+  sessionWriteRackToSceneClip,
+  mirrorStepToggleToMainClip,
+  mirrorClearStepToMainClip
+} from '../model/Session.tish'
 import { SessionView } from './SessionView.tish'
 
 let initialDeckardBoot = loadDefaultDeckardProject()
@@ -52,6 +65,7 @@ export fn App() {
   let [playing, setPlaying] = useState(false)
   let [workspaceTab, setWorkspaceTab] = useState("sequencer")
   let [sessionUiGen, setSessionUiGen] = useState(0)
+  let [seqPromoteUi, setSeqPromoteUi] = useState(0)
 
   fn bumpSessionUi() {
     setSessionUiGen(sessionUiGen + 1)
@@ -66,6 +80,10 @@ export fn App() {
     rtRef.current = createDeckardRuntime()
   }
   let rt = rtRef.current
+  rt.bumpSeqPromoteUi = () => {
+    setSeqPromoteUi((x) => x + 1)
+  }
+  rt.touchMixer = touchMixer
   rt.mirrorStepToSessionClip = (ch, si) => {
     mirrorStepToggleToMainClip(ch, si)
   }
@@ -291,14 +309,18 @@ export fn App() {
     }
     sessionArmScene(project, rt, scn)
     rt.playing = true
+    rt.transportNextTick = 0
     let ms = (60 / project.bpm / 4) * 1000
     playbackTimer = setInterval(() => {
       let r = rtRef.current
-      r.perfStep = globalTick
-      coDjFlushScheduledForStep(globalTick, r)
-      transportTick(r.project, audioStore, globalTick, r)
+      let p = r.project
+      let barSteps = coDjStepsPerBar()
+      if (barSteps > 0 && globalTick % barSteps === 0) {
+        if (p && sessionCommitQueued(p, r)) {
+          bumpSessionUi()
+        }
+      }
       if (globalTick % 64 === 0) {
-        let p = r.project
         if (p && audioStore.buses) {
           let res = pruneStaleTracks(p, audioStore, globalTick, coDjTrackExpirySequences())
           if (res.removedCount > 0 && r.setProject) {
@@ -317,16 +339,79 @@ export fn App() {
           r.consumePlayedBlocks(globalTick)
         }
       }
+      r.perfStep = globalTick
+      coDjFlushScheduledForStep(globalTick, r)
+      transportTick(r.project, audioStore, globalTick, r)
       if (r.setPlaybackHighlight) {
         r.setPlaybackHighlight(globalTick % 16, true)
       }
       globalTick = globalTick + 1
+      r.transportNextTick = globalTick
+      if (r.sessionQueuePending && r.bumpSeqPromoteUi) {
+        r.bumpSeqPromoteUi()
+      }
     }, ms)
     setPlaying(true)
     if (rt.coDjNotifyPlaying) {
       rt.coDjNotifyPlaying(true)
     }
     ctx.resume()
+  }
+
+  fn onDeckMain(mode) {
+    if (mode === "local") {
+      project.transportMainDeck = "local"
+    } else {
+      project.transportMainDeck = "live"
+    }
+    updateMixerFromProject(project, audioStore)
+    setProjectFromUI(project)
+  }
+
+  fn onSeqStore(si) {
+    ensureProjectSession(project)
+    sessionWriteRackToSceneClip(project, si)
+    bumpSessionUi()
+    if (rt.playing && rt.bumpSeqPromoteUi) {
+      rt.bumpSeqPromoteUi()
+    }
+    setProjectFromUI(project)
+  }
+
+  fn onSeqSelect(si) {
+    ensureProjectSession(project)
+    if (playing) {
+      sessionQueueScene(project, rt, si)
+    } else {
+      sessionArmScene(project, rt, si)
+      rt.sessionQueuePending = false
+      rt.sessionQueuedClipIds = []
+      rt.sessionQueuedScene = null
+    }
+    if (rt.coDjWs && rt.coDjWs.readyState === 1) {
+      let ps = typeof rt.perfStep === "number" ? rt.perfStep : 0
+      let b = coDjStepsPerBar()
+      let boundary = (Math.floor(ps / b) + 1) * b
+      let aid = rt.coDjActorId ? rt.coDjActorId : (rt.coDjClientId ? rt.coDjClientId : "actor")
+      let text = emitProject(project)
+      let lines = text.split("\n")
+      let payload = JSON.stringify({
+        type: "tpl.block",
+        lines: lines,
+        effectivePerfStep: boundary,
+        actorId: aid,
+        authorId: aid
+      })
+      if (typeof console !== "undefined" && console.log) {
+        console.log("[Deckard] seq push tpl.block @" + String(boundary) + " lines=" + String(lines.length))
+      }
+      rt.coDjWs.send(payload)
+    }
+    bumpSessionUi()
+    if (rt.playing && rt.bumpSeqPromoteUi) {
+      rt.bumpSeqPromoteUi()
+    }
+    setProjectFromUI(project)
   }
 
   fn onStop() {
@@ -338,6 +423,7 @@ export fn App() {
       playbackTimer = null
     }
     rt.playing = false
+    rt.transportNextTick = null
     if (rt.setPlaybackHighlight) {
       rt.setPlaybackHighlight(0, false)
     }
@@ -519,10 +605,47 @@ export fn App() {
   let tabPatch = workspaceTab === "patch" ? "deck-tab deck-tab-active" : "deck-tab"
   let tabInstr = workspaceTab === "instrument" ? "deck-tab deck-tab-active" : "deck-tab"
 
+  ensureProjectSession(project)
+  let seqBarCount = Math.floor(Number(project.session.sceneCount))
+  if (seqBarCount < 1 || seqBarCount !== seqBarCount) {
+    seqBarCount = 4
+  }
+  let seqPlayingIdx = sessionPlayingSceneIndex(project, rt)
+  let seqQueuePending = rt.sessionQueuePending === true
+  let seqQueuedScene = rt.sessionQueuedScene
+  let seqBarPx = coDjStepsPerBar()
+  let seqDropSteps = null
+  if (playing) {
+    let nt = rt.transportNextTick
+    if (nt !== undefined && nt !== null) {
+      seqDropSteps = coDjStepsUntilBarBoundary(nt, seqBarPx)
+    }
+  }
+  let seqUiRev = seqPromoteUi
+
   return <div class="daw-root">
     <header class="daw-header">
       <h1 class="logo">{"Deckard"}</h1>
-      {TransportBar(project.bpm, playing, onPlay, onStop, onBpmInput, onExport, onImport)}
+      {TransportBar(
+        project.bpm,
+        playing,
+        onPlay,
+        onStop,
+        onBpmInput,
+        onExport,
+        onImport,
+        project.transportMainDeck !== "local" ? "live" : "local",
+        onDeckMain,
+        seqBarCount,
+        seqPlayingIdx,
+        seqQueuedScene,
+        seqQueuePending,
+        seqDropSteps,
+        seqBarPx,
+        seqUiRev,
+        onSeqSelect,
+        onSeqStore
+      )}
       <nav class="daw-workspace-tabs">
         <button type="button" class={tabSeq} onclick={() => setWorkspaceTab("sequencer")}>
           {"Sequencer"}

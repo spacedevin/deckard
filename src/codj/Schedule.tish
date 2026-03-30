@@ -1,5 +1,23 @@
 // perf_step: schedule TPL for future 16th-step ticks (sequencer frame). ASAP / late-drop.
 // One "sequence" = 64 sixteenths (four 4/4 bars). Remote actors may target up to 4 sequences ahead.
+// Session scene launch / queue commit uses one bar (16 sixteenths) so drops are not a full phrase away.
+
+export fn coDjStepsPerBar() {
+  return 16
+}
+
+/** Sixteenth steps until the next bar-aligned tick (nextTick = upcoming transport step index). Null if invalid. */
+export fn coDjStepsUntilBarBoundary(nextTick, barSteps) {
+  let b = Math.floor(Number(barSteps))
+  let t = Math.floor(Number(nextTick))
+  if (b < 1 || b !== b || t !== t || t < 0) {
+    return null
+  }
+  if (t % b === 0) {
+    return 0
+  }
+  return Math.floor(t / b) * b + b - t
+}
 
 export fn coDjStepsPerSequence() {
   return 64

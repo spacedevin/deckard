@@ -55,10 +55,10 @@ Specs: [docs/WS_AND_AGENTS.md](docs/WS_AND_AGENTS.md), [docs/STREAM_PROTOCOL.md]
 - [docs/FL_STUDIO_GENERATORS.md](docs/FL_STUDIO_GENERATORS.md) — how this maps to FL-style channel instruments  
 - [docs/GENERATORS.md](docs/GENERATORS.md) — adding a new generator module  
 - [docs/schema/project-v2.json](docs/schema/project-v2.json) — project shape (v1 `waveform` auto-migrates)  
-- [docs/TISH_JS_BUILTINS.md](docs/TISH_JS_BUILTINS.md) — `webAudioCreateContext` / `jsUint8Array`  
+- [docs/TISH_JS_BUILTINS.md](docs/TISH_JS_BUILTINS.md) — `new` for JS (e.g. `AudioContext`, `Uint8Array`)  
 - [docs/LATTISH.md](docs/LATTISH.md) — **Lattish** hooks + `h()` JSX-like DOM (no angle brackets)  
 - [AGENTS.md](AGENTS.md) — agent editing contract  
 
 ## Upstream Tish changes
 
-This project adds JS intrinsics in `tish_compile_js` (`webAudioCreateContext`, `jsUint8Array`) — see `crates/tish_compile_js/src/js_intrinsics.rs`. Rebuild `tish` from a tree that includes those files.
+Deckard relies on Tish’s **`new`** support for the JS target (`new AudioContext()`, `new Uint8Array(n)`). Use a `tish` build that includes the `new` expression in the compiler.

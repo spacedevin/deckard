@@ -1,11 +1,172 @@
 import { h, Fragment } from 'lattish'
 
-export fn TransportBar(bpm, playing, onPlay, onStop, onBpmInput, onExport, onImport) {
-  return <div class="transport-bar">
-    <button class="btn-play" onclick={onPlay} disabled={playing}>{"Play"}</button>
-    <button class="btn-stop" onclick={onStop}>{"Stop"}</button>
-    <label class="bpm-label">{"BPM "}<input type="number" class="bpm-input" min="40" max="240" value={String(bpm)} oninput={onBpmInput} /></label>
-    <button class="btn-ghost" onclick={onExport}>{"Export JSON"}</button>
-    <button class="btn-ghost" onclick={onImport}>{"Import JSON"}</button>
-  </div>
+fn seqPromoteHintLine(playing, queuePending, seqDropSteps, barSz) {
+  if (!queuePending) {
+    return ""
+  }
+  if (!playing) {
+    return "Queue: press Play — applies on next bar line"
+  }
+  if (seqDropSteps === undefined || seqDropSteps === null) {
+    return "Queue: …"
+  }
+  if (seqDropSteps === 0) {
+    return "Queue: on bar line — promotes this step"
+  }
+  let barsUp = Math.ceil(seqDropSteps / barSz)
+  let barPart = " (~" + String(barsUp) + " bar"
+  if (barsUp !== 1) {
+    barPart = barPart + "s"
+  }
+  barPart = barPart + ")"
+  return "Queue: in " + String(seqDropSteps) + " sixteenth" + (seqDropSteps === 1 ? "" : "s") + barPart
+}
+
+export fn TransportBar(
+  bpm,
+  playing,
+  onPlay,
+  onStop,
+  onBpmInput,
+  onExport,
+  onImport,
+  mainDeck,
+  onDeckMain,
+  seqCount,
+  playingSceneIdx,
+  queuedSceneIdx,
+  queuePending,
+  seqDropSteps,
+  seqBarPx,
+  seqUiRev,
+  onSeqSelect,
+  onSeqStore
+) {
+  let hint = seqPromoteHintLine(playing, queuePending, seqDropSteps, seqBarPx)
+  let seqBtns = []
+  let si = 0
+  let sc = Math.floor(Number(seqCount))
+  if (sc < 1 || sc !== sc) {
+    sc = 4
+  }
+  let barSz = Math.floor(Number(seqBarPx))
+  if (barSz < 1 || barSz !== barSz) {
+    barSz = 16
+  }
+  while (si < sc) {
+    let idx = si
+    let cls = "seq-btn"
+    if (playingSceneIdx !== undefined && playingSceneIdx !== null && playingSceneIdx === si) {
+      cls = cls + " seq-btn-active"
+    }
+    let isQueuedScene =
+      queuePending &&
+      queuedSceneIdx !== undefined &&
+      queuedSceneIdx !== null &&
+      Math.floor(Number(queuedSceneIdx)) === si
+    if (isQueuedScene) {
+      cls = cls + " seq-btn-queued"
+    }
+    let meta = ""
+    if (isQueuedScene && playing && seqDropSteps !== undefined && seqDropSteps !== null) {
+      if (seqDropSteps === 0) {
+        meta = "●"
+      } else {
+        meta = String(seqDropSteps)
+      }
+    } else if (isQueuedScene && !playing) {
+      meta = "▶"
+    }
+    seqBtns.push(
+      <button
+        type="button"
+        class={cls}
+        key={"seq-" + String(si)}
+        onclick={() => onSeqSelect(idx)}
+        title={
+          "Queue sequence " +
+          String(si + 1) +
+          " for next bar (16 sixteenths). Watch countdown when playing. Hub push if connected."
+        }
+      >
+        <span class="seq-btn-line">{"SEQ "}{String(si + 1)}</span>
+        {meta.length > 0 ? <span class="seq-btn-meta">{meta}</span> : null}
+      </button>
+    )
+    si = si + 1
+  }
+  let storeBtns = []
+  let qi = 0
+  while (qi < sc) {
+    let qix = qi
+    storeBtns.push(
+      <button
+        type="button"
+        class="btn-seq-store"
+        key={"save-seq-" + String(qi)}
+        onclick={() => onSeqStore(qix)}
+        title={
+          "Save current rack + piano (all tracks) into SEQ " +
+          String(qi + 1) +
+          ". Does not change playback — use SEQ buttons to queue."
+        }
+      >
+        {String(qi + 1)}
+      </button>
+    )
+    qi = qi + 1
+  }
+  return (
+    <div class="transport-bar">
+      <button class="btn-play" onclick={onPlay} disabled={playing}>
+        {"Play"}
+      </button>
+      <button class="btn-stop" onclick={onStop}>
+        {"Stop"}
+      </button>
+      <label class="bpm-label">
+        {"BPM "}
+        <input type="number" class="bpm-input" min="40" max="240" value={String(bpm)} oninput={onBpmInput} />
+      </label>
+      <div class="deck-main-toggle" title={"Which deck is sent to the main output (the other deck is silent here). Assign tracks with LIVE / CUE on each channel row."}>
+        <span class="deck-main-label">{"MAIN"}</span>
+        <button
+          type="button"
+          class={mainDeck !== "local" ? "btn-deck btn-deck-live btn-deck-on" : "btn-deck btn-deck-live"}
+          onclick={() => onDeckMain("live")}
+        >
+          {"LIVE"}
+        </button>
+        <button
+          type="button"
+          class={mainDeck === "local" ? "btn-deck btn-deck-cue btn-deck-on" : "btn-deck btn-deck-cue"}
+          onclick={() => onDeckMain("local")}
+        >
+          {"CUE"}
+        </button>
+      </div>
+      <div class="transport-seq-wrap">
+        <span class="transport-seq-rev" style={{ display: "none" }}>
+          {String(seqUiRev)}
+        </span>
+        <div class="transport-seq-group">{seqBtns}</div>
+        <div class="seq-store-row">
+          <span class="seq-store-label">{"Save edit →"}</span>
+          {storeBtns}
+        </div>
+        <div class="seq-store-hint">
+          {
+            "Put the pattern you hear in the rack / piano into a slot. SEQ buttons only choose what plays next."
+          }
+        </div>
+        {hint.length > 0 ? <div class="seq-promote-hint">{hint}</div> : null}
+      </div>
+      <button class="btn-ghost" onclick={onExport}>
+        {"Export JSON"}
+      </button>
+      <button class="btn-ghost" onclick={onImport}>
+        {"Import JSON"}
+      </button>
+    </div>
+  )
 }

@@ -41,7 +41,8 @@ export fn makeChannel(id, name, stepPitch, generatorId) {
     steps: makeSteps16(),
     pianoNotes: [],
     generatorSpec: null,
-    tplLoopBars: null
+    tplLoopBars: null,
+    deck: "live"
   }
 }
 
@@ -85,6 +86,7 @@ export fn emptyProjectShell() {
   return {
     version: 2,
     bpm: 120,
+    transportMainDeck: "live",
     channels: [],
     instrumentPresets: instrumentPresets,
     automation: {

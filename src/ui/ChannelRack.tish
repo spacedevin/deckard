@@ -68,12 +68,38 @@ export fn ChannelRow(ch, chIdx, project, setProject, selected, onSelect, rt) {
     gid = "basicOsc"
   }
   let badge = generatorLabelById(gid)
+  let isCueDeck = ch.deck === "local"
+  let deckChipCls = "ch-deck-chip"
+  if (isCueDeck) {
+    deckChipCls = deckChipCls + " ch-deck-chip-cue"
+  } else {
+    deckChipCls = deckChipCls + " ch-deck-chip-live"
+  }
   return <div class={rowCls}>
     <div class="rack-track-col">
       <div class="ch-name-hit" onclick={() => onSelect(chIdx)} title={"Select track — edit instrument in Instrument panel"}>
         {ch.name}
       </div>
       <div class="ch-instr-badge">{badge}</div>
+      <button
+        type="button"
+        class={deckChipCls}
+        title={"Click: move track between LIVE deck (PA) and CUE deck (prep). Match MAIN toggle in transport."}
+        onclick={(e) => {
+          e.stopPropagation()
+          if (isCueDeck) {
+            ch.deck = "live"
+          } else {
+            ch.deck = "local"
+          }
+          setProject(project)
+          if (rt && rt.touchMixer) {
+            rt.touchMixer()
+          }
+        }}
+      >
+        {isCueDeck ? "CUE" : "LIVE"}
+      </button>
     </div>
     {RackPatternArea(ch, chIdx, project, setProject, onSelect, rt)}
   </div>

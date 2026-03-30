@@ -188,8 +188,12 @@ export fn ensureProjectSession(project) {
     while (row.length < sc) {
       row.push("")
     }
-    if (row[0] === undefined || row[0] === null || row[0] === "") {
-      row[0] = defaultMainClipId(ch)
+    let sj = 0
+    while (sj < sc) {
+      if (row[sj] === undefined || row[sj] === null || row[sj] === "") {
+        row[sj] = defaultMainClipId(ch)
+      }
+      sj = sj + 1
     }
     ti = ti + 1
   }
@@ -198,6 +202,151 @@ export fn ensureProjectSession(project) {
   }
 }
 
+/**
+ * Snapshot current rack + piano roll on every track into a dedicated clip and assign that clip to
+ * session column sceneIdx (0 = SEQ 1). After this, that sequence plays this pattern until overwritten.
+ */
+export fn sessionWriteRackToSceneClip(project, sceneIdx) {
+  if (!project || !project.channels) {
+    return
+  }
+  ensureProjectSession(project)
+  let s = Math.floor(Number(sceneIdx))
+  let sc = Math.floor(Number(project.session.sceneCount))
+  if (s < 0 || s >= sc || s !== s || sc < 1) {
+    return
+  }
+  let ti = 0
+  while (ti < project.channels.length) {
+    let ch = project.channels[ti]
+    ensureChannelSessionClips(ch)
+    let clipId = String(ch.id) + "_sc" + String(s)
+    let bars = 1
+    if (ch.tplLoopBars !== undefined && ch.tplLoopBars !== null) {
+      let tn = Math.floor(Number(ch.tplLoopBars))
+      if (tn >= 1 && tn === tn) {
+        bars = tn
+      }
+    }
+    let baseSteps = tileStepsPattern(copySteps16FromChannel(ch), bars)
+    let clip = findClipOnChannel(ch, clipId)
+    if (!clip) {
+      let nm = String(ch.name) + " ·S" + String(s + 1)
+      clip = {
+        id: clipId,
+        name: nm,
+        bars: bars,
+        steps: baseSteps,
+        pianoNotes: copyPianoNotes(ch.pianoNotes),
+        tplLoopBars: ch.tplLoopBars != null ? ch.tplLoopBars : null
+      }
+      ch.sessionClips.push(clip)
+    } else {
+      clip.bars = bars
+      clip.steps = baseSteps
+      clip.pianoNotes = copyPianoNotes(ch.pianoNotes)
+      clip.tplLoopBars = ch.tplLoopBars != null ? ch.tplLoopBars : null
+    }
+    normalizeClipStepLength(clip)
+    if (project.session.slots[ti] && project.session.slots[ti][s] !== undefined) {
+      project.session.slots[ti][s] = clipId
+    }
+    ti = ti + 1
+  }
+}
+
+/** Clip id string currently driving playback for one track (mirrors playbackClipForChannel arming rules). */
+export fn sessionEffectiveArmedClipId(project, rt, trackIdx) {
+  let ch = project.channels[trackIdx]
+  if (!rt || !rt.sessionArmedClipIds) {
+    return defaultMainClipId(ch)
+  }
+  let armed = rt.sessionArmedClipIds[trackIdx]
+  if (armed === undefined || armed === null) {
+    return defaultMainClipId(ch)
+  }
+  return armed
+}
+
+/** Scene column index whose slots match armed clip ids on every track, or null if no full-column match. */
+export fn sessionPlayingSceneIndex(project, rt) {
+  if (!project || !project.channels) {
+    return null
+  }
+  ensureProjectSession(project)
+  let sc = Math.floor(Number(project.session.sceneCount))
+  if (sc < 1 || sc !== sc) {
+    return null
+  }
+  let prefer = null
+  if (rt && rt.sessionActiveScene !== undefined && rt.sessionActiveScene !== null) {
+    let ap = Math.floor(Number(rt.sessionActiveScene))
+    if (ap >= 0 && ap < sc && ap === ap) {
+      prefer = ap
+    }
+  }
+  if (prefer !== null) {
+    let matchPrefer = true
+    let ti = 0
+    while (ti < project.channels.length) {
+      let slot = ""
+      if (project.session.slots[ti] && project.session.slots[ti][prefer] !== undefined) {
+        slot = project.session.slots[ti][prefer]
+      }
+      if (slot === undefined || slot === null) {
+        slot = ""
+      }
+      let eff = sessionEffectiveArmedClipId(project, rt, ti)
+      if (slot !== eff) {
+        matchPrefer = false
+      }
+      ti = ti + 1
+    }
+    if (matchPrefer) {
+      return prefer
+    }
+  }
+  let si = 0
+  while (si < sc) {
+    let match = true
+    let ti = 0
+    while (ti < project.channels.length) {
+      let slot = ""
+      if (project.session.slots[ti] && project.session.slots[ti][si] !== undefined) {
+        slot = project.session.slots[ti][si]
+      }
+      if (slot === undefined || slot === null) {
+        slot = ""
+      }
+      let eff = sessionEffectiveArmedClipId(project, rt, ti)
+      if (slot !== eff) {
+        match = false
+      }
+      ti = ti + 1
+    }
+    if (match) {
+      return si
+    }
+    si = si + 1
+  }
+  return null
+}
+
+fn sessionEnsureQueuedArray(project, rt) {
+  ensureProjectSession(project)
+  if (!rt.sessionQueuedClipIds) {
+    rt.sessionQueuedClipIds = []
+  }
+  let n = project.channels.length
+  while (rt.sessionQueuedClipIds.length < n) {
+    rt.sessionQueuedClipIds.push("")
+  }
+  while (rt.sessionQueuedClipIds.length > n) {
+    rt.sessionQueuedClipIds.pop()
+  }
+}
+
+/** Immediate arm (e.g. transport start): apply scene column to playback now. */
 export fn sessionArmScene(project, rt, sceneIdx) {
   ensureProjectSession(project)
   let sc = project.session.sceneCount
@@ -223,6 +372,32 @@ export fn sessionArmScene(project, rt, sceneIdx) {
   }
 }
 
+/** Queue a full scene for the next bar boundary (16 sixteenths); does not change playback yet. */
+export fn sessionQueueScene(project, rt, sceneIdx) {
+  ensureProjectSession(project)
+  let sc = project.session.sceneCount
+  let s = Math.floor(Number(sceneIdx))
+  if (s < 0 || s >= sc || s !== s) {
+    s = 0
+  }
+  rt.sessionActiveScene = s
+  sessionEnsureQueuedArray(project, rt)
+  let ti = 0
+  while (ti < project.channels.length) {
+    let slot = ""
+    if (project.session.slots[ti] && project.session.slots[ti][s] !== undefined) {
+      slot = project.session.slots[ti][s]
+    }
+    if (slot === undefined || slot === null) {
+      slot = ""
+    }
+    rt.sessionQueuedClipIds[ti] = slot
+    ti = ti + 1
+  }
+  rt.sessionQueuePending = true
+  rt.sessionQueuedScene = s
+}
+
 export fn sessionArmTrackClip(project, rt, trackIdx, clipId) {
   ensureProjectSession(project)
   if (!rt.sessionArmedClipIds) {
@@ -235,6 +410,64 @@ export fn sessionArmTrackClip(project, rt, trackIdx, clipId) {
   rt.sessionArmedClipIds[trackIdx] = cid
 }
 
+/** Queue one track’s clip for the next sequence boundary; other tracks keep current playback until then. */
+export fn sessionQueueTrackClip(project, rt, trackIdx, clipId) {
+  ensureProjectSession(project)
+  let tix = Math.floor(Number(trackIdx))
+  if (tix < 0 || tix >= project.channels.length || tix !== tix) {
+    return
+  }
+  sessionEnsureQueuedArray(project, rt)
+  let ti = 0
+  while (ti < project.channels.length) {
+    rt.sessionQueuedClipIds[ti] = sessionEffectiveArmedClipId(project, rt, ti)
+    ti = ti + 1
+  }
+  let cid = clipId
+  if (cid === undefined || cid === null) {
+    cid = ""
+  }
+  rt.sessionQueuedClipIds[tix] = cid
+  rt.sessionQueuePending = true
+  rt.sessionQueuedScene = null
+}
+
+/** Apply queued clips to playback. Returns true if a pending queue was committed. */
+export fn sessionCommitQueued(project, rt) {
+  if (!rt || !rt.sessionQueuePending) {
+    return false
+  }
+  ensureProjectSession(project)
+  let n = project.channels.length
+  if (!rt.sessionQueuedClipIds) {
+    rt.sessionQueuedClipIds = []
+  }
+  while (rt.sessionQueuedClipIds.length > n) {
+    rt.sessionQueuedClipIds.pop()
+  }
+  let padI = rt.sessionQueuedClipIds.length
+  while (padI < n) {
+    rt.sessionQueuedClipIds.push(sessionEffectiveArmedClipId(project, rt, padI))
+    padI = padI + 1
+  }
+  if (!rt.sessionArmedClipIds) {
+    rt.sessionArmedClipIds = []
+  }
+  let ti = 0
+  while (ti < n) {
+    let q = rt.sessionQueuedClipIds[ti]
+    if (q === undefined || q === null) {
+      q = ""
+    }
+    rt.sessionArmedClipIds[ti] = q
+    ti = ti + 1
+  }
+  rt.sessionQueuePending = false
+  rt.sessionQueuedClipIds = []
+  rt.sessionQueuedScene = null
+  return true
+}
+
 export fn sessionStopAllTracks(project, rt) {
   ensureProjectSession(project)
   if (!rt.sessionArmedClipIds) {
@@ -245,6 +478,11 @@ export fn sessionStopAllTracks(project, rt) {
     rt.sessionArmedClipIds[ti] = ""
     ti = ti + 1
   }
+  rt.sessionQueuePending = false
+  if (rt.sessionQueuedClipIds) {
+    rt.sessionQueuedClipIds = []
+  }
+  rt.sessionQueuedScene = null
 }
 
 /** Clip used for audio + loop cap, or null to fall back to channel.steps / ch.pianoNotes (no session). */

@@ -1,12 +1,10 @@
-# JS-only Tish builtins used by Deckard
+# JavaScript `new` in Tish (Deckard)
 
-Tish has no `new`. These calls are lowered by `tish compile --target js`:
+Tish supports **`new`** when compiling to JavaScript (`tish compile --target js`). Use normal constructor syntax, for example:
 
-| Call | Emitted |
-|------|---------|
-| `webAudioCreateContext()` | `new AudioContext()` |
-| `jsUint8Array(n)` | `new Uint8Array(n)` |
+- `new AudioContext()` — Web Audio context (see `src/audio/Engine.tish`)
+- `new Uint8Array(n)` — binary buffers (see `src/ui/Scope.tish`)
 
-Defined in the Tish compiler module **`crates/tish_compile_js/src/js_intrinsics.rs`** (intrinsic names, validation, runtime preamble). **`codegen.rs`** only classifies via `JsIntrinsics::classify_call` and emits the lowered expression.
+`new` is **not** supported for native Rust output; use `--target js` for browser APIs.
 
 MIDI / `requestMIDIAccess` can be called via global `navigator` from Tish once user code holds a handle (no extra builtin needed).

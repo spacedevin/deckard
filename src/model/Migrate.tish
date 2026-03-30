@@ -98,7 +98,13 @@ export fn migrateProjectGenerators(project) {
     if (ch.tplLoopBars === undefined) {
       ch.tplLoopBars = null
     }
+    if (ch.deck === undefined || ch.deck === null || ch.deck === "") {
+      ch.deck = "live"
+    }
     mx = mx + 1
+  }
+  if (project.transportMainDeck !== "live" && project.transportMainDeck !== "local") {
+    project.transportMainDeck = "live"
   }
   ensureMasterMixer(project)
   ensureActorMixerEntries(project)

@@ -2,8 +2,8 @@ import { h, Fragment } from 'lattish'
 import {
   ensureProjectSession,
   findClipOnChannel,
-  sessionArmScene,
-  sessionArmTrackClip,
+  sessionQueueScene,
+  sessionQueueTrackClip,
   sessionStopAllTracks
 } from '../model/Session.tish'
 
@@ -28,19 +28,27 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi) {
     activeScene = 0
   }
 
+  fn bumpSeqIfPlaying() {
+    if (playing && rt.bumpSeqPromoteUi) {
+      rt.bumpSeqPromoteUi()
+    }
+  }
+
   fn armScene(si) {
-    sessionArmScene(project, rt, si)
+    sessionQueueScene(project, rt, si)
     if (bumpSessionUi) {
       bumpSessionUi()
     }
+    bumpSeqIfPlaying()
     setProjectFromUI(project)
   }
 
   fn armCell(trackIdx, clipId) {
-    sessionArmTrackClip(project, rt, trackIdx, clipId)
+    sessionQueueTrackClip(project, rt, trackIdx, clipId)
     if (bumpSessionUi) {
       bumpSessionUi()
     }
+    bumpSeqIfPlaying()
     setProjectFromUI(project)
   }
 
@@ -49,6 +57,7 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi) {
     if (bumpSessionUi) {
       bumpSessionUi()
     }
+    bumpSeqIfPlaying()
     setProjectFromUI(project)
   }
 
@@ -60,10 +69,18 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi) {
     if (si === activeScene) {
       hdrCls = hdrCls + " session-scene-head-active"
     }
+    if (
+      rt.sessionQueuePending &&
+      rt.sessionQueuedScene !== undefined &&
+      rt.sessionQueuedScene !== null &&
+      Math.floor(Number(rt.sessionQueuedScene)) === si
+    ) {
+      hdrCls = hdrCls + " session-scene-head-queued"
+    }
     sceneHeaders.push(
       <div class={hdrCls} key={"sc-h-" + String(si)}>
         <span class="session-scene-label">{"SCENE "}{String(si + 1)}</span>
-        <button type="button" class="btn-session-launch" onclick={() => armScene(si)}>
+        <button type="button" class="btn-session-launch" onclick={() => armScene(si)} title={"Queue scene for next bar (16 steps)"}>
           {"Launch"}
         </button>
       </div>
@@ -91,6 +108,11 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi) {
       if (rt.sessionArmedClipIds && rt.sessionArmedClipIds[tix] !== undefined) {
         armed = rt.sessionArmedClipIds[tix]
       }
+      let queued = ""
+      if (rt.sessionQueuePending && rt.sessionQueuedClipIds && rt.sessionQueuedClipIds[tix] !== undefined) {
+        queued = rt.sessionQueuedClipIds[tix]
+      }
+      let isQueued = rt.sessionQueuePending && slotClipId.length > 0 && queued === slotClipId
       let isPlaying = playing && armed === slotClipId && slotClipId.length > 0
       let sjCopy = sj
       let clipIdCopy = slotClipId
@@ -110,13 +132,16 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi) {
         if (isPlaying) {
           cellCls = cellCls + " session-cell-playing"
         }
+        if (isQueued) {
+          cellCls = cellCls + " session-cell-queued"
+        }
         cells.push(
           <button
             type="button"
             class={cellCls}
             key={"c-" + String(tix) + "-" + String(sj)}
             onclick={() => armCell(tix, clipIdCopy)}
-            title={"Arm clip on this track"}
+            title={"Queue clip for next bar (16 steps)"}
           >
             <span class="session-cell-name">{nm}</span>
             <span class="session-cell-meta">
@@ -145,7 +170,7 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi) {
         <button
           type="button"
           class={rowLaunchCls}
-          title={"Arm clip from active scene column"}
+          title={"Queue clip from active scene column for next bar"}
           onclick={() => {
             let cid = ""
             if (project.session.slots[tix] && project.session.slots[tix][activeScene]) {
@@ -173,7 +198,9 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi) {
         </button>
       </div>
       <p class="session-hint">
-        {"Launch a scene to arm every track’s slot in that column. Click a clip to arm one track. Patterns loop over each clip’s bar length (hub-friendly)."}
+        {
+          "Use Save edit → 1–4 in the transport bar to copy the rack + piano into a sequence. SEQ buttons only queue playback. Launch queues a column for the next bar. Stop all applies immediately."
+        }
       </p>
       <div class="session-grid-wrap">
         <div class="session-corner" />

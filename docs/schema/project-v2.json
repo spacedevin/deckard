@@ -6,6 +6,11 @@
   "properties": {
     "version": { "type": "integer", "minimum": 2 },
     "bpm": { "type": "number", "minimum": 20, "maximum": 300 },
+    "transportMainDeck": {
+      "type": "string",
+      "enum": ["live", "local"],
+      "description": "Which deck is sent to main output; the other deck is silent (DJ-style split)."
+    },
     "channels": {
       "type": "array",
       "items": { "$ref": "#/$defs/channel" }
@@ -230,6 +235,11 @@
         "actorLane": {
           "type": "string",
           "description": "Mixer / bus grouping; empty = infer from coDjMeta or 'local'"
+        },
+        "deck": {
+          "type": "string",
+          "enum": ["live", "local"],
+          "description": "live = PA deck; local = cue/prep deck (see transportMainDeck for which is heard)"
         },
         "generatorId": {
           "type": "string",
