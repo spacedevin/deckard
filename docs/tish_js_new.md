@@ -1,6 +1,6 @@
 # JavaScript `new` in Tish (Deckard)
 
-Tish supports **`new`** when compiling to JavaScript (`tish compile --target js`). Use normal constructor syntax, for example:
+Tish supports **`new`** when compiling to JavaScript (`tish build --target js`). Use normal constructor syntax, for example:
 
 - `new AudioContext()` — Web Audio context (see `src/audio/Engine.tish`)
 - `new Uint8Array(n)` — binary buffers (see `src/ui/Scope.tish`)

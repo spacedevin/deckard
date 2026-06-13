@@ -1,6 +1,6 @@
 // Co-DJ WebSocket client: actor receives tpl.block from other actors.
 
-import { h, Fragment, useState } from 'lattish'
+import { h, Fragment, useState } from '@tishlang/lattish'
 import { applyCoDjTplSource } from '../codj/Merge.tish'
 import { coDjClearOverlays } from '../codj/Overlay.tish'
 import { coDjHandleIncomingTplBlock } from '../codj/Schedule.tish'

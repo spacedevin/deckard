@@ -1,6 +1,6 @@
 // Sytrus-style Matrix FM editor: operators, modulation matrix, filters, routing.
 
-import { h } from 'lattish'
+import { h } from '@tishlang/lattish'
 import {
   sortedStringKeys,
   syncMatrixFmSpecFromGraph,

@@ -1,4 +1,4 @@
-import { useState, h, Fragment } from 'lattish'
+import { useState, h, Fragment } from '@tishlang/lattish'
 import { emitProject } from '../tpl/Emit.tish'
 import { applyTplSource } from '../tpl/Apply.tish'
 import { tplDocumentToHighlightHtml } from '../tpl/SongEditorHighlight.tish'

@@ -1,6 +1,6 @@
 // Piano roll: zoom, snap, resize L/R, marquee select, drag selection (time + pitch), cursors.
 
-import { h, Fragment } from 'lattish'
+import { h, Fragment } from '@tishlang/lattish'
 import { clearAllSteps, clampPianoNoteToFirstBar, clampChannelPianoNotesToFirstBar } from '../model/Edits.tish'
 
 let PR_KEY_W = 44

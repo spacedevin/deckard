@@ -1,4 +1,4 @@
-import { h } from 'lattish'
+import { h } from '@tishlang/lattish'
 import { defaultParamsForGeneratorId, normalizeBasicOscWaveform } from '../generators/Registry.tish'
 import { parseGenBlock, defaultMatrixFmRawLines } from '../tpl/TplExtension.tish'
 

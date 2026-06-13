@@ -1,6 +1,6 @@
 // Decorative patch bay (no audio routing). Matrix FM is edited on the Instrument tab.
 
-import { h } from 'lattish'
+import { h } from '@tishlang/lattish'
 
 fn patchNodeOut(label) {
   return (

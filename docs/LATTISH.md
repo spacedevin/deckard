@@ -2,35 +2,29 @@
 
 **Lattish** is a small React-like layer in Tish: hooks (`useState`, `useMemo`, `useRef`, `useEffect`, `useLayoutEffect`), batched updates, `createRoot`, and **`h(tag, props, children[])`** for markup (or compiler JSX that lowers to the same `h`).
 
-## Compiler modes (`tish compile --target js`)
+## Compiler
 
-| `--jsx` | JSX becomes | Notes |
-|---------|-------------|--------|
-| `lattish` (default) | `h("div", props, [children])` | Import `{ h, Fragment }` from `Lattish.tish`. No injected `__h`. |
-| `legacy` | `__h(...)` | Self-contained preamble (old behavior). |
-| `vdom` | `__vdom_h(...)` | Injected prelude sets `window.__LATTISH_JSX_VDOM` and `window.__lattishVdomPatch`. **`createRoot` reconciles** instead of `replaceChildren`. |
+`tish build --target js` always lowers JSX into `h("div", props, [children])` calls that resolve against `{ h, Fragment }` from `@tishlang/lattish` — no flag, no separate JSX mode, no injected runtime. Just import `@tishlang/lattish` and write JSX.
 
 ## API
 
 | Export | Role |
 |--------|------|
-| `createRoot(container)` | `{ render(App) }` — `App` is `() => tree` (DOM nodes from `h`, or vnodes with `--jsx vdom`) |
+| `createRoot(container)` | `{ render(App) }` — `App` is `() => tree` of DOM nodes built from `h` (or JSX, which lowers to `h`) |
 | `useState`, `useMemo`, `useRef` | Same idea as React |
 | `useEffect(fn, deps)` | Runs in a microtask after commit; optional cleanup return |
-| `useLayoutEffect(fn, deps)` | Runs synchronously after DOM/vdom commit |
-| `unstable_batchedUpdates(run)` | Sync batch then one flush |
-| `h`, `Fragment`, `text` | DOM builder when not using vdom JSX |
+| `useLayoutEffect(fn, deps)` | Runs synchronously after the DOM commit |
+| `runBatched(run)` | Sync batch then one flush |
+| `h`, `Fragment`, `text` | DOM builder when writing without JSX |
 
 Dependency arrays are compared **by value** (element-wise). Pass stable references when you mean “run once” (e.g. `[]`).
 
-## Counter (hand-written `h`)
 
-See [Counter.tish](../src/lattish/examples/Counter.tish). **Static demo:** `npm run build:counter`, open [examples/counter.html](../examples/counter.html) (from repo root, with `dist/counter-bundle.js` present).
 
 ## Controlled-style input
 
 ```tish
-import { useState, h } from './lattish/Lattish.tish'
+import { useState, h } from '@tishlang/lattish'
 
 export fn LabeledInput(label) {
   let st = useState("")
@@ -47,14 +41,6 @@ export fn LabeledInput(label) {
 }
 ```
 
-Default `lattish` mode re-mounts the whole tree each flush (or use `--jsx vdom` for incremental patch).
+`createRoot` re-mounts the whole tree on each flush; that's the only render model — the same compiler output drives both interactive UIs and headless renders.
 
-## Layout in this repo
 
-| File | Purpose |
-|------|---------|
-| [src/lattish/Lattish.tish](../src/lattish/Lattish.tish) | Runtime |
-| [src/lattish/examples/Counter.tish](../src/lattish/examples/Counter.tish) | Counter |
-| [src/lattish/examples/counter-main.tish](../src/lattish/examples/counter-main.tish) | Counter entry for `build:counter` |
-
-The Tish monorepo vendors a copy under `crates/tish_jsx_web/vendor/Lattish.tish` for releases.

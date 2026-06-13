@@ -1,4 +1,4 @@
-import { useState, useRef, h, Fragment } from 'lattish'
+import { useState, useRef, h, Fragment } from '@tishlang/lattish'
 import { projectToJson, projectFromJson } from '../model/Project.tish'
 import { loadDefaultDeckardProject } from '../model/ProjectLoad.tish'
 import { emitProject } from '../tpl/Emit.tish'

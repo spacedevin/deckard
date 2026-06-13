@@ -1,4 +1,4 @@
-import { h, Fragment } from 'lattish'
+import { h, Fragment } from '@tishlang/lattish'
 import { ensureMasterMixer, ensureActorMixerEntries } from '../model/MixerRouting.tish'
 
 fn eqVal(v) {

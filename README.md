@@ -7,10 +7,10 @@ Minimal FL-style hybrid web DAW in **[Tish](https://github.com/tishlang/tish)** 
 Requires the `tish` CLI (from the Tish repo):
 
 ```bash
-tish compile --target js --jsx vdom src/main.tish -o dist/bundle.js
+tish build --target js src/main.tish -o dist/bundle.js
 ```
 
-(`--jsx vdom` patches the DOM instead of replacing the whole tree, so the TPL editor, piano roll, and rack previews don’t flicker on every control tweak.)
+JSX is built into `tish build --target js` and lowers to Lattish runtime calls — no separate JSX flag.
 
 Serve the folder (e.g. `npx serve .`) and open `index.html`. Click **Play** once to unlock audio.
 
@@ -21,7 +21,7 @@ Serve the folder (e.g. `npx serve .`) and open `index.html`. Click **Play** once
 | Transport, rack, mixer | DOM + CSS |
 | Piano roll, scope | `<canvas>` |
 
-**Reachability:** `src/main.tish` → `ui/App.tish` pulls in model, audio, schedule, generators, tpl (emit/apply/highlight), and Lattish. Optional counter demo: `src/lattish/examples/counter-main.tish` (`npm run build:counter`). **Removed unused:** `hooks.tish` (dead shim), `tpl/Lexer.tish` (Parser inlines the same concerns).
+**Reachability:** `src/main.tish` → `ui/App.tish` pulls in model, audio, schedule, generators, tpl (emit/apply/highlight), and Lattish. **Removed unused:** `hooks.tish` (dead shim), `tpl/Lexer.tish` (Parser inlines the same concerns).
 
 ## Co-DJ (WebSocket + actors)
 
