@@ -29,6 +29,9 @@ fn currentVoice(ch) {
   if (g === "bell") {
     return "bell"
   }
+  if (g === "drumSynth") {
+    return "drum"
+  }
   if (g === "matrixFm") {
     return "matrix"
   }
@@ -56,6 +59,9 @@ fn setVoice(ch, voice) {
     }
     if (voice === "fm") {
       gid = "fmTone"
+    }
+    if (voice === "drum") {
+      gid = "drumSynth"
     }
     if (ch.generatorId !== gid) {
       ch.generatorId = gid
@@ -104,7 +110,8 @@ fn voiceOpts(ch, commit) {
     { text: "Noise", v: "noise" },
     { text: "FM", v: "fm" },
     { text: "Pad", v: "pad" },
-    { text: "Bell", v: "bell" }
+    { text: "Bell", v: "bell" },
+    { text: "Drum", v: "drum" }
   ]
   let out = []
   let i = 0
@@ -284,8 +291,11 @@ export fn InstrumentEditor(project, selectedCh, setProjectFromUI, tplMirrorFlush
 
       <div class="ie-section">{"FX"}</div>
       {PillGroup("REVERB SEND", pairOpts(ch, "reverbSend", reverbDefs, commit))}
+      {PillGroup("DRIVE", pairOpts(ch, "drive", [["Off", 0], ["Soft", 0.2], ["Med", 0.45], ["Hard", 0.7], ["Max", 1.0]], commit))}
       {PillGroup("FILTER CUTOFF", pairOpts(ch, "filterCutoff", cutoffDefs, commit))}
       {PillGroup("FILTER RESONANCE", pairOpts(ch, "filterQ", resDefs, commit))}
+      {PillGroup("LFO RATE", pairOpts(ch, "lfoRate", [["Off", 0], ["2hz", 2], ["4hz", 4], ["8hz", 8], ["16hz", 16]], commit))}
+      {PillGroup("LFO DEPTH", pairOpts(ch, "lfoDepth", [["Off", 0], ["Sm", 400], ["Med", 1200], ["Lg", 2500]], commit))}
 
       <div class="ie-section">{"SEQUENCER"}</div>
       {PillGroup("EUCLIDEAN", euclidOpts(ch, commit))}

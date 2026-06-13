@@ -1,4 +1,5 @@
 import { formatTplBeat, formatTplFloat } from './Format.tish'
+import { camelToSnake } from './RegistryMap.tish'
 import { mixParamToTpl } from '../audio/MixerAutomation.tish'
 import { collectActorLanes } from '../model/MixerRouting.tish'
 import { syncAllMainClipsFromChannels, ensureProjectSession } from '../model/Session.tish'
@@ -12,6 +13,9 @@ export fn generatorIdToTpl(id) {
   }
   if (id === "basicOsc") {
     return "basic_osc"
+  }
+  if (id === "drumSynth") {
+    return "drum"
   }
   return id
 }
@@ -108,6 +112,58 @@ export fn emitProject(project) {
         " r " +
         formatTplFloat(p.release) +
         "\n"
+    }
+    if (gid === "pad" || gid === "bell" || gid === "drumSynth") {
+      let keys = Object.keys(p)
+      if (keys.length > 0) {
+        o = o + "  gen"
+        let gk = 0
+        while (gk < keys.length) {
+          let key = keys[gk]
+          let val = p[key]
+          let vstr = typeof val === "number" ? formatTplFloat(val) : String(val)
+          o = o + " " + camelToSnake(key) + " " + vstr
+          gk = gk + 1
+        }
+        o = o + "\n"
+      }
+    }
+
+    let fxParts = ""
+    if (ch.reverbSend != null && ch.reverbSend > 0.0001) {
+      fxParts = fxParts + " reverb_send " + formatTplFloat(ch.reverbSend)
+    }
+    if (ch.drive != null && ch.drive > 0.0001) {
+      fxParts = fxParts + " drive " + formatTplFloat(ch.drive)
+    }
+    if (ch.lfoRate != null && ch.lfoRate > 0.0001) {
+      fxParts = fxParts + " lfo_rate " + formatTplFloat(ch.lfoRate)
+    }
+    if (ch.lfoDepth != null && ch.lfoDepth > 0.0001) {
+      fxParts = fxParts + " lfo_depth " + formatTplFloat(ch.lfoDepth)
+    }
+    if (ch.filterCutoff != null && ch.filterCutoff !== 8000) {
+      fxParts = fxParts + " cutoff " + formatTplFloat(ch.filterCutoff)
+    }
+    if (ch.filterQ != null && ch.filterQ !== 1) {
+      fxParts = fxParts + " res " + formatTplFloat(ch.filterQ)
+    }
+    if (fxParts.length > 0) {
+      o = o + "  fx" + fxParts + "\n"
+    }
+
+    let voiceParts = ""
+    if (ch.octave != null && ch.octave !== 0) {
+      voiceParts = voiceParts + " octave " + String(Math.floor(ch.octave))
+    }
+    if (ch.arp != null && ch.arp !== "" && ch.arp !== "off") {
+      voiceParts = voiceParts + " arp " + String(ch.arp)
+    }
+    if (ch.chord != null && ch.chord !== "" && ch.chord !== "off") {
+      voiceParts = voiceParts + " chord " + String(ch.chord)
+    }
+    if (voiceParts.length > 0) {
+      o = o + "  voice" + voiceParts + "\n"
     }
 
     let pianoNotes = ch.pianoNotes

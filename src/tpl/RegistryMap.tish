@@ -14,7 +14,39 @@ export fn normalizeGeneratorId(tplId) {
   if (s === "matrix_fm" || s === "matrixfm") {
     return "matrixFm"
   }
+  if (s === "drum" || s === "drum_synth" || s === "drumsynth") {
+    return "drumSynth"
+  }
   return s
+}
+
+export fn snakeToCamel(s) {
+  let parts = String(s).split("_")
+  let out = parts[0]
+  let i = 1
+  while (i < parts.length) {
+    let p = parts[i]
+    if (p.length > 0) {
+      out = out + p.charAt(0).toUpperCase() + p.substring(1)
+    }
+    i = i + 1
+  }
+  return out
+}
+
+export fn camelToSnake(s) {
+  let out = ""
+  let i = 0
+  while (i < String(s).length) {
+    let c = String(s).charAt(i)
+    if (c >= "A" && c <= "Z") {
+      out = out + "_" + c.toLowerCase()
+    } else {
+      out = out + c
+    }
+    i = i + 1
+  }
+  return out
 }
 
 export fn paramKeyToCamel(key) {

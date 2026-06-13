@@ -13,6 +13,19 @@ import {
 } from '../model/MixerRouting.tish'
 import { channelHeardOnMainDeck, deckMainOutGainMultiplier } from '../model/DeckRouting.tish'
 
+fn makeDriveCurve(ctx, amount) {
+  let k = amount * 120
+  let n = 1024
+  let curve = new Float32Array(n)
+  let i = 0
+  while (i < n) {
+    let x = (i * 2) / n - 1
+    curve[i] = ((3 + k) * x * 0.5) / (Math.PI + k * Math.abs(x))
+    i = i + 1
+  }
+  return curve
+}
+
 fn makeShelf(ctx, t, freq, q) {
   let f = ctx.createBiquadFilter()
   f.type = t
@@ -49,6 +62,22 @@ export fn buildChannelBus(ctx, ch, actorSummingGain, reverbIn) {
   filt.type = "lowpass"
   filt.frequency.value = ch.filterCutoff
   filt.Q.value = ch.filterQ
+  // Per-channel drive (waveshaper) feeding the filter — saturation/warmth for any generator.
+  let drive = ctx.createWaveShaper()
+  drive.oversample = "2x"
+  if (ch.drive != null && ch.drive > 0) {
+    drive.curve = makeDriveCurve(ctx, ch.drive)
+  }
+  drive.connect(filt)
+  // Per-channel LFO modulating the filter cutoff — movement / wobble.
+  let lfo = ctx.createOscillator()
+  lfo.type = "sine"
+  lfo.frequency.value = ch.lfoRate != null ? ch.lfoRate : 0
+  let lfoGain = ctx.createGain()
+  lfoGain.gain.value = ch.lfoDepth != null ? ch.lfoDepth : 0
+  lfo.connect(lfoGain)
+  lfoGain.connect(filt.frequency)
+  lfo.start()
   let teq = connectTrackEq(ctx, filt, ch, g)
   g.connect(pan)
   pan.connect(actorSummingGain)
@@ -64,7 +93,7 @@ export fn buildChannelBus(ctx, ch, actorSummingGain, reverbIn) {
     revSend.connect(reverbIn)
   }
   return {
-    input: filt,
+    input: drive,
     gainNode: g,
     panNode: pan,
     filterNode: filt,
@@ -72,7 +101,11 @@ export fn buildChannelBus(ctx, ch, actorSummingGain, reverbIn) {
     eqMid: teq.mid,
     eqHi: teq.hi,
     analyser: analyser,
-    reverbSend: revSend
+    reverbSend: revSend,
+    driveNode: drive,
+    driveCached: ch.drive != null ? ch.drive : 0,
+    lfo: lfo,
+    lfoGain: lfoGain
   }
 }
 
@@ -159,10 +192,19 @@ export fn ensureAudio(project, store) {
   mLo.connect(mMid)
   mMid.connect(mHi)
   mHi.connect(masterGain)
+  // Master glue compressor (makes the mix sit together; COMPRESSOR: ACTIVE is now real).
+  let comp = ctx.createDynamicsCompressor()
+  comp.threshold.value = -14
+  comp.knee.value = 28
+  comp.ratio.value = 3.5
+  comp.attack.value = 0.005
+  comp.release.value = 0.12
   let analyser = ctx.createAnalyser()
   analyser.fftSize = 512
-  masterGain.connect(analyser)
+  masterGain.connect(comp)
+  comp.connect(analyser)
   analyser.connect(ctx.destination)
+  store.masterComp = comp
   store.analyser = analyser
   store.ctx = ctx
   store.master = masterGain
@@ -216,6 +258,44 @@ export fn syncChannelBuses(project, store) {
     ensureActorBus(project, store, lane)
     let ab = store.actorBuses[lane]
     store.buses.push(buildChannelBus(ctx, ch, ab.summingGain, store.reverbIn))
+  }
+}
+
+/** Rebuild ALL channel buses for the current project.channels on the live context (deck-set hot-swap). */
+export fn resyncAllChannelBuses(project, store) {
+  if (!store.ctx) {
+    return
+  }
+  ensureActorMixerEntries(project)
+  if (!store.actorBuses) {
+    store.actorBuses = {}
+  }
+  if (store.buses) {
+    let i = 0
+    while (i < store.buses.length) {
+      let b = store.buses[i]
+      if (b) {
+        if (b.panNode) {
+          try { b.panNode.disconnect() } catch (e) {}
+        }
+        if (b.driveNode) {
+          try { b.driveNode.disconnect() } catch (e) {}
+        }
+        if (b.lfo) {
+          try { b.lfo.stop() } catch (e) {}
+        }
+      }
+      i = i + 1
+    }
+  }
+  store.buses = []
+  let ci = 0
+  while (ci < project.channels.length) {
+    let lane = channelActorLane(project.channels[ci], project)
+    ensureActorBus(project, store, lane)
+    let ab = store.actorBuses[lane]
+    store.buses.push(buildChannelBus(store.ctx, project.channels[ci], ab.summingGain, store.reverbIn))
+    ci = ci + 1
   }
 }
 
@@ -278,6 +358,19 @@ export fn updateMixerFromProject(project, store, atBeat) {
     b.filterNode.frequency.value = ch.filterCutoff
     if (b.reverbSend) {
       b.reverbSend.gain.value = ch.reverbSend != null ? ch.reverbSend : 0
+    }
+    if (b.driveNode) {
+      let dv = ch.drive != null ? ch.drive : 0
+      if (b.driveCached !== dv) {
+        b.driveNode.curve = dv > 0 ? makeDriveCurve(store.ctx, dv) : null
+        b.driveCached = dv
+      }
+    }
+    if (b.lfo) {
+      b.lfo.frequency.value = ch.lfoRate != null ? ch.lfoRate : 0
+    }
+    if (b.lfoGain) {
+      b.lfoGain.gain.value = ch.lfoDepth != null ? ch.lfoDepth : 0
     }
     mi = mi + 1
   }

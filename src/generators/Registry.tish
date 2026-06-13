@@ -31,6 +31,11 @@ export fn generatorCatalog() {
       id: "bell",
       label: "Bell",
       description: "Inharmonic sine partials + highpass + bell decay — metallic shimmer."
+    },
+    {
+      id: "drumSynth",
+      label: "Drum",
+      description: "Pitch-envelope drum synth — punchy kicks, snares, toms, 808s (+ noise + drive)."
     }
   ]
 }
@@ -130,6 +135,17 @@ export fn defaultParamsForGeneratorId(id) {
       partial: 2.01,
       highpass: 800,
       decay: 1.0
+    }
+  }
+  if (id === "drumSynth") {
+    return {
+      tone: "sine",
+      pitchEnv: 36,
+      pitchDecay: 0.06,
+      decay: 0.35,
+      noise: 0,
+      noiseDecay: 0.12,
+      drive: 0
     }
   }
   return {}

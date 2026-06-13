@@ -7,6 +7,7 @@ import { h, Fragment } from '@tishlang/lattish'
 import { channelDeck, crossfadeValue } from '../../model/DeckRouting.tish'
 import { ensureMasterMixer, channelActorLane } from '../../model/MixerRouting.tish'
 import { setChannelGain } from '../../model/Edits.tish'
+import { loadDeckSet, deckSetCatalog } from '../../model/DeckSets.tish'
 
 fn ensureDeckEq(project) {
   if (!project.deckEq) {
@@ -103,7 +104,47 @@ fn StemFader(entry, setProjectFromUI, touchMixer, project) {
   )
 }
 
-fn DeckColumn(project, deck, setProjectFromUI, touchMixer) {
+fn DeckSetPicker(project, deck, setProjectFromUI, touchMixer, rt) {
+  let cat = deckSetCatalog()
+  let opts = [<option value="">{"— load set —"}</option>]
+  let i = 0
+  while (i < cat.length) {
+    let s = cat[i]
+    opts.push(<option value={s.id}>{s.name + " (" + s.genre + ")"}</option>)
+    i = i + 1
+  }
+  return (
+    <select
+      class="dk-set-select"
+      onmousedown={(e) => e.stopPropagation()}
+      onchange={(e) => {
+        let sid = e.target.value
+        if (!sid || sid.length === 0) {
+          return
+        }
+        loadDeckSet(project, deck, sid)
+        if (rt) {
+          // Drop stale per-index clip arming so the new channels fall back to their own clips.
+          rt.sessionArmedClipIds = []
+          rt.sessionQueuedClipIds = []
+          rt.sessionQueuePending = false
+          rt.sessionQueuedScene = null
+          if (rt.resyncAudio) {
+            rt.resyncAudio()
+          }
+        }
+        setProjectFromUI(project)
+        if (touchMixer) {
+          touchMixer()
+        }
+      }}
+    >
+      {opts}
+    </select>
+  )
+}
+
+fn DeckColumn(project, deck, setProjectFromUI, touchMixer, rt) {
   let entries = deckEntries(project, deck)
   let faders = []
   let i = 0
@@ -134,6 +175,7 @@ fn DeckColumn(project, deck, setProjectFromUI, touchMixer) {
         </div>
         <span class="dk-deck-meta">{meta}</span>
       </div>
+      {DeckSetPicker(project, deck, setProjectFromUI, touchMixer, rt)}
       <div class="dk-fader-row">{faders}</div>
     </div>
   )
@@ -183,7 +225,7 @@ fn DeckEqColumn(project, deck, setProjectFromUI, touchMixer) {
   )
 }
 
-export fn DeckMixer(project, setProjectFromUI, touchMixer) {
+export fn DeckMixer(project, setProjectFromUI, touchMixer, rt) {
   ensureMasterMixer(project)
   ensureDeckEq(project)
   let x = crossfadeValue(project)
@@ -192,7 +234,8 @@ export fn DeckMixer(project, setProjectFromUI, touchMixer) {
       <div class="dk-master-strip">
         <div class="dk-master-info">
           <p class="dk-master-title">{"MASTER_OUT"}</p>
-          <p>{"FFT_SIZE: 512"}</p>
+          <p>{"COMPRESSOR: ACTIVE"}</p>
+          <p>{"REVERB_BUS: ACTIVE"}</p>
           <p>{"XFADE: " + String(Math.round(x * 100)) + "%"}</p>
         </div>
         <div class="dk-master-scope">
@@ -200,7 +243,7 @@ export fn DeckMixer(project, setProjectFromUI, touchMixer) {
         </div>
       </div>
       <div class="dk-desk">
-        {DeckColumn(project, "A", setProjectFromUI, touchMixer)}
+        {DeckColumn(project, "A", setProjectFromUI, touchMixer, rt)}
         <div class="dk-center">
           <div class="dk-eq-pair">
             {DeckEqColumn(project, "A", setProjectFromUI, touchMixer)}
@@ -231,7 +274,7 @@ export fn DeckMixer(project, setProjectFromUI, touchMixer) {
             />
           </div>
         </div>
-        {DeckColumn(project, "B", setProjectFromUI, touchMixer)}
+        {DeckColumn(project, "B", setProjectFromUI, touchMixer, rt)}
       </div>
     </section>
   )

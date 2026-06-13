@@ -1,0 +1,626 @@
+// Stem deck sets — a deck loads a whole rack (5 stems: kick / perc / bass / chord / arp-fx), each a
+// full instrument + 16-step sequence, defined entirely in TPL. You load a set onto a deck and DJ
+// between two of them. Converted from the deck.tsx procedural TRACKS (1-bar essence per genre).
+
+import { emptyProjectShell } from './Project.tish'
+import { applyTplSource } from '../tpl/Apply.tish'
+import { channelDeck } from './DeckRouting.tish'
+import { ensureProjectSession } from './Session.tish'
+import { ensureCoDjMeta } from '../codj/CoDjMeta.tish'
+
+fn L(arr) {
+  return arr.join("\n")
+}
+
+fn deckSetTpls() {
+  return [
+    {
+      id: "aetherial_edge",
+      name: "Aetherial Edge",
+      genre: "Ambient Space",
+      bpm: 110,
+      tpl: L([
+        "tpl 1",
+        "track Kick id kick gen drum",
+        "  gen tone triangle pitch_env 22 pitch_decay 0.1 decay 0.6",
+        "  step_pitch 36",
+        "  steps x . . . . . . . . . . . . . . .",
+        "track Hat id hat gen noise_burst",
+        "  noise attack 0.001 decay 0.05 tone 0.8 pitch_follow 0.05",
+        "  step_pitch 42",
+        "  steps . . . . x . . . . . . . x . . .",
+        "track Bass id bass gen basic_osc",
+        "  osc waveform sawtooth",
+        "  adsr a 0.02 d 0.6 s 0.85 r 0.6",
+        "  fx reverb_send 0.15 cutoff 500 res 3",
+        "  note 36 0 4 v 95",
+        "track Chord id chord gen pad",
+        "  gen wave1 sawtooth wave2 sawtooth detune 8 cutoff 1400 attack 0.5 decay 0.7 sustain 0.7 release 1.6",
+        "  fx reverb_send 0.4",
+        "  voice chord minor",
+        "  note 48 0 4 v 60",
+        "track Arp id arp gen pad",
+        "  gen wave1 triangle wave2 sine detune 6 cutoff 2600 attack 0.005 decay 0.2 sustain 0.2 release 0.3",
+        "  fx reverb_send 0.35",
+        "  note 60 0 0.25 v 70",
+        "  note 63 0.75 0.25 v 70",
+        "  note 67 1.5 0.25 v 70",
+        "  note 70 2.25 0.25 v 70",
+        "  note 72 3 0.25 v 70"
+      ])
+    },
+    {
+      id: "nebula_pulse",
+      name: "Nebula Pulse",
+      genre: "Cyberpunk",
+      bpm: 125,
+      tpl: L([
+        "tpl 1",
+        "track Kick id kick gen drum",
+        "  gen tone sine pitch_env 40 pitch_decay 0.05 decay 0.4 drive 0.15",
+        "  step_pitch 36",
+        "  steps x . . . x . . . x . . . x . . .",
+        "track Snare id snare gen drum",
+        "  gen tone triangle pitch_env 18 pitch_decay 0.04 decay 0.18 noise 0.7 noise_hp 1800 noise_decay 0.18",
+        "  step_pitch 40",
+        "  steps . . . . x . . . . . . . x . . .",
+        "track Hat id hat gen noise_burst",
+        "  noise attack 0.001 decay 0.04 tone 0.85 pitch_follow 0.05",
+        "  step_pitch 44",
+        "  steps x . x . x . x . x . x . x . x .",
+        "track Bass id bass gen basic_osc",
+        "  osc waveform sawtooth",
+        "  adsr a 0.005 d 0.16 s 0.2 r 0.1",
+        "  fx cutoff 900 res 12 drive 0.2",
+        "  step_pitch 36",
+        "  steps x . x . x . x . x . x . x . x .",
+        "track Stab id stab gen basic_osc",
+        "  osc waveform square",
+        "  adsr a 0.002 d 0.18 s 0 r 0.1",
+        "  fx reverb_send 0.15",
+        "  voice chord minor",
+        "  note 60 0 0.25 v 80",
+        "  note 60 2.5 0.25 v 80"
+      ])
+    },
+    {
+      id: "event_horizon",
+      name: "Event Horizon",
+      genre: "Deep Techno",
+      bpm: 130,
+      tpl: L([
+        "tpl 1",
+        "track Kick id kick gen drum",
+        "  gen tone triangle pitch_env 24 pitch_decay 0.1 decay 0.55",
+        "  step_pitch 36",
+        "  steps x . . . x . . . x . . . x . . .",
+        "track Hat id hat gen noise_burst",
+        "  noise attack 0.001 decay 0.05 tone 0.8 pitch_follow 0.05",
+        "  step_pitch 44",
+        "  steps . . x . . . x . . . x . . . x .",
+        "track Bass id bass gen basic_osc",
+        "  osc waveform sawtooth",
+        "  adsr a 0.01 d 0.3 s 0.4 r 0.2",
+        "  fx cutoff 600 res 4 reverb_send 0.1",
+        "  step_pitch 36",
+        "  steps . . x . . . x . . . x . . . x .",
+        "track Chord id chord gen pad",
+        "  gen wave1 sawtooth wave2 sawtooth detune 6 cutoff 1200 attack 0.6 decay 0.8 sustain 0.7 release 2.0",
+        "  fx reverb_send 0.4",
+        "  voice chord minor",
+        "  note 48 0 4 v 55",
+        "track Arp id arp gen pad",
+        "  gen wave1 square wave2 sine detune 4 cutoff 2400 attack 0.004 decay 0.16 sustain 0.1 release 0.25",
+        "  fx reverb_send 0.3",
+        "  note 67 3.5 0.25 v 70"
+      ])
+    },
+    {
+      id: "solar_flare",
+      name: "Solar Flare",
+      genre: "Trance",
+      bpm: 138,
+      tpl: L([
+        "tpl 1",
+        "track Kick id kick gen drum",
+        "  gen tone sine pitch_env 40 pitch_decay 0.05 decay 0.4 drive 0.15",
+        "  step_pitch 36",
+        "  steps x . . . x . . . x . . . x . . .",
+        "track Hat id hat gen noise_burst",
+        "  noise attack 0.001 decay 0.16 tone 0.7 pitch_follow 0.05",
+        "  step_pitch 44",
+        "  steps . . x . . . x . . . x . . . x .",
+        "track Bass id bass gen basic_osc",
+        "  osc waveform sawtooth",
+        "  adsr a 0.005 d 0.12 s 0.3 r 0.1",
+        "  fx cutoff 700 res 3",
+        "  step_pitch 36",
+        "  steps . x x x . x x x . x x x . x x x",
+        "track Chord id chord gen pad",
+        "  gen wave1 sawtooth wave2 sawtooth detune 10 cutoff 1600 attack 0.3 decay 0.6 sustain 0.7 release 1.4",
+        "  fx reverb_send 0.4",
+        "  voice chord major",
+        "  note 44 0 4 v 60",
+        "track Arp id arp gen pad",
+        "  gen wave1 triangle wave2 sine detune 6 cutoff 3000 attack 0.004 decay 0.14 sustain 0.2 release 0.3",
+        "  fx reverb_send 0.4",
+        "  note 72 0 0.25 v 70",
+        "  note 75 0.75 0.25 v 70",
+        "  note 72 1 0.25 v 70",
+        "  note 79 2 0.25 v 70",
+        "  note 72 3 0.25 v 70"
+      ])
+    },
+    {
+      id: "oort_cloud",
+      name: "Oort Cloud",
+      genre: "Downtempo",
+      bpm: 90,
+      tpl: L([
+        "tpl 1",
+        "track Kick id kick gen drum",
+        "  gen tone triangle pitch_env 22 pitch_decay 0.1 decay 0.6",
+        "  step_pitch 36",
+        "  steps x . . . . . . . . . . x . . . .",
+        "track Snare id snare gen drum",
+        "  gen tone triangle pitch_env 16 pitch_decay 0.04 decay 0.2 noise 0.7 noise_hp 1600 noise_decay 0.2",
+        "  step_pitch 40",
+        "  steps . . . . . . . . x . . . . . . .",
+        "track Hat id hat gen noise_burst",
+        "  noise attack 0.001 decay 0.05 tone 0.8 pitch_follow 0.05",
+        "  step_pitch 44",
+        "  steps x . x . x . x . x . x . x . x .",
+        "track Bass id bass gen basic_osc",
+        "  osc waveform sawtooth",
+        "  adsr a 0.01 d 0.5 s 0.5 r 0.3",
+        "  fx cutoff 700 res 8",
+        "  step_pitch 36",
+        "  steps x . . . . . . . . . . x . . . .",
+        "track Chord id chord gen basic_osc",
+        "  osc waveform square",
+        "  adsr a 0.004 d 0.4 s 0.2 r 0.3",
+        "  fx reverb_send 0.3",
+        "  voice chord minor",
+        "  note 48 0 1.5 v 60",
+        "  note 48 1.5 1.5 v 55"
+      ])
+    },
+    {
+      id: "singularity",
+      name: "Singularity",
+      genre: "Midtempo Bass",
+      bpm: 105,
+      tpl: L([
+        "tpl 1",
+        "track Kick id kick gen drum",
+        "  gen tone sine pitch_env 36 pitch_decay 0.05 decay 0.45 drive 0.6",
+        "  step_pitch 36",
+        "  steps x . . . . . . . x . . . . . . .",
+        "track Snare id snare gen drum",
+        "  gen tone triangle pitch_env 18 pitch_decay 0.04 decay 0.18 noise 0.8 noise_hp 1800 noise_decay 0.18",
+        "  step_pitch 40",
+        "  steps . . . . . . . . x . . . . . . .",
+        "track Hat id hat gen noise_burst",
+        "  noise attack 0.001 decay 0.16 tone 0.7 pitch_follow 0.05",
+        "  step_pitch 44",
+        "  steps . . x . . . x . . . x . . . x .",
+        "track Wobble id wobble gen basic_osc",
+        "  osc waveform sawtooth",
+        "  adsr a 0.005 d 0.5 s 0.9 r 0.1",
+        "  fx cutoff 300 res 12 lfo_rate 4 lfo_depth 2500 drive 0.3",
+        "  step_pitch 24",
+        "  steps x . . . . . . . x . . . . . . .",
+        "track Stab id stab gen basic_osc",
+        "  osc waveform square",
+        "  adsr a 0.002 d 0.3 s 0 r 0.1",
+        "  fx reverb_send 0.2",
+        "  voice chord minor",
+        "  note 48 0 1 v 70"
+      ])
+    },
+    {
+      id: "supernova",
+      name: "Supernova",
+      genre: "Psytrance",
+      bpm: 145,
+      tpl: L([
+        "tpl 1",
+        "track Kick id kick gen drum",
+        "  gen tone sine pitch_env 40 pitch_decay 0.05 decay 0.4 drive 0.15",
+        "  step_pitch 36",
+        "  steps x . . . x . . . x . . . x . . .",
+        "track Hat id hat gen noise_burst",
+        "  noise attack 0.001 decay 0.16 tone 0.7 pitch_follow 0.05",
+        "  step_pitch 44",
+        "  steps . . . . x . . . . . . . x . . .",
+        "track Bass id bass gen basic_osc",
+        "  osc waveform sawtooth",
+        "  adsr a 0.005 d 0.12 s 0.3 r 0.08",
+        "  fx cutoff 600 res 4 drive 0.2",
+        "  step_pitch 36",
+        "  steps . x x x . x x x . x x x . x x x",
+        "track Chord id chord gen pad",
+        "  gen wave1 sawtooth wave2 sawtooth detune 8 cutoff 1300 attack 0.4 decay 0.7 sustain 0.6 release 1.4",
+        "  fx reverb_send 0.4",
+        "  voice chord minor",
+        "  note 48 0 4 v 55",
+        "track Arp id arp gen fm",
+        "  fm ratio 2 mod_index 5 carrier sine mod sine",
+        "  adsr a 0.002 d 0.22 s 0 r 0.1",
+        "  fx reverb_send 0.3",
+        "  note 60 0 0.25 v 75",
+        "  note 72 1.5 0.25 v 75"
+      ])
+    },
+    {
+      id: "void_walker",
+      name: "Void Walker",
+      genre: "Dub / Halftime",
+      bpm: 140,
+      tpl: L([
+        "tpl 1",
+        "track Kick id kick gen drum",
+        "  gen tone triangle pitch_env 24 pitch_decay 0.12 decay 0.7",
+        "  step_pitch 34",
+        "  steps x . . . . . . . . . x . . . . .",
+        "track Snare id snare gen drum",
+        "  gen tone triangle pitch_env 16 pitch_decay 0.04 decay 0.22 noise 0.7 noise_hp 1600 noise_decay 0.22",
+        "  step_pitch 40",
+        "  steps . . . . . . . . x . . . . . . .",
+        "track Hat id hat gen noise_burst",
+        "  noise attack 0.001 decay 0.04 tone 0.85 pitch_follow 0.05",
+        "  step_pitch 44",
+        "  steps . . x . . . x . . . x . . . x .",
+        "track Sub id sub gen basic_osc",
+        "  osc waveform sawtooth",
+        "  adsr a 0.02 d 0.8 s 0.9 r 0.3",
+        "  fx cutoff 350 res 3 reverb_send 0.1",
+        "  note 24 0 4 v 100",
+        "track Stab id stab gen basic_osc",
+        "  osc waveform square",
+        "  adsr a 0.002 d 0.3 s 0 r 0.1",
+        "  fx reverb_send 0.2",
+        "  voice chord minor",
+        "  note 43 0 1 v 65",
+        "track Arp id arp gen fm",
+        "  fm ratio 1.5 mod_index 6 carrier sine mod square",
+        "  adsr a 0.002 d 0.2 s 0 r 0.1",
+        "  fx reverb_send 0.4",
+        "  note 70 3.5 0.25 v 70"
+      ])
+    },
+    {
+      id: "pulsar",
+      name: "Pulsar",
+      genre: "Synthwave",
+      bpm: 115,
+      tpl: L([
+        "tpl 1",
+        "track Kick id kick gen drum",
+        "  gen tone sine pitch_env 40 pitch_decay 0.05 decay 0.4 drive 0.1",
+        "  step_pitch 36",
+        "  steps x . . . x . . . x . . . x . . .",
+        "track Snare id snare gen drum",
+        "  gen tone triangle pitch_env 18 pitch_decay 0.04 decay 0.18 noise 0.7 noise_hp 1800 noise_decay 0.18",
+        "  step_pitch 40",
+        "  steps . . . . x . . . . . . . x . . .",
+        "track Hat id hat gen noise_burst",
+        "  noise attack 0.001 decay 0.04 tone 0.85 pitch_follow 0.05",
+        "  step_pitch 44",
+        "  steps x . x . x . x . x . x . x . x .",
+        "track Bass id bass gen basic_osc",
+        "  osc waveform sawtooth",
+        "  adsr a 0.005 d 0.18 s 0.2 r 0.1",
+        "  fx cutoff 850 res 10",
+        "  step_pitch 44",
+        "  steps x . x . x . x . x . x . x . x .",
+        "track Stab id stab gen basic_osc",
+        "  osc waveform square",
+        "  adsr a 0.002 d 0.3 s 0 r 0.12",
+        "  fx reverb_send 0.2",
+        "  voice chord major",
+        "  note 56 0 0.5 v 75",
+        "  note 56 1.5 0.5 v 70",
+        "track Arp id arp gen pad",
+        "  gen wave1 triangle wave2 sine detune 6 cutoff 2600 attack 0.005 decay 0.2 sustain 0.2 release 0.3",
+        "  fx reverb_send 0.3",
+        "  note 63 1.5 0.25 v 70",
+        "  note 63 3.5 0.25 v 70"
+      ])
+    },
+    {
+      id: "quasar",
+      name: "Quasar",
+      genre: "Liquid DnB",
+      bpm: 170,
+      tpl: L([
+        "tpl 1",
+        "track Kick id kick gen drum",
+        "  gen tone triangle pitch_env 24 pitch_decay 0.09 decay 0.5",
+        "  step_pitch 36",
+        "  steps x . . . . . . . . . x . . . . .",
+        "track Snare id snare gen drum",
+        "  gen tone triangle pitch_env 18 pitch_decay 0.04 decay 0.18 noise 0.8 noise_hp 1900 noise_decay 0.18",
+        "  step_pitch 40",
+        "  steps . . . . x . . . . . . . x . . .",
+        "track Hat id hat gen noise_burst",
+        "  noise attack 0.001 decay 0.04 tone 0.85 pitch_follow 0.05",
+        "  step_pitch 44",
+        "  steps x x x x x x x x x x x x x x x x",
+        "track Bass id bass gen basic_osc",
+        "  osc waveform sawtooth",
+        "  adsr a 0.01 d 0.4 s 0.6 r 0.3",
+        "  fx cutoff 550 res 4 reverb_send 0.1",
+        "  note 39 0 4 v 95",
+        "track Chord id chord gen pad",
+        "  gen wave1 sawtooth wave2 sawtooth detune 8 cutoff 1500 attack 0.3 decay 0.6 sustain 0.7 release 1.4",
+        "  fx reverb_send 0.4",
+        "  voice chord major",
+        "  note 51 0 4 v 55",
+        "track Arp id arp gen fm",
+        "  fm ratio 2 mod_index 4 carrier sine mod sine",
+        "  adsr a 0.002 d 0.2 s 0 r 0.1",
+        "  fx reverb_send 0.4",
+        "  note 72 3.5 0.25 v 70"
+      ])
+    },
+    {
+      id: "dark_matter",
+      name: "Dark Matter",
+      genre: "Industrial EBM",
+      bpm: 105,
+      tpl: L([
+        "tpl 1",
+        "track Kick id kick gen drum",
+        "  gen tone sine pitch_env 38 pitch_decay 0.05 decay 0.42 drive 0.4",
+        "  step_pitch 36",
+        "  steps x . . . x . . . x . . . x . . .",
+        "track Snare id snare gen drum",
+        "  gen tone triangle pitch_env 18 pitch_decay 0.04 decay 0.18 noise 0.8 noise_hp 1800 noise_decay 0.18",
+        "  step_pitch 40",
+        "  steps . . . . . . . . x . . . . . . .",
+        "track Hat id hat gen noise_burst",
+        "  noise attack 0.001 decay 0.14 tone 0.75 pitch_follow 0.05",
+        "  step_pitch 44",
+        "  steps x . x . x . x . x . x . x . x .",
+        "track Bass id bass gen basic_osc",
+        "  osc waveform sawtooth",
+        "  adsr a 0.005 d 0.18 s 0.2 r 0.1",
+        "  fx cutoff 800 res 12 drive 0.3",
+        "  step_pitch 36",
+        "  steps x . . x . . . . x . . x . . . .",
+        "track Stab id stab gen basic_osc",
+        "  osc waveform square",
+        "  adsr a 0.002 d 0.2 s 0 r 0.1",
+        "  fx reverb_send 0.15 drive 0.2",
+        "  voice chord minor",
+        "  note 48 0 0.5 v 75",
+        "track Arp id arp gen fm",
+        "  fm ratio 1 mod_index 6 carrier square mod sine",
+        "  adsr a 0.002 d 0.2 s 0 r 0.1",
+        "  fx reverb_send 0.3",
+        "  note 48 0 0.25 v 70",
+        "  note 51 0.75 0.25 v 70",
+        "  note 55 1.5 0.25 v 70",
+        "  note 48 2.25 0.25 v 70",
+        "  note 55 3 0.25 v 70"
+      ])
+    },
+    {
+      id: "nebular_dust",
+      name: "Nebular Dust",
+      genre: "Lo-Fi House",
+      bpm: 118,
+      tpl: L([
+        "tpl 1",
+        "track Kick id kick gen drum",
+        "  gen tone triangle pitch_env 24 pitch_decay 0.1 decay 0.5",
+        "  step_pitch 36",
+        "  steps x . . . x . . . x . . . x . . .",
+        "track Snare id snare gen drum",
+        "  gen tone triangle pitch_env 16 pitch_decay 0.04 decay 0.18 noise 0.6 noise_hp 1600 noise_decay 0.2",
+        "  step_pitch 40",
+        "  steps . . . . x . . . . . . . x . . .",
+        "track Hat id hat gen noise_burst",
+        "  noise attack 0.001 decay 0.14 tone 0.7 pitch_follow 0.05",
+        "  step_pitch 44",
+        "  steps . . x . . . x . . . x . . . x .",
+        "track Bass id bass gen basic_osc",
+        "  osc waveform sawtooth",
+        "  adsr a 0.01 d 0.3 s 0.4 r 0.2",
+        "  fx cutoff 600 res 3 reverb_send 0.1",
+        "  step_pitch 43",
+        "  steps . . . . . . . . . . x . . . x .",
+        "track Stab id stab gen basic_osc",
+        "  osc waveform square",
+        "  adsr a 0.004 d 0.35 s 0.1 r 0.2",
+        "  fx reverb_send 0.25",
+        "  voice chord minor",
+        "  note 55 1 0.5 v 60",
+        "  note 55 3 0.5 v 55",
+        "track Texture id texture gen noise_burst",
+        "  noise attack 0.05 decay 0.6 tone 0.4 pitch_follow 0",
+        "  step_pitch 50",
+        "  steps x . . . . . . . . . . . . . . ."
+      ])
+    },
+    {
+      id: "chronos",
+      name: "Chronos",
+      genre: "Psybient",
+      bpm: 90,
+      tpl: L([
+        "tpl 1",
+        "track Kick id kick gen drum",
+        "  gen tone triangle pitch_env 22 pitch_decay 0.11 decay 0.6",
+        "  step_pitch 36",
+        "  steps x . . . . . . . . . . . . . . .",
+        "track Hat id hat gen noise_burst",
+        "  noise attack 0.001 decay 0.05 tone 0.8 pitch_follow 0.05",
+        "  step_pitch 44",
+        "  steps x . . . x . . . x . . . x . x .",
+        "track Bass id bass gen basic_osc",
+        "  osc waveform sawtooth",
+        "  adsr a 0.05 d 1.0 s 0.9 r 0.4",
+        "  fx cutoff 300 res 10 lfo_rate 0.5 lfo_depth 2000 reverb_send 0.1",
+        "  note 36 0 4 v 90",
+        "track Chord id chord gen pad",
+        "  gen wave1 sawtooth wave2 sawtooth detune 7 cutoff 1100 attack 0.6 decay 0.9 sustain 0.8 release 2.0",
+        "  fx reverb_send 0.45",
+        "  voice chord minor",
+        "  note 48 0 4 v 55",
+        "track Arp id arp gen fm",
+        "  fm ratio 2 mod_index 4 carrier sine mod sine",
+        "  adsr a 0.003 d 0.3 s 0 r 0.15",
+        "  fx reverb_send 0.4",
+        "  note 60 1.5 0.25 v 70",
+        "  note 67 2 0.25 v 70"
+      ])
+    },
+    {
+      id: "tachyon",
+      name: "Tachyon",
+      genre: "Hardwave",
+      bpm: 130,
+      tpl: L([
+        "tpl 1",
+        "track Kick id kick gen drum",
+        "  gen tone sine pitch_env 36 pitch_decay 0.05 decay 0.45 drive 0.6",
+        "  step_pitch 36",
+        "  steps x . . . . . . . x . . x . . . .",
+        "track Snare id snare gen drum",
+        "  gen tone triangle pitch_env 18 pitch_decay 0.04 decay 0.18 noise 0.8 noise_hp 1900 noise_decay 0.18",
+        "  step_pitch 40",
+        "  steps . . . . . . . . x . . . . . . .",
+        "track Hat id hat gen noise_burst",
+        "  noise attack 0.001 decay 0.04 tone 0.85 pitch_follow 0.05",
+        "  step_pitch 44",
+        "  steps x . x . x . x . x . x . x . x .",
+        "track Bass id bass gen basic_osc",
+        "  osc waveform sawtooth",
+        "  adsr a 0.005 d 0.5 s 0.8 r 0.2",
+        "  fx cutoff 500 res 5 drive 0.35",
+        "  note 44 0 4 v 95",
+        "track Chord id chord gen pad",
+        "  gen wave1 sawtooth wave2 sawtooth detune 12 cutoff 1700 attack 0.2 decay 0.6 sustain 0.7 release 1.4",
+        "  fx reverb_send 0.4",
+        "  voice chord major",
+        "  note 56 0 4 v 60",
+        "track Arp id arp gen fm",
+        "  fm ratio 3 mod_index 5 carrier sine mod sine",
+        "  adsr a 0.002 d 0.18 s 0 r 0.1",
+        "  fx reverb_send 0.35",
+        "  note 72 0 0.25 v 75",
+        "  note 72 1 0.25 v 75",
+        "  note 72 2 0.25 v 75",
+        "  note 72 3 0.25 v 75"
+      ])
+    },
+    {
+      id: "solar_wind",
+      name: "Solar Wind",
+      genre: "Prog House",
+      bpm: 124,
+      tpl: L([
+        "tpl 1",
+        "track Kick id kick gen drum",
+        "  gen tone sine pitch_env 40 pitch_decay 0.05 decay 0.4 drive 0.12",
+        "  step_pitch 36",
+        "  steps x . . . x . . . x . . . x . . .",
+        "track Snare id snare gen drum",
+        "  gen tone triangle pitch_env 18 pitch_decay 0.04 decay 0.18 noise 0.7 noise_hp 1800 noise_decay 0.18",
+        "  step_pitch 40",
+        "  steps . . . . x . . . . . . . x . . .",
+        "track Hat id hat gen noise_burst",
+        "  noise attack 0.001 decay 0.16 tone 0.7 pitch_follow 0.05",
+        "  step_pitch 44",
+        "  steps . . x . . . x . . . x . . . x .",
+        "track Bass id bass gen basic_osc",
+        "  osc waveform sawtooth",
+        "  adsr a 0.005 d 0.12 s 0.3 r 0.1",
+        "  fx cutoff 700 res 3",
+        "  step_pitch 36",
+        "  steps . x x x . x x x . x x x . x x x",
+        "track Chord id chord gen pad",
+        "  gen wave1 sawtooth wave2 sawtooth detune 9 cutoff 1500 attack 0.3 decay 0.6 sustain 0.7 release 1.4",
+        "  fx reverb_send 0.4",
+        "  voice chord minor",
+        "  note 48 0 4 v 58",
+        "track Arp id arp gen pad",
+        "  gen wave1 triangle wave2 sine detune 6 cutoff 2800 attack 0.005 decay 0.16 sustain 0.2 release 0.3",
+        "  fx reverb_send 0.35",
+        "  note 60 0.75 0.25 v 70",
+        "  note 63 1.5 0.25 v 70",
+        "  note 67 2.75 0.25 v 70",
+        "  note 70 3.5 0.25 v 70"
+      ])
+    }
+  ]
+}
+
+/** [{ id, name, genre, bpm }] for the deck-set picker. */
+export fn deckSetCatalog() {
+  let sets = deckSetTpls()
+  let out = []
+  let i = 0
+  while (i < sets.length) {
+    let s = sets[i]
+    out.push({ id: s.id, name: s.name, genre: s.genre, bpm: s.bpm })
+    i = i + 1
+  }
+  return out
+}
+
+export fn deckSetTplById(setId) {
+  let sets = deckSetTpls()
+  let i = 0
+  while (i < sets.length) {
+    if (sets[i].id === setId) {
+      return sets[i]
+    }
+    i = i + 1
+  }
+  return null
+}
+
+/** Replace a deck's channels with the set's stems. deckId "A" = host (local), "B" = client. */
+export fn loadDeckSet(project, deckId, setId) {
+  let set = deckSetTplById(setId)
+  if (!set) {
+    return false
+  }
+  let want = deckId === "B" ? "B" : "A"
+  let lane = deckId === "B" ? "client" : ""
+  let deckField = deckId === "B" ? "live" : "local"
+  // Drop the channels currently on this deck.
+  let kept = []
+  let j = 0
+  while (j < project.channels.length) {
+    if (channelDeck(project, project.channels[j]) !== want) {
+      kept.push(project.channels[j])
+    }
+    j = j + 1
+  }
+  project.channels = kept
+  // Parse the set into a throwaway project, then graft its channels onto this deck.
+  let tmp = emptyProjectShell()
+  applyTplSource(tmp, set.tpl)
+  let prefix = (deckId === "B" ? "b_" : "a_")
+  let k = 0
+  while (k < tmp.channels.length) {
+    let ch = tmp.channels[k]
+    ch.id = prefix + ch.id
+    ch.actorLane = lane
+    ch.deck = deckField
+    // Rebuild session clips under the new (prefixed) id so the main clip id matches the channel.
+    ch.sessionClips = []
+    project.channels.push(ch)
+    k = k + 1
+  }
+  if (project.coDjMeta) {
+    project.coDjMeta.tracks = {}
+  }
+  ensureCoDjMeta(project)
+  ensureProjectSession(project)
+  return true
+}

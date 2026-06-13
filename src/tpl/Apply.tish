@@ -6,7 +6,7 @@ import {
   tileStepsPattern,
   normalizeClipStepLength
 } from '../model/Session.tish'
-import { paramKeyToCamel } from './RegistryMap.tish'
+import { paramKeyToCamel, snakeToCamel } from './RegistryMap.tish'
 import {
   mixParamFromTpl,
   isChannelMixParam,
@@ -142,6 +142,61 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
       let sp = Math.floor(Number(t[1]))
       if (sp === sp && sp >= 0 && sp <= 127) {
         ch.stepPitch = sp
+      }
+    } else if (h === "gen") {
+      if (!ch.generatorParams) {
+        ch.generatorParams = {}
+      }
+      let gi = 1
+      while (gi + 1 < t.length) {
+        let key = snakeToCamel(t[gi])
+        let raw = t[gi + 1]
+        let num = Number(raw)
+        if (num === num && raw.length > 0) {
+          ch.generatorParams[key] = num
+        } else {
+          ch.generatorParams[key] = raw
+        }
+        gi = gi + 2
+      }
+    } else if (h === "fx") {
+      let fi = 1
+      while (fi + 1 < t.length) {
+        let k = t[fi]
+        let v = Number(t[fi + 1])
+        if (v === v) {
+          if (k === "reverb_send" || k === "reverb") {
+            ch.reverbSend = v
+          } else if (k === "drive") {
+            ch.drive = v
+          } else if (k === "lfo_rate") {
+            ch.lfoRate = v
+          } else if (k === "lfo_depth") {
+            ch.lfoDepth = v
+          } else if (k === "cutoff") {
+            ch.filterCutoff = v
+          } else if (k === "res") {
+            ch.filterQ = v
+          }
+        }
+        fi = fi + 2
+      }
+    } else if (h === "voice") {
+      let vi = 1
+      while (vi + 1 < t.length) {
+        let k = t[vi]
+        let raw = t[vi + 1]
+        if (k === "octave") {
+          let o = Math.floor(Number(raw))
+          if (o === o) {
+            ch.octave = o
+          }
+        } else if (k === "arp") {
+          ch.arp = raw
+        } else if (k === "chord") {
+          ch.chord = raw
+        }
+        vi = vi + 2
       }
     } else if (h === "mix") {
       let mi = 1

@@ -94,6 +94,30 @@ export fn emptyProjectShell() {
       name: "Soft pluck",
       generatorId: "pad",
       params: { wave1: "triangle", wave2: "sine", detune: 6, cutoff: 2600, attack: 0.005, decay: 0.18, sustain: 0.25, release: 0.3 }
+    },
+    {
+      presetId: "factory_kick_punch",
+      name: "Kick (punch)",
+      generatorId: "drumSynth",
+      params: { tone: "sine", pitchEnv: 42, pitchDecay: 0.05, decay: 0.4, noise: 0, drive: 0.15 }
+    },
+    {
+      presetId: "factory_808",
+      name: "808 sub",
+      generatorId: "drumSynth",
+      params: { tone: "sine", pitchEnv: 24, pitchDecay: 0.09, decay: 0.9, noise: 0, drive: 0.1 }
+    },
+    {
+      presetId: "factory_snare",
+      name: "Snare",
+      generatorId: "drumSynth",
+      params: { tone: "triangle", pitchEnv: 18, pitchDecay: 0.04, decay: 0.18, noise: 0.7, noiseHp: 1800, noiseDecay: 0.18, drive: 0.1 }
+    },
+    {
+      presetId: "factory_clap",
+      name: "Clap",
+      generatorId: "drumSynth",
+      params: { tone: "triangle", pitchEnv: 0, pitchDecay: 0.01, decay: 0.02, noise: 1.0, noiseHp: 1200, noiseDecay: 0.16 }
     }
   ]
   let mxPresets = matrixFmFactoryInstrumentPresets()

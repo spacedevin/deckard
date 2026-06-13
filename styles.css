@@ -3250,6 +3250,24 @@ input[type="range"]::-moz-range-thumb {
   color: #5a5a64;
   letter-spacing: 0.06em;
 }
+.dk-set-select {
+  width: 100%;
+  margin: 6px 0 10px;
+  background: #0a0a0c;
+  color: #b8b8c0;
+  border: 1px solid #2a2a31;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-family: inherit;
+  font-size: 0.62rem;
+  cursor: pointer;
+}
+.dk-deck-a .dk-set-select {
+  border-color: var(--deck-a-dim);
+}
+.dk-deck-b .dk-set-select {
+  border-color: var(--deck-b-dim);
+}
 .dk-fader-row {
   display: flex;
   gap: 10px;

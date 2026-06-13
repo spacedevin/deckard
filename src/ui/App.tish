@@ -4,7 +4,7 @@ import { loadDefaultDeckardProject } from '../model/ProjectLoad.tish'
 import { emitProject } from '../tpl/Emit.tish'
 import { CodeDebugView } from './CodeDebugView.tish'
 import { migrateProjectGenerators } from '../model/Migrate.tish'
-import { ensureAudio, updateMixerFromProject } from '../audio/Engine.tish'
+import { ensureAudio, updateMixerFromProject, resyncAllChannelBuses } from '../audio/Engine.tish'
 import { transportTick } from '../audio/Playback.tish'
 import { tplLoopResetAll } from '../tpl/LoopState.tish'
 import { TransportBar } from './Transport.tish'
@@ -476,6 +476,14 @@ export fn App() {
     }
     setPlaying(false)
   }
+  rt.stopPlayback = onStop
+  // Deck-set hot-swap: rebuild channel buses on the LIVE audio context so playback continues
+  // seamlessly through a set load (no stop / no manual re-Play). No-op until audio has started.
+  rt.resyncAudio = () => {
+    let p = rtRef.current.project
+    resyncAllChannelBuses(p, audioStore)
+    updateMixerFromProject(p, audioStore)
+  }
 
   fn onBpmInput(e) {
     let v = Number(e.target.value)
@@ -651,7 +659,7 @@ export fn App() {
     {PatternBank(patternBank)}
     <div class="daw-body daw-body-stack">
       <div class="daw-main-stack">{mainWorkspace}</div>
-      {DeckMixer(project, setProjectFromUI, touchMixer)}
+      {DeckMixer(project, setProjectFromUI, touchMixer, rt)}
       <div class="daw-tpl-dock">{CodeDebugView(project, setProject, tplText, setTplText, rt, true)}</div>
     </div>
     <footer class="daw-foot">{"TPL: docs/TPL_GRAMMAR.md · ARCH: docs/ARCHITECTURE.md · DEV_NODE: AETHER_LABS"}</footer>

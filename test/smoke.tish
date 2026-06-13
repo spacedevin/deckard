@@ -6,6 +6,8 @@ import { applyTplSource, findChannelById } from '../src/tpl/Apply.tish'
 import { applyCoDjTplSource } from '../src/codj/Merge.tish'
 import { createTplLineStream, tplLineStreamPush } from '../src/tpl/Stream.tish'
 import { coDjLineAllowedForSkills } from '../src/codj/Skills.tish'
+import { deckSetCatalog, deckSetTplById } from '../src/model/DeckSets.tish'
+import { emptyProjectShell } from '../src/model/Project.tish'
 
 let pass = 0
 let fail = 0
@@ -93,6 +95,43 @@ let permProj4 = loadDefaultDeckardProject().project
 let b4 = permProj4.bpm
 applyCoDjTplSource(permProj4, "tpl 1\nbpm 175", "agent-1", "agent-1", 0)
 check("legacy fallback: agent-* actorId cannot master when skillIds absent", permProj4.bpm === b4)
+
+// 5. New-synth TPL round-trip: gen / fx / voice lines (drum, drive, lfo, octave, arp, chord)
+let synProj = loadDefaultDeckardProject().project
+let synTpl = "tpl 1\ntrack DrumK id dk gen drum\n  gen tone sine pitch_env 40 pitch_decay 0.05 decay 0.4\n  fx reverb_send 0.3 drive 0.5 lfo_rate 4 lfo_depth 1200\n  voice octave 1 arp up chord minor\n  steps x . . . x . . . x . . . x . . ."
+applyTplSource(synProj, synTpl)
+let dk = findChannelById(synProj, "dk")
+check("gen line: generatorId resolves to drumSynth", dk !== null && dk.generatorId === "drumSynth")
+check("gen line: pitchEnv (snake->camel) parsed", dk !== null && dk.generatorParams.pitchEnv === 40)
+check("fx line: drive parsed", dk !== null && dk.drive === 0.5)
+check("fx line: lfoRate parsed", dk !== null && dk.lfoRate === 4)
+check("voice line: octave parsed", dk !== null && dk.octave === 1)
+check("voice line: chord parsed", dk !== null && dk.chord === "minor")
+let synEmit = emitProject(synProj)
+check("emit round-trips drum gen params", synEmit.indexOf("pitch_env") >= 0)
+check("emit round-trips fx drive", synEmit.indexOf("drive 0.5") >= 0)
+check("emit round-trips voice chord", synEmit.indexOf("chord minor") >= 0)
+
+// 6. Every stem deck set parses cleanly into >= 5 stems (the deck.tsx conversions)
+let cat = deckSetCatalog()
+check("15 stem deck sets in catalog", cat.length === 15)
+let badSet = ""
+let si = 0
+while (si < cat.length) {
+  let set = deckSetTplById(cat[si].id)
+  let tp = emptyProjectShell()
+  let rr = applyTplSource(tp, set.tpl)
+  if (rr.errors.length > 0) {
+    badSet = cat[si].id + " parse:" + String(rr.errors.length)
+  } else if (tp.channels.length < 5) {
+    badSet = cat[si].id + " stems:" + String(tp.channels.length)
+  }
+  si = si + 1
+}
+check("all 15 deck sets parse clean with >=5 stems", badSet === "")
+if (badSet !== "") {
+  console.log("  -> offending set: " + badSet)
+}
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))
