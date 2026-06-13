@@ -4,6 +4,7 @@ import { h, Fragment, useState } from '@tishlang/lattish'
 import { applyCoDjTplSource } from '../codj/Merge.tish'
 import { coDjClearOverlays } from '../codj/Overlay.tish'
 import { coDjHandleIncomingTplBlock } from '../codj/Schedule.tish'
+import { createTplLineStream, tplLineStreamPush } from '../tpl/Stream.tish'
 import { emitProject } from '../tpl/Emit.tish'
 
 export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
@@ -41,7 +42,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
   }
   if (rt) {
     rt.coDjPushLog = pushLog
-    rt.coDjApplyScheduledTpl = (tpl, actorId, authorId, perfStep) => {
+    rt.coDjApplyScheduledTpl = (tpl, actorId, authorId, perfStep, skillIds) => {
       let p = rt.project
       if (!p) {
         return
@@ -54,7 +55,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       if (step === undefined || step === null) {
         step = typeof rt.perfStep === "number" ? rt.perfStep : 0
       }
-      applyCoDjTplSource(p, s, actorId, authorId, step)
+      applyCoDjTplSource(p, s, actorId, authorId, step, skillIds)
     }
     rt.coDjAfterScheduled = () => {
       if (rt.setProject && rt.project) {
@@ -232,7 +233,8 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
         msg.submitDeadlinePerfStep,
         msg.asap,
         pushLog,
-        rt
+        rt,
+        msg.skillIds
       )
       if (r.status === "late") {
         return
@@ -262,7 +264,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       if (effStep === undefined || effStep === null) {
         effStep = rt && typeof rt.perfStep === "number" ? rt.perfStep : 0
       }
-      applyCoDjTplSource(p, applySrc, actorId, authorId, effStep)
+      applyCoDjTplSource(p, applySrc, actorId, authorId, effStep, msg.skillIds)
       setProject(p)
       if (rt && rt.appendStreamedBlock) {
         rt.appendStreamedBlock(lines, effStep)
@@ -292,17 +294,46 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
     if (t === "tpl.line") {
       let ln = msg.line != null ? String(msg.line) : ""
       let fromId = msg.actorId ? msg.actorId : (msg.laneId ? msg.laneId : "?")
-      pushLog("line " + fromId + ": " + ln)
-      if (msg.tplStream === true && rt) {
-        let lineWithNewline = ln + "\n"
-        rt.coDjRemoteTplStream = (rt.coDjRemoteTplStream + lineWithNewline).slice(-14000)
-        rt.coDjRemoteTplStreamLane = fromId + " TPL"
-        rt.coDjStreamPreview = (rt.coDjStreamPreview + lineWithNewline).slice(-14000)
+      let authorId = msg.authorId ? msg.authorId : fromId
+      // Live token-line preview (read-only "Hub → you" pane).
+      if (rt) {
+        rt.coDjStreamPreview = (rt.coDjStreamPreview + ln + "\n").slice(-14000)
         rt.coDjStreamLane = fromId
         rt.coDjStreamDirty = true
-        if (rt.coDjBumpUi) {
-          rt.coDjBumpUi()
+      }
+      // Incremental decode: apply each streamed line into the live project as it arrives,
+      // so a remote actor's stems appear progressively (track header → pattern fills in).
+      let p = rt && rt.project ? rt.project : project
+      if (rt && p && fromId !== "?" && fromId !== rt.coDjActorId) {
+        if (!rt.coDjLineStreams) {
+          rt.coDjLineStreams = {}
         }
+        let strm = rt.coDjLineStreams[fromId]
+        if (!strm) {
+          strm = createTplLineStream(fromId, authorId, msg.skillIds)
+          rt.coDjLineStreams[fromId] = strm
+        } else {
+          strm.skillIds = msg.skillIds
+          strm.authorId = authorId
+        }
+        let ps = typeof rt.perfStep === "number" ? rt.perfStep : 0
+        let res = tplLineStreamPush(strm, ln, p, ps)
+        if (res.applied) {
+          setProject(p)
+          let inStreamMode =
+            rt.coDjWs && rt.coDjWs.readyState === 1 && Array.isArray(rt.tplSessionStream)
+          if (tplMirrorFlush && !inStreamMode) {
+            tplMirrorFlush()
+          }
+          if (res.opened) {
+            pushLog("stream " + fromId + " ◂ " + ln)
+          }
+        } else if (res.denied) {
+          pushLog("skill-deny " + fromId + ": " + ln)
+        }
+      }
+      if (rt && rt.coDjBumpUi) {
+        rt.coDjBumpUi()
       }
       return
     }
@@ -395,6 +426,9 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       pushLog("ws open (handshake OK)")
       if (rt && !Array.isArray(rt.tplSessionStream)) {
         rt.tplSessionStream = []
+      }
+      if (rt) {
+        rt.coDjLineStreams = {}
       }
       if (sock && sock.send) {
         let joinPayload = JSON.stringify({

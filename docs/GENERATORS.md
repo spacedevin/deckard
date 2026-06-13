@@ -15,7 +15,7 @@ Export `playYourGenerator(ctx, bus, t, midi, vel, durSec, ch, bendSemis)`:
 
 - Build a short-lived Web Audio subgraph.
 - Connect the **last node** to `bus.input` (channel filter → gain → pan → master).
-- Read patch from `ch.generatorParams` and envelope from `ch.attack` / `decay` / `sustain` / `release` if applicable.
+- Read patch and envelope from `ch.generatorParams` if applicable. The ADSR lives in `generatorParams`, not on the channel root — do `let p = ch.generatorParams` then read `p.attack` / `p.decay` / `p.sustain` / `p.release` (see [`src/generators/BasicOsc.tish`](../src/generators/BasicOsc.tish)).
 
 Use [`midiToHz`](../src/schedule/Engine.tish) for pitched notes.
 
@@ -35,3 +35,9 @@ Extend [`docs/schema/project-v2.json`](schema/project-v2.json) with a `generator
 ## Matrix FM (`matrixFm`)
 
 Sytrus-style multi-operator graph: define the patch in TPL with `track … gen matrix_fm` and an indented `gen_block matrix_fm` … `end gen_block`. Parsed graph lives in `channel.generatorSpec.graph`; see [`docs/TPL_GRAMMAR.md`](TPL_GRAMMAR.md) and [`docs/TPL_EXTENSION.md`](TPL_EXTENSION.md).
+
+### Factory matrix FM presets
+
+[`src/model/MatrixFmPresets.tish`](../src/model/MatrixFmPresets.tish) ships factory `matrixFm` patches that are auto-loaded into `project.instrumentPresets` for every new project ([`src/model/Project.tish`](../src/model/Project.tish) `emptyProjectShell`). Preset ids:
+
+`mx_dub_growl`, `mx_pluck_neon`, `mx_reese_wide`, `mx_trap_808`, `mx_psy_squelch`, `mx_supersaw_stack`, `mx_deep_house_bass`, `mx_bright_lead`, `mx_airy_pad`, `mx_metallic_clank`, `mx_future_bass_wobble`, `mx_stab_chord`, `mx_sub_layer` (13 total).

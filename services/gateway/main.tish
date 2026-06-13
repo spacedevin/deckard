@@ -212,6 +212,10 @@ while (true) {
             out.seq = seq
             out.sessionId = conn.sessionId
             out.actorId = actorId
+            // Stamp the sender's declared skills so receivers can enforce skill-gating on apply.
+            if (out.skillIds == null) {
+              out.skillIds = conn.skillIds
+            }
             if (doFanout) {
               broadcast(room, out, conn)
             }

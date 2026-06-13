@@ -5,7 +5,7 @@ End-to-end flow:
 1. **`services/token-stream-demo`** (Tish) connects to the gateway as actor **`stream-demo`**.
 2. For each cycle it sends **`tpl.stream_chunk`** (single characters) so the Co-DJ panel shows a live “token” preview.
 3. Then it sends **`tpl.block`** with **`asap: true`** so the patch applies immediately (no perf-step queue).
-4. You **Play** in the app to hear **WsKick** / **WsHat** on channel ids **`wsdemo_k1`** / **`wsdemo_h1`**.
+4. You **Play** in the app to hear **WsKick** / **WsHat** / **WsBass** on channel ids **`wsdemo_k1`** / **`wsdemo_h1`** / **`wsdemo_b1`** (the demo cycles rotating kick, hat, and bass variations).
 
 ## Run
 

@@ -32,6 +32,7 @@ import {
 } from '../codj/Schedule.tish'
 import { pruneStaleTracks, coDjTrackExpirySequences } from '../codj/Prune.tish'
 import { createDeckardRuntime } from './DeckardRuntime.tish'
+import { setChannelGain, setChannelPan, setChannelEq } from '../model/Edits.tish'
 import {
   ensureProjectSession,
   sessionArmScene,
@@ -299,7 +300,7 @@ export fn App() {
     updateMixerFromProject(project, audioStore)
     let ctx = audioStore.ctx
     if (playbackTimer) {
-      clearInterval(playbackTimer)
+      clearTimeout(playbackTimer)
     }
     globalTick = 0
     tplLoopResetAll()
@@ -310,9 +311,25 @@ export fn App() {
     sessionArmScene(project, rt, scn)
     rt.playing = true
     rt.transportNextTick = 0
-    let ms = (60 / project.bpm / 4) * 1000
-    playbackTimer = setInterval(() => {
+    // Self-scheduling tick: the step interval is recomputed from the LIVE project.bpm every step,
+    // so tempo changes (local edits or a master actor's `bpm` line) take effect without restart.
+    fn stepMs() {
       let r = rtRef.current
+      let p = r.project
+      let b = p && typeof p.bpm === "number" ? p.bpm : 120
+      if (b < 40) {
+        b = 40
+      }
+      if (b > 300) {
+        b = 300
+      }
+      return (60 / b / 4) * 1000
+    }
+    fn playbackTick() {
+      let r = rtRef.current
+      if (!r.playing) {
+        return
+      }
       let p = r.project
       let barSteps = coDjStepsPerBar()
       if (barSteps > 0 && globalTick % barSteps === 0) {
@@ -350,7 +367,9 @@ export fn App() {
       if (r.sessionQueuePending && r.bumpSeqPromoteUi) {
         r.bumpSeqPromoteUi()
       }
-    }, ms)
+      playbackTimer = setTimeout(playbackTick, stepMs())
+    }
+    playbackTimer = setTimeout(playbackTick, stepMs())
     setPlaying(true)
     if (rt.coDjNotifyPlaying) {
       rt.coDjNotifyPlaying(true)
@@ -419,7 +438,7 @@ export fn App() {
       rt.coDjNotifyPlaying(false)
     }
     if (playbackTimer) {
-      clearInterval(playbackTimer)
+      clearTimeout(playbackTimer)
       playbackTimer = null
     }
     rt.playing = false
@@ -474,7 +493,7 @@ export fn App() {
   }
 
   fn onTrim(idx, e) {
-    project.channels[idx].gain = Number(e.target.value) / 100
+    setChannelGain(project.channels[idx], Number(e.target.value) / 100)
     updateMixerFromProject(project, audioStore)
     setProjectFromUI(project)
   }
@@ -484,15 +503,7 @@ export fn App() {
   }
 
   fn onEq(idx, key, e) {
-    let v = Number(e.target.value)
-    let ch = project.channels[idx]
-    if (key === "eqLo") {
-      ch.eqLo = v
-    } else if (key === "eqMid") {
-      ch.eqMid = v
-    } else if (key === "eqHi") {
-      ch.eqHi = v
-    }
+    setChannelEq(project.channels[idx], key, Number(e.target.value))
     updateMixerFromProject(project, audioStore)
     setProjectFromUI(project)
   }
@@ -502,7 +513,7 @@ export fn App() {
   }
 
   fn onPan(idx, e) {
-    project.channels[idx].pan = Number(e.target.value) / 100
+    setChannelPan(project.channels[idx], Number(e.target.value) / 100)
     updateMixerFromProject(project, audioStore)
     setProjectFromUI(project)
   }

@@ -19,8 +19,9 @@ Actors join channels and declare skills. Examples: browser user (`human-*`), AI 
 ## Master DJ
 
 - Designated `authorId` (usually human session id) with `isMaster: true`.
-- May emit `control` messages: `take_track`, `release_track`, `clear_overlay`, `overwrite_automation`.
+- May emit `control` messages: `take_track`, `release_track`, `clear_overlay`, `set_master`, `master_overwrite` (see [STREAM_PROTOCOL.md §4](./STREAM_PROTOCOL.md#4-control-ops-master)). Of these only `clear_overlay` is implemented today; `take_track` / `release_track` / `set_master` / `master_overwrite` are **Planned**.
 - AI actors cannot modify tracks the master has **taken** until `release_track`.
+- **Master lock** has a UI: a per-track LOCK/OPEN toggle in the channel rack ([src/ui/ChannelRack.tish](../src/ui/ChannelRack.tish)) calls `setMasterLock`, setting `coDjMeta.tracks[channelId].masterLock`. The merge read path honors it — `actorMayEditTrack` ([src/codj/Merge.tish](../src/codj/Merge.tish)) refuses edits to a locked track regardless of ownership.
 
 ## Presentation modes
 

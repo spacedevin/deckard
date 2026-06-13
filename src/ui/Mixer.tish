@@ -1,5 +1,6 @@
 import { h, Fragment } from '@tishlang/lattish'
 import { ensureMasterMixer, ensureActorMixerEntries } from '../model/MixerRouting.tish'
+import { setChannelMute, setChannelSolo } from '../model/Edits.tish'
 
 fn eqVal(v) {
   if (v === undefined || v === null) {
@@ -253,8 +254,8 @@ export fn TrackMixerStrip(ch, idx, selected, onSelect, onTrim, onPan, onTrimComm
         onchange={() => onPanCommit()}
       />
       <div class="mixer-toggles" onmousedown={(e) => e.stopPropagation()}>
-        <label><input type="checkbox" checked={ch.mute} onchange={(e) => { ch.mute = e.target.checked; setProject(project) }} />{" M"}</label>
-        <label><input type="checkbox" checked={ch.solo} onchange={(e) => { ch.solo = e.target.checked; setProject(project) }} />{" S"}</label>
+        <label><input type="checkbox" checked={ch.mute} onchange={(e) => { setChannelMute(ch, e.target.checked); setProject(project) }} />{" M"}</label>
+        <label><input type="checkbox" checked={ch.solo} onchange={(e) => { setChannelSolo(ch, e.target.checked); setProject(project) }} />{" S"}</label>
       </div>
     </div>
   </div>

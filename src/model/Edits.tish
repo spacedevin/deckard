@@ -29,6 +29,25 @@ export fn setChannelPan(ch, p) {
   ch.pan = p
 }
 
+// 3-band track EQ (dB). band = "eqLo" | "eqMid" | "eqHi".
+export fn setChannelEq(ch, band, v) {
+  if (band === "eqLo") {
+    ch.eqLo = v
+  } else if (band === "eqMid") {
+    ch.eqMid = v
+  } else if (band === "eqHi") {
+    ch.eqHi = v
+  }
+}
+
+export fn setChannelMute(ch, on) {
+  ch.mute = on
+}
+
+export fn setChannelSolo(ch, on) {
+  ch.solo = on
+}
+
 // ADSR lives on generatorParams (basicOsc / fmTone / noiseBurst attack).
 export fn setGeneratorAdsr(ch, a, d, s, r) {
   if (!ch.generatorParams) {

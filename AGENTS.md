@@ -1,5 +1,8 @@
 # Agent / LLM editing contract — Deckard
 
+For the big picture (vision, subsystems, end-to-end signal path) read
+**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** first.
+
 ## Prefer these surfaces
 
 1. **[docs/schema/project-v2.json](docs/schema/project-v2.json)** — v2 shape (`generatorId` + `generatorParams` per channel). v1 JSON with `waveform` only is migrated on load.

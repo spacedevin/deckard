@@ -32,9 +32,9 @@ Same skill ids for every row; **human** and **ai-a** columns show who may use ea
 
 \*Same registry entry shape for future use.
 
-Actors with **`master_mixer`** may stream full project shape including `bpm` / `tpl` / `auto`. Agents (without `master_mixer`) must not emit `bpm`, `tpl`, top-level `auto`, or `transpose` (enforced in [`coDjLineAllowedForSkills`](../src/codj/StreamDemo.tish) → [`skillAllowsLine`](../src/codj/Skills.tish)).
+Actors with **`master_mixer`** may stream full project shape including `bpm` / `tpl` / `auto`. Agents (without `master_mixer`) must not emit `bpm`, `tpl`, top-level `auto`, or `transpose` (enforced in [`coDjLineAllowedForSkills`](../src/codj/Skills.tish), with [`skillAllowsLine`](../src/codj/Skills.tish) as a back-compat facade).
 
-**Implementation:** [`src/codj/StreamDemo.tish`](../src/codj/StreamDemo.tish) — `coDjLineAllowedForSkills`, `actorHasSkill`; [`src/codj/Skills.tish`](../src/codj/Skills.tish) delegates to it.
+**Implementation:** [`src/codj/Skills.tish`](../src/codj/Skills.tish) — `coDjLineAllowedForSkills`, `skillIdsAllowMaster`, `hasSkill`, `actorHasSkill`, `skillAllowsLine`.
 
 ## Default bundles (informal)
 
@@ -42,13 +42,25 @@ Actors with **`master_mixer`** may stream full project shape including `bpm` / `
 - **Human**: all implemented rows + master.
 - **Viewer**: none (read-only).
 
+## Enforcement
+
+Skill-gating **is now enforced**, on the **receiver** side:
+
+- The gateway stamps the sender's declared `skillIds` onto every fanned-out message (`out.skillIds = conn.skillIds` in [`services/gateway/main.tish`](../services/gateway/main.tish)).
+- The browser ([`src/ui/CoDjPanel.tish`](../src/ui/CoDjPanel.tish)) threads `msg.skillIds` into [`applyCoDjTplSource`](../src/codj/Merge.tish) and `coDjHandleIncomingTplBlock`.
+- [`applyCoDjTplSource`](../src/codj/Merge.tish) gates master-scope lines (`bpm`, top-level `auto`, session clips, scenes) via [`skillIdsAllowMaster`](../src/codj/Skills.tish), falling back to the legacy `actorId.indexOf("human")` check **only** when `skillIds` are absent.
+- The incremental line decoder ([`src/tpl/Stream.tish`](../src/tpl/Stream.tish)) gates **every** streamed line via [`coDjLineAllowedForSkills`](../src/codj/Skills.tish).
+
+Enforcement = the **receiver silently skips disallowed lines** (master-scope lines without `master_mixer`). There is **no `SKILL_DENIED` error code** yet — see [WS_AND_AGENTS.md §1.3](./WS_AND_AGENTS.md) for the error codes actually emitted.
+
 ## Denied examples
 
-- AI emits `bpm 200` without `master_mixer` skill → **SKILL_DENIED**.
-- AI edits `c0` when `ownerActorId` is another actor and not leased → **LEASE_CONFLICT**.
+- AI emits `bpm 200` without `master_mixer` skill → receiver **silently skips** the line (planned: `SKILL_DENIED`).
+- AI edits `c0` when `ownerActorId` is another actor and not leased → skipped by `actorMayEditTrack` (planned error: `LEASE_CONFLICT`).
 
 ## Implementation
 
-- `src/codj/StreamDemo.tish` — `coDjLineAllowedForSkills`, `actorHasSkill`.
-- `src/codj/Skills.tish` — delegates to `coDjLineAllowedForSkills`.
+- `src/codj/Skills.tish` — `coDjLineAllowedForSkills`, `skillIdsAllowMaster`, `hasSkill`, `actorHasSkill`, `skillAllowsLine`.
+- `src/codj/Merge.tish` — `applyCoDjTplSource` gates master-scope lines; `actorMayEditTrack` enforces per-track ownership / master-lock.
+- `src/tpl/Stream.tish` — incremental line decoder gates every streamed line.
 - Hub duplicate check optional.

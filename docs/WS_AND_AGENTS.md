@@ -61,6 +61,8 @@ Agents append `tpl.line` text from the playing actor to a rolling buffer and res
 | `control` | master | `op`, `payload` — see [STREAM_PROTOCOL.md](./STREAM_PROTOCOL.md) |
 | `error` | gateway → client | `code`, `message` |
 
+Error `code`s **actually emitted** by `services/gateway/main.tish`: **`BAD_JSON`**, **`JOIN_BAD`**, **`JOIN_FIRST`**. Codes such as `SKILL_DENIED`, `LEASE_CONFLICT`, `PARSE_FAIL`, `RATE_LIMIT`, and `AUTH` are **aspirational** — skill / ownership violations are currently handled by the receiver **silently skipping** disallowed lines (see [DJ_SKILLS.md](./DJ_SKILLS.md)).
+
 ### 1.4 Ordering
 
 - Gateway maintains **`seq` per `actorId`** (monotonic). All `tpl.line` / `tpl.block` / `direct` get a server timestamp + actor seq.
@@ -79,22 +81,31 @@ Agents append `tpl.line` text from the playing actor to a rolling buffer and res
 
 ### 2.2 Input loop
 
-1. On each inbound `tpl.line` / `tpl.block` (other actors or merged snapshot): append to local DB, optionally embed chunks.
+The persistence / RAG steps below (local DB, embeddings, `chunks`) are **planned** — see [§3](#3-sqlite--vector-schema-planned). Today the worker keeps an in-memory rolling context buffer only.
+
+1. On each inbound `tpl.line` / `tpl.block` (other actors or merged snapshot): append to the context buffer (planned: also persist to local DB and embed chunks).
 2. On each `direct` where `targetActorId` matches this actor's `actorId`: enqueue for response.
-3. On timer or debounce: build context = system prompt + last N messages + **RAG** top-k from `chunks`.
+3. On timer or debounce: build context = system prompt + last N buffered messages (planned: + **RAG** top-k from `chunks`).
 
 ### 2.3 Output loop
 
-1. Stream model tokens; on each newline in output, emit `tpl.line` to gateway.
-2. Optionally emit `tpl.stream_chunk` for UI typing indicator.
+The worker (`services/agent-worker/main.tish`) **calls its LLM**: `handlePlayingStream` and `handleDirect` snapshot the buffered peer stream into one prompt (`llmLinesFrom`), call `callLLM`, and stream the **real model output** — first as `tpl.stream_chunk` (the finished text char-by-char), then as a committed `tpl.block`. It **falls back to a demo patch only** when `GRADIENT_MODEL_ACCESS_KEY` (or `MODEL_ACCESS_KEY`) is unset or the call fails. The worker also **ingests inbound `tpl.block`** from other actors into its context buffer so responses are aware of them. The old 3-second periodic demo `tpl.block` flood has been **removed**.
+
+> **Note:** the worker streams the *finished* text char-by-char — provider-side SSE token streaming (live provider tokens) is **planned, not implemented**.
+
+1. Snapshot the buffered peer stream into one prompt; call `callLLM` and stream the resulting text.
+2. Emit `tpl.stream_chunk` (per character of the finished output) for the UI typing indicator, then a `tpl.block`.
 3. Validate TPL line against actor's skills ([DJ_SKILLS.md](./DJ_SKILLS.md)); if invalid, log and skip or send `error` to gateway.
 4. For **`tpl.block`**: set **`effectivePerfStep`** to **host `perfStep` + lookahead** (default **64** sixteenths ≈ four 4/4 bars). Set **`submitDeadlinePerfStep`** to host step + slack (e.g. **48**) so the host drops the block if it arrives too late. Omit both and use **`asap: true`** for emergency edits. Alternatively put **`@ perf_step N`** as the first line of TPL (parsed by host; same as `effectivePerfStep`).
 
 ### 2.4 Reconnect
 
-- Resend `join` with same `actorId`, `channelIds`, `skillIds`; gateway sends `replay` or worker loads from SQLite `messages`.
+- Resend `join` with same `actorId`, `channelIds`, `skillIds`; gateway sends `replay`.
+- **Planned / not implemented in `services/agent-worker`:** loading state from a SQLite `messages` table on reconnect. The worker is **in-memory only** — its context buffer does not survive a restart.
 
-## 3. SQLite + vector schema
+## 3. SQLite + vector schema (Planned)
+
+> **Planned / not implemented in `services/agent-worker`.** The worker is currently **in-memory only**: it holds a rolling context buffer in process and does not open SQLite, embed chunks, or run vector/RAG retrieval. The schema below is a **forward-looking spec** for agent memory, kept here as the target design.
 
 Path: e.g. `~/.deckard-sessions/<sessionId>.sqlite` (agent-local) or shared if gateway persists.
 
@@ -158,7 +169,7 @@ CREATE TABLE agent_memory (
 ## 5. Reference implementation layout
 
 - **`services/gateway/`** — Tish: `npm run gateway` (or `tish run --features ws,process services/gateway/main.tish`). Listens on **ws://127.0.0.1:35987** (or `CODJ_HUB_PORT`).
-- **`services/agent-worker/`** — Tish agent: `npm run agent` (or `tish run --features ws,http,fs,process services/agent-worker/main.tish`). For **real LLM** responses, use the Node agent (see README there) until async/LLM is wired in Tish.
+- **`services/agent-worker/`** — Tish agent: `npm run agent` (or `tish run --features ws,http,fs,process services/agent-worker/main.tish`). It calls its LLM (`callLLM` over the `http` feature) for **real** responses when `GRADIENT_MODEL_ACCESS_KEY` (or `MODEL_ACCESS_KEY`) is set, and falls back to a demo patch otherwise. Memory persistence and RAG ([§2.4](#24-reconnect), [§3](#3-sqlite--vector-schema-planned)) remain planned — the worker is in-memory only.
 
 See repository `package.json` / README for run commands.
 

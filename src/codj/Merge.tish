@@ -12,6 +12,7 @@ import { ensureProjectSession } from '../model/Session.tish'
 import { tplLoopResetChannel } from '../tpl/LoopState.tish'
 import { findChannelById } from '../tpl/Apply.tish'
 import { ensureCoDjMeta, setTrackOwner, setTrackTouched } from './CoDjMeta.tish'
+import { skillIdsAllowMaster } from './Skills.tish'
 
 export fn actorMayEditTrack(project, channelId, actorId, isNewTrack) {
   ensureCoDjMeta(project)
@@ -28,21 +29,29 @@ export fn actorMayEditTrack(project, channelId, actorId, isNewTrack) {
   return false
 }
 
-/** True if actor has master_mixer (bpm, autos). Browser actors have it; agents typically do not. */
-fn actorHasMasterMixer(actorId) {
+/**
+ * True if this lane carries master rights (bpm / autos / scenes / clips).
+ * Prefer the actor's declared skillIds; fall back to the legacy actorId substring check
+ * only when skillIds are absent (e.g. a message that predates skill stamping).
+ */
+fn laneCanMaster(actorId, skillIds) {
+  if (Array.isArray(skillIds)) {
+    return skillIdsAllowMaster(skillIds)
+  }
   if (!actorId || typeof actorId !== "string") return false
   return actorId.indexOf("human") >= 0
 }
 
-export fn applyCoDjTplSource(project, source, actorId, authorId, currentPerfStep) {
+export fn applyCoDjTplSource(project, source, actorId, authorId, currentPerfStep, skillIds) {
   ensureCoDjMeta(project)
   let perfStep = currentPerfStep
   if (perfStep === undefined || perfStep === null) {
     perfStep = 0
   }
+  let canMaster = laneCanMaster(actorId, skillIds)
   let parsed = parseProgram(source)
   let errs = parsed.errors
-  if (actorHasMasterMixer(actorId) && parsed.bpm !== null && parsed.bpm >= 40 && parsed.bpm <= 300) {
+  if (canMaster && parsed.bpm !== null && parsed.bpm >= 40 && parsed.bpm <= 300) {
     project.bpm = parsed.bpm
   }
   let ti = 0
@@ -64,7 +73,7 @@ export fn applyCoDjTplSource(project, source, actorId, authorId, currentPerfStep
         ch.generatorId = tb.generatorId
         ch.generatorParams = defaultParamsForGeneratorId(tb.generatorId)
       }
-      if (actorHasMasterMixer(actorId)) {
+      if (canMaster) {
         setTrackOwner(project, tb.id, actorId, authorId)
       }
     }
@@ -77,7 +86,7 @@ export fn applyCoDjTplSource(project, source, actorId, authorId, currentPerfStep
     tplLoopResetChannel(tb.id)
     ti = ti + 1
   }
-  if (actorHasMasterMixer(actorId)) {
+  if (canMaster) {
     applySessionClipBlocks(project, parsed.clipBlocks ? parsed.clipBlocks : [], errs)
     applySessionGrid(project, parsed.sessionSceneCount, parsed.sessionSlots ? parsed.sessionSlots : [])
     ensureProjectSession(project)

@@ -29,6 +29,8 @@ The host advances **`perfStep`** in **16th-note steps** (one sequencer column pe
 | `submitDeadlinePerfStep` | optional | If host `perfStep` **exceeds** this when the message is received, **drop** (late delivery). Omit = no deadline check. |
 | `asap` | optional | If `true`, ignore schedule and apply immediately when received. |
 
+Implemented in [src/codj/Schedule.tish](../src/codj/Schedule.tish) (`coDjHandleIncomingTplBlock` → `coDjFlushScheduledForStep`): late deliveries are dropped, `asap`/due blocks apply immediately, future blocks queue and flush when the playhead reaches `effectivePerfStep`. Queued blocks carry the sender's `skillIds` so skill-gating is re-checked at apply time.
+
 **Sequence lookahead**: one sequence = **64** sixteenth steps (four 4/4 bars). Remote lanes may schedule blocks up to **4 sequences** ahead: `effectivePerfStep = hostPerfStep + 256`. Use `submitDeadlinePerfStep` at least `hostPerfStep + 384` (or omit) so delivery is not dropped while the playhead catches up.
 
 **`direct`** from browser may include **`perfStep`** (host’s current step when the human sent the message) so the agent can compute `effectivePerfStep` and deadline relative to that instant.
@@ -47,19 +49,33 @@ See [WS_AND_AGENTS.md](./WS_AND_AGENTS.md). Summary:
 | `state.snapshot` | Resync |
 | `error` | Rejection |
 
+Every fanned-out message also carries **`skillIds`** — the gateway stamps the sender's declared `skillIds` (from `join`) onto each forwarded message ([services/gateway/main.tish](../services/gateway/main.tish)) so receivers can enforce skill-gating on apply. See [CO_DJ_SPACE.md](./CO_DJ_SPACE.md) and [src/codj/Skills.tish](../src/codj/Skills.tish).
+
 ## 4. Control ops (master)
 
 Payload for `type: control`, `op`:
 
-| op | payload |
-|----|---------|
-| `take_track` | `{ channelId }` |
-| `release_track` | `{ channelId }` |
-| `clear_overlay` | `{ channelId? }` empty = all |
-| `set_master` | `{ authorId }` — host-only |
-| `master_overwrite` | `{ channelId, tplFragment }` |
+| op | payload | status |
+|----|---------|--------|
+| `clear_overlay` | `{ channelId? }` empty = all | **Implemented** (browser-side, [src/ui/CoDjPanel.tish](../src/ui/CoDjPanel.tish)) |
+| `take_track` | `{ channelId }` | *Planned* |
+| `release_track` | `{ channelId }` | *Planned* |
+| `set_master` | `{ authorId }` — host-only | *Planned* |
+| `master_overwrite` | `{ channelId, tplFragment }` | *Planned* |
+
+Only `clear_overlay` is handled today (it drops all overlays in scope on the receiving browser); the other ops are not yet wired.
 
 ## 5. Error codes
+
+Codes the gateway actually emits ([services/gateway/main.tish](../services/gateway/main.tish)):
+
+| code | Meaning |
+|------|---------|
+| `BAD_JSON` | Message was not valid JSON |
+| `JOIN_BAD` | `join` missing a valid `actorId` |
+| `JOIN_FIRST` | A non-`join` message arrived before joining |
+
+These are *Planned* (not yet emitted):
 
 | code | Meaning |
 |------|---------|
@@ -68,6 +84,8 @@ Payload for `type: control`, `op`:
 | `PARSE_FAIL` | TPL invalid |
 | `RATE_LIMIT` | Too many lines/sec |
 | `AUTH` | Bad token |
+
+Skill-gating is enforced today, but **not** via an error code: the receiver silently skips master-scope lines an actor's `skillIds` do not permit ([src/codj/Skills.tish](../src/codj/Skills.tish), [src/codj/Merge.tish](../src/codj/Merge.tish)).
 
 ## 6. Examples
 

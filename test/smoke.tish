@@ -1,0 +1,98 @@
+// Headless smoke test: TPL round-trip, incremental decode, skill-gating, co-DJ permissions.
+// Run: npm test  (builds to JS and runs under node — the same target the browser app uses).
+import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
+import { emitProject } from '../src/tpl/Emit.tish'
+import { applyTplSource, findChannelById } from '../src/tpl/Apply.tish'
+import { applyCoDjTplSource } from '../src/codj/Merge.tish'
+import { createTplLineStream, tplLineStreamPush } from '../src/tpl/Stream.tish'
+import { coDjLineAllowedForSkills } from '../src/codj/Skills.tish'
+
+let pass = 0
+let fail = 0
+fn check(name, cond) {
+  if (cond) {
+    pass = pass + 1
+    console.log("  ok   " + name)
+  } else {
+    fail = fail + 1
+    console.log("  FAIL " + name)
+  }
+}
+
+fn stepsSig(ch) {
+  let s = ""
+  let i = 0
+  while (i < ch.steps.length) {
+    s = s + (ch.steps[i].on ? "x" : ".")
+    i = i + 1
+  }
+  return s
+}
+
+// 1. Default load + emit round-trip (incl. now-documented step_pitch / master_mix / actor_mix)
+let boot = loadDefaultDeckardProject()
+check("default project loads without errors", boot.errors.length === 0)
+let proj = boot.project
+check("default has >= 4 channels", proj.channels.length >= 4)
+let emitted = emitProject(proj)
+check("emit starts with tpl header", emitted.indexOf("tpl 1") === 0)
+check("emit includes step_pitch", emitted.indexOf("step_pitch") >= 0)
+check("emit includes master_mix line", emitted.indexOf("master_mix ") >= 0)
+check("emit includes actor_mix line", emitted.indexOf("actor_mix ") >= 0)
+let boot2 = loadDefaultDeckardProject()
+applyTplSource(boot2.project, emitted)
+check("round-trip preserves channel count", boot2.project.channels.length === proj.channels.length)
+check("round-trip preserves bpm", boot2.project.bpm === proj.bpm)
+
+// 2. Incremental streaming decode == atomic block apply (progressive)
+let blockSrc = "tpl 1\ntrack Hat id s_hat gen noise_burst\n  noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1\n  steps x . x . x . x . x . x . x . x ."
+let viaBlock = loadDefaultDeckardProject().project
+applyCoDjTplSource(viaBlock, blockSrc, "agent-1", "agent-1", 0, ["add_track", "pattern_steps"])
+let hb = findChannelById(viaBlock, "s_hat")
+check("block apply created track", hb !== null)
+
+let viaStream = loadDefaultDeckardProject().project
+let strm = createTplLineStream("agent-1", "agent-1", ["add_track", "pattern_steps"])
+let streamLines = blockSrc.split("\n")
+let headerOnly = null
+let li = 0
+while (li < streamLines.length) {
+  tplLineStreamPush(strm, streamLines[li], viaStream, 0)
+  if (li === 1) {
+    headerOnly = findChannelById(viaStream, "s_hat")
+  }
+  li = li + 1
+}
+check("incremental: track appears right after its header line", headerOnly !== null)
+let hs = findChannelById(viaStream, "s_hat")
+check("incremental: final state matches block apply (steps)", hs !== null && hb !== null && stepsSig(hs) === stepsSig(hb))
+
+// 3. Skill gating (now the canonical Skills.tish)
+check("non-master denied bpm", coDjLineAllowedForSkills("bpm 200", ["pattern_steps"]) === false)
+check("master allowed bpm", coDjLineAllowedForSkills("bpm 200", ["master_mixer"]) === true)
+check("anyone allowed steps", coDjLineAllowedForSkills("  steps x . x .", ["pattern_steps"]) === true)
+check("non-master denied auto", coDjLineAllowedForSkills("auto master_gain", ["pattern_steps"]) === false)
+check("non-master denied master_mix", coDjLineAllowedForSkills("master_mix eq_lo 2", ["channel_mix"]) === false)
+
+// 4. Permission model via applyCoDjTplSource (skillIds-driven, with legacy fallback)
+let permProj = loadDefaultDeckardProject().project
+let origBpm = permProj.bpm
+applyCoDjTplSource(permProj, "tpl 1\nbpm 200\ntrack X id px gen basic_osc\n  steps x . . .", "agent-1", "agent-1", 0, ["add_track", "pattern_steps"])
+check("agent (no master_mixer) cannot change bpm", permProj.bpm === origBpm)
+check("agent (no master_mixer) can still add a track", findChannelById(permProj, "px") !== null)
+
+let permProj2 = loadDefaultDeckardProject().project
+applyCoDjTplSource(permProj2, "tpl 1\nbpm 200", "anon-7", "anon-7", 0, ["master_mixer"])
+check("actor WITH master_mixer skill can change bpm", permProj2.bpm === 200)
+
+let permProj3 = loadDefaultDeckardProject().project
+applyCoDjTplSource(permProj3, "tpl 1\nbpm 175", "human-xyz", "human-xyz", 0)
+check("legacy fallback: human-* actorId masters when skillIds absent", permProj3.bpm === 175)
+
+let permProj4 = loadDefaultDeckardProject().project
+let b4 = permProj4.bpm
+applyCoDjTplSource(permProj4, "tpl 1\nbpm 175", "agent-1", "agent-1", 0)
+check("legacy fallback: agent-* actorId cannot master when skillIds absent", permProj4.bpm === b4)
+
+console.log("")
+console.log("PASS=" + String(pass) + " FAIL=" + String(fail))

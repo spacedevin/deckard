@@ -65,7 +65,7 @@ export fn coDjStripPerfStepDirective(src) {
 }
 
 // Returns { status: "late" } | { status: "asap", tpl } | { status: "queued", tpl }
-export fn coDjHandleIncomingTplBlock(src, actorId, authorId, envEffective, envDeadline, envAsap, pushLog, rt) {
+export fn coDjHandleIncomingTplBlock(src, actorId, authorId, envEffective, envDeadline, envAsap, pushLog, rt, skillIds) {
   coDjEnsureSchedule(rt)
   let st = coDjStripPerfStepDirective(src)
   let tpl = st.tpl
@@ -106,7 +106,8 @@ export fn coDjHandleIncomingTplBlock(src, actorId, authorId, envEffective, envDe
     effectivePerfStep: eff,
     actorId: actorId,
     authorId: authorId,
-    tpl: tpl
+    tpl: tpl,
+    skillIds: skillIds
   })
   if (pushLog) {
     pushLog("queue @perf_step " + String(eff))
@@ -149,7 +150,7 @@ export fn coDjFlushScheduledForStep(perfStep, rt) {
         log("exec@step" + String(perfStep) + " " + aid)
       }
       if (ap) {
-        ap(it.tpl, aid, it.authorId, perfStep)
+        ap(it.tpl, aid, it.authorId, perfStep, it.skillIds)
       }
       if (after) {
         after()

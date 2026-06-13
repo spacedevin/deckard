@@ -7,18 +7,20 @@ Stored in project as `coDjMeta` (parallel to channels):
 ```json
 {
   "coDjMeta": {
-    "lanes": { "ai-a": {}, "ai-b": {}, "human": {} },
     "tracks": {
-      "c0": { "ownerActorId": "agent-1", "authorId": "agent-a", "masterLock": false },
-      "c3": { "ownerActorId": "human-xyz", "authorId": "u1", "masterLock": true }
+      "c0": { "ownerActorId": "agent-1", "authorId": "agent-a", "masterLock": false, "lastTouchedPerfStep": 0 },
+      "c3": { "ownerActorId": "human-xyz", "authorId": "u1", "masterLock": true, "lastTouchedPerfStep": 240 }
     }
   }
 }
 ```
 
+`ensureCoDjMeta` in `src/codj/CoDjMeta.tish` only ever builds the `tracks` object, keyed by `channelId`. A `lanes` object is _not_ created (Planned).
+
 - **`ownerActorId`**: which lane’s TPL is authoritative for this channel’s body (after merge).
-- **`masterLock`**: if true, only master/human actor may change this track until released.
+- **`masterLock`**: if true, only master/human actor may change this track until released. Now has a UI toggle: a per-track **LOCK/OPEN** button in the channel rack (`src/ui/ChannelRack.tish`) calls `setMasterLock`.
 - **`authorId`**: last writer or creator.
+- **`lastTouchedPerfStep`**: performance step at which the track was last written (`setTrackTouched`).
 
 ## Merge precedence
 
@@ -26,15 +28,15 @@ Stored in project as `coDjMeta` (parallel to channels):
 2. Else use **ownerActorId**’s latest TPL for that track id.
 3. New track from actor X → `ownerActorId = X`, `authorId = emitter`.
 
-## Future: inline TPL
+## Planned: inline TPL
 
-Optional parser extension:
+Optional parser extension (still unimplemented):
 
 ```
 track Kick id c0 gen noise_burst @lane ai-a
 ```
 
-Deferred until parser change; sidecar is source of truth in v1.
+The inline `@lane ai-a` tag form is not yet parsed; the sidecar (`coDjMeta.tracks`) remains the source of truth.
 
 ## UI
 

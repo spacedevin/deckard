@@ -1,6 +1,17 @@
 # Deckard
 
-Minimal FL-style hybrid web DAW in **[Tish](https://github.com/tishlang/tish)** (JS target + JSX): step sequencer, piano roll (canvas), mixer (gain, pan, ADSR, mute/solo), per-channel waveform, master waveform scope, JSON import/export.
+A **token-streamed, live-coding DAW** in **[Tish](https://github.com/tishlang/tish)** (JS target + JSX).
+Humans and LLM agents **co-DJ** by streaming a small line-oriented language (**TPL**) that the app
+**decodes into live-synthesised stems** — never WAV/audio files. *MIDI × live-coding, designed for LLM
+token streams, with a traditional DAW on top.*
+
+FL-style surfaces sit on top of the language: step sequencer, piano roll (canvas), per-channel
+**generator instruments** (basic osc / noise burst / FM / matrix FM) with per-generator ADSR, a
+track → actor → master mixer (gain / pan / 3-band EQ / mute / solo), Ableton-style session/scene
+launcher, master scope, and JSON + TPL import/export.
+
+**New here?** Read **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — the full overview, vision, and
+end-to-end signal path. Run the tests with `npm test`.
 
 ## Build
 
@@ -36,7 +47,7 @@ Serve the folder (e.g. `npx serve .`) and open `index.html`. Click **Play** once
 3. **Terminal B — worker:**  
    `npm run agent`  
    (or `npm run agent -- --actor-id actor-1 --session default`)  
-   - Tish worker responds to **direct** with demo TPL (euclid hat, bass/fm). For LLM responses, set `GRADIENT_MODEL_ACCESS_KEY` (see [services/agent-worker/README.md](services/agent-worker/README.md)).
+   - The worker buffers the host's streamed TPL and, on debounce, **snapshots it into one prompt, calls the LLM, and streams the real reply back** as `tpl.stream_chunk` → `tpl.block`. Set **`GRADIENT_MODEL_ACCESS_KEY`** (DO inference; `DO_MODEL` / `DO_INFERENCE_BASE` optional) to enable it. Without a key it falls back to a built-in demo patch (euclid hat / fm bass) so the loop still runs offline. Direct messages are answered the same way.
 4. **Terminal C (or browser):** run the app (`npm run serve`, open **http://localhost:3456**).
 5. In the app: **Co-DJ** panel → **Connect**. Session should be `default` (same as the worker). You should see other actors when the worker is running.
 6. **Press Play.** The app sends **playing_start** and streams the current project as **tpl.line** to the gateway. The worker waits ~1.3s, then sends back **tpl.block** (and **tpl.stream_chunk**). The gateway forwards that to the browser; the app applies the block and you hear the new pattern.
@@ -52,6 +63,7 @@ Specs: [docs/WS_AND_AGENTS.md](docs/WS_AND_AGENTS.md), [docs/STREAM_PROTOCOL.md]
 
 ## Docs
 
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — **start here:** overview, vision, subsystem map, end-to-end path  
 - [docs/FL_STUDIO_GENERATORS.md](docs/FL_STUDIO_GENERATORS.md) — how this maps to FL-style channel instruments  
 - [docs/GENERATORS.md](docs/GENERATORS.md) — adding a new generator module  
 - [docs/schema/project-v2.json](docs/schema/project-v2.json) — project shape (v1 `waveform` auto-migrates)  

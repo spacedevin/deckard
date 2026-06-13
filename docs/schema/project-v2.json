@@ -228,7 +228,7 @@
     },
     "channel": {
       "type": "object",
-      "required": ["id", "name", "generatorId", "generatorParams", "gain", "pan", "mute", "solo", "attack", "decay", "sustain", "release", "stepPitch", "steps", "pianoNotes"],
+      "required": ["id", "name", "generatorId", "generatorParams", "gain", "pan", "mute", "solo", "stepPitch", "steps", "pianoNotes"],
       "properties": {
         "id": { "type": "string" },
         "name": { "type": "string" },
@@ -247,7 +247,7 @@
         },
         "generatorParams": {
           "type": "object",
-          "description": "Shape depends on generatorId; see docs/GENERATORS.md"
+          "description": "Per-generator patch AND envelope; shape depends on generatorId. ADSR (attack/decay/sustain/release) lives HERE, not on the channel root. See docs/GENERATORS.md"
         },
         "waveform": { "type": "string", "description": "Legacy v1; migrated into basicOsc.generatorParams.waveform" },
         "gain": { "type": "number", "description": "Track trim (linear), pre-fader" },
@@ -266,10 +266,6 @@
         "pan": { "type": "number" },
         "mute": { "type": "boolean" },
         "solo": { "type": "boolean" },
-        "attack": { "type": "number" },
-        "decay": { "type": "number" },
-        "sustain": { "type": "number" },
-        "release": { "type": "number" },
         "filterCutoff": { "type": "number" },
         "filterQ": { "type": "number" },
         "stepPitch": { "type": "integer" },

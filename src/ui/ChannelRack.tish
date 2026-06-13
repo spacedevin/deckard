@@ -2,6 +2,7 @@ import { h, Fragment } from '@tishlang/lattish'
 import { toggleStep, clearStep } from '../model/Edits.tish'
 import { generatorLabelById } from '../generators/Registry.tish'
 import { tplLoopSkipsChannel } from '../tpl/LoopState.tish'
+import { ensureCoDjMeta, setMasterLock } from '../codj/CoDjMeta.tish'
 
 export fn StepRow(ch, chIdx, project, setProject, rt) {
   fn cell(si) {
@@ -75,6 +76,10 @@ export fn ChannelRow(ch, chIdx, project, setProject, selected, onSelect, rt) {
   } else {
     deckChipCls = deckChipCls + " ch-deck-chip-live"
   }
+  ensureCoDjMeta(project)
+  let lockMeta = project.coDjMeta.tracks[ch.id]
+  let locked = lockMeta != null && lockMeta.masterLock === true
+  let lockChipCls = locked ? "ch-lock-chip ch-lock-chip-on" : "ch-lock-chip"
   return <div class={rowCls}>
     <div class="rack-track-col">
       <div class="ch-name-hit" onclick={() => onSelect(chIdx)} title={"Select track — edit instrument in Instrument panel"}>
@@ -99,6 +104,18 @@ export fn ChannelRow(ch, chIdx, project, setProject, selected, onSelect, rt) {
         }}
       >
         {isCueDeck ? "CUE" : "LIVE"}
+      </button>
+      <button
+        type="button"
+        class={lockChipCls}
+        title={"Master-lock this track: co-DJ agents cannot overwrite it until you unlock. Click to toggle."}
+        onclick={(e) => {
+          e.stopPropagation()
+          setMasterLock(project, ch.id, !locked)
+          setProject(project)
+        }}
+      >
+        {locked ? "LOCK" : "OPEN"}
       </button>
     </div>
     {RackPatternArea(ch, chIdx, project, setProject, onSelect, rt)}

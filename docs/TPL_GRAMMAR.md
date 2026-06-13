@@ -72,6 +72,14 @@ mix solo 1
 
 `mute` / `solo`: `1` / `true` / `on` vs `0` / `false` / `off`.
 
+### Step pitch
+
+```
+step_pitch <midi>
+```
+
+Base MIDI pitch used for step-sequencer hits when the channel has **no** piano notes (default **36**). Has no effect on a channel driven by `note` lines. On Apply / Sync the line is emitted only when it differs from the default `36`.
+
 ### Steps (16-step row)
 
 Literal:
@@ -215,12 +223,68 @@ auto master mix <eq_lo|eq_mid|eq_hi>
 
 Stored in `project.mixerAutomations[]`. Applying TPL merges lanes by target + id + param (same pattern as `gen` automations: lanes present in the patch replace previous ones for that key).
 
+## Static mixer lines
+
+Top-level, non-automated counterparts to the `auto master mix` / `auto actor … mix` blocks. They set a single fixed value (no beat timeline) for the master bus and per-actor buses.
+
+**Master** — output EQ (dB):
+
+```
+master_mix eq_lo <db> eq_mid <db> eq_hi <db>
+```
+
+Merges into `project.masterMixer` (`eqLo` / `eqMid` / `eqHi`). Keys may appear in any order; missing keys are left unchanged.
+
+**Actor bus** (lane id, e.g. `local`):
+
+```
+actor_mix <lane> gain <n> eq_lo <db> eq_mid <db> eq_hi <db> [mute 1] [solo 1]
+```
+
+Merges into `project.actorMixer[<lane>]` (`gain` / `eqLo` / `eqMid` / `eqHi` / `mute` / `solo`). `gain` may be written as the alias `trim`. `mute` / `solo` are booleans (`1` / `0`). The static line is the non-automation counterpart to `auto actor <lane> mix …`.
+
+## Session / scenes
+
+Session-view clip launching maps to top-level lines plus `clip` blocks.
+
+**Scene count:**
+
+```
+session_scenes <n>
+```
+
+Sets `project.session.sceneCount` (`n >= 1`).
+
+**Slot assignment** — place a clip in a channel's row at a scene index (0-based):
+
+```
+session_slot <channelId> <sceneIdx> <clipId|->
+```
+
+`-` (or `.`) clears the slot. Writes `project.session.slots[<channelRow>][<sceneIdx>]`.
+
+**Clip block** — a multi-bar pattern owned by a channel:
+
+```
+clip <clipId> channel <channelId> bars <n> [name <name>]
+  ...
+```
+
+- `bars` must be `>= 1`. The clip's step grid is `bars * 16` steps.
+- Indented body lines: `steps …` (literal or `euclid`), `note <midi> <startBeat> <durBeats> v <velocity>`, and `loops <N|inf>`. As with track blocks, a clip uses **either** steps **or** piano notes — `note` lines clear the clip's steps.
+- Clip notes may span the whole clip (`0 <= startBeat`, `startBeat + durBeats <= bars*4` beats), not just the first bar.
+- Stored on the owning channel under `channel.sessionClips[]`; merged by `clipId`.
+
 ## Streaming rules
 
 1. Strip comments; ignore empty lines.
 2. A line is **committable** when the newline is seen and any open block (`gen_block`) is properly closed.
 3. Partial last line: show error, do not mutate project.
 4. **Incremental apply:** for each completed top-level `track` block (or full program), merge into project by `channelId`.
+
+### Streaming apply (line-by-line)
+
+`tpl.line` is decoded **incrementally**, one completed line at a time (`src/tpl/Stream.tish`), as the streaming counterpart to the atomic `tpl.block` path — both coexist. A non-indented block opener (`track`, `clip`, `auto`) opens a block and re-applies as indented body lines stream in, so a track sounds the moment its `track …` line arrives and the pattern fills as `steps …` follows. Standalone top-level lines (`bpm`, `master_mix`, `actor_mix`, `session_scenes`, `session_slot`) apply on arrival. Every streamed line is skill-gated via `coDjLineAllowedForSkills`.
 
 ## FL Studio mapping (mental model)
 
@@ -256,6 +320,7 @@ Documented for future grammar; not all are implemented in Apply v1.
 - Sleep-based timeline as primary model (project stays beat-indexed).
 - Mandatory full Strudel mini-notation.
 - Embedded scripting (Ruby/JS) inside patch text.
+- **Deck routing** (per-channel `channel.deck` = `live` / `local` and `project.transportMainDeck`) is JSON/UI-only state — it is **not** parsed or emitted by TPL (`src/model/DeckRouting.tish`, `src/model/Project.tish`).
 
 ## Golden example
 
@@ -265,6 +330,7 @@ bpm 118
 
 track Kick id c0 gen noise_burst
   mix gain 0.9 pan 0
+  step_pitch 36
   noise decay 0.12 tone 0.15 pitch_follow 0.35
   steps x . . . x . . . x . . . x . . .
 

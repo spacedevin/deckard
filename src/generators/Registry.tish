@@ -105,15 +105,3 @@ export fn defaultParamsForGeneratorId(id) {
   }
   return {}
 }
-
-export fn catalogIndexForId(id) {
-  let cat = generatorCatalog()
-  let i = 0
-  while (i < cat.length) {
-    if (cat[i].id === id) {
-      return i
-    }
-    i = i + 1
-  }
-  return 0
-}

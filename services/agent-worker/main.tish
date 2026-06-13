@@ -169,31 +169,51 @@ fn callLLM(userPrompt) {
 
 let activeWs = null
 
-fn handleDirect(ws, msg) {
-  let text = msg.text || "add hi-hat"
-  let ps = (msg.perfStep != null && typeof msg.perfStep === "number") ? msg.perfStep : 0
-  let demo = buildDemoPatch(text)
-  let lines = demo ? demo.split("\n") : null
-  if (!lines || lines.length === 0 || !ws || !ws.send) { return }
-  let payload = JSON.stringify({
-    type: "tpl.block",
-    actorId: actorId,
-    authorId: actorId,
-    lines: lines,
-    effectivePerfStep: ps,
-    asap: true
-  })
-  console.log("[worker] OUTPUT wsSend:", payload.substring(0, 200) + (payload.length > 200 ? "..." : ""))
-  ws.send(payload)
-  console.log("[worker] got direct:", text, "-> sent tpl.block")
-}
-
-// Playing stream: buffer tpl.line from playing actor; after debounce emit stream_chunk then tpl.block
+// Playing stream: buffer tpl.line from playing actor; after debounce snapshot buffer → LLM.
 let playingActorId = null
 let tplLineBuffer = []
 let lastLineAt = 0
 let respondedSincePlay = false
 let DEBOUNCE_MS = 1300
+let BUFFER_MAX_LINES = 400
+
+fn pushContextLine(line) {
+  if (typeof line !== "string") {
+    return
+  }
+  tplLineBuffer.push(line)
+  if (tplLineBuffer.length > BUFFER_MAX_LINES) {
+    tplLineBuffer = tplLineBuffer.slice(tplLineBuffer.length - BUFFER_MAX_LINES)
+  }
+}
+
+// Snapshot the rolling buffer into one prompt — the ONLY place the human stream is collapsed
+// for the provider (per the co-DJ streaming principle). Returns LLM TPL lines or null.
+fn llmLinesFrom(directive) {
+  if (!GRADIENT_MODEL_ACCESS_KEY || GRADIENT_MODEL_ACCESS_KEY === "") {
+    return null
+  }
+  let ctx = tplLineBuffer.length > 0 ? tplLineBuffer.join("\n") : "(empty)"
+  let prompt = directive + "\n\nCurrent session TPL (other actors, read-only context):\n" + ctx
+  let llm = callLLM(prompt)
+  if (llm && llm.length > 0) {
+    return llm
+  }
+  return null
+}
+
+fn handleDirect(ws, msg) {
+  let text = msg.text || "add hi-hat"
+  let ps = (msg.perfStep != null && typeof msg.perfStep === "number") ? msg.perfStep : 0
+  let lines = llmLinesFrom("DJ direction: " + text + ". Output ONE complementary track on your lane as TPL.")
+  if (!lines) {
+    let demo = buildDemoPatch(text)
+    lines = demo ? demo.split("\n") : null
+  }
+  if (!lines || lines.length === 0 || !ws || !ws.send) { return }
+  streamChunkThenBlock(ws, lines, ps)
+  console.log("[worker] got direct:", text, "-> streamed tpl.block (" + String(lines.length) + " lines)")
+}
 
 fn streamChunkThenBlock(ws, lines, perfStep) {
   if (!ws || !ws.send) { return }
@@ -222,10 +242,20 @@ fn streamChunkThenBlock(ws, lines, perfStep) {
 }
 
 fn handlePlayingStream(ws, perfStep) {
-  let demo = buildDemoPatch("euclid hi-hat")
-  let lines = demo ? demo.split("\n") : null
+  // Snapshot the buffered human/peer stream → LLM (real model output), else demo fallback.
+  let lines = llmLinesFrom(
+    "Listen to the session below and add ONE complementary track on your lane (id prefix " +
+      actorId +
+      "_) as TPL — fill gaps, complement density."
+  )
+  let src = "LLM"
+  if (!lines) {
+    let demo = buildDemoPatch("euclid hi-hat")
+    lines = demo ? demo.split("\n") : null
+    src = "demo"
+  }
   if (!lines || lines.length === 0) return
-  console.log("[worker] play response: streaming", String(lines.length), "lines ->", playingActorId || "?")
+  console.log("[worker] play response (" + src + "): streaming", String(lines.length), "lines ->", playingActorId || "?")
   streamChunkThenBlock(ws, lines, perfStep)
   console.log("[worker] sent tpl.stream_chunk + tpl.block")
 }
@@ -263,8 +293,6 @@ fn connectHub() {
   return ws
 }
 
-let BLOCK_SEND_INTERVAL_MS = 3000
-
 fn run() {
   let ws = connectHub()
   if (ws === null) {
@@ -272,7 +300,6 @@ fn run() {
   }
   console.log("[worker] enter receive loop")
   let joinedLogged = false
-  let lastBlockSendAt = Date.now()
   while (true) {
     let msgObj = null
     try {
@@ -323,8 +350,19 @@ fn run() {
           if (playingActorId != null && (from === playingActorId || (playingActorId === "" && from !== actorId))) {
             let line = msg.line
             if (typeof line === "string") {
-              tplLineBuffer.push(line)
+              pushContextLine(line)
               lastLineAt = Date.now()
+            }
+          }
+        }
+        else if (msg != null && msg.type === "tpl.block") {
+          // Fold other actors' committed patches into context so responses are aware of them.
+          let bfrom = msg.actorId || msg.authorId || ""
+          if (bfrom !== actorId && Array.isArray(msg.lines)) {
+            let bi = 0
+            while (bi < msg.lines.length) {
+              pushContextLine(msg.lines[bi])
+              bi = bi + 1
             }
           }
         }
@@ -345,15 +383,6 @@ fn run() {
         let ps = 0
         handlePlayingStream(ws, ps)
       }
-    }
-    let now = Date.now()
-    if (now - lastBlockSendAt >= BLOCK_SEND_INTERVAL_MS && ws && ws.send) {
-      lastBlockSendAt = now
-      let lines = ["tpl 1", "track Hat id " + actorId + "_hat gen noise_burst", "  noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1", "  steps euclid 5 16"]
-      let payload = JSON.stringify({ type: "tpl.block", actorId: actorId, authorId: actorId, lines: lines, asap: true })
-      console.log("[worker] OUTPUT wsSend periodic tpl.block:", payload.substring(0, 300) + (payload.length > 300 ? "..." : ""))
-      ws.send(payload)
-      console.log("[worker] periodic: sent tpl.block")
     }
   }
 }

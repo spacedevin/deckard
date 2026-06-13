@@ -2,9 +2,10 @@
   "name": "deckard",
   "version": "0.1.0",
   "private": true,
-  "description": "Minimal FL-style web DAW in Tish",
+  "description": "Token-streamed live-coding DAW in Tish — LLM + human co-DJ over TPL",
   "scripts": {
     "build": "cd ../tish && cargo run --bin tish -q -- build --target js ../tish-midi/src/main.tish -o ../tish-midi/dist/bundle.js",
+    "test": "cd ../tish && cargo run --bin tish -q -- build --target js ../tish-midi/test/smoke.tish -o /tmp/deckard-smoke.js && node /tmp/deckard-smoke.js",
     "serve": "npx --yes serve . -p 3456",
     "gateway": "cd ../tish && cargo run --bin tish -q --features ws,process,http -- run ../tish-midi/services/gateway/main.tish",
     "agent": "cd ../tish && cargo run --bin tish -q --features ws,process,http,regex -- run ../tish-midi/services/agent-worker/main.tish",

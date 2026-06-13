@@ -53,6 +53,8 @@ export fn createDeckardRuntime() {
     coDjLocalStreamLane: "",
     coDjRemoteTplStream: "",
     coDjRemoteTplStreamLane: "",
+    /** Per-actor incremental TPL line decoders (keyed by actorId) — see tpl/Stream.tish. */
+    coDjLineStreams: {},
     coDjActors: [],
     coDjActorId: "",
     coDjClientId: "",

@@ -1,7 +1,80 @@
-// Skill-based line validation — single source: StreamDemo.tish (coDjLineAllowedForSkills).
+// Co-DJ skill registry: skills gate which TPL lines each actor (lane) may emit.
+// Single home for skill logic — Merge.tish and the incremental stream apply both gate through here.
 
-import { coDjLineAllowedForSkills } from './StreamDemo.tish'
+/** True if skillIds includes the given skill. */
+export fn hasSkill(skillIds, id) {
+  if (!Array.isArray(skillIds)) {
+    return false
+  }
+  let i = 0
+  while (i < skillIds.length) {
+    if (skillIds[i] === id) {
+      return true
+    }
+    i = i + 1
+  }
+  return false
+}
 
+/** True if these skills carry master rights (bpm / auto / transpose / scene / clip). */
+export fn skillIdsAllowMaster(skillIds) {
+  return hasSkill(skillIds, "master_mixer")
+}
+
+/**
+ * Check if an actor with skillIds may emit this TPL line.
+ * Global / master-scope lines (bpm, tpl re-header, auto, transpose, master_mix, actor_mix,
+ * session_scenes/session_slot, clip) require the master_mixer skill; everything else is allowed
+ * (per-track ownership is enforced separately by Merge.tish:actorMayEditTrack).
+ */
+export fn coDjLineAllowedForSkills(line, skillIds) {
+  let t = line.trim()
+  if (t.length === 0 || t.charAt(0) === "#") {
+    return true
+  }
+  let sp = t.indexOf(" ")
+  let h = sp < 0 ? t : t.substring(0, sp)
+  if (
+    h === "bpm" ||
+    h === "tpl" ||
+    h === "auto" ||
+    h === "transpose" ||
+    h === "master_mix" ||
+    h === "actor_mix" ||
+    h === "session_scenes" ||
+    h === "session_slot" ||
+    h === "clip"
+  ) {
+    return skillIdsAllowMaster(skillIds)
+  }
+  return true
+}
+
+/** Back-compat facade name. */
 export fn skillAllowsLine(line, skillIds) {
   return coDjLineAllowedForSkills(line, skillIds)
+}
+
+fn skillHumanOk(id) {
+  if (id === "add_track") return true
+  if (id === "adjust_instrument") return true
+  if (id === "pattern_steps") return true
+  if (id === "pattern_piano") return true
+  if (id === "channel_mix") return true
+  if (id === "master_mixer") return true
+  if (id === "transpose_track" || id === "promote_song" || id === "remove_track") return false
+  return false
+}
+
+fn skillAiOk(id) {
+  if (id === "master_mixer" || id === "transpose_track" || id === "promote_song" || id === "remove_track") return false
+  if (id === "add_track" || id === "adjust_instrument" || id === "pattern_steps" || id === "pattern_piano" || id === "channel_mix") return true
+  return false
+}
+
+/** True if an actor with this skillId may use it. Human-like actors get skillHumanOk; agent-like get skillAiOk. */
+export fn actorHasSkill(skillId, actorId) {
+  if (!actorId || typeof actorId !== "string") return false
+  if (actorId.indexOf("agent") >= 0) return skillAiOk(skillId)
+  return skillHumanOk(skillId)
 }
