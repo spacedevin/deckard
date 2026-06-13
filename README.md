@@ -13,17 +13,31 @@ launcher, master scope, and JSON + TPL import/export.
 **New here?** Read **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — the full overview, vision, and
 end-to-end signal path. Run the tests with `npm test`.
 
-## Build
-
-Requires the `tish` CLI (from the Tish repo):
+## Dev
 
 ```bash
-tish build --target js src/main.tish -o dist/bundle.js
+npm install      # one-time (Vite + tish CLI)
+npm run dev      # Vite dev server — save a .tish file and the browser auto-reloads
+```
+
+`npm run dev` runs **Vite** with a small local plugin ([`vite-plugin-tish.js`](vite-plugin-tish.js))
+that compiles `src/main.tish` → `dist/bundle.js` with `tish build --target js` and full-reloads on any
+`.tish` / `styles.css` change. (Lattish re-mounts the whole tree each render, so a full reload is the
+right strategy — there's no HMR state to preserve.) Open the printed URL and click **Play** once to
+unlock audio.
+
+## Build
+
+Requires the `tish` CLI (from the Tish repo).
+
+```bash
+npm run build    # tish build --target js src/main.tish -o dist/bundle.js
+npm run serve    # static-serve the built folder (npx serve .)
+npm test         # headless smoke test (TPL round-trip, streaming, skills, permissions)
 ```
 
 JSX is built into `tish build --target js` and lowers to Lattish runtime calls — no separate JSX flag.
-
-Serve the folder (e.g. `npx serve .`) and open `index.html`. Click **Play** once to unlock audio.
+Click **Play** once to unlock audio.
 
 ## Layout
 
