@@ -13,5 +13,6 @@ export fn loadProjectFromTpl(source) {
 }
 
 export fn loadDefaultDeckardProject() {
+  // All default channels belong to the host (Deck A); Deck B fills when a client/agent connects.
   return loadProjectFromTpl(defaultDeckardTplText())
 }

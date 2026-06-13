@@ -1,0 +1,238 @@
+// Traditional DJ desk: Deck A | center (per-deck EQ + FILTER + crossfader) | Deck B.
+// Deck A = host channels (cyan), Deck B = client channels (magenta). Stem faders are per-channel gains
+// grouped by deck. The crossfader equal-power blends the decks (transportCrossfade). Per-deck EQ/filter
+// writes through to that deck's channels (a deck-wide macro until dedicated buses land).
+
+import { h, Fragment } from '@tishlang/lattish'
+import { channelDeck, crossfadeValue } from '../../model/DeckRouting.tish'
+import { ensureMasterMixer, channelActorLane } from '../../model/MixerRouting.tish'
+import { setChannelGain } from '../../model/Edits.tish'
+
+fn ensureDeckEq(project) {
+  if (!project.deckEq) {
+    project.deckEq = { A: { hi: 0, mid: 0, lo: 0, flt: 0 }, B: { hi: 0, mid: 0, lo: 0, flt: 0 } }
+  }
+  let ks = ["A", "B"]
+  let i = 0
+  while (i < ks.length) {
+    let d = project.deckEq[ks[i]]
+    if (!d) {
+      project.deckEq[ks[i]] = { hi: 0, mid: 0, lo: 0, flt: 0 }
+    } else {
+      if (typeof d.hi !== "number") { d.hi = 0 }
+      if (typeof d.mid !== "number") { d.mid = 0 }
+      if (typeof d.lo !== "number") { d.lo = 0 }
+      if (typeof d.flt !== "number") { d.flt = 0 }
+    }
+    i = i + 1
+  }
+}
+
+fn deckEntries(project, deck) {
+  let out = []
+  let i = 0
+  while (i < project.channels.length) {
+    if (channelDeck(project, project.channels[i]) === deck) {
+      out.push({ ch: project.channels[i], idx: i })
+    }
+    i = i + 1
+  }
+  return out
+}
+
+/** Client lane name shown on Deck B (or null when no client is connected / owns channels). */
+fn deckBClientLabel(project) {
+  let i = 0
+  while (i < project.channels.length) {
+    let ch = project.channels[i]
+    if (channelDeck(project, ch) === "B") {
+      let lane = channelActorLane(ch, project)
+      return String(lane).toUpperCase()
+    }
+    i = i + 1
+  }
+  return null
+}
+
+fn applyDeckEq(project, deck) {
+  ensureDeckEq(project)
+  let de = project.deckEq[deck]
+  let cut = 8000
+  if (de.flt < 0) {
+    cut = 8000 + (200 - 8000) * (-de.flt)
+  }
+  let i = 0
+  while (i < project.channels.length) {
+    let ch = project.channels[i]
+    if (channelDeck(project, ch) === deck) {
+      ch.eqLo = de.lo
+      ch.eqMid = de.mid
+      ch.eqHi = de.hi
+      ch.filterCutoff = cut
+    }
+    i = i + 1
+  }
+}
+
+fn StemFader(entry, setProjectFromUI, touchMixer, project) {
+  let ch = entry.ch
+  let pct = Math.round((ch.gain != null ? ch.gain : 0.85) * 100)
+  return (
+    <div class="dk-fader">
+      <div class="dk-fader-name" title={ch.name}>{ch.name}</div>
+      <div class="dk-fader-wave">
+        <canvas class={"dk-stem-wave dk-wave-" + String(entry.idx)} width="64" height="34" />
+      </div>
+      <input
+        type="range"
+        class="dk-fader-slider"
+        min="0"
+        max="100"
+        value={String(pct)}
+        onmousedown={(e) => e.stopPropagation()}
+        oninput={(e) => {
+          setChannelGain(ch, Number(e.target.value) / 100)
+          if (touchMixer) {
+            touchMixer()
+          }
+          setProjectFromUI(project)
+        }}
+      />
+      <div class="dk-fader-pct">{String(pct) + "%"}</div>
+    </div>
+  )
+}
+
+fn DeckColumn(project, deck, setProjectFromUI, touchMixer) {
+  let entries = deckEntries(project, deck)
+  let faders = []
+  let i = 0
+  while (i < entries.length) {
+    faders.push(StemFader(entries[i], setProjectFromUI, touchMixer, project))
+    i = i + 1
+  }
+  let isB = deck === "B"
+  let role = isB ? "CLIENT" : "HOST"
+  let meta = ""
+  if (isB) {
+    let client = deckBClientLabel(project)
+    meta = client ? client + " · " + String(entries.length) + " STEMS" : "AWAITING CLIENT"
+  } else {
+    meta = "HOST · " + String(entries.length) + " STEMS"
+  }
+  if (faders.length === 0) {
+    let msg = isB ? "AWAITING CLIENT — a connected agent (or a channel you hand off) appears here" : "no host channels"
+    faders.push(<div class="dk-empty">{msg}</div>)
+  }
+  let cls = isB ? "dk-deck dk-deck-b" : "dk-deck dk-deck-a"
+  return (
+    <div class={cls}>
+      <div class="dk-deck-head">
+        <div class="dk-deck-titlewrap">
+          <span class="dk-deck-title">{"[ DECK " + deck + " ]"}</span>
+          <span class="dk-deck-role">{role}</span>
+        </div>
+        <span class="dk-deck-meta">{meta}</span>
+      </div>
+      <div class="dk-fader-row">{faders}</div>
+    </div>
+  )
+}
+
+fn EqSlider(label, val, onInput, accentCls) {
+  let disp = label === "FLT" ? (val === 0 ? "OFF" : (val < 0 ? "LPF" : "HPF")) : (val > 0 ? "+" + String(Math.round(val)) : String(Math.round(val)))
+  return (
+    <div class="dk-eq-cell">
+      <div class="dk-eq-label">{label}</div>
+      <input
+        type="range"
+        class={"dk-eq-slider " + accentCls}
+        min={label === "FLT" ? "-1" : "-12"}
+        max={label === "FLT" ? "1" : "12"}
+        step={label === "FLT" ? "0.02" : "1"}
+        value={String(val)}
+        onmousedown={(e) => e.stopPropagation()}
+        oninput={(e) => onInput(Number(e.target.value))}
+      />
+      <div class="dk-eq-val">{disp}</div>
+    </div>
+  )
+}
+
+fn DeckEqColumn(project, deck, setProjectFromUI, touchMixer) {
+  ensureDeckEq(project)
+  let de = project.deckEq[deck]
+  let accent = deck === "B" ? "dk-acc-b" : "dk-acc-a"
+  fn set(band, v) {
+    de[band] = v
+    applyDeckEq(project, deck)
+    if (touchMixer) {
+      touchMixer()
+    }
+    setProjectFromUI(project)
+  }
+  return (
+    <div class="dk-eq-col">
+      <div class={"dk-eq-title " + accent}>{"CH " + deck + " EQ"}</div>
+      {EqSlider("HI", de.hi, (v) => set("hi", v), accent)}
+      {EqSlider("MID", de.mid, (v) => set("mid", v), accent)}
+      {EqSlider("LO", de.lo, (v) => set("lo", v), accent)}
+      <div class="dk-eq-div" />
+      {EqSlider("FLT", de.flt, (v) => set("flt", v), accent)}
+    </div>
+  )
+}
+
+export fn DeckMixer(project, setProjectFromUI, touchMixer) {
+  ensureMasterMixer(project)
+  ensureDeckEq(project)
+  let x = crossfadeValue(project)
+  return (
+    <section class="panel dk-panel">
+      <div class="dk-master-strip">
+        <div class="dk-master-info">
+          <p class="dk-master-title">{"MASTER_OUT"}</p>
+          <p>{"FFT_SIZE: 512"}</p>
+          <p>{"XFADE: " + String(Math.round(x * 100)) + "%"}</p>
+        </div>
+        <div class="dk-master-scope">
+          <canvas class="dk-spectrum" width="320" height="72" />
+        </div>
+      </div>
+      <div class="dk-desk">
+        {DeckColumn(project, "A", setProjectFromUI, touchMixer)}
+        <div class="dk-center">
+          <div class="dk-eq-pair">
+            {DeckEqColumn(project, "A", setProjectFromUI, touchMixer)}
+            <div class="dk-center-gutter"><span class="dk-center-label">{"MIXER"}</span></div>
+            {DeckEqColumn(project, "B", setProjectFromUI, touchMixer)}
+          </div>
+          <div class="dk-xfade">
+            <div class="dk-xfade-labels">
+              <span class="dk-acc-a">{"A"}</span>
+              <span class="dk-xfade-mid">{"X-FADE"}</span>
+              <span class="dk-acc-b">{"B"}</span>
+            </div>
+            <input
+              type="range"
+              class="dk-xfade-slider"
+              min="0"
+              max="1"
+              step="0.01"
+              value={String(x)}
+              onmousedown={(e) => e.stopPropagation()}
+              oninput={(e) => {
+                project.transportCrossfade = Number(e.target.value)
+                if (touchMixer) {
+                  touchMixer()
+                }
+                setProjectFromUI(project)
+              }}
+            />
+          </div>
+        </div>
+        {DeckColumn(project, "B", setProjectFromUI, touchMixer)}
+      </div>
+    </section>
+  )
+}

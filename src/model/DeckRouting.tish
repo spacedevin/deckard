@@ -1,5 +1,9 @@
-// DJ-style deck split: each channel is on the live deck or cue (local prep) deck.
-// project.transportMainDeck picks which deck is heard on the main output.
+// DJ-style deck split by PLAYER: Deck A = the host (local lane), Deck B = the connected client
+// (any remote / agent lane). Each player owns a deck — Deck B only populates when a client/agent is
+// connected and owns channels, which makes the connection visible. (More decks later for >2 players.)
+// The crossfader (project.transportCrossfade, 0..1) equal-power blends the two decks into main out.
+
+import { channelActorLane } from './MixerRouting.tish'
 
 export fn normalizeMainDeck(project) {
   if (!project) {
@@ -12,29 +16,50 @@ export fn normalizeMainDeck(project) {
   return "live"
 }
 
-export fn normalizeChannelDeck(ch) {
+/** "A" = host deck (local lane); "B" = client deck (any non-local / agent lane). */
+export fn channelDeck(project, ch) {
   if (!ch) {
-    return "live"
+    return "A"
   }
-  let d = ch.deck
-  if (d === "local") {
-    return "local"
+  if (channelActorLane(ch, project) === "local") {
+    return "A"
   }
-  return "live"
+  return "B"
 }
 
-/** Channel is routed to the deck currently sent to main output (for note triggers + gain). */
+/** Crossfader position 0..1 (0 = Deck A / host, 1 = Deck B / client). */
+export fn crossfadeValue(project) {
+  if (!project) {
+    return 0.5
+  }
+  let x = project.transportCrossfade
+  if (typeof x !== "number" || x !== x) {
+    return normalizeMainDeck(project) === "live" ? 1 : 0
+  }
+  if (x < 0) {
+    x = 0
+  }
+  if (x > 1) {
+    x = 1
+  }
+  return x
+}
+
+/** Equal-power gain multiplier for this channel given the crossfader position. */
+export fn deckMainOutGainMultiplier(project, ch) {
+  let x = crossfadeValue(project)
+  let gA = Math.cos((x * Math.PI) / 2)
+  let gB = Math.sin((x * Math.PI) / 2)
+  if (channelDeck(project, ch) === "B") {
+    return gB
+  }
+  return gA
+}
+
+/** True if this channel's deck still has audible crossfader gain (drives note triggering). */
 export fn channelHeardOnMainDeck(project, ch) {
   if (!ch) {
     return false
   }
-  return normalizeMainDeck(project) === normalizeChannelDeck(ch)
-}
-
-/** Multiply channel fader output: 0 when this channel is on the other deck. */
-export fn deckMainOutGainMultiplier(project, ch) {
-  if (channelHeardOnMainDeck(project, ch)) {
-    return 1
-  }
-  return 0
+  return deckMainOutGainMultiplier(project, ch) > 0.0015
 }

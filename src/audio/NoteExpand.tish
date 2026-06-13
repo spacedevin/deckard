@@ -1,0 +1,81 @@
+// Per-channel note transforms applied at trigger time: CHORD (one trigger → an interval stack) and
+// ARPEGGIATOR (play that stack one note at a time, cycling up/down/up-down/random across triggers).
+// ch.chord / ch.arp are strings set by the instrument editor; off/unset = passthrough.
+
+fn chordIntervals(name) {
+  if (name === "major") {
+    return [0, 4, 7]
+  }
+  if (name === "minor") {
+    return [0, 3, 7]
+  }
+  if (name === "dom7") {
+    return [0, 4, 7, 10]
+  }
+  if (name === "maj7") {
+    return [0, 4, 7, 11]
+  }
+  if (name === "min7") {
+    return [0, 3, 7, 10]
+  }
+  if (name === "dim") {
+    return [0, 3, 6]
+  }
+  if (name === "aug") {
+    return [0, 4, 8]
+  }
+  if (name === "sus4") {
+    return [0, 5, 7]
+  }
+  if (name === "add9") {
+    return [0, 4, 7, 14]
+  }
+  return [0]
+}
+
+fn isOff(v) {
+  return !v || v === "off" || v === "Off"
+}
+
+/** Pitches to actually sound for one trigger of `basePitch` on this channel. */
+export fn expandTriggerPitches(ch, basePitch, rt) {
+  let intervals = isOff(ch.chord) ? [0] : chordIntervals(ch.chord)
+  let pitches = []
+  let i = 0
+  while (i < intervals.length) {
+    pitches.push(basePitch + intervals[i])
+    i = i + 1
+  }
+  if (isOff(ch.arp) || pitches.length <= 1 || !rt) {
+    return pitches
+  }
+  if (!rt.arpState) {
+    rt.arpState = {}
+  }
+  let c = rt.arpState[ch.id]
+  if (typeof c !== "number") {
+    c = 0
+  }
+  let n = pitches.length
+  let idx = 0
+  let arp = ch.arp
+  if (arp === "down") {
+    idx = n - 1 - (c % n)
+  } else if (arp === "updown") {
+    let period = (n - 1) * 2
+    if (period < 1) {
+      period = 1
+    }
+    let m = c % period
+    idx = m < n ? m : period - m
+  } else if (arp === "random") {
+    idx = Math.floor(Math.random() * n)
+    if (idx >= n) {
+      idx = n - 1
+    }
+  } else {
+    idx = c % n
+  }
+  rt.arpState[ch.id] = c + 1
+  return [pitches[idx]]
+}

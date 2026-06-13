@@ -1,0 +1,76 @@
+// Pattern bank — the cue/save surface, lifted out of the cramped transport into one clean strip.
+// Launch a pattern (queued to the next bar) · CAPTURE the current grid into a slot. Reuses the
+// existing session scene model (sessionQueueScene / sessionWriteRackToSceneClip via the handlers).
+// CUE vs LIVE is now the crossfader position on the deck mixer, not a separate toggle.
+
+import { h, Fragment } from '@tishlang/lattish'
+
+export fn PatternBank(bank) {
+  let count = Math.floor(Number(bank.count))
+  if (count < 1 || count !== count) {
+    count = 4
+  }
+  let launchBtns = []
+  let i = 0
+  while (i < count) {
+    let idx = i
+    let cls = "pb-slot"
+    if (bank.playingIdx !== null && bank.playingIdx !== undefined && bank.playingIdx === i) {
+      cls = cls + " pb-slot-active"
+    }
+    let queued =
+      bank.queuePending &&
+      bank.queuedScene !== null &&
+      bank.queuedScene !== undefined &&
+      Math.floor(Number(bank.queuedScene)) === i
+    if (queued) {
+      cls = cls + " pb-slot-queued"
+    }
+    let meta = ""
+    if (queued && bank.dropSteps !== null && bank.dropSteps !== undefined) {
+      meta = bank.dropSteps === 0 ? "●" : String(bank.dropSteps)
+    }
+    launchBtns.push(
+      <button
+        type="button"
+        class={cls}
+        key={"pb-" + String(i)}
+        title={"Launch pattern " + String(i + 1) + " (queued to the next bar)"}
+        onclick={() => bank.onSelect(idx)}
+      >
+        <span class="pb-slot-n">{"P" + String(i + 1)}</span>
+        {meta.length > 0 ? <span class="pb-slot-meta">{meta}</span> : null}
+      </button>
+    )
+    i = i + 1
+  }
+  let capBtns = []
+  let q = 0
+  while (q < count) {
+    let qi = q
+    capBtns.push(
+      <button
+        type="button"
+        class="pb-cap"
+        key={"pbc-" + String(q)}
+        title={"Capture the current rack/piano into pattern " + String(q + 1)}
+        onclick={() => bank.onStore(qi)}
+      >
+        {String(q + 1)}
+      </button>
+    )
+    q = q + 1
+  }
+  return (
+    <div class="panel pb-panel">
+      <span class="pb-rev" style={{ display: "none" }}>{String(bank.rev)}</span>
+      <span class="pb-label">{"PATTERN BANK"}</span>
+      <div class="pb-slots">{launchBtns}</div>
+      <span class="pb-cap-label">{"CAPTURE →"}</span>
+      <div class="pb-caps">{capBtns}</div>
+      <span class="pb-hint">
+        {"Launch = queue to next bar · Capture = save current grid · CUE/LIVE = crossfader"}
+      </span>
+    </div>
+  )
+}

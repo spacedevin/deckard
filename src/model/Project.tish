@@ -37,6 +37,7 @@ export fn makeChannel(id, name, stepPitch, generatorId) {
     generatorParams: defaultParamsForGeneratorId(gid),
     filterCutoff: 8000,
     filterQ: 1,
+    reverbSend: 0.1,
     stepPitch: stepPitch,
     steps: makeSteps16(),
     pianoNotes: [],
@@ -75,6 +76,24 @@ export fn emptyProjectShell() {
         sustain: 0.3,
         release: 0.2
       }
+    },
+    {
+      presetId: "factory_pad",
+      name: "Aether pad",
+      generatorId: "pad",
+      params: { wave1: "sine", wave2: "triangle", detune: 11, cutoff: 1800, attack: 0.4, decay: 0.6, sustain: 0.7, release: 1.5 }
+    },
+    {
+      presetId: "factory_bell",
+      name: "Stellar bell",
+      generatorId: "bell",
+      params: { partial: 2.01, highpass: 900, decay: 1.4 }
+    },
+    {
+      presetId: "factory_pluck",
+      name: "Soft pluck",
+      generatorId: "pad",
+      params: { wave1: "triangle", wave2: "sine", detune: 6, cutoff: 2600, attack: 0.005, decay: 0.18, sustain: 0.25, release: 0.3 }
     }
   ]
   let mxPresets = matrixFmFactoryInstrumentPresets()
@@ -87,6 +106,7 @@ export fn emptyProjectShell() {
     version: 2,
     bpm: 120,
     transportMainDeck: "live",
+    transportCrossfade: 0.5,
     channels: [],
     instrumentPresets: instrumentPresets,
     automation: {

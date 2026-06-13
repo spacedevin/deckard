@@ -1,0 +1,262 @@
+// FL-style channel-rack grid: one row per channel, 16 glowing step cells, a moving playhead column.
+// Drum channels (no piano notes) toggle steps directly; melodic channels show a note-density preview
+// and click-to-focus. Any track can expand (▸) into an aligned piano roll beneath its step row.
+// Deck colour (A = cyan / host, B = magenta / client) ties each row to the deck mixer.
+
+import { h, Fragment } from '@tishlang/lattish'
+import { toggleStep, clearStep, setChannelMute, setChannelSolo } from '../../model/Edits.tish'
+import { generatorLabelById } from '../../generators/Registry.tish'
+import { tplLoopSkipsChannel } from '../../tpl/LoopState.tish'
+import { channelDeck } from '../../model/DeckRouting.tish'
+import { ensureCoDjMeta, setMasterLock } from '../../codj/CoDjMeta.tish'
+import { pianoRowsForChannel } from './PianoGrid.tish'
+
+fn stepHasNote(ch, i) {
+  let pn = ch.pianoNotes
+  if (!pn || pn.length === 0) {
+    return false
+  }
+  let k = 0
+  while (k < pn.length) {
+    let s = Math.floor(pn[k].startBeat * 4 + 0.0001)
+    if (s === i) {
+      return true
+    }
+    k = k + 1
+  }
+  return false
+}
+
+fn deckClass(project, ch) {
+  if (channelDeck(project, ch) === "B") {
+    return "sg-deck-b"
+  }
+  return "sg-deck-a"
+}
+
+fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh, rt) {
+  let cls = "sg-cell sg-col-" + String(i)
+  if (on) {
+    cls = cls + " sg-on"
+  }
+  if (melodic) {
+    cls = cls + " sg-melodic"
+  }
+  if (i % 4 === 0) {
+    cls = cls + " sg-beat"
+  }
+  return (
+    <button
+      type="button"
+      class={cls}
+      title={melodic ? "Melodic — click to edit in piano roll" : "Left: toggle · Right: clear"}
+      onclick={(e) => {
+        e.stopPropagation()
+        if (melodic) {
+          if (setSelectedCh) {
+            setSelectedCh(chIdx)
+          }
+          return
+        }
+        toggleStep(project.channels[chIdx], i)
+        if (rt && rt.mirrorStepToSessionClip) {
+          rt.mirrorStepToSessionClip(project.channels[chIdx], i)
+        }
+        setProjectFromUI(project)
+      }}
+      oncontextmenu={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        if (melodic) {
+          return
+        }
+        clearStep(project.channels[chIdx], i)
+        if (rt && rt.mirrorClearStepToSessionClip) {
+          rt.mirrorClearStepToSessionClip(project.channels[chIdx], i)
+        }
+        setProjectFromUI(project)
+      }}
+    />
+  )
+}
+
+fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh, rt) {
+  let melodic = ch.pianoNotes && ch.pianoNotes.length > 0
+  let cells = []
+  let i = 0
+  while (i < 16) {
+    let on = melodic ? stepHasNote(ch, i) : ch.steps[i].on
+    cells.push(StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh, rt))
+    i = i + 1
+  }
+  let gid = ch.generatorId ? ch.generatorId : "basicOsc"
+  ensureCoDjMeta(project)
+  let meta = project.coDjMeta.tracks[ch.id]
+  let locked = meta != null && meta.masterLock === true
+  let rowCls = "sg-row " + deckClass(project, ch)
+  if (selected) {
+    rowCls = rowCls + " sg-row-sel"
+  }
+  if (tplLoopSkipsChannel(project, chIdx, rt)) {
+    rowCls = rowCls + " sg-row-exhausted"
+  }
+  let deckBadge = channelDeck(project, ch)
+  let expanded = rt != null && rt.gridExpanded != null && rt.gridExpanded[ch.id] === true
+  return (
+    <div class={rowCls}>
+      <div class="sg-gutter">
+        <button
+          type="button"
+          class={expanded ? "sg-exp sg-exp-on" : "sg-exp"}
+          title="Expand the piano roll for this track (aligned under its step row)"
+          onclick={(e) => {
+            e.stopPropagation()
+            if (rt) {
+              if (!rt.gridExpanded) {
+                rt.gridExpanded = {}
+              }
+              rt.gridExpanded[ch.id] = !(rt.gridExpanded[ch.id] === true)
+              if (rt.bumpGrid) {
+                rt.bumpGrid()
+              }
+            }
+          }}
+        >
+          {expanded ? "▾" : "▸"}
+        </button>
+        <div class="sg-gutter-main" onclick={() => setSelectedCh(chIdx)} title="Select channel">
+          <span class="sg-ch-name">{ch.name}</span>
+          <span class="sg-ch-instr">{generatorLabelById(gid)}</span>
+        </div>
+        <div class="sg-gutter-ctl">
+          <button
+            type="button"
+            class="sg-deck-chip"
+            title="Deck A = host · Deck B = client. Click to hand this channel to the other deck."
+            onclick={(e) => {
+              e.stopPropagation()
+              ch.actorLane = channelDeck(project, ch) === "B" ? "" : "client"
+              setProjectFromUI(project)
+              if (rt && rt.touchMixer) {
+                rt.touchMixer()
+              }
+            }}
+          >
+            {deckBadge}
+          </button>
+          <button
+            type="button"
+            class={ch.mute ? "sg-tog sg-tog-on" : "sg-tog"}
+            title="Mute"
+            onclick={(e) => {
+              e.stopPropagation()
+              setChannelMute(ch, !ch.mute)
+              setProjectFromUI(project)
+            }}
+          >
+            {"M"}
+          </button>
+          <button
+            type="button"
+            class={ch.solo ? "sg-tog sg-tog-solo" : "sg-tog"}
+            title="Solo"
+            onclick={(e) => {
+              e.stopPropagation()
+              setChannelSolo(ch, !ch.solo)
+              setProjectFromUI(project)
+            }}
+          >
+            {"S"}
+          </button>
+          <button
+            type="button"
+            class={locked ? "sg-tog sg-tog-lock" : "sg-tog"}
+            title="Master-lock (agents can't overwrite)"
+            onclick={(e) => {
+              e.stopPropagation()
+              setMasterLock(project, ch.id, !locked)
+              setProjectFromUI(project)
+            }}
+          >
+            {"L"}
+          </button>
+        </div>
+      </div>
+      <div class="sg-cells">{cells}</div>
+    </div>
+  )
+}
+
+/** Direct-DOM playhead: mark the active step column (cells carry an sg-col-N class) without a re-render. */
+fn applyGridPlayhead(step, playing) {
+  if (typeof document === "undefined") {
+    return
+  }
+  let prev = document.querySelectorAll(".sg-col-active")
+  let i = 0
+  while (i < prev.length) {
+    prev[i].classList.remove("sg-col-active")
+    i = i + 1
+  }
+  if (!playing) {
+    return
+  }
+  let s = Math.floor(step) % 16
+  let cur = document.querySelectorAll(".sg-col-" + String(s))
+  let j = 0
+  while (j < cur.length) {
+    cur[j].classList.add("sg-col-active")
+    j = j + 1
+  }
+}
+
+export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt) {
+  if (rt) {
+    rt.updateGridPlayhead = (step, playing) => {
+      applyGridPlayhead(step, playing)
+    }
+  }
+  let rows = []
+  let ci = 0
+  while (ci < project.channels.length) {
+    let ch = project.channels[ci]
+    rows.push(ChannelRowGrid(ch, ci, project, setProjectFromUI, ci === selectedCh, setSelectedCh, rt))
+    let expanded = rt != null && rt.gridExpanded != null && rt.gridExpanded[ch.id] === true
+    if (expanded) {
+      let prows = pianoRowsForChannel(project, ch, setProjectFromUI)
+      let k = 0
+      while (k < prows.length) {
+        rows.push(prows[k])
+        k = k + 1
+      }
+    }
+    ci = ci + 1
+  }
+  let ruler = []
+  let r = 0
+  while (r < 16) {
+    let rc = r % 4 === 0 ? "sg-tick sg-tick-beat" : "sg-tick"
+    ruler.push(<div class={rc}>{String(r + 1)}</div>)
+    r = r + 1
+  }
+  // Re-apply the playhead after this (re)render.
+  if (rt && typeof setTimeout !== "undefined") {
+    setTimeout(() => {
+      let st = typeof rt.playbackUiStep === "number" ? rt.playbackUiStep : 0
+      applyGridPlayhead(st, rt.playing === true)
+    }, 0)
+  }
+  return (
+    <section class="panel sg-panel">
+      <div class="sg-head">
+        <h2>{"SEQUENCER // CHANNEL RACK"}</h2>
+        <span class="sg-head-hint">{"Left: toggle · Right: clear · ▸ expand any track into its piano roll"}</span>
+      </div>
+      <div class="sg-grid">{rows}</div>
+      <div class="sg-ruler">
+        <div class="sg-ruler-pad" />
+        <div class="sg-ruler-ticks">{ruler}</div>
+      </div>
+    </section>
+  )
+}

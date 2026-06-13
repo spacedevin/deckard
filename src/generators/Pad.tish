@@ -1,0 +1,63 @@
+// Pad / ethereal — detuned triple-oscillator through a lowpass with a slow amp envelope. The
+// detune + sub-octave + filter is what keeps it from sounding like a naked MIDI tone. Pairs well
+// with the channel reverb send. (Ported from the AetherSynth "ethereal" voice.)
+
+import { midiToHz } from '../schedule/Engine.tish'
+import { scheduleAdsrAmpEnvelope } from './AdsrAmpSchedule.tish'
+
+export fn playPad(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  let p = ch.generatorParams ? ch.generatorParams : {}
+  let n = Math.floor(midi + bendSemis)
+  let hz = 440
+  if (n >= 0 && n <= 127) {
+    hz = midiToHz(n)
+  }
+  let detune = p.detune != null ? p.detune : 9
+  let cutoff = p.cutoff != null && p.cutoff > 0 ? p.cutoff : 2200
+  let a = p.attack != null && p.attack > 0 ? p.attack : 0.08
+  let d = p.decay != null && p.decay > 0 ? p.decay : 0.25
+  let sus = p.sustain != null && p.sustain >= 0 && p.sustain <= 1 ? p.sustain : 0.6
+  let r = p.release != null && p.release > 0 ? p.release : 0.7
+
+  let o1 = ctx.createOscillator()
+  o1.type = p.wave1 ? p.wave1 : "sine"
+  o1.frequency.value = hz
+  let o2 = ctx.createOscillator()
+  o2.type = p.wave2 ? p.wave2 : "triangle"
+  o2.frequency.value = hz
+  o2.detune.value = detune
+  let o3 = ctx.createOscillator()
+  o3.type = "sine"
+  o3.frequency.value = hz * 0.5
+  o3.detune.value = -detune
+
+  let filt = ctx.createBiquadFilter()
+  filt.type = "lowpass"
+  filt.frequency.value = cutoff
+  filt.Q.value = 0.7
+
+  let env = ctx.createGain()
+  env.gain.value = 0
+  o1.connect(filt)
+  o2.connect(filt)
+  o3.connect(filt)
+  filt.connect(env)
+  env.connect(bus.input)
+
+  let v = vel / 127
+  if (v < 0) {
+    v = 0
+  }
+  if (v > 1) {
+    v = 1
+  }
+  let peak = v * 0.5
+  let slev = sus * peak
+  let tEnd = scheduleAdsrAmpEnvelope(env, t, peak, slev, a, d, r, durSec)
+  o1.start(t)
+  o2.start(t)
+  o3.start(t)
+  o1.stop(tEnd + 0.05)
+  o2.stop(tEnd + 0.05)
+  o3.stop(tEnd + 0.05)
+}

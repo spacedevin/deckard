@@ -12,6 +12,7 @@ import { MasterMixerStrip, ActorMixerStrip, TrackMixerStrip } from './Mixer.tish
 import { collectActorLanes, channelActorLane, ensureActorMixerEntries } from '../model/MixerRouting.tish'
 import { ChannelRow } from './ChannelRack.tish'
 import { InstrumentPanel } from './InstrumentPanel.tish'
+import { InstrumentEditor } from './InstrumentEditor.tish'
 import { PatchBayPanel } from './PatchBayPanel.tish'
 import { CoDjPanel } from './CoDjPanel.tish'
 import {
@@ -23,7 +24,10 @@ import {
   rackPianoPreviewSig,
   updatePianoRollCtx
 } from './PianoRoll.tish'
-import { drawScopeCanvas } from './Scope.tish'
+import { drawScopeCanvas, drawSpectrumCanvas, drawMiniWave } from './Scope.tish'
+import { StepGridPanel } from './grid/StepGrid.tish'
+import { DeckMixer } from './deck/DeckMixer.tish'
+import { PatternBank } from './PatternBank.tish'
 import { coDjInitWebMidi } from '../codj/MidiProfiles.tish'
 import {
   coDjFlushScheduledForStep,
@@ -67,6 +71,7 @@ export fn App() {
   let [workspaceTab, setWorkspaceTab] = useState("sequencer")
   let [sessionUiGen, setSessionUiGen] = useState(0)
   let [seqPromoteUi, setSeqPromoteUi] = useState(0)
+  let [gridGen, setGridGen] = useState(0)
 
   fn bumpSessionUi() {
     setSessionUiGen(sessionUiGen + 1)
@@ -83,6 +88,9 @@ export fn App() {
   let rt = rtRef.current
   rt.bumpSeqPromoteUi = () => {
     setSeqPromoteUi((x) => x + 1)
+  }
+  rt.bumpGrid = () => {
+    setGridGen((x) => x + 1)
   }
   rt.touchMixer = touchMixer
   rt.mirrorStepToSessionClip = (ch, si) => {
@@ -286,9 +294,23 @@ export fn App() {
   if (!rt.dawScopeStarted) {
     rt.dawScopeStarted = true
     fn scopeFrame() {
-      let sc2 = document.querySelector(".scope-canvas")
-      if (sc2 && audioStore.analyser) {
-        drawScopeCanvas(sc2, audioStore.analyser)
+      if (audioStore.analyser) {
+        let spec = document.querySelector(".dk-spectrum")
+        if (spec) {
+          drawSpectrumCanvas(spec, audioStore.analyser, "#f97316")
+        }
+      }
+      if (audioStore.buses) {
+        let wi = 0
+        while (wi < audioStore.buses.length) {
+          let cv = document.querySelector(".dk-wave-" + String(wi))
+          let bus = audioStore.buses[wi]
+          if (cv && bus && bus.analyser) {
+            let col = cv.closest && cv.closest(".dk-deck-b") ? "#e879f9" : "#22d3ee"
+            drawMiniWave(cv, bus.analyser, col)
+          }
+          wi = wi + 1
+        }
       }
       requestAnimationFrame(scopeFrame)
     }
@@ -361,6 +383,9 @@ export fn App() {
       transportTick(r.project, audioStore, globalTick, r)
       if (r.setPlaybackHighlight) {
         r.setPlaybackHighlight(globalTick % 16, true)
+      }
+      if (r.updateGridPlayhead) {
+        r.updateGridPlayhead(globalTick % 16, true)
       }
       globalTick = globalTick + 1
       r.transportNextTick = globalTick
@@ -446,6 +471,9 @@ export fn App() {
     if (rt.setPlaybackHighlight) {
       rt.setPlaybackHighlight(0, false)
     }
+    if (rt.updateGridPlayhead) {
+      rt.updateGridPlayhead(0, false)
+    }
     setPlaying(false)
   }
 
@@ -523,79 +551,12 @@ export fn App() {
   }
 
   ensureActorMixerEntries(project)
-  let rawLanes = collectActorLanes(project)
-  let lanes = rawLanes.slice()
-  lanes.sort((a, b) => {
-    if (a === "local") {
-      return -1
-    }
-    if (b === "local") {
-      return 1
-    }
-    if (a < b) {
-      return -1
-    }
-    if (a > b) {
-      return 1
-    }
-    return 0
-  })
-  let mixerBlocks = []
-  let li = 0
-  while (li < lanes.length) {
-    let L = lanes[li]
-    let trackStrips = []
-    let ti = 0
-    while (ti < project.channels.length) {
-      if (channelActorLane(project.channels[ti], project) === L) {
-        trackStrips.push(
-          TrackMixerStrip(
-            project.channels[ti],
-            ti,
-            ti === selectedCh,
-            setSelectedCh,
-            onTrim,
-            onPan,
-            onTrimCommit,
-            onPanCommit,
-            onEq,
-            onEqCommit,
-            setProjectFromUI,
-            project
-          )
-        )
-      }
-      ti = ti + 1
-    }
-    mixerBlocks.push(
-      <div class="mixer-actor-block" key={"lane-" + L}>
-        {ActorMixerStrip(L, project, setProjectFromUI, touchMixer)}
-        <div class="mixer-track-row">{trackStrips}</div>
-      </div>
-    )
-    li = li + 1
-  }
-
-  let channels = []
-  let ci = 0
-  while (ci < project.channels.length) {
-    channels.push(ChannelRow(project.channels[ci], ci, project, setProjectFromUI, ci === selectedCh, setSelectedCh, rt))
-    ci = ci + 1
-  }
 
   let mainWorkspace = null
   if (workspaceTab === "sequencer") {
     mainWorkspace = (
       <Fragment>
-        <section class="panel rack-panel">
-          <h2>{"Channel rack + step sequencer"}</h2>
-          {channels}
-        </section>
-        <section class="panel piano-panel">
-          <h2>{"Piano roll (channel "}{String(selectedCh + 1)}{")"}</h2>
-          {PianoRollZoomBar(project, setProjectFromUI)}
-          {PianoRollCanvas(project, selectedCh, setProjectFromUI, null)}
-        </section>
+        {StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt)}
         {CoDjPanel(project, setProject, tplMirrorFlush, rt)}
       </Fragment>
     )
@@ -608,7 +569,12 @@ export fn App() {
   } else if (workspaceTab === "patch") {
     mainWorkspace = PatchBayPanel()
   } else {
-    mainWorkspace = InstrumentPanel(project, selectedCh, setProjectFromUI, tplMirrorFlush)
+    mainWorkspace = (
+      <Fragment>
+        {InstrumentEditor(project, selectedCh, setProjectFromUI, tplMirrorFlush)}
+        {InstrumentPanel(project, selectedCh, setProjectFromUI, tplMirrorFlush)}
+      </Fragment>
+    )
   }
 
   let tabSeq = workspaceTab === "sequencer" ? "deck-tab deck-tab-active" : "deck-tab"
@@ -633,6 +599,16 @@ export fn App() {
     }
   }
   let seqUiRev = seqPromoteUi
+  let patternBank = {
+    count: seqBarCount,
+    playingIdx: seqPlayingIdx,
+    queuedScene: seqQueuedScene,
+    queuePending: seqQueuePending,
+    dropSteps: seqDropSteps,
+    rev: seqUiRev,
+    onSelect: onSeqSelect,
+    onStore: onSeqStore
+  }
 
   return <div class="daw-root">
     <header class="daw-header">
@@ -672,26 +648,12 @@ export fn App() {
         </button>
       </nav>
     </header>
-    <div class="daw-body">
-      <div class="daw-workspace-column">
-        <div class="daw-main-stack">{mainWorkspace}</div>
-        <div class="daw-tpl-dock">{CodeDebugView(project, setProject, tplText, setTplText, rt, true)}</div>
-      </div>
-      <aside class="panel mixer-panel">
-        <h2>{"Mixer (track → actor → master)"}</h2>
-        <div class="mixer-panel-head">
-          <div class="scope-wrap">
-            <div class="scope-head">
-              <span class="scope-title">{"Master"}</span>
-              <span class="scope-badge">{"live"}</span>
-            </div>
-            <canvas class="scope-canvas" width="320" height="96" />
-          </div>
-          {MasterMixerStrip(project, setProjectFromUI, touchMixer)}
-        </div>
-        <div class="mixer-lanes">{mixerBlocks}</div>
-      </aside>
+    {PatternBank(patternBank)}
+    <div class="daw-body daw-body-stack">
+      <div class="daw-main-stack">{mainWorkspace}</div>
+      {DeckMixer(project, setProjectFromUI, touchMixer)}
+      <div class="daw-tpl-dock">{CodeDebugView(project, setProject, tplText, setTplText, rt, true)}</div>
     </div>
-    <footer class="daw-foot">{"TPL: docs/TPL_GRAMMAR.md · Generators: docs/FL_STUDIO_GENERATORS.md · Schema: docs/schema/project-v2.json"}</footer>
+    <footer class="daw-foot">{"TPL: docs/TPL_GRAMMAR.md · ARCH: docs/ARCHITECTURE.md · DEV_NODE: AETHER_LABS"}</footer>
   </div>
 }

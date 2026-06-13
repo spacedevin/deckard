@@ -7,7 +7,7 @@
 // app in ~/Projects/schlop/spider3-tish makes; this is adapted from its plugin to the --target js
 // output tish-midi uses. There is no published tish Vite plugin — this ~40-line shim is the pattern.)
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -42,6 +42,29 @@ export default function tishPlugin() {
 
     configureServer(server) {
       server.watcher.add(path.join(ROOT, 'src/**/*.tish'))
+      // Serve the freshly compiled bundle straight from disk — it's self-contained JS that needs
+      // no transform, and this bypasses Vite's transform cache (which doesn't invalidate on recompile
+      // since dist/ isn't a watched source), so a save always reaches the browser.
+      const raw = [
+        { url: '/dist/bundle.js', file: OUT, type: 'application/javascript; charset=utf-8' },
+        { url: '/styles.css', file: path.join(ROOT, 'styles.css'), type: 'text/css; charset=utf-8' },
+      ]
+      server.middlewares.use((req, res, next) => {
+        const url = (req.url || '').split('?')[0]
+        const hit = raw.find((r) => r.url === url)
+        if (hit) {
+          try {
+            const body = readFileSync(hit.file, 'utf8')
+            res.setHeader('Content-Type', hit.type)
+            res.setHeader('Cache-Control', 'no-store')
+            res.end(body)
+            return
+          } catch (e) {
+            // fall through to Vite if the file isn't there yet
+          }
+        }
+        next()
+      })
     },
 
     handleHotUpdate(ctx) {

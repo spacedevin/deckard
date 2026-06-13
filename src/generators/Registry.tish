@@ -21,6 +21,16 @@ export fn generatorCatalog() {
       id: "matrixFm",
       label: "Matrix FM",
       description: "Multi-operator FM/RM graph via TPL gen_block (Sytrus-style)."
+    },
+    {
+      id: "pad",
+      label: "Pad",
+      description: "Detuned triple-osc + lowpass + slow env — ethereal, reverb-friendly."
+    },
+    {
+      id: "bell",
+      label: "Bell",
+      description: "Inharmonic sine partials + highpass + bell decay — metallic shimmer."
     }
   ]
 }
@@ -102,6 +112,25 @@ export fn defaultParamsForGeneratorId(id) {
   }
   if (id === "matrixFm") {
     return {}
+  }
+  if (id === "pad") {
+    return {
+      wave1: "sine",
+      wave2: "triangle",
+      detune: 9,
+      cutoff: 2200,
+      attack: 0.08,
+      decay: 0.25,
+      sustain: 0.6,
+      release: 0.7
+    }
+  }
+  if (id === "bell") {
+    return {
+      partial: 2.01,
+      highpass: 800,
+      decay: 1.0
+    }
   }
   return {}
 }

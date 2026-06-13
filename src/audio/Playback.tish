@@ -1,6 +1,7 @@
 import { sixteenthSeconds, automationAt } from '../schedule/Engine.tish'
 import { playHitAt, channelAudible, updateMixerFromProject } from './Engine.tish'
 import { generatorChannelAtBeat } from './ParamAtBeat.tish'
+import { expandTriggerPitches } from './NoteExpand.tish'
 import { tplLoopOnBarBoundary, tplLoopSkipsChannel } from '../tpl/LoopState.tish'
 import { playbackClipForChannel, clipPatternSpanSteps } from '../model/Session.tish'
 
@@ -52,7 +53,12 @@ export fn transportTick(project, store, globalStep, rt) {
         if (noteStep >= 0 && noteStep < span && stepInPat === noteStep) {
           let sec = (n.durBeats * 60) / project.bpm
           let gch2 = generatorChannelAtBeat(project, ch, n.startBeat)
-          playHitAt(ctx, bus, t, n.pitch, n.vel, sec, gch2, bend)
+          let pitches = expandTriggerPitches(ch, n.pitch, rt)
+          let pk = 0
+          while (pk < pitches.length) {
+            playHitAt(ctx, bus, t, pitches[pk], n.vel, sec, gch2, bend)
+            pk = pk + 1
+          }
         }
         pi = pi + 1
       }
@@ -60,7 +66,12 @@ export fn transportTick(project, store, globalStep, rt) {
       if (useSteps && useSteps.length > stepInPat && useSteps[stepInPat].on) {
         let dur = sixteenthSeconds(project.bpm) * 0.85
         let gch = generatorChannelAtBeat(project, ch, beat)
-        playHitAt(ctx, bus, t, ch.stepPitch, useSteps[stepInPat].vel, dur, gch, bend)
+        let pitches = expandTriggerPitches(ch, ch.stepPitch, rt)
+        let pk = 0
+        while (pk < pitches.length) {
+          playHitAt(ctx, bus, t, pitches[pk], useSteps[stepInPat].vel, dur, gch, bend)
+          pk = pk + 1
+        }
       }
     }
     bi = bi + 1

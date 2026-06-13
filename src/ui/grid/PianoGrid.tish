@@ -1,0 +1,135 @@
+// Inline piano rows for a channel — rendered INSIDE the channel rack, directly under the track's
+// step row, reusing the step-grid's gutter + 16-cell layout so the step columns line up exactly.
+// One cell = a note at (pitch, step) lasting one step; multiple pitches per step = a chord.
+
+import { h } from '@tishlang/lattish'
+import { addPianoNote, removePianoNoteAt } from '../../model/Edits.tish'
+import { channelDeck } from '../../model/DeckRouting.tish'
+
+let NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+fn noteName(midi) {
+  let n = Math.floor(midi)
+  let pc = ((n % 12) + 12) % 12
+  let oct = Math.floor(n / 12) - 1
+  return NOTE_NAMES[pc] + String(oct)
+}
+
+fn isBlackKey(midi) {
+  let m = ((Math.floor(midi) % 12) + 12) % 12
+  return m === 1 || m === 3 || m === 6 || m === 8 || m === 10
+}
+
+fn noteIdxAt(ch, pitch, step) {
+  let pn = ch.pianoNotes
+  if (!pn) {
+    return -1
+  }
+  let i = 0
+  while (i < pn.length) {
+    let s = Math.floor(pn[i].startBeat * 4 + 0.0001)
+    if (s === step && Math.floor(pn[i].pitch) === pitch) {
+      return i
+    }
+    i = i + 1
+  }
+  return -1
+}
+
+fn pitchWindow(ch) {
+  let lo = 48
+  let hi = 71
+  let pn = ch.pianoNotes
+  if (pn && pn.length > 0) {
+    let mn = 200
+    let mx = -1
+    let i = 0
+    while (i < pn.length) {
+      let p = Math.floor(pn[i].pitch)
+      if (p < mn) {
+        mn = p
+      }
+      if (p > mx) {
+        mx = p
+      }
+      i = i + 1
+    }
+    lo = mn - 3
+    hi = mx + 3
+    if (hi - lo < 14) {
+      let pad = 14 - (hi - lo)
+      lo = lo - Math.floor(pad / 2)
+      hi = hi + Math.ceil(pad / 2)
+    }
+    if (hi - lo > 30) {
+      let mid = Math.floor((lo + hi) / 2)
+      lo = mid - 15
+      hi = mid + 15
+    }
+  }
+  if (lo < 12) {
+    lo = 12
+  }
+  if (hi > 108) {
+    hi = 108
+  }
+  return { lo: lo, hi: hi }
+}
+
+fn pianoCell(ch, pitch, step, project, setProjectFromUI) {
+  let on = noteIdxAt(ch, pitch, step) >= 0
+  let cls = "sg-cell sg-pcell sg-col-" + String(step)
+  if (on) {
+    cls = cls + " sg-on"
+  }
+  if (step % 4 === 0) {
+    cls = cls + " sg-beat"
+  }
+  return (
+    <button
+      type="button"
+      class={cls}
+      onclick={(e) => {
+        e.stopPropagation()
+        let idx = noteIdxAt(ch, pitch, step)
+        if (idx >= 0) {
+          removePianoNoteAt(ch, idx)
+        } else {
+          addPianoNote(ch, step * 0.25, 0.25, pitch, 100)
+        }
+        setProjectFromUI(project)
+      }}
+    />
+  )
+}
+
+/** Array of inline piano rows (sg-row variants) for one channel — appended under its step row. */
+export fn pianoRowsForChannel(project, ch, setProjectFromUI) {
+  let win = pitchWindow(ch)
+  let deckCls = channelDeck(project, ch) === "B" ? "sg-deck-b" : "sg-deck-a"
+  let rows = []
+  let p = win.hi
+  while (p >= win.lo) {
+    let pitch = p
+    let cells = []
+    let i = 0
+    while (i < 16) {
+      cells.push(pianoCell(ch, pitch, i, project, setProjectFromUI))
+      i = i + 1
+    }
+    let rowCls = "sg-row sg-prow " + deckCls
+    if (isBlackKey(pitch)) {
+      rowCls = rowCls + " sg-prow-black"
+    }
+    let isC = ((pitch % 12) + 12) % 12 === 0
+    let gutCls = isC ? "sg-gutter sg-pgut sg-pgut-c" : "sg-gutter sg-pgut"
+    rows.push(
+      <div class={rowCls}>
+        <div class={gutCls}><span class="sg-pkey">{noteName(pitch)}</span></div>
+        <div class="sg-cells">{cells}</div>
+      </div>
+    )
+    p = p - 1
+  }
+  return rows
+}

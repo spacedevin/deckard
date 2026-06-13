@@ -39,8 +39,8 @@ fn connectTrackEq(ctx, filt, ch, gainAfterEq) {
   return { lo: tLo, mid: tMid, hi: tHi }
 }
 
-/** Per-channel bus: filter → 3-band EQ → trim → pan → actor summing node. */
-export fn buildChannelBus(ctx, ch, actorSummingGain) {
+/** Per-channel bus: filter → 3-band EQ → trim → pan → actor summing node (+ reverb send). */
+export fn buildChannelBus(ctx, ch, actorSummingGain, reverbIn) {
   let pan = ctx.createStereoPanner()
   pan.pan.value = ch.pan
   let g = ctx.createGain()
@@ -52,6 +52,17 @@ export fn buildChannelBus(ctx, ch, actorSummingGain) {
   let teq = connectTrackEq(ctx, filt, ch, g)
   g.connect(pan)
   pan.connect(actorSummingGain)
+  // Passive analyser tap (post gain/pan) for the per-stem waveform thumbnails.
+  let analyser = ctx.createAnalyser()
+  analyser.fftSize = 128
+  pan.connect(analyser)
+  // Reverb aux send (post gain/pan) into the shared reverb bus.
+  let revSend = ctx.createGain()
+  revSend.gain.value = ch.reverbSend != null ? ch.reverbSend : 0
+  pan.connect(revSend)
+  if (reverbIn) {
+    revSend.connect(reverbIn)
+  }
   return {
     input: filt,
     gainNode: g,
@@ -59,7 +70,9 @@ export fn buildChannelBus(ctx, ch, actorSummingGain) {
     filterNode: filt,
     eqLo: teq.lo,
     eqMid: teq.mid,
-    eqHi: teq.hi
+    eqHi: teq.hi,
+    analyser: analyser,
+    reverbSend: revSend
   }
 }
 
@@ -155,6 +168,22 @@ export fn ensureAudio(project, store) {
   store.master = masterGain
   store.masterSum = masterSum
   store.masterEq = { lo: mLo, mid: mMid, hi: mHi }
+  // Shared reverb / delay send bus (the REVERB_BUS): feedback delay → lowpass → master.
+  let revIn = ctx.createGain()
+  revIn.gain.value = 1
+  let revDelay = ctx.createDelay(1.5)
+  revDelay.delayTime.value = 0.42
+  let revFb = ctx.createGain()
+  revFb.gain.value = 0.45
+  let revLp = ctx.createBiquadFilter()
+  revLp.type = "lowpass"
+  revLp.frequency.value = 2400
+  revIn.connect(revDelay)
+  revDelay.connect(revLp)
+  revLp.connect(revFb)
+  revFb.connect(revDelay)
+  revDelay.connect(masterSum)
+  store.reverbIn = revIn
   store.actorBuses = {}
   let lanes = collectActorLanes(project)
   let li = 0
@@ -168,7 +197,7 @@ export fn ensureAudio(project, store) {
   while (ci < project.channels.length) {
     let lane = channelActorLane(project.channels[ci], project)
     let ab = store.actorBuses[lane]
-    buses.push(buildChannelBus(ctx, project.channels[ci], ab.summingGain))
+    buses.push(buildChannelBus(ctx, project.channels[ci], ab.summingGain, store.reverbIn))
     ci = ci + 1
   }
   store.buses = buses
@@ -186,7 +215,7 @@ export fn syncChannelBuses(project, store) {
     let lane = channelActorLane(ch, project)
     ensureActorBus(project, store, lane)
     let ab = store.actorBuses[lane]
-    store.buses.push(buildChannelBus(ctx, ch, ab.summingGain))
+    store.buses.push(buildChannelBus(ctx, ch, ab.summingGain, store.reverbIn))
   }
 }
 
@@ -247,6 +276,9 @@ export fn updateMixerFromProject(project, store, atBeat) {
       b.eqHi.gain.value = hiFall
     }
     b.filterNode.frequency.value = ch.filterCutoff
+    if (b.reverbSend) {
+      b.reverbSend.gain.value = ch.reverbSend != null ? ch.reverbSend : 0
+    }
     mi = mi + 1
   }
   if (store.masterEq && project.masterMixer) {

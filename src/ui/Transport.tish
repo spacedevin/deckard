@@ -128,39 +128,7 @@ export fn TransportBar(
         {"BPM "}
         <input type="number" class="bpm-input" min="40" max="240" value={String(bpm)} oninput={onBpmInput} />
       </label>
-      <div class="deck-main-toggle" title={"Which deck is sent to the main output (the other deck is silent here). Assign tracks with LIVE / CUE on each channel row."}>
-        <span class="deck-main-label">{"MAIN"}</span>
-        <button
-          type="button"
-          class={mainDeck !== "local" ? "btn-deck btn-deck-live btn-deck-on" : "btn-deck btn-deck-live"}
-          onclick={() => onDeckMain("live")}
-        >
-          {"LIVE"}
-        </button>
-        <button
-          type="button"
-          class={mainDeck === "local" ? "btn-deck btn-deck-cue btn-deck-on" : "btn-deck btn-deck-cue"}
-          onclick={() => onDeckMain("local")}
-        >
-          {"CUE"}
-        </button>
-      </div>
-      <div class="transport-seq-wrap">
-        <span class="transport-seq-rev" style={{ display: "none" }}>
-          {String(seqUiRev)}
-        </span>
-        <div class="transport-seq-group">{seqBtns}</div>
-        <div class="seq-store-row">
-          <span class="seq-store-label">{"Save edit →"}</span>
-          {storeBtns}
-        </div>
-        <div class="seq-store-hint">
-          {
-            "Put the pattern you hear in the rack / piano into a slot. SEQ buttons only choose what plays next."
-          }
-        </div>
-        {hint.length > 0 ? <div class="seq-promote-hint">{hint}</div> : null}
-      </div>
+      <span class="transport-spacer" />
       <button class="btn-ghost" onclick={onExport}>
         {"Export JSON"}
       </button>

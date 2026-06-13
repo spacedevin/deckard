@@ -1,5 +1,132 @@
 // Master scope: HiDPI canvas + neon / gradient “eye candy” (not a technical meter).
 
+/** Frequency-bar spectrum (the orange MASTER_OUT strip). */
+export fn drawSpectrumCanvas(canvas, analyser, hexColor) {
+  if (!canvas || !analyser) {
+    return
+  }
+  let dpr = 1
+  if (typeof window !== "undefined" && window.devicePixelRatio) {
+    dpr = window.devicePixelRatio
+  }
+  if (dpr > 2.5) {
+    dpr = 2.5
+  }
+  let cssW = canvas.offsetWidth
+  let cssH = canvas.offsetHeight
+  if (cssW < 8 || cssH < 8) {
+    let r = canvas.getBoundingClientRect()
+    cssW = Math.max(8, Math.floor(r.width))
+    cssH = Math.max(8, Math.floor(r.height))
+  }
+  if (cssW < 8 || cssH < 8) {
+    return
+  }
+  let bw = Math.max(1, Math.floor(cssW * dpr))
+  let bh = Math.max(1, Math.floor(cssH * dpr))
+  if (canvas.width !== bw || canvas.height !== bh) {
+    canvas.width = bw
+    canvas.height = bh
+  }
+  let ctx2 = canvas.getContext("2d")
+  if (!ctx2) {
+    return
+  }
+  ctx2.setTransform(dpr, 0, 0, dpr, 0, 0)
+  let w = cssW
+  let h = cssH
+  ctx2.clearRect(0, 0, w, h)
+  let n = analyser.frequencyBinCount
+  let buf = new Uint8Array(n)
+  analyser.getByteFrequencyData(buf)
+  let col = hexColor ? hexColor : "#f97316"
+  let bars = 72
+  if (bars > n) {
+    bars = n
+  }
+  let gap = 2
+  let bwid = (w - (bars - 1) * gap) / bars
+  if (bwid < 1) {
+    bwid = 1
+  }
+  let bi = 0
+  while (bi < bars) {
+    let src = Math.floor((bi / bars) * (n * 0.7))
+    let v = buf[src] / 255
+    let bh2 = Math.max(1, v * h)
+    let x = bi * (bwid + gap)
+    let y = h - bh2
+    ctx2.fillStyle = col
+    ctx2.globalAlpha = 0.35 + v * 0.6
+    ctx2.fillRect(x, y, bwid, bh2)
+    bi = bi + 1
+  }
+  ctx2.globalAlpha = 1
+}
+
+/** Small per-stem time-domain waveform line (the fader thumbnails). */
+export fn drawMiniWave(canvas, analyser, hexColor) {
+  if (!canvas || !analyser) {
+    return
+  }
+  let dpr = 1
+  if (typeof window !== "undefined" && window.devicePixelRatio) {
+    dpr = window.devicePixelRatio
+  }
+  if (dpr > 2.5) {
+    dpr = 2.5
+  }
+  let cssW = canvas.offsetWidth
+  let cssH = canvas.offsetHeight
+  if (cssW < 4 || cssH < 4) {
+    let r = canvas.getBoundingClientRect()
+    cssW = Math.max(8, Math.floor(r.width))
+    cssH = Math.max(8, Math.floor(r.height))
+  }
+  if (cssW < 4 || cssH < 4) {
+    return
+  }
+  let bw = Math.max(1, Math.floor(cssW * dpr))
+  let bh = Math.max(1, Math.floor(cssH * dpr))
+  if (canvas.width !== bw || canvas.height !== bh) {
+    canvas.width = bw
+    canvas.height = bh
+  }
+  let ctx2 = canvas.getContext("2d")
+  if (!ctx2) {
+    return
+  }
+  ctx2.setTransform(dpr, 0, 0, dpr, 0, 0)
+  let w = cssW
+  let h = cssH
+  ctx2.clearRect(0, 0, w, h)
+  let N = analyser.fftSize
+  let buf = new Uint8Array(N)
+  analyser.getByteTimeDomainData(buf)
+  let col = hexColor ? hexColor : "#22d3ee"
+  ctx2.beginPath()
+  let i = 0
+  while (i < N) {
+    let v = buf[i] / 128
+    let x = (i / (N - 1)) * w
+    let y = h * 0.5 - (v - 1) * h * 0.46
+    if (i === 0) {
+      ctx2.moveTo(x, y)
+    } else {
+      ctx2.lineTo(x, y)
+    }
+    i = i + 1
+  }
+  ctx2.strokeStyle = col
+  ctx2.lineWidth = 1.3
+  ctx2.lineJoin = "round"
+  ctx2.lineCap = "round"
+  ctx2.shadowColor = col
+  ctx2.shadowBlur = 4
+  ctx2.stroke()
+  ctx2.shadowBlur = 0
+}
+
 export fn drawScopeCanvas(canvas, analyser) {
   if (!canvas || !analyser) {
     return
