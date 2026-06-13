@@ -17,6 +17,9 @@ export fn normalizeGeneratorId(tplId) {
   if (s === "drum" || s === "drum_synth" || s === "drumsynth") {
     return "drumSynth"
   }
+  if (s === "patch" || s === "modular" || s === "synth") {
+    return "patch"
+  }
   return s
 }
 

@@ -36,6 +36,11 @@ export fn generatorCatalog() {
       id: "drumSynth",
       label: "Drum",
       description: "Pitch-envelope drum synth — punchy kicks, snares, toms, 808s (+ noise + drive)."
+    },
+    {
+      id: "patch",
+      label: "Patch",
+      description: "Modular synth patch (gen_block patch): osc/noise/filter/shaper/gain + breakpoint envelopes — any voice, written in TPL."
     }
   ]
 }
@@ -147,6 +152,9 @@ export fn defaultParamsForGeneratorId(id) {
       noiseDecay: 0.12,
       drive: 0
     }
+  }
+  if (id === "patch") {
+    return {}
   }
   return {}
 }

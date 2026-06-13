@@ -165,6 +165,187 @@ export fn parseMatrixFmGraph(lines) {
   }
 }
 
+/// Map a patch filter type word to a Web Audio BiquadFilterType.
+export fn normalizePatchFilterType(raw) {
+  let s = raw ? String(raw).toLowerCase() : "lowpass"
+  if (s === "lp" || s === "lowpass") {
+    return "lowpass"
+  }
+  if (s === "hp" || s === "highpass") {
+    return "highpass"
+  }
+  if (s === "bp" || s === "bandpass") {
+    return "bandpass"
+  }
+  if (s === "notch") {
+    return "notch"
+  }
+  if (s === "lowshelf") {
+    return "lowshelf"
+  }
+  if (s === "highshelf") {
+    return "highshelf"
+  }
+  if (s === "peaking" || s === "peak") {
+    return "peaking"
+  }
+  if (s === "allpass") {
+    return "allpass"
+  }
+  return "lowpass"
+}
+
+/// Parse a modular synth patch block: node decls (osc/noise/filter/shaper/gain),
+/// connections (conn src dst[.param] [vol]), breakpoint envelopes (env node.param seg...),
+/// and an optional fixed `dur`. Expression tokens (note, note*2, dur-0.1, vel ...) are kept raw
+/// and resolved per-trigger by the Patch generator.
+export fn parsePatchGraph(lines) {
+  let nodes = []
+  let conns = []
+  let envs = []
+  let dur = null
+  let li = 0
+  while (li < lines.length) {
+    let toks = tokenize(lines[li])
+    if (toks.length === 0) {
+      li = li + 1
+      continue
+    }
+    let h = toks[0]
+    if (h === "osc" && toks.length >= 2) {
+      let nd = { kind: "osc", id: String(toks[1]), wave: "sine", freqMode: "note", fixedHz: 0, ratio: 1, detune: 0 }
+      let idx = 2
+      if (idx < toks.length) {
+        let w = toks[idx]
+        if (w !== "note" && w !== "ratio" && w !== "detune" && !isNumberToken(w)) {
+          nd.wave = String(w)
+          idx = idx + 1
+        }
+      }
+      while (idx < toks.length) {
+        let tk = toks[idx]
+        if (tk === "note") {
+          nd.freqMode = "note"
+          idx = idx + 1
+        } else {
+          if (tk === "ratio" && idx + 1 < toks.length) {
+            nd.ratio = Number(toks[idx + 1])
+            idx = idx + 2
+          } else {
+            if (tk === "detune" && idx + 1 < toks.length) {
+              nd.detune = Number(toks[idx + 1])
+              idx = idx + 2
+            } else {
+              if (isNumberToken(tk)) {
+                nd.freqMode = "fixed"
+                nd.fixedHz = Number(tk)
+                idx = idx + 1
+              } else {
+                idx = idx + 1
+              }
+            }
+          }
+        }
+      }
+      nodes.push(nd)
+    } else {
+      if (h === "noise" && toks.length >= 2) {
+        nodes.push({ kind: "noise", id: String(toks[1]) })
+      } else {
+        if (h === "filter" && toks.length >= 2) {
+          let nd = { kind: "filter", id: String(toks[1]), ftype: "lowpass", q: 0.7, freq: 0 }
+          let idx = 2
+          if (idx < toks.length) {
+            let ty = toks[idx]
+            if (ty !== "q" && ty !== "freq" && !isNumberToken(ty)) {
+              nd.ftype = normalizePatchFilterType(ty)
+              idx = idx + 1
+            }
+          }
+          while (idx + 1 < toks.length) {
+            let tk = toks[idx]
+            if (tk === "q") {
+              nd.q = Number(toks[idx + 1])
+              idx = idx + 2
+            } else {
+              if (tk === "freq") {
+                nd.freq = Number(toks[idx + 1])
+                idx = idx + 2
+              } else {
+                idx = idx + 1
+              }
+            }
+          }
+          nodes.push(nd)
+        } else {
+          if (h === "shaper" && toks.length >= 2) {
+            let nd = { kind: "shaper", id: String(toks[1]), amount: 50 }
+            let idx = 2
+            while (idx + 1 < toks.length) {
+              if (toks[idx] === "amount" || toks[idx] === "drive") {
+                nd.amount = Number(toks[idx + 1])
+                idx = idx + 2
+              } else {
+                idx = idx + 1
+              }
+            }
+            nodes.push(nd)
+          } else {
+            if (h === "gain" && toks.length >= 2) {
+              let val = 1
+              if (toks.length >= 3 && isNumberToken(toks[2])) {
+                val = Number(toks[2])
+              }
+              nodes.push({ kind: "gain", id: String(toks[1]), value: val })
+            } else {
+              if (h === "conn" && toks.length >= 3) {
+                let src = String(toks[1])
+                let dstRaw = String(toks[2])
+                let dstNode = dstRaw
+                let dstParam = null
+                let dot = dstRaw.indexOf(".")
+                if (dot >= 0) {
+                  dstNode = dstRaw.substring(0, dot)
+                  dstParam = dstRaw.substring(dot + 1)
+                }
+                let vol = 1
+                if (toks.length >= 4 && isNumberToken(toks[3])) {
+                  vol = Number(toks[3])
+                }
+                conns.push({ src: src, dst: dstNode, dstParam: dstParam, vol: vol })
+              } else {
+                if (h === "env" && toks.length >= 5) {
+                  let target = String(toks[1])
+                  let node = target
+                  let param = "gain"
+                  let dot = target.indexOf(".")
+                  if (dot >= 0) {
+                    node = target.substring(0, dot)
+                    param = target.substring(dot + 1)
+                  }
+                  let segs = []
+                  let idx = 2
+                  while (idx + 3 <= toks.length) {
+                    segs.push({ type: String(toks[idx]), tExpr: String(toks[idx + 1]), vExpr: String(toks[idx + 2]) })
+                    idx = idx + 3
+                  }
+                  envs.push({ node: node, param: param, segs: segs })
+                } else {
+                  if (h === "dur" && toks.length >= 2) {
+                    dur = Number(toks[1])
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    li = li + 1
+  }
+  return { nodes: nodes, conns: conns, envs: envs, dur: dur }
+}
+
 export fn parseGenBlock(generatorId, lines) {
   let tplHeaderId = generatorId
   let nid = normalizeGeneratorId(generatorId)
@@ -176,6 +357,15 @@ export fn parseGenBlock(generatorId, lines) {
       version: 2,
       raw: lines,
       graph: graph
+    }
+  }
+  if (nid === "patch") {
+    return {
+      kind: "patch",
+      tplHeaderId: tplHeaderId,
+      version: 1,
+      raw: lines,
+      graph: parsePatchGraph(lines)
     }
   }
   return {

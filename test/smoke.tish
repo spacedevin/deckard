@@ -112,6 +112,22 @@ check("emit round-trips drum gen params", synEmit.indexOf("pitch_env") >= 0)
 check("emit round-trips fx drive", synEmit.indexOf("drive 0.5") >= 0)
 check("emit round-trips voice chord", synEmit.indexOf("chord minor") >= 0)
 
+// 5b. Modular patch DSL: parse → graph → emit → re-parse round-trip
+let patchSrc = "tpl 1\ntrack Kick id pk gen patch\n  fx cutoff 20000 reverb_send 0.05\n  gen_block patch\n    osc o sine\n    gain a\n    conn o a\n    conn a out\n    env o.freq set 0 150 exp 0.5 0.01\n    env a.gain set 0 1 exp 0.5 0.01\n    dur 0.6\n  end gen_block\n  step_pitch 36\n  steps x . . . x . . . x . . . x . . ."
+let patchProj = loadDefaultDeckardProject().project
+applyTplSource(patchProj, patchSrc)
+let pk = findChannelById(patchProj, "pk")
+check("patch: generatorId resolves to patch", pk !== null && pk.generatorId === "patch")
+check("patch: graph has 2 nodes (osc + gain)", pk !== null && pk.generatorSpec && pk.generatorSpec.graph && pk.generatorSpec.graph.nodes.length === 2)
+check("patch: graph has 2 envelopes", pk !== null && pk.generatorSpec.graph.envs.length === 2)
+check("patch: fixed dur parsed", pk !== null && pk.generatorSpec.graph.dur === 0.6)
+let patchEmit = emitProject(patchProj)
+check("patch: emit round-trips the patch block", patchEmit.indexOf("gen_block patch") >= 0 && patchEmit.indexOf("env o.freq set 0 150 exp 0.5 0.01") >= 0)
+let patchProj2 = loadDefaultDeckardProject().project
+applyTplSource(patchProj2, patchEmit)
+let pk2 = findChannelById(patchProj2, "pk")
+check("patch: re-parse preserves node count", pk2 !== null && pk2.generatorSpec.graph.nodes.length === 2)
+
 // 6. Every stem deck set parses cleanly into >= 5 stems (the deck.tsx conversions)
 let cat = deckSetCatalog()
 check("15 stem deck sets in catalog", cat.length === 15)

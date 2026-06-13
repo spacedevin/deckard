@@ -37,7 +37,7 @@ export fn makeChannel(id, name, stepPitch, generatorId) {
     generatorParams: defaultParamsForGeneratorId(gid),
     filterCutoff: 8000,
     filterQ: 1,
-    reverbSend: 0.1,
+    reverbSend: 0,
     stepPitch: stepPitch,
     steps: makeSteps16(),
     pianoNotes: [],

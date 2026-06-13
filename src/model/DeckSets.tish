@@ -1,6 +1,11 @@
-// Stem deck sets — a deck loads a whole rack (5 stems: kick / perc / bass / chord / arp-fx), each a
+// Stem deck sets — a deck loads a whole rack (5-6 stems: kick / perc / bass / chord / arp-fx), each a
 // full instrument + 16-step sequence, defined entirely in TPL. You load a set onto a deck and DJ
-// between two of them. Converted from the deck.tsx procedural TRACKS (1-bar essence per genre).
+// between two of them. Converted from the deck.tsx procedural TRACKS.
+//
+// The instrument timbres are NOT special-cased generators — every voice below is written in TPL as a
+// `gen_block patch` (modular: osc/noise/filter/shaper/gain + breakpoint envelopes). The voice library
+// (vKickEdm, vBassAcid, vChordPad, …) is a faithful port of the deck.tsx AudioEngine synth routines,
+// so e.g. the acid bass really is a sawtooth through a Q15 lowpass swept 3000→100Hz, etc.
 
 import { emptyProjectShell } from './Project.tish'
 import { applyTplSource } from '../tpl/Apply.tish'
@@ -12,6 +17,287 @@ fn L(arr) {
   return arr.join("\n")
 }
 
+/// Flatten a list whose entries are either single lines (strings) or arrays of lines.
+fn flat(parts) {
+  let out = []
+  let i = 0
+  while (i < parts.length) {
+    let a = parts[i]
+    if (typeof a === "string") {
+      out.push(a)
+    } else {
+      let j = 0
+      while (j < a.length) {
+        out.push(a[j])
+        j = j + 1
+      }
+    }
+    i = i + 1
+  }
+  return out
+}
+
+// ---- Voice library (deck.tsx AudioEngine ports, as TPL patch blocks) -----------------------------
+
+// Kicks
+fn vKickEdm() {
+  return [
+    "  gen_block patch",
+    "    osc o sine",
+    "    gain a",
+    "    conn o a",
+    "    conn a out",
+    "    env o.freq set 0 150 exp 0.5 0.01",
+    "    env a.gain set 0 1 exp 0.5 0.01",
+    "    dur 0.6",
+    "  end gen_block"
+  ]
+}
+fn vKickDeep() {
+  return [
+    "  gen_block patch",
+    "    osc o triangle",
+    "    gain a",
+    "    conn o a",
+    "    conn a out",
+    "    env o.freq set 0 80 exp 0.4 20",
+    "    env a.gain set 0 0.85 lin 0.6 0.01",
+    "    dur 0.7",
+    "  end gen_block"
+  ]
+}
+fn vKickDistorted() {
+  return [
+    "  gen_block patch",
+    "    osc o sine",
+    "    shaper sh amount 400",
+    "    gain a",
+    "    conn o sh",
+    "    conn sh a",
+    "    conn a out",
+    "    env o.freq set 0 120 exp 0.5 0.01",
+    "    env a.gain set 0 1 exp 0.5 0.01",
+    "    dur 0.6",
+    "  end gen_block"
+  ]
+}
+
+// Hats (noise → highpass → fast/slow decay)
+fn vHatClosed() {
+  return [
+    "  gen_block patch",
+    "    noise n",
+    "    filter f highpass freq 8000",
+    "    gain a",
+    "    conn n f",
+    "    conn f a",
+    "    conn a out",
+    "    env a.gain set 0 0.2 exp 0.05 0.01",
+    "    dur 0.1",
+    "  end gen_block"
+  ]
+}
+fn vHatOpen() {
+  return [
+    "  gen_block patch",
+    "    noise n",
+    "    filter f highpass freq 5000",
+    "    gain a",
+    "    conn n f",
+    "    conn f a",
+    "    conn a out",
+    "    env a.gain set 0 0.3 exp 0.3 0.01",
+    "    dur 0.4",
+    "  end gen_block"
+  ]
+}
+
+// Snare (triangle body + bandpassed noise snap)
+fn vSnare() {
+  return [
+    "  gen_block patch",
+    "    osc o triangle",
+    "    gain ag",
+    "    noise n",
+    "    filter nf bandpass freq 2500",
+    "    gain ng",
+    "    conn o ag",
+    "    conn ag out",
+    "    conn n nf",
+    "    conn nf ng",
+    "    conn ng out",
+    "    env o.freq set 0 250 exp 0.2 0.01",
+    "    env ag.gain set 0 0.5 exp 0.2 0.01",
+    "    env ng.gain set 0 0.6 exp 0.25 0.01",
+    "    dur 0.3",
+    "  end gen_block"
+  ]
+}
+
+// Basses
+fn vBassAcid() {
+  return [
+    "  gen_block patch",
+    "    osc o sawtooth note",
+    "    filter f lowpass q 9",
+    "    gain a",
+    "    conn o f",
+    "    conn f a",
+    "    conn a out",
+    "    env f.freq set 0 2600 exp 0.18 110",
+    "    env a.gain set 0 0.3 set dur-0.05 0.3 lin dur 0.01",
+    "  end gen_block"
+  ]
+}
+fn vBassReese() {
+  return [
+    "  gen_block patch",
+    "    osc o1 sawtooth note detune -6",
+    "    osc o2 sawtooth note detune 0",
+    "    osc o3 sawtooth note detune 6",
+    "    filter f lowpass",
+    "    gain a",
+    "    conn o1 f",
+    "    conn o2 f",
+    "    conn o3 f",
+    "    conn f a",
+    "    conn a out",
+    "    env f.freq set 0 800 lin dur 200",
+    "    env a.gain set 0 0.32 set dur-0.1 0.32 lin dur 0.01",
+    "  end gen_block"
+  ]
+}
+fn vBassReeseSC() {
+  // sidechain-pumped reese (gain ducked at note start, swells back in)
+  return [
+    "  gen_block patch",
+    "    osc o1 sawtooth note detune -6",
+    "    osc o2 sawtooth note detune 0",
+    "    osc o3 sawtooth note detune 6",
+    "    filter f lowpass",
+    "    gain a",
+    "    conn o1 f",
+    "    conn o2 f",
+    "    conn o3 f",
+    "    conn f a",
+    "    conn a out",
+    "    env f.freq set 0 800 lin dur 200",
+    "    env a.gain set 0 0.05 lin dur*0.45 0.3 set dur-0.06 0.3 lin dur 0.01",
+    "  end gen_block"
+  ]
+}
+fn vBassWobble() {
+  // reese + a 4Hz LFO summed into the filter cutoff (movement / wobble)
+  return [
+    "  gen_block patch",
+    "    osc o1 sawtooth note detune -6",
+    "    osc o2 sawtooth note detune 6",
+    "    osc lfo sine 4",
+    "    gain lg 1200",
+    "    filter f lowpass q 8",
+    "    gain a",
+    "    conn o1 f",
+    "    conn o2 f",
+    "    conn lfo lg",
+    "    conn lg f.freq",
+    "    conn f a",
+    "    conn a out",
+    "    env f.freq set 0 700 set dur 700",
+    "    env a.gain set 0 0.36 set dur-0.1 0.36 lin dur 0.01",
+    "  end gen_block"
+  ]
+}
+
+// Chords (per chord-tone; pair with `voice chord minor|major`)
+fn vChordPad() {
+  return [
+    "  gen_block patch",
+    "    osc o1 sawtooth note detune -3",
+    "    osc o2 sawtooth note detune 3",
+    "    filter f lowpass",
+    "    gain a",
+    "    conn o1 f",
+    "    conn o2 f",
+    "    conn f a",
+    "    conn a out",
+    "    env f.freq set 0 400 lin dur*0.5 1500",
+    "    env a.gain set 0 0.01 lin dur*0.3 0.18 set dur*0.8 0.18 lin dur 0.01",
+    "  end gen_block"
+  ]
+}
+fn vChordStab() {
+  return [
+    "  gen_block patch",
+    "    osc o square note",
+    "    gain a",
+    "    conn o a",
+    "    conn a out",
+    "    env a.gain set 0 0.28 exp 0.3 0.01",
+    "    dur 0.4",
+    "  end gen_block"
+  ]
+}
+
+// Leads / arps
+fn vPluck() {
+  return [
+    "  gen_block patch",
+    "    osc o square note",
+    "    filter f lowpass",
+    "    gain a",
+    "    conn o f",
+    "    conn f a",
+    "    conn a out",
+    "    env f.freq set 0 4000 exp 0.15 100",
+    "    env a.gain set 0 0.3 exp 0.3 0.01",
+    "    dur 0.4",
+    "  end gen_block"
+  ]
+}
+fn vFmPluck() {
+  // sub-octave sine modulator FM'ing a sine carrier with an index sweep (metallic crunch)
+  return [
+    "  gen_block patch",
+    "    osc c sine note",
+    "    osc m sine note ratio 0.5",
+    "    gain mg",
+    "    gain a",
+    "    conn m mg",
+    "    conn mg c.freq",
+    "    conn c a",
+    "    conn a out",
+    "    env mg.gain set 0 note*2 exp 0.3 10",
+    "    env a.gain set 0 0.5 exp 0.3 0.01",
+    "    dur 0.4",
+    "  end gen_block"
+  ]
+}
+
+/// Reverb send per stem role — drums and bass stay DRY (deck.tsx sent only chords/snare/leads to the
+/// reverb); melodic/atmospheric stems get a tail. Derived from the stem name so every set is consistent.
+fn reverbForStem(name) {
+  if (name === "Chord" || name === "Stab" || name === "Pad") {
+    return 0.3
+  }
+  if (name === "Pluck" || name === "Arp") {
+    return 0.25
+  }
+  if (name === "Snare") {
+    return 0.12
+  }
+  return 0
+}
+
+/// Build one stem track: header + open channel filter + (role-derived) reverb send + voice + tail.
+/// The reverbSend argument is kept for call-site readability but the actual send is role-derived.
+fn stem(name, id, reverbSend, voiceLines, tail) {
+  let rv = reverbForStem(name)
+  let head = ["track " + name + " id " + id + " gen patch", "  fx cutoff 20000 reverb_send " + String(rv)]
+  return flat([head, voiceLines, tail])
+}
+
+// ---- Deck sets ----------------------------------------------------------------------------------
+
 fn deckSetTpls() {
   return [
     {
@@ -19,541 +305,219 @@ fn deckSetTpls() {
       name: "Aetherial Edge",
       genre: "Ambient Space",
       bpm: 110,
-      tpl: L([
+      tpl: L(flat([
         "tpl 1",
-        "track Kick id kick gen drum",
-        "  gen tone triangle pitch_env 22 pitch_decay 0.1 decay 0.6",
-        "  step_pitch 36",
-        "  steps x . . . . . . . . . . . . . . .",
-        "track Hat id hat gen noise_burst",
-        "  noise attack 0.001 decay 0.05 tone 0.8 pitch_follow 0.05",
-        "  step_pitch 42",
-        "  steps . . . . x . . . . . . . x . . .",
-        "track Bass id bass gen basic_osc",
-        "  osc waveform sawtooth",
-        "  adsr a 0.02 d 0.6 s 0.85 r 0.6",
-        "  fx reverb_send 0.15 cutoff 500 res 3",
-        "  note 36 0 4 v 95",
-        "track Chord id chord gen pad",
-        "  gen wave1 sawtooth wave2 sawtooth detune 8 cutoff 1400 attack 0.5 decay 0.7 sustain 0.7 release 1.6",
-        "  fx reverb_send 0.4",
-        "  voice chord minor",
-        "  note 48 0 4 v 60",
-        "track Arp id arp gen pad",
-        "  gen wave1 triangle wave2 sine detune 6 cutoff 2600 attack 0.005 decay 0.2 sustain 0.2 release 0.3",
-        "  fx reverb_send 0.35",
-        "  note 60 0 0.25 v 70",
-        "  note 63 0.75 0.25 v 70",
-        "  note 67 1.5 0.25 v 70",
-        "  note 70 2.25 0.25 v 70",
-        "  note 72 3 0.25 v 70"
-      ])
+        stem("Kick", "kick", 0.05, vKickDeep(), ["  step_pitch 36", "  steps x . . . . . . . . . . . . . . ."]),
+        stem("Hat", "hat", 0.1, vHatClosed(), ["  step_pitch 44", "  steps . . . . x . . . . . . . x . . ."]),
+        stem("Bass", "bass", 0.1, vBassReese(), ["  note 36 0 4 v 100"]),
+        stem("Chord", "chord", 0.4, vChordPad(), ["  voice chord minor", "  note 48 0 4 v 100"]),
+        stem("Pluck", "pluck", 0.3, vPluck(), ["  note 60 0 0.5 v 90", "  note 63 0.75 0.5 v 90", "  note 67 1.5 0.5 v 90", "  note 70 2.25 0.5 v 90", "  note 72 3 0.5 v 90"])
+      ]))
     },
     {
       id: "nebula_pulse",
       name: "Nebula Pulse",
       genre: "Cyberpunk",
       bpm: 125,
-      tpl: L([
+      tpl: L(flat([
         "tpl 1",
-        "track Kick id kick gen drum",
-        "  gen tone sine pitch_env 40 pitch_decay 0.05 decay 0.4 drive 0.15",
-        "  step_pitch 36",
-        "  steps x . . . x . . . x . . . x . . .",
-        "track Snare id snare gen drum",
-        "  gen tone triangle pitch_env 18 pitch_decay 0.04 decay 0.18 noise 0.7 noise_hp 1800 noise_decay 0.18",
-        "  step_pitch 40",
-        "  steps . . . . x . . . . . . . x . . .",
-        "track Hat id hat gen noise_burst",
-        "  noise attack 0.001 decay 0.04 tone 0.85 pitch_follow 0.05",
-        "  step_pitch 44",
-        "  steps x . x . x . x . x . x . x . x .",
-        "track Bass id bass gen basic_osc",
-        "  osc waveform sawtooth",
-        "  adsr a 0.005 d 0.16 s 0.2 r 0.1",
-        "  fx cutoff 900 res 12 drive 0.2",
-        "  step_pitch 36",
-        "  steps x . x . x . x . x . x . x . x .",
-        "track Stab id stab gen basic_osc",
-        "  osc waveform square",
-        "  adsr a 0.002 d 0.18 s 0 r 0.1",
-        "  fx reverb_send 0.15",
-        "  voice chord minor",
-        "  note 60 0 0.25 v 80",
-        "  note 60 2.5 0.25 v 80"
-      ])
+        stem("Kick", "kick", 0.05, vKickEdm(), ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
+        stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
+        stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
+        stem("Bass", "bass", 0.05, vBassAcid(), ["  step_pitch 36", "  steps x . x . x . x . x . x . x . x ."]),
+        stem("Chord", "chord", 0.4, vChordStab(), ["  voice chord minor", "  note 48 0 0.5 v 100", "  note 48 2.5 0.5 v 100"]),
+        stem("Pluck", "pluck", 0.3, vPluck(), ["  note 70 2 0.5 v 90", "  note 67 2.5 0.5 v 90", "  note 63 3 0.5 v 90", "  note 60 3.5 0.5 v 90"])
+      ]))
     },
     {
       id: "event_horizon",
       name: "Event Horizon",
       genre: "Deep Techno",
       bpm: 130,
-      tpl: L([
+      tpl: L(flat([
         "tpl 1",
-        "track Kick id kick gen drum",
-        "  gen tone triangle pitch_env 24 pitch_decay 0.1 decay 0.55",
-        "  step_pitch 36",
-        "  steps x . . . x . . . x . . . x . . .",
-        "track Hat id hat gen noise_burst",
-        "  noise attack 0.001 decay 0.05 tone 0.8 pitch_follow 0.05",
-        "  step_pitch 44",
-        "  steps . . x . . . x . . . x . . . x .",
-        "track Bass id bass gen basic_osc",
-        "  osc waveform sawtooth",
-        "  adsr a 0.01 d 0.3 s 0.4 r 0.2",
-        "  fx cutoff 600 res 4 reverb_send 0.1",
-        "  step_pitch 36",
-        "  steps . . x . . . x . . . x . . . x .",
-        "track Chord id chord gen pad",
-        "  gen wave1 sawtooth wave2 sawtooth detune 6 cutoff 1200 attack 0.6 decay 0.8 sustain 0.7 release 2.0",
-        "  fx reverb_send 0.4",
-        "  voice chord minor",
-        "  note 48 0 4 v 55",
-        "track Arp id arp gen pad",
-        "  gen wave1 square wave2 sine detune 4 cutoff 2400 attack 0.004 decay 0.16 sustain 0.1 release 0.25",
-        "  fx reverb_send 0.3",
-        "  note 67 3.5 0.25 v 70"
-      ])
+        stem("Kick", "kick", 0.05, vKickDeep(), ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
+        stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
+        stem("Bass", "bass", 0.1, vBassReeseSC(), ["  step_pitch 36", "  steps . . x . . . x . . . x . . . x ."]),
+        stem("Chord", "chord", 0.4, vChordPad(), ["  voice chord minor", "  note 48 0 4 v 95"]),
+        stem("Pluck", "pluck", 0.3, vPluck(), ["  note 67 3.5 0.5 v 90"])
+      ]))
     },
     {
       id: "solar_flare",
       name: "Solar Flare",
       genre: "Trance",
       bpm: 138,
-      tpl: L([
+      tpl: L(flat([
         "tpl 1",
-        "track Kick id kick gen drum",
-        "  gen tone sine pitch_env 40 pitch_decay 0.05 decay 0.4 drive 0.15",
-        "  step_pitch 36",
-        "  steps x . . . x . . . x . . . x . . .",
-        "track Hat id hat gen noise_burst",
-        "  noise attack 0.001 decay 0.16 tone 0.7 pitch_follow 0.05",
-        "  step_pitch 44",
-        "  steps . . x . . . x . . . x . . . x .",
-        "track Bass id bass gen basic_osc",
-        "  osc waveform sawtooth",
-        "  adsr a 0.005 d 0.12 s 0.3 r 0.1",
-        "  fx cutoff 700 res 3",
-        "  step_pitch 36",
-        "  steps . x x x . x x x . x x x . x x x",
-        "track Chord id chord gen pad",
-        "  gen wave1 sawtooth wave2 sawtooth detune 10 cutoff 1600 attack 0.3 decay 0.6 sustain 0.7 release 1.4",
-        "  fx reverb_send 0.4",
-        "  voice chord major",
-        "  note 44 0 4 v 60",
-        "track Arp id arp gen pad",
-        "  gen wave1 triangle wave2 sine detune 6 cutoff 3000 attack 0.004 decay 0.14 sustain 0.2 release 0.3",
-        "  fx reverb_send 0.4",
-        "  note 72 0 0.25 v 70",
-        "  note 75 0.75 0.25 v 70",
-        "  note 72 1 0.25 v 70",
-        "  note 79 2 0.25 v 70",
-        "  note 72 3 0.25 v 70"
-      ])
+        stem("Kick", "kick", 0.05, vKickEdm(), ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
+        stem("Hat", "hat", 0.2, vHatOpen(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
+        stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
+        stem("Bass", "bass", 0.05, vBassReese(), ["  step_pitch 32", "  steps . x x x . x x x . x x x . x x x"]),
+        stem("Chord", "chord", 0.4, vChordPad(), ["  voice chord major", "  note 44 0 4 v 95"]),
+        stem("Pluck", "pluck", 0.4, vPluck(), ["  note 72 0 0.5 v 90", "  note 75 0.75 0.5 v 90", "  note 72 1.5 0.5 v 90", "  note 79 2.25 0.5 v 90", "  note 72 3 0.5 v 90"])
+      ]))
     },
     {
       id: "oort_cloud",
       name: "Oort Cloud",
       genre: "Downtempo",
       bpm: 90,
-      tpl: L([
+      tpl: L(flat([
         "tpl 1",
-        "track Kick id kick gen drum",
-        "  gen tone triangle pitch_env 22 pitch_decay 0.1 decay 0.6",
-        "  step_pitch 36",
-        "  steps x . . . . . . . . . . x . . . .",
-        "track Snare id snare gen drum",
-        "  gen tone triangle pitch_env 16 pitch_decay 0.04 decay 0.2 noise 0.7 noise_hp 1600 noise_decay 0.2",
-        "  step_pitch 40",
-        "  steps . . . . . . . . x . . . . . . .",
-        "track Hat id hat gen noise_burst",
-        "  noise attack 0.001 decay 0.05 tone 0.8 pitch_follow 0.05",
-        "  step_pitch 44",
-        "  steps x . x . x . x . x . x . x . x .",
-        "track Bass id bass gen basic_osc",
-        "  osc waveform sawtooth",
-        "  adsr a 0.01 d 0.5 s 0.5 r 0.3",
-        "  fx cutoff 700 res 8",
-        "  step_pitch 36",
-        "  steps x . . . . . . . . . . x . . . .",
-        "track Chord id chord gen basic_osc",
-        "  osc waveform square",
-        "  adsr a 0.004 d 0.4 s 0.2 r 0.3",
-        "  fx reverb_send 0.3",
-        "  voice chord minor",
-        "  note 48 0 1.5 v 60",
-        "  note 48 1.5 1.5 v 55"
-      ])
+        stem("Kick", "kick", 0.05, vKickDeep(), ["  step_pitch 36", "  steps x . . . . . . . . . . x . . . ."]),
+        stem("Snare", "snare", 0.25, vSnare(), ["  step_pitch 40", "  steps . . . . . . . . x . . . . . . ."]),
+        stem("Hat", "hat", 0.1, vHatClosed(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
+        stem("Bass", "bass", 0.1, vBassAcid(), ["  step_pitch 36", "  steps x . . . . . . . . . . x . . . ."]),
+        stem("Chord", "chord", 0.4, vChordStab(), ["  voice chord minor", "  note 48 0 1.5 v 95", "  note 48 1.5 1.5 v 90"])
+      ]))
     },
     {
       id: "singularity",
       name: "Singularity",
       genre: "Midtempo Bass",
       bpm: 105,
-      tpl: L([
+      tpl: L(flat([
         "tpl 1",
-        "track Kick id kick gen drum",
-        "  gen tone sine pitch_env 36 pitch_decay 0.05 decay 0.45 drive 0.6",
-        "  step_pitch 36",
-        "  steps x . . . . . . . x . . . . . . .",
-        "track Snare id snare gen drum",
-        "  gen tone triangle pitch_env 18 pitch_decay 0.04 decay 0.18 noise 0.8 noise_hp 1800 noise_decay 0.18",
-        "  step_pitch 40",
-        "  steps . . . . . . . . x . . . . . . .",
-        "track Hat id hat gen noise_burst",
-        "  noise attack 0.001 decay 0.16 tone 0.7 pitch_follow 0.05",
-        "  step_pitch 44",
-        "  steps . . x . . . x . . . x . . . x .",
-        "track Wobble id wobble gen basic_osc",
-        "  osc waveform sawtooth",
-        "  adsr a 0.005 d 0.5 s 0.9 r 0.1",
-        "  fx cutoff 300 res 12 lfo_rate 4 lfo_depth 2500 drive 0.3",
-        "  step_pitch 24",
-        "  steps x . . . . . . . x . . . . . . .",
-        "track Stab id stab gen basic_osc",
-        "  osc waveform square",
-        "  adsr a 0.002 d 0.3 s 0 r 0.1",
-        "  fx reverb_send 0.2",
-        "  voice chord minor",
-        "  note 48 0 1 v 70"
-      ])
+        stem("Kick", "kick", 0.05, vKickDistorted(), ["  step_pitch 36", "  steps x . . . . . . . x . . . . . . ."]),
+        stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . . . . . x . . . . . . ."]),
+        stem("Hat", "hat", 0.2, vHatOpen(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
+        stem("Wobble", "wobble", 0.05, vBassWobble(), ["  step_pitch 24", "  steps x . . . . . . . x . . . . . . ."]),
+        stem("Stab", "stab", 0.2, vChordStab(), ["  voice chord minor", "  note 48 0 1 v 95"])
+      ]))
     },
     {
       id: "supernova",
       name: "Supernova",
       genre: "Psytrance",
       bpm: 145,
-      tpl: L([
+      tpl: L(flat([
         "tpl 1",
-        "track Kick id kick gen drum",
-        "  gen tone sine pitch_env 40 pitch_decay 0.05 decay 0.4 drive 0.15",
-        "  step_pitch 36",
-        "  steps x . . . x . . . x . . . x . . .",
-        "track Hat id hat gen noise_burst",
-        "  noise attack 0.001 decay 0.16 tone 0.7 pitch_follow 0.05",
-        "  step_pitch 44",
-        "  steps . . . . x . . . . . . . x . . .",
-        "track Bass id bass gen basic_osc",
-        "  osc waveform sawtooth",
-        "  adsr a 0.005 d 0.12 s 0.3 r 0.08",
-        "  fx cutoff 600 res 4 drive 0.2",
-        "  step_pitch 36",
-        "  steps . x x x . x x x . x x x . x x x",
-        "track Chord id chord gen pad",
-        "  gen wave1 sawtooth wave2 sawtooth detune 8 cutoff 1300 attack 0.4 decay 0.7 sustain 0.6 release 1.4",
-        "  fx reverb_send 0.4",
-        "  voice chord minor",
-        "  note 48 0 4 v 55",
-        "track Arp id arp gen fm",
-        "  fm ratio 2 mod_index 5 carrier sine mod sine",
-        "  adsr a 0.002 d 0.22 s 0 r 0.1",
-        "  fx reverb_send 0.3",
-        "  note 60 0 0.25 v 75",
-        "  note 72 1.5 0.25 v 75"
-      ])
+        stem("Kick", "kick", 0.05, vKickEdm(), ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
+        stem("Hat", "hat", 0.2, vHatOpen(), ["  step_pitch 44", "  steps . . . . x . . . . . . . x . . ."]),
+        stem("Bass", "bass", 0.05, vBassReese(), ["  step_pitch 36", "  steps . x x x . x x x . x x x . x x x"]),
+        stem("Chord", "chord", 0.4, vChordPad(), ["  voice chord minor", "  note 48 0 4 v 95"]),
+        stem("Arp", "arp", 0.3, vFmPluck(), ["  note 60 0 0.5 v 90", "  note 63 1 0.5 v 90", "  note 67 1.5 0.5 v 90", "  note 72 2.5 0.5 v 90"])
+      ]))
     },
     {
       id: "void_walker",
       name: "Void Walker",
       genre: "Dub / Halftime",
       bpm: 140,
-      tpl: L([
+      tpl: L(flat([
         "tpl 1",
-        "track Kick id kick gen drum",
-        "  gen tone triangle pitch_env 24 pitch_decay 0.12 decay 0.7",
-        "  step_pitch 34",
-        "  steps x . . . . . . . . . x . . . . .",
-        "track Snare id snare gen drum",
-        "  gen tone triangle pitch_env 16 pitch_decay 0.04 decay 0.22 noise 0.7 noise_hp 1600 noise_decay 0.22",
-        "  step_pitch 40",
-        "  steps . . . . . . . . x . . . . . . .",
-        "track Hat id hat gen noise_burst",
-        "  noise attack 0.001 decay 0.04 tone 0.85 pitch_follow 0.05",
-        "  step_pitch 44",
-        "  steps . . x . . . x . . . x . . . x .",
-        "track Sub id sub gen basic_osc",
-        "  osc waveform sawtooth",
-        "  adsr a 0.02 d 0.8 s 0.9 r 0.3",
-        "  fx cutoff 350 res 3 reverb_send 0.1",
-        "  note 24 0 4 v 100",
-        "track Stab id stab gen basic_osc",
-        "  osc waveform square",
-        "  adsr a 0.002 d 0.3 s 0 r 0.1",
-        "  fx reverb_send 0.2",
-        "  voice chord minor",
-        "  note 43 0 1 v 65",
-        "track Arp id arp gen fm",
-        "  fm ratio 1.5 mod_index 6 carrier sine mod square",
-        "  adsr a 0.002 d 0.2 s 0 r 0.1",
-        "  fx reverb_send 0.4",
-        "  note 70 3.5 0.25 v 70"
-      ])
+        stem("Kick", "kick", 0.05, vKickDeep(), ["  step_pitch 34", "  steps x . . . . . . . . . x . . . . ."]),
+        stem("Snare", "snare", 0.25, vSnare(), ["  step_pitch 40", "  steps . . . . . . . . x . . . . . . ."]),
+        stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
+        stem("Sub", "sub", 0.05, vBassReese(), ["  note 22 0 4 v 100"]),
+        stem("Stab", "stab", 0.2, vChordStab(), ["  voice chord minor", "  note 43 0 1 v 95"]),
+        stem("Arp", "arp", 0.4, vFmPluck(), ["  note 70 3.5 0.5 v 90"])
+      ]))
     },
     {
       id: "pulsar",
       name: "Pulsar",
       genre: "Synthwave",
       bpm: 115,
-      tpl: L([
+      tpl: L(flat([
         "tpl 1",
-        "track Kick id kick gen drum",
-        "  gen tone sine pitch_env 40 pitch_decay 0.05 decay 0.4 drive 0.1",
-        "  step_pitch 36",
-        "  steps x . . . x . . . x . . . x . . .",
-        "track Snare id snare gen drum",
-        "  gen tone triangle pitch_env 18 pitch_decay 0.04 decay 0.18 noise 0.7 noise_hp 1800 noise_decay 0.18",
-        "  step_pitch 40",
-        "  steps . . . . x . . . . . . . x . . .",
-        "track Hat id hat gen noise_burst",
-        "  noise attack 0.001 decay 0.04 tone 0.85 pitch_follow 0.05",
-        "  step_pitch 44",
-        "  steps x . x . x . x . x . x . x . x .",
-        "track Bass id bass gen basic_osc",
-        "  osc waveform sawtooth",
-        "  adsr a 0.005 d 0.18 s 0.2 r 0.1",
-        "  fx cutoff 850 res 10",
-        "  step_pitch 44",
-        "  steps x . x . x . x . x . x . x . x .",
-        "track Stab id stab gen basic_osc",
-        "  osc waveform square",
-        "  adsr a 0.002 d 0.3 s 0 r 0.12",
-        "  fx reverb_send 0.2",
-        "  voice chord major",
-        "  note 56 0 0.5 v 75",
-        "  note 56 1.5 0.5 v 70",
-        "track Arp id arp gen pad",
-        "  gen wave1 triangle wave2 sine detune 6 cutoff 2600 attack 0.005 decay 0.2 sustain 0.2 release 0.3",
-        "  fx reverb_send 0.3",
-        "  note 63 1.5 0.25 v 70",
-        "  note 63 3.5 0.25 v 70"
-      ])
+        stem("Kick", "kick", 0.05, vKickEdm(), ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
+        stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
+        stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
+        stem("Bass", "bass", 0.05, vBassReese(), ["  step_pitch 32", "  steps x . x . x . x . x . x . x . x ."]),
+        stem("Stab", "stab", 0.3, vChordStab(), ["  voice chord major", "  note 44 0 0.5 v 95", "  note 44 1.5 0.5 v 90", "  note 44 2 0.5 v 90", "  note 44 3.5 0.5 v 90"]),
+        stem("Arp", "arp", 0.3, vPluck(), ["  note 63 1.5 0.5 v 90", "  note 67 2.5 0.5 v 90", "  note 70 3.5 0.5 v 90"])
+      ]))
     },
     {
       id: "quasar",
       name: "Quasar",
       genre: "Liquid DnB",
       bpm: 170,
-      tpl: L([
+      tpl: L(flat([
         "tpl 1",
-        "track Kick id kick gen drum",
-        "  gen tone triangle pitch_env 24 pitch_decay 0.09 decay 0.5",
-        "  step_pitch 36",
-        "  steps x . . . . . . . . . x . . . . .",
-        "track Snare id snare gen drum",
-        "  gen tone triangle pitch_env 18 pitch_decay 0.04 decay 0.18 noise 0.8 noise_hp 1900 noise_decay 0.18",
-        "  step_pitch 40",
-        "  steps . . . . x . . . . . . . x . . .",
-        "track Hat id hat gen noise_burst",
-        "  noise attack 0.001 decay 0.04 tone 0.85 pitch_follow 0.05",
-        "  step_pitch 44",
-        "  steps x x x x x x x x x x x x x x x x",
-        "track Bass id bass gen basic_osc",
-        "  osc waveform sawtooth",
-        "  adsr a 0.01 d 0.4 s 0.6 r 0.3",
-        "  fx cutoff 550 res 4 reverb_send 0.1",
-        "  note 39 0 4 v 95",
-        "track Chord id chord gen pad",
-        "  gen wave1 sawtooth wave2 sawtooth detune 8 cutoff 1500 attack 0.3 decay 0.6 sustain 0.7 release 1.4",
-        "  fx reverb_send 0.4",
-        "  voice chord major",
-        "  note 51 0 4 v 55",
-        "track Arp id arp gen fm",
-        "  fm ratio 2 mod_index 4 carrier sine mod sine",
-        "  adsr a 0.002 d 0.2 s 0 r 0.1",
-        "  fx reverb_send 0.4",
-        "  note 72 3.5 0.25 v 70"
-      ])
+        stem("Kick", "kick", 0.05, vKickDeep(), ["  step_pitch 36", "  steps x . . . . . . . . . x . . . . ."]),
+        stem("Snare", "snare", 0.25, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
+        stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps x x x x x x x x x x x x x x x x"]),
+        stem("Bass", "bass", 0.05, vBassReese(), ["  note 27 0 4 v 100"]),
+        stem("Chord", "chord", 0.4, vChordPad(), ["  voice chord major", "  note 51 0 4 v 90"]),
+        stem("Arp", "arp", 0.4, vFmPluck(), ["  note 72 3.5 0.5 v 90"])
+      ]))
     },
     {
       id: "dark_matter",
       name: "Dark Matter",
       genre: "Industrial EBM",
       bpm: 105,
-      tpl: L([
+      tpl: L(flat([
         "tpl 1",
-        "track Kick id kick gen drum",
-        "  gen tone sine pitch_env 38 pitch_decay 0.05 decay 0.42 drive 0.4",
-        "  step_pitch 36",
-        "  steps x . . . x . . . x . . . x . . .",
-        "track Snare id snare gen drum",
-        "  gen tone triangle pitch_env 18 pitch_decay 0.04 decay 0.18 noise 0.8 noise_hp 1800 noise_decay 0.18",
-        "  step_pitch 40",
-        "  steps . . . . . . . . x . . . . . . .",
-        "track Hat id hat gen noise_burst",
-        "  noise attack 0.001 decay 0.14 tone 0.75 pitch_follow 0.05",
-        "  step_pitch 44",
-        "  steps x . x . x . x . x . x . x . x .",
-        "track Bass id bass gen basic_osc",
-        "  osc waveform sawtooth",
-        "  adsr a 0.005 d 0.18 s 0.2 r 0.1",
-        "  fx cutoff 800 res 12 drive 0.3",
-        "  step_pitch 36",
-        "  steps x . . x . . . . x . . x . . . .",
-        "track Stab id stab gen basic_osc",
-        "  osc waveform square",
-        "  adsr a 0.002 d 0.2 s 0 r 0.1",
-        "  fx reverb_send 0.15 drive 0.2",
-        "  voice chord minor",
-        "  note 48 0 0.5 v 75",
-        "track Arp id arp gen fm",
-        "  fm ratio 1 mod_index 6 carrier square mod sine",
-        "  adsr a 0.002 d 0.2 s 0 r 0.1",
-        "  fx reverb_send 0.3",
-        "  note 48 0 0.25 v 70",
-        "  note 51 0.75 0.25 v 70",
-        "  note 55 1.5 0.25 v 70",
-        "  note 48 2.25 0.25 v 70",
-        "  note 55 3 0.25 v 70"
-      ])
+        stem("Kick", "kick", 0.05, vKickDistorted(), ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
+        stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . . . . . x . . . . . . ."]),
+        stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
+        stem("Bass", "bass", 0.05, vBassAcid(), ["  step_pitch 36", "  steps x . . x . . . . x . . x . . . ."]),
+        stem("Stab", "stab", 0.15, vChordStab(), ["  voice chord minor", "  note 48 0 0.5 v 95"]),
+        stem("Arp", "arp", 0.3, vFmPluck(), ["  note 48 0 0.5 v 90", "  note 51 0.75 0.5 v 90", "  note 55 1.5 0.5 v 90", "  note 48 2.25 0.5 v 90", "  note 55 3 0.5 v 90"])
+      ]))
     },
     {
       id: "nebular_dust",
       name: "Nebular Dust",
       genre: "Lo-Fi House",
       bpm: 118,
-      tpl: L([
+      tpl: L(flat([
         "tpl 1",
-        "track Kick id kick gen drum",
-        "  gen tone triangle pitch_env 24 pitch_decay 0.1 decay 0.5",
-        "  step_pitch 36",
-        "  steps x . . . x . . . x . . . x . . .",
-        "track Snare id snare gen drum",
-        "  gen tone triangle pitch_env 16 pitch_decay 0.04 decay 0.18 noise 0.6 noise_hp 1600 noise_decay 0.2",
-        "  step_pitch 40",
-        "  steps . . . . x . . . . . . . x . . .",
-        "track Hat id hat gen noise_burst",
-        "  noise attack 0.001 decay 0.14 tone 0.7 pitch_follow 0.05",
-        "  step_pitch 44",
-        "  steps . . x . . . x . . . x . . . x .",
-        "track Bass id bass gen basic_osc",
-        "  osc waveform sawtooth",
-        "  adsr a 0.01 d 0.3 s 0.4 r 0.2",
-        "  fx cutoff 600 res 3 reverb_send 0.1",
-        "  step_pitch 43",
-        "  steps . . . . . . . . . . x . . . x .",
-        "track Stab id stab gen basic_osc",
-        "  osc waveform square",
-        "  adsr a 0.004 d 0.35 s 0.1 r 0.2",
-        "  fx reverb_send 0.25",
-        "  voice chord minor",
-        "  note 55 1 0.5 v 60",
-        "  note 55 3 0.5 v 55",
-        "track Texture id texture gen noise_burst",
-        "  noise attack 0.05 decay 0.6 tone 0.4 pitch_follow 0",
-        "  step_pitch 50",
-        "  steps x . . . . . . . . . . . . . . ."
-      ])
+        stem("Kick", "kick", 0.05, vKickDeep(), ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
+        stem("Snare", "snare", 0.25, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
+        stem("Hat", "hat", 0.1, vHatOpen(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
+        stem("Bass", "bass", 0.1, vBassReeseSC(), ["  note 31 2.5 0.5 v 100", "  note 31 3.5 0.5 v 100"]),
+        stem("Stab", "stab", 0.25, vChordStab(), ["  voice chord minor", "  note 43 1 0.5 v 90", "  note 43 3 0.5 v 85"]),
+        stem("Pluck", "pluck", 0.3, vPluck(), ["  note 67 2 0.5 v 85"])
+      ]))
     },
     {
       id: "chronos",
       name: "Chronos",
       genre: "Psybient",
       bpm: 90,
-      tpl: L([
+      tpl: L(flat([
         "tpl 1",
-        "track Kick id kick gen drum",
-        "  gen tone triangle pitch_env 22 pitch_decay 0.11 decay 0.6",
-        "  step_pitch 36",
-        "  steps x . . . . . . . . . . . . . . .",
-        "track Hat id hat gen noise_burst",
-        "  noise attack 0.001 decay 0.05 tone 0.8 pitch_follow 0.05",
-        "  step_pitch 44",
-        "  steps x . . . x . . . x . . . x . x .",
-        "track Bass id bass gen basic_osc",
-        "  osc waveform sawtooth",
-        "  adsr a 0.05 d 1.0 s 0.9 r 0.4",
-        "  fx cutoff 300 res 10 lfo_rate 0.5 lfo_depth 2000 reverb_send 0.1",
-        "  note 36 0 4 v 90",
-        "track Chord id chord gen pad",
-        "  gen wave1 sawtooth wave2 sawtooth detune 7 cutoff 1100 attack 0.6 decay 0.9 sustain 0.8 release 2.0",
-        "  fx reverb_send 0.45",
-        "  voice chord minor",
-        "  note 48 0 4 v 55",
-        "track Arp id arp gen fm",
-        "  fm ratio 2 mod_index 4 carrier sine mod sine",
-        "  adsr a 0.003 d 0.3 s 0 r 0.15",
-        "  fx reverb_send 0.4",
-        "  note 60 1.5 0.25 v 70",
-        "  note 67 2 0.25 v 70"
-      ])
+        stem("Kick", "kick", 0.05, vKickDeep(), ["  step_pitch 36", "  steps x . . . . . . . . . . . . . . ."]),
+        stem("Hat", "hat", 0.1, vHatClosed(), ["  step_pitch 44", "  steps x . . . x . . . x . . . x . x ."]),
+        stem("Bass", "bass", 0.1, vBassWobble(), ["  note 36 0 4 v 95"]),
+        stem("Chord", "chord", 0.45, vChordPad(), ["  voice chord minor", "  note 48 0 4 v 90"]),
+        stem("Arp", "arp", 0.4, vFmPluck(), ["  note 60 1.5 0.5 v 85", "  note 67 2 0.5 v 85"])
+      ]))
     },
     {
       id: "tachyon",
       name: "Tachyon",
       genre: "Hardwave",
       bpm: 130,
-      tpl: L([
+      tpl: L(flat([
         "tpl 1",
-        "track Kick id kick gen drum",
-        "  gen tone sine pitch_env 36 pitch_decay 0.05 decay 0.45 drive 0.6",
-        "  step_pitch 36",
-        "  steps x . . . . . . . x . . x . . . .",
-        "track Snare id snare gen drum",
-        "  gen tone triangle pitch_env 18 pitch_decay 0.04 decay 0.18 noise 0.8 noise_hp 1900 noise_decay 0.18",
-        "  step_pitch 40",
-        "  steps . . . . . . . . x . . . . . . .",
-        "track Hat id hat gen noise_burst",
-        "  noise attack 0.001 decay 0.04 tone 0.85 pitch_follow 0.05",
-        "  step_pitch 44",
-        "  steps x . x . x . x . x . x . x . x .",
-        "track Bass id bass gen basic_osc",
-        "  osc waveform sawtooth",
-        "  adsr a 0.005 d 0.5 s 0.8 r 0.2",
-        "  fx cutoff 500 res 5 drive 0.35",
-        "  note 44 0 4 v 95",
-        "track Chord id chord gen pad",
-        "  gen wave1 sawtooth wave2 sawtooth detune 12 cutoff 1700 attack 0.2 decay 0.6 sustain 0.7 release 1.4",
-        "  fx reverb_send 0.4",
-        "  voice chord major",
-        "  note 56 0 4 v 60",
-        "track Arp id arp gen fm",
-        "  fm ratio 3 mod_index 5 carrier sine mod sine",
-        "  adsr a 0.002 d 0.18 s 0 r 0.1",
-        "  fx reverb_send 0.35",
-        "  note 72 0 0.25 v 75",
-        "  note 72 1 0.25 v 75",
-        "  note 72 2 0.25 v 75",
-        "  note 72 3 0.25 v 75"
-      ])
+        stem("Kick", "kick", 0.05, vKickDistorted(), ["  step_pitch 36", "  steps x . . . . . . . x . . x . . . ."]),
+        stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . . . . . x . . . . . . ."]),
+        stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
+        stem("Bass", "bass", 0.05, vBassReese(), ["  note 32 0 4 v 100"]),
+        stem("Chord", "chord", 0.4, vChordPad(), ["  voice chord major", "  note 44 0 4 v 90"]),
+        stem("Arp", "arp", 0.35, vFmPluck(), ["  note 72 0 0.5 v 90", "  note 72 1 0.5 v 90", "  note 72 2 0.5 v 90", "  note 72 3 0.5 v 90"])
+      ]))
     },
     {
       id: "solar_wind",
       name: "Solar Wind",
       genre: "Prog House",
       bpm: 124,
-      tpl: L([
+      tpl: L(flat([
         "tpl 1",
-        "track Kick id kick gen drum",
-        "  gen tone sine pitch_env 40 pitch_decay 0.05 decay 0.4 drive 0.12",
-        "  step_pitch 36",
-        "  steps x . . . x . . . x . . . x . . .",
-        "track Snare id snare gen drum",
-        "  gen tone triangle pitch_env 18 pitch_decay 0.04 decay 0.18 noise 0.7 noise_hp 1800 noise_decay 0.18",
-        "  step_pitch 40",
-        "  steps . . . . x . . . . . . . x . . .",
-        "track Hat id hat gen noise_burst",
-        "  noise attack 0.001 decay 0.16 tone 0.7 pitch_follow 0.05",
-        "  step_pitch 44",
-        "  steps . . x . . . x . . . x . . . x .",
-        "track Bass id bass gen basic_osc",
-        "  osc waveform sawtooth",
-        "  adsr a 0.005 d 0.12 s 0.3 r 0.1",
-        "  fx cutoff 700 res 3",
-        "  step_pitch 36",
-        "  steps . x x x . x x x . x x x . x x x",
-        "track Chord id chord gen pad",
-        "  gen wave1 sawtooth wave2 sawtooth detune 9 cutoff 1500 attack 0.3 decay 0.6 sustain 0.7 release 1.4",
-        "  fx reverb_send 0.4",
-        "  voice chord minor",
-        "  note 48 0 4 v 58",
-        "track Arp id arp gen pad",
-        "  gen wave1 triangle wave2 sine detune 6 cutoff 2800 attack 0.005 decay 0.16 sustain 0.2 release 0.3",
-        "  fx reverb_send 0.35",
-        "  note 60 0.75 0.25 v 70",
-        "  note 63 1.5 0.25 v 70",
-        "  note 67 2.75 0.25 v 70",
-        "  note 70 3.5 0.25 v 70"
-      ])
+        stem("Kick", "kick", 0.05, vKickEdm(), ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
+        stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
+        stem("Hat", "hat", 0.2, vHatOpen(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
+        stem("Bass", "bass", 0.05, vBassReese(), ["  step_pitch 36", "  steps . x x x . x x x . x x x . x x x"]),
+        stem("Chord", "chord", 0.4, vChordPad(), ["  voice chord minor", "  note 48 0 4 v 90"]),
+        stem("Pluck", "pluck", 0.35, vPluck(), ["  note 60 0.75 0.5 v 85", "  note 63 1.5 0.5 v 85", "  note 67 2.75 0.5 v 85", "  note 70 3.5 0.5 v 85"])
+      ]))
     }
   ]
 }
@@ -621,6 +585,11 @@ export fn loadDeckSet(project, deckId, setId) {
     project.coDjMeta.tracks = {}
   }
   ensureCoDjMeta(project)
+  // Drop the old scene grid so it rebuilds for the new channel set (stale slot ids would otherwise
+  // arm clips that don't exist on the swapped-in channels, silencing them on Play).
+  if (project.session) {
+    project.session.slots = []
+  }
   ensureProjectSession(project)
   return true
 }

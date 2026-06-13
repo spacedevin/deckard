@@ -5,6 +5,7 @@ import { playMatrixFm } from './MatrixFm.tish'
 import { playPad } from './Pad.tish'
 import { playBell } from './Bell.tish'
 import { playDrum } from './DrumSynth.tish'
+import { playPatch } from './Patch.tish'
 
 export fn dispatchPlayNote(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   if (!bus || !bus.input) {
@@ -39,6 +40,10 @@ export fn dispatchPlayNote(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   }
   if (id === "drumSynth") {
     playDrum(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+  if (id === "patch") {
+    playPatch(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
     return
   }
   playBasicOsc(ctx, bus, t, midi, vel, durSec, ch, bendSemis)

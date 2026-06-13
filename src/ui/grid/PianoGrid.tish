@@ -36,42 +36,27 @@ fn noteIdxAt(ch, pitch, step) {
   return -1
 }
 
+// Fixed ~2-octave window anchored to a STABLE reference pitch so adding/removing notes never shifts
+// the grid under the cursor (the old min/max-recenter made every click appear to land on a new row).
+// Anchor = the channel's step pitch, or the first piano note if present (stable across edits).
 fn pitchWindow(ch) {
-  let lo = 48
-  let hi = 71
+  let center = 60
+  if (ch.stepPitch != null) {
+    center = Math.floor(ch.stepPitch)
+  }
   let pn = ch.pianoNotes
   if (pn && pn.length > 0) {
-    let mn = 200
-    let mx = -1
-    let i = 0
-    while (i < pn.length) {
-      let p = Math.floor(pn[i].pitch)
-      if (p < mn) {
-        mn = p
-      }
-      if (p > mx) {
-        mx = p
-      }
-      i = i + 1
-    }
-    lo = mn - 3
-    hi = mx + 3
-    if (hi - lo < 14) {
-      let pad = 14 - (hi - lo)
-      lo = lo - Math.floor(pad / 2)
-      hi = hi + Math.ceil(pad / 2)
-    }
-    if (hi - lo > 30) {
-      let mid = Math.floor((lo + hi) / 2)
-      lo = mid - 15
-      hi = mid + 15
-    }
+    center = Math.floor(pn[0].pitch)
   }
+  let lo = center - 12
+  let hi = center + 13
   if (lo < 12) {
     lo = 12
+    hi = lo + 25
   }
   if (hi > 108) {
     hi = 108
+    lo = hi - 25
   }
   return { lo: lo, hi: hi }
 }

@@ -26,6 +26,43 @@ fn makeDriveCurve(ctx, amount) {
   return curve
 }
 
+// Smooth synthetic convolution-reverb impulse (noise burst with an exponential decay tail) — a real
+// room/hall wash, NOT a feedback delay (which slaps/pops on transients).
+fn makeReverbImpulse(ctx, duration, decay) {
+  let len = Math.floor(ctx.sampleRate * duration)
+  if (len < 1) {
+    len = 1
+  }
+  let impulse = ctx.createBuffer(2, len, ctx.sampleRate)
+  let c = 0
+  while (c < 2) {
+    let data = impulse.getChannelData(c)
+    let j = 0
+    while (j < len) {
+      data[j] = (Math.random() * 2 - 1) * Math.pow(1 - j / len, decay)
+      j = j + 1
+    }
+    c = c + 1
+  }
+  return impulse
+}
+
+// Soft-clip curve (tanh): nearly linear at low level, saturates gracefully toward ±1 so a transient
+// overshoot bends instead of hard-clipping into a click/pop. Inputs beyond ±1 clamp to the rounded top.
+fn makeSoftClipCurve() {
+  // tanh(x): unity slope at 0 (transparent at low level), gently saturating toward the rails so a
+  // peak bends instead of clipping. NOT normalized — normalizing would add ~2x low-level makeup gain.
+  let n = 1024
+  let curve = new Float32Array(n)
+  let i = 0
+  while (i < n) {
+    let x = (i * 2) / (n - 1) - 1
+    curve[i] = Math.tanh(x)
+    i = i + 1
+  }
+  return curve
+}
+
 fn makeShelf(ctx, t, freq, q) {
   let f = ctx.createBiquadFilter()
   f.type = t
@@ -199,10 +236,16 @@ export fn ensureAudio(project, store) {
   comp.ratio.value = 3.5
   comp.attack.value = 0.005
   comp.release.value = 0.12
+  // Soft-clip limiter after the glue compressor: catches any residual overshoot from summed stems /
+  // resonant transients so the output saturates smoothly instead of hard-clipping into a pop.
+  let softClip = ctx.createWaveShaper()
+  softClip.curve = makeSoftClipCurve()
+  softClip.oversample = "4x"
   let analyser = ctx.createAnalyser()
   analyser.fftSize = 512
   masterGain.connect(comp)
-  comp.connect(analyser)
+  comp.connect(softClip)
+  softClip.connect(analyser)
   analyser.connect(ctx.destination)
   store.masterComp = comp
   store.analyser = analyser
@@ -210,21 +253,21 @@ export fn ensureAudio(project, store) {
   store.master = masterGain
   store.masterSum = masterSum
   store.masterEq = { lo: mLo, mid: mMid, hi: mHi }
-  // Shared reverb / delay send bus (the REVERB_BUS): feedback delay → lowpass → master.
+  // Shared reverb send bus (the REVERB_BUS): a smooth convolution reverb (synthetic hall impulse),
+  // gently high-passed so the tail doesn't muddy the low end, into the master sum.
   let revIn = ctx.createGain()
-  revIn.gain.value = 1
-  let revDelay = ctx.createDelay(1.5)
-  revDelay.delayTime.value = 0.42
-  let revFb = ctx.createGain()
-  revFb.gain.value = 0.45
-  let revLp = ctx.createBiquadFilter()
-  revLp.type = "lowpass"
-  revLp.frequency.value = 2400
-  revIn.connect(revDelay)
-  revDelay.connect(revLp)
-  revLp.connect(revFb)
-  revFb.connect(revDelay)
-  revDelay.connect(masterSum)
+  revIn.gain.value = 0.85
+  let revHp = ctx.createBiquadFilter()
+  revHp.type = "highpass"
+  revHp.frequency.value = 350
+  let revConv = ctx.createConvolver()
+  revConv.buffer = makeReverbImpulse(ctx, 2.6, 2.2)
+  let revWet = ctx.createGain()
+  revWet.gain.value = 0.9
+  revIn.connect(revHp)
+  revHp.connect(revConv)
+  revConv.connect(revWet)
+  revWet.connect(masterSum)
   store.reverbIn = revIn
   store.actorBuses = {}
   let lanes = collectActorLanes(project)

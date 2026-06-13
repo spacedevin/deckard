@@ -1,0 +1,305 @@
+// Modular patch voice — interprets a `gen_block patch` graph into a Web Audio voice per trigger.
+// This is the universal synth: oscillators, noise, filters, waveshapers and gains wired by `conn`
+// lines, with breakpoint envelopes (`env node.param set/lin/exp t v ...`) on any AudioParam.
+// Expression tokens resolve per-trigger: `note` (Hz of the played note), `note*2`, `dur`, `dur-0.1`,
+// `vel`. Anything deck.tsx hand-coded (EDM kick, acid/reese bass, FM pluck, pad, stab) is now data.
+
+import { midiToHz } from '../schedule/Engine.tish'
+import { parsePatchGraph } from '../tpl/TplExtension.tish'
+import { normalizeBasicOscWaveform } from './Registry.tish'
+import { playBasicOsc } from './BasicOsc.tish'
+
+fn makeDistortionCurve(amount) {
+  let k = amount === amount && amount > 0 ? amount : 50
+  let n = 1024
+  let curve = new Float32Array(n)
+  let deg = Math.PI / 180
+  let i = 0
+  while (i < n) {
+    let x = (i * 2) / n - 1
+    curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x))
+    i = i + 1
+  }
+  return curve
+}
+
+fn makeNoiseBuffer(ctx) {
+  let sr = ctx.sampleRate
+  let n = Math.floor(sr * 2)
+  if (n < 256) {
+    n = 256
+  }
+  let buf = ctx.createBuffer(1, n, sr)
+  let data = buf.getChannelData(0)
+  let i = 0
+  while (i < n) {
+    data[i] = Math.random() * 2 - 1
+    i = i + 1
+  }
+  return buf
+}
+
+/// Resolve a patch expression token against the trigger context {note, dur, v}.
+/// Forms: <number> | note | dur | vel | <base><op><number> where base∈{note,dur,vel}, op∈{*,/,+,-}.
+fn resolveExpr(tok, note, dur, v) {
+  let s = String(tok)
+  let n = Number(s)
+  if (n === n) {
+    return n
+  }
+  let base = 0
+  let rest = ""
+  if (s.indexOf("note") === 0) {
+    base = note
+    rest = s.substring(4)
+  } else {
+    if (s.indexOf("dur") === 0) {
+      base = dur
+      rest = s.substring(3)
+    } else {
+      if (s.indexOf("vel") === 0) {
+        base = v
+        rest = s.substring(3)
+      } else {
+        return 0
+      }
+    }
+  }
+  if (rest.length === 0) {
+    return base
+  }
+  let op = rest.charAt(0)
+  let num = Number(rest.substring(1))
+  if (num !== num) {
+    return base
+  }
+  if (op === "*") {
+    return base * num
+  }
+  if (op === "/") {
+    return num !== 0 ? base / num : base
+  }
+  if (op === "+") {
+    return base + num
+  }
+  if (op === "-") {
+    return base - num
+  }
+  return base
+}
+
+fn audioParamFor(node, param) {
+  if (!node) {
+    return null
+  }
+  let p = String(param)
+  if (p === "gain") {
+    return node.gain ? node.gain : null
+  }
+  if (p === "freq" || p === "frequency") {
+    return node.frequency ? node.frequency : null
+  }
+  if (p === "detune") {
+    return node.detune ? node.detune : null
+  }
+  if (p === "q") {
+    return node.Q ? node.Q : null
+  }
+  return null
+}
+
+export fn playPatch(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  let spec = ch.generatorSpec
+  let graph = spec ? spec.graph : null
+  if (!graph && spec && spec.raw) {
+    graph = parsePatchGraph(spec.raw)
+  }
+  if (!graph || !graph.nodes || graph.nodes.length === 0) {
+    playBasicOsc(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+
+  let nMidi = Math.floor(midi + bendSemis)
+  let note = 440
+  if (nMidi >= 0 && nMidi <= 127) {
+    note = midiToHz(nMidi)
+  }
+  let v = vel / 100
+  if (v < 0) {
+    v = 0
+  }
+  if (v > 1) {
+    v = 1
+  }
+  let dur = durSec > 0 ? durSec : 0.25
+
+  // 1) Build nodes by id.
+  let byId = {}
+  let oscList = []
+  let noiseList = []
+  let i = 0
+  while (i < graph.nodes.length) {
+    let nd = graph.nodes[i]
+    if (nd.kind === "osc") {
+      let osc = ctx.createOscillator()
+      osc.type = normalizeBasicOscWaveform(nd.wave)
+      let hz = nd.freqMode === "fixed" ? nd.fixedHz : note * (nd.ratio > 0 ? nd.ratio : 1)
+      if (hz < 0.0001) {
+        hz = 0.0001
+      }
+      osc.frequency.value = hz
+      if (nd.detune) {
+        osc.detune.value = nd.detune
+      }
+      byId[nd.id] = osc
+      oscList.push(osc)
+    } else {
+      if (nd.kind === "noise") {
+        let src = ctx.createBufferSource()
+        src.buffer = makeNoiseBuffer(ctx)
+        src.loop = true
+        byId[nd.id] = src
+        noiseList.push(src)
+      } else {
+        if (nd.kind === "filter") {
+          let f = ctx.createBiquadFilter()
+          f.type = nd.ftype
+          if (nd.freq && nd.freq > 0) {
+            f.frequency.value = nd.freq
+          }
+          f.Q.value = nd.q
+          byId[nd.id] = f
+        } else {
+          if (nd.kind === "shaper") {
+            let ws = ctx.createWaveShaper()
+            ws.curve = makeDistortionCurve(nd.amount)
+            ws.oversample = "4x"
+            byId[nd.id] = ws
+          } else {
+            if (nd.kind === "gain") {
+              let g = ctx.createGain()
+              g.gain.value = nd.value
+              byId[nd.id] = g
+            }
+          }
+        }
+      }
+    }
+    i = i + 1
+  }
+
+  // 2) Envelopes (before connections so AudioParam schedules are in place).
+  let maxEnd = dur
+  let ei = 0
+  while (ei < graph.envs.length) {
+    let en = graph.envs[ei]
+    let node = byId[en.node]
+    let ap = audioParamFor(node, en.param)
+    if (ap) {
+      let sj = 0
+      while (sj < en.segs.length) {
+        let sg = en.segs[sj]
+        let tt = resolveExpr(sg.tExpr, note, dur, v)
+        if (tt < 0) {
+          tt = 0
+        }
+        let vv = resolveExpr(sg.vExpr, note, dur, v)
+        let at = t + tt
+        if (sg.type === "set") {
+          ap.setValueAtTime(vv, at)
+        } else {
+          if (sg.type === "lin") {
+            ap.linearRampToValueAtTime(vv, at)
+          } else {
+            if (sg.type === "exp") {
+              let ev = vv
+              if (ev < 0.0001) {
+                ev = 0.0001
+              }
+              ap.exponentialRampToValueAtTime(ev, at)
+            }
+          }
+        }
+        if (tt > maxEnd) {
+          maxEnd = tt
+        }
+        sj = sj + 1
+      }
+    }
+    ei = ei + 1
+  }
+
+  // Stop time + a short output fade window (declick): a hard osc start/stop or an instantaneous gain
+  // jump emits a broadband transient that, through a sub-heavy voice, reads as a phantom kick/thump.
+  // Ramping the OUTPUT gain 0→level→0 around the voice removes that without touching the inner envelope.
+  let voiceDur = graph.dur != null ? graph.dur : Math.max(dur, maxEnd)
+  let tStop = t + voiceDur + 0.06
+  let fadeIn = 0.004
+  let fadeOut = 0.008
+  if (fadeIn + fadeOut > voiceDur + 0.05) {
+    fadeIn = (voiceDur + 0.05) * 0.3
+    fadeOut = (voiceDur + 0.05) * 0.3
+  }
+
+  fn wireFadedOut(srcNode, target, level) {
+    let og = ctx.createGain()
+    og.gain.setValueAtTime(0, t)
+    og.gain.linearRampToValueAtTime(level, t + fadeIn)
+    og.gain.setValueAtTime(level, tStop - fadeOut)
+    og.gain.linearRampToValueAtTime(0, tStop)
+    srcNode.connect(og)
+    og.connect(target)
+  }
+
+  // 3) Connections. dst "out" → channel input (× velocity); "reverb" → channel reverb send.
+  let ci = 0
+  while (ci < graph.conns.length) {
+    let cn = graph.conns[ci]
+    let srcNode = byId[cn.src]
+    if (srcNode) {
+      if (cn.dst === "out") {
+        wireFadedOut(srcNode, bus.input, cn.vol * v)
+      } else {
+        if (cn.dst === "reverb") {
+          if (bus.reverbSend) {
+            wireFadedOut(srcNode, bus.reverbSend, cn.vol * v)
+          }
+        } else {
+          let dstNode = byId[cn.dst]
+          if (dstNode) {
+            if (cn.dstParam) {
+              let ap = audioParamFor(dstNode, cn.dstParam)
+              if (ap) {
+                if (cn.vol !== 1) {
+                  let sg = ctx.createGain()
+                  sg.gain.value = cn.vol
+                  srcNode.connect(sg)
+                  sg.connect(ap)
+                } else {
+                  srcNode.connect(ap)
+                }
+              }
+            } else {
+              srcNode.connect(dstNode)
+            }
+          }
+        }
+      }
+    }
+    ci = ci + 1
+  }
+
+  // 4) Start / stop all sources (tStop computed above for the declick window).
+  let oi = 0
+  while (oi < oscList.length) {
+    oscList[oi].start(t)
+    oscList[oi].stop(tStop)
+    oi = oi + 1
+  }
+  let ni = 0
+  while (ni < noiseList.length) {
+    noiseList[ni].start(t)
+    noiseList[ni].stop(tStop)
+    ni = ni + 1
+  }
+}
