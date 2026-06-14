@@ -1,5 +1,47 @@
 // Pure edit helpers — safe transforms for agents.
 
+import { makeStep } from './Project.tish'
+
+/// Grow a channel to `bars`-bar storage so each bar can be edited independently (tiling the existing
+/// single-bar pattern across the new bars so it keeps sounding the same until you change a bar).
+export fn promoteChannelToBars(ch, bars) {
+  let want = Math.max(1, Math.floor(Number(bars)))
+  let cur = (ch.patternBars != null && Math.floor(ch.patternBars) >= 1) ? Math.floor(ch.patternBars) : 1
+  let target = cur > want ? cur : want
+  let targetSteps = target * 16
+  // Tile piano notes from the current span across the new bars (if it grows by a whole multiple).
+  if (target > cur && ch.pianoNotes && ch.pianoNotes.length > 0) {
+    let reps = Math.floor(target / cur)
+    if (reps * cur === target && reps > 1) {
+      let orig = ch.pianoNotes
+      let span = cur * 4
+      let rep = 1
+      while (rep < reps) {
+        let k = 0
+        while (k < orig.length) {
+          let n = orig[k]
+          ch.pianoNotes.push({ startBeat: n.startBeat + rep * span, durBeats: n.durBeats, pitch: n.pitch, vel: n.vel })
+          k = k + 1
+        }
+        rep = rep + 1
+      }
+    }
+  }
+  // Ensure the step array spans the target bars (tile the current single bar).
+  if (ch.steps.length < targetSteps) {
+    let curLen = ch.steps.length < 1 ? 1 : ch.steps.length
+    let out = []
+    let i = 0
+    while (i < targetSteps) {
+      let st = ch.steps[i % curLen]
+      out.push(makeStep(st.on, st.vel != null ? st.vel : 100))
+      i = i + 1
+    }
+    ch.steps = out
+  }
+  ch.patternBars = target
+}
+
 export fn clearAllSteps(ch) {
   let si = 0
   while (si < 16) {
@@ -99,9 +141,41 @@ export fn clampChannelPianoNotesToFirstBar(ch, minDur) {
   }
 }
 
+/// Clamp a note into the channel's full pattern (bars*4 beats), not just the first bar — so notes can
+/// live on any bar of a multi-bar pattern.
+export fn clampPianoNoteToPattern(ch, n, minDur) {
+  let bars = (ch.patternBars != null && Math.floor(ch.patternBars) >= 1) ? Math.floor(ch.patternBars) : 1
+  let lim = bars * 4
+  let md = minDur
+  if (md === undefined || md === null || md <= 0) {
+    md = 0.0078125
+  }
+  if (n.startBeat < 0) {
+    n.startBeat = 0
+  }
+  if (n.startBeat >= lim) {
+    n.startBeat = lim - md
+  }
+  if (n.startBeat < 0) {
+    n.startBeat = 0
+  }
+  if (n.startBeat + n.durBeats > lim) {
+    n.durBeats = lim - n.startBeat
+  }
+  if (n.durBeats < md) {
+    n.durBeats = md
+    if (n.startBeat + n.durBeats > lim) {
+      n.startBeat = lim - md
+      if (n.startBeat < 0) {
+        n.startBeat = 0
+      }
+    }
+  }
+}
+
 export fn addPianoNote(ch, startBeat, durBeats, pitch, vel) {
   let n = { startBeat: startBeat, durBeats: durBeats, pitch: pitch, vel: vel }
-  clampPianoNoteToFirstBar(n, 0.0078125)
+  clampPianoNoteToPattern(ch, n, 0.0078125)
   ch.pianoNotes.push(n)
 }
 

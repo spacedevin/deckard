@@ -4,7 +4,8 @@
 // Deck colour (A = cyan / host, B = magenta / client) ties each row to the deck mixer.
 
 import { h, Fragment } from '@tishlang/lattish'
-import { toggleStep, clearStep, setChannelMute, setChannelSolo } from '../../model/Edits.tish'
+import { toggleStep, clearStep, setChannelMute, setChannelSolo, promoteChannelToBars } from '../../model/Edits.tish'
+import { syncMainClipFromChannel } from '../../model/Session.tish'
 import { generatorLabelById } from '../../generators/Registry.tish'
 import { tplLoopSkipsChannel } from '../../tpl/LoopState.tish'
 import { channelDeck } from '../../model/DeckRouting.tish'
@@ -58,6 +59,9 @@ fn cellOnAtView(ch, i, melodic, viewBar) {
   if (melodic) {
     return stepHasNote(ch, local)
   }
+  if (local < ch.steps.length) {
+    return ch.steps[local].on
+  }
   return ch.steps[local % 16].on
 }
 
@@ -68,7 +72,7 @@ fn deckClass(project, ch) {
   return "sg-deck-a"
 }
 
-fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh, rt) {
+fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh, rt, viewBar) {
   let cls = "sg-cell sg-col-" + String(i)
   if (on) {
     cls = cls + " sg-on"
@@ -79,10 +83,9 @@ fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh,
   if (i % 4 === 0) {
     cls = cls + " sg-beat"
   }
-  if (i % 16 === 0 && i > 0) {
-    cls = cls + " sg-barline"
-  }
-  let stepIdx = i % 16
+  // Absolute step index in the (possibly multi-bar) pattern for the bar being viewed.
+  let nbars = (rt != null && rt.gridBars != null) ? Math.floor(rt.gridBars) : 1
+  let absStep = viewBar * 16 + i
   return (
     <button
       type="button"
@@ -96,10 +99,10 @@ fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh,
           }
           return
         }
-        toggleStep(project.channels[chIdx], stepIdx)
-        if (rt && rt.mirrorStepToSessionClip) {
-          rt.mirrorStepToSessionClip(project.channels[chIdx], stepIdx)
-        }
+        let c = project.channels[chIdx]
+        promoteChannelToBars(c, nbars)
+        toggleStep(c, absStep)
+        syncMainClipFromChannel(c)
         setProjectFromUI(project)
       }}
       oncontextmenu={(e) => {
@@ -108,10 +111,10 @@ fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh,
         if (melodic) {
           return
         }
-        clearStep(project.channels[chIdx], stepIdx)
-        if (rt && rt.mirrorClearStepToSessionClip) {
-          rt.mirrorClearStepToSessionClip(project.channels[chIdx], stepIdx)
-        }
+        let c = project.channels[chIdx]
+        promoteChannelToBars(c, nbars)
+        clearStep(c, absStep)
+        syncMainClipFromChannel(c)
         setProjectFromUI(project)
       }}
     />
@@ -124,7 +127,7 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
   let i = 0
   while (i < 16) {
     let on = cellOnAtView(ch, i, melodic, viewBar)
-    cells.push(StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh, rt))
+    cells.push(StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh, rt, viewBar))
     i = i + 1
   }
   // Per-bar root for stepped pitched channels (bass rolls) — shows the note changing as you page bars.
@@ -273,6 +276,32 @@ fn applyGridPlayhead(step, playing, gridBars, viewBar) {
   }
 }
 
+/// Shift + scroll pages through bars, clamped at both ends (no wrap).
+fn handleBarWheel(e, rt, gridBars) {
+  if (!e.shiftKey || !rt) {
+    return
+  }
+  e.preventDefault()
+  let amt = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX
+  if (amt === 0) {
+    return
+  }
+  let cur = rt.gridViewBar != null ? Math.floor(rt.gridViewBar) : 0
+  let next = cur + (amt > 0 ? 1 : -1)
+  if (next < 0) {
+    next = 0
+  }
+  if (next > gridBars - 1) {
+    next = gridBars - 1
+  }
+  if (next !== cur) {
+    rt.gridViewBar = next
+    if (rt.bumpGrid) {
+      rt.bumpGrid()
+    }
+  }
+}
+
 export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt) {
   let gridBars = gridBarsForProject(project)
   let viewBar = 0
@@ -299,7 +328,7 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
     rows.push(ChannelRowGrid(ch, ci, project, setProjectFromUI, ci === selectedCh, setSelectedCh, rt, viewBar))
     let expanded = rt != null && rt.gridExpanded != null && rt.gridExpanded[ch.id] === true
     if (expanded) {
-      let prows = pianoRowsForChannel(project, ch, setProjectFromUI, viewBar)
+      let prows = pianoRowsForChannel(project, ch, setProjectFromUI, viewBar, gridBars)
       let k = 0
       while (k < prows.length) {
         rows.push(prows[k])
@@ -360,39 +389,12 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
         <span class="sg-head-hint">{"Left: toggle · Right: clear · ▸ expand any track into its piano roll"}</span>
       </div>
       {gridBars > 1 ? (
-        <div
-          class="sg-barpager"
-          title="Shift + scroll to page through bars"
-          onwheel={(e) => {
-            if (!e.shiftKey || !rt) {
-              return
-            }
-            e.preventDefault()
-            let amt = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX
-            if (amt === 0) {
-              return
-            }
-            let cur = rt.gridViewBar != null ? Math.floor(rt.gridViewBar) : 0
-            let next = cur + (amt > 0 ? 1 : -1)
-            if (next < 0) {
-              next = 0
-            }
-            if (next > gridBars - 1) {
-              next = gridBars - 1
-            }
-            if (next !== cur) {
-              rt.gridViewBar = next
-              if (rt.bumpGrid) {
-                rt.bumpGrid()
-              }
-            }
-          }}
-        >
+        <div class="sg-barpager" title="Shift + scroll to page through bars" onwheel={(e) => handleBarWheel(e, rt, gridBars)}>
           <span class="sg-barpager-label">{"BAR"}</span>
           {pager}
         </div>
       ) : null}
-      <div class="sg-grid">{rows}</div>
+      <div class="sg-grid" onwheel={(e) => handleBarWheel(e, rt, gridBars)}>{rows}</div>
       <div class="sg-ruler">
         <div class="sg-ruler-pad" />
         <div class="sg-ruler-ticks">{ruler}</div>

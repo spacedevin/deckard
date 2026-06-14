@@ -3,7 +3,8 @@
 // One cell = a note at (pitch, step) lasting one step; multiple pitches per step = a chord.
 
 import { h } from '@tishlang/lattish'
-import { addPianoNote, removePianoNoteAt } from '../../model/Edits.tish'
+import { addPianoNote, removePianoNoteAt, promoteChannelToBars } from '../../model/Edits.tish'
+import { syncMainClipFromChannel } from '../../model/Session.tish'
 import { channelDeck } from '../../model/DeckRouting.tish'
 
 let NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -61,7 +62,7 @@ fn pitchWindow(ch) {
   return { lo: lo, hi: hi }
 }
 
-fn pianoCell(ch, pitch, col, viewBar, project, setProjectFromUI) {
+fn pianoCell(ch, pitch, col, viewBar, gridBars, project, setProjectFromUI) {
   // col is the on-screen column (0..15) of the viewed bar; map to the channel's own (tiled) pattern.
   let chBars = (ch.patternBars != null && Math.floor(ch.patternBars) >= 1) ? Math.floor(ch.patternBars) : 1
   let local = (viewBar * 16 + col) % (chBars * 16)
@@ -79,12 +80,17 @@ fn pianoCell(ch, pitch, col, viewBar, project, setProjectFromUI) {
       class={cls}
       onclick={(e) => {
         e.stopPropagation()
-        let idx = noteIdxAt(ch, pitch, local)
+        // Promote to multi-bar so each bar is independent, then edit at the absolute beat.
+        promoteChannelToBars(ch, gridBars)
+        let cb = (ch.patternBars != null && Math.floor(ch.patternBars) >= 1) ? Math.floor(ch.patternBars) : 1
+        let abs = (viewBar * 16 + col) % (cb * 16)
+        let idx = noteIdxAt(ch, pitch, abs)
         if (idx >= 0) {
           removePianoNoteAt(ch, idx)
         } else {
-          addPianoNote(ch, local * 0.25, 0.25, pitch, 100)
+          addPianoNote(ch, abs * 0.25, 0.25, pitch, 100)
         }
+        syncMainClipFromChannel(ch)
         setProjectFromUI(project)
       }}
     />
@@ -93,8 +99,9 @@ fn pianoCell(ch, pitch, col, viewBar, project, setProjectFromUI) {
 
 /** Array of inline piano rows (sg-row variants) for one channel — appended under its step row,
  *  showing the currently-viewed bar (16 columns). */
-export fn pianoRowsForChannel(project, ch, setProjectFromUI, viewBar) {
+export fn pianoRowsForChannel(project, ch, setProjectFromUI, viewBar, gridBars) {
   let vb = (viewBar != null && viewBar >= 0) ? Math.floor(viewBar) : 0
+  let gb = (gridBars != null && gridBars >= 1) ? Math.floor(gridBars) : 1
   let win = pitchWindow(ch)
   let deckCls = channelDeck(project, ch) === "B" ? "sg-deck-b" : "sg-deck-a"
   let rows = []
@@ -104,7 +111,7 @@ export fn pianoRowsForChannel(project, ch, setProjectFromUI, viewBar) {
     let cells = []
     let i = 0
     while (i < 16) {
-      cells.push(pianoCell(ch, pitch, i, vb, project, setProjectFromUI))
+      cells.push(pianoCell(ch, pitch, i, vb, gb, project, setProjectFromUI))
       i = i + 1
     }
     let rowCls = "sg-row sg-prow " + deckCls

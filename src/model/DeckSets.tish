@@ -461,7 +461,7 @@ fn deckSetTpls() {
         stem("Kick", "kick", 0.05, vKickEdm(), ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Hat", "hat", 0.2, vHatOpen(), ["  step_pitch 44", "  steps . . . . x . . . . . . . x . . ."]),
         stem("Bass", "bass", 0.05, vBassReese(), ["  step_pitch 36", "  steps . x x x . x x x . x x x . x x x"]),
-        stem("Chord", "chord", 0.4, vChordPad(), ["  voice chord minor", "  note 48 0 4 v 95"]),
+        stemB("Chord", "chord", 4, vChordPad(), ["  voice chord minor", "  note 48 0 16 v 95"]),
         stem("Arp", "arp", 0.3, vFmPluck(), ["  note 60 0 0.5 v 90", "  note 60 1.5 0.5 v 90"])
       ]))
     },
