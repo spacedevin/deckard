@@ -345,6 +345,89 @@ export fn ensureProjectSession(project) {
   while (project.session.slots.length > project.channels.length) {
     project.session.slots.pop()
   }
+  // Explicit song arrangement: [{ scene, repeat }]. Empty = derive the order from saved scenes (legacy).
+  if (!project.session.song) {
+    project.session.song = []
+  }
+}
+
+/** True when the project carries an explicit (non-empty) song arrangement, vs. the derived grid order. */
+export fn hasExplicitSong(project) {
+  return project != null && project.session != null && project.session.song != null && project.session.song.length > 0
+}
+
+/** Clamp a song entry list to valid scene indices and repeat >= 1; drops entries pointing nowhere. */
+export fn normalizeSongEntries(project, entries) {
+  ensureProjectSession(project)
+  let sc = Math.floor(Number(project.session.sceneCount))
+  let out = []
+  if (!entries) {
+    return out
+  }
+  let i = 0
+  while (i < entries.length) {
+    let e = entries[i]
+    let scene = Math.floor(Number(e.scene))
+    let rep = e.repeat != null ? Math.floor(Number(e.repeat)) : 1
+    if (rep < 1 || rep !== rep) {
+      rep = 1
+    }
+    if (scene >= 0 && scene < sc && scene === scene) {
+      out.push({ scene: scene, repeat: rep })
+    }
+    i = i + 1
+  }
+  return out
+}
+
+/** First scene of the song: explicit arrangement head if present, else the first saved scene. Sets the
+ *  song cursor (rt.songPos = { idx, rep }) so songAdvance can walk repeats. */
+export fn songStart(project, rt) {
+  ensureProjectSession(project)
+  if (hasExplicitSong(project)) {
+    let scene = Math.floor(Number(project.session.song[0].scene))
+    if (rt) {
+      rt.songPos = { idx: 0, rep: 0 }
+    }
+    return scene
+  }
+  if (rt) {
+    rt.songPos = null
+  }
+  return firstSongScene(project)
+}
+
+/** Advance the song by one play of the current scene. With an explicit arrangement, honours per-entry
+ *  repeats (P3 x4 plays four times) before moving to the next entry, wrapping at the end. Without one,
+ *  falls back to the derived next-saved-scene order. Updates rt.songPos and returns the next scene. */
+export fn songAdvance(project, rt, fromScene) {
+  ensureProjectSession(project)
+  if (hasExplicitSong(project)) {
+    let song = project.session.song
+    let pos = rt && rt.songPos != null ? rt.songPos : { idx: 0, rep: 0 }
+    let idx = Math.floor(Number(pos.idx))
+    let rep = Math.floor(Number(pos.rep))
+    if (idx < 0 || idx >= song.length || idx !== idx) {
+      idx = 0
+      rep = 0
+    }
+    let entry = song[idx]
+    let entryRep = entry.repeat != null ? Math.floor(Number(entry.repeat)) : 1
+    if (entryRep < 1) {
+      entryRep = 1
+    }
+    if (rep + 1 < entryRep) {
+      rep = rep + 1
+    } else {
+      idx = (idx + 1) % song.length
+      rep = 0
+    }
+    if (rt) {
+      rt.songPos = { idx: idx, rep: rep }
+    }
+    return Math.floor(Number(song[idx].scene))
+  }
+  return nextSongScene(project, fromScene)
 }
 
 /**

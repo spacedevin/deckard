@@ -1,0 +1,184 @@
+// Live session-control directives, expressed as TPL `@` lines so they travel in the same stream as
+// everything else — a player receiving the stream applies the host's launches to its OWN shared arming
+// and sees/hears the same thing. These mutate runtime (rt.*) state, so they're applied OUTSIDE the
+// project-only merge in Merge.tish (which has no rt). Format:
+//
+//   @ launch scene <idx0>                  arm a whole scene (master only)
+//   @ launch clip <trackId> <clipId|-|stop> per-track override (track owner only; - = follow song)
+//   @ transport song <scene0>              align the shared song position (master only)
+//   @ transport stop                       silence all tracks (master only)
+
+import { tokenize } from '../tpl/Parser.tish'
+import { laneCanMaster, actorMayEditTrack } from './Merge.tish'
+import {
+  ensureProjectSession,
+  sessionArmScene,
+  sessionStopAllTracks,
+  sessionStopTrack,
+  sceneSlotClipId
+} from '../model/Session.tish'
+
+// ---- emit (the SENDER builds these lines) -------------------------------------------------------
+
+export fn launchSceneDirective(sceneIdx) {
+  return "@ launch scene " + String(Math.floor(Number(sceneIdx)))
+}
+
+export fn launchClipDirective(trackId, clipId) {
+  let cid = clipId
+  if (cid == null || cid === "") {
+    cid = "-"
+  }
+  return "@ launch clip " + String(trackId) + " " + String(cid)
+}
+
+export fn launchClipStopDirective(trackId) {
+  return "@ launch clip " + String(trackId) + " stop"
+}
+
+export fn transportDirective(mode, sceneIdx) {
+  if (mode === "stop") {
+    return "@ transport stop"
+  }
+  return "@ transport " + String(mode) + " " + String(Math.floor(Number(sceneIdx)))
+}
+
+// ---- detect ------------------------------------------------------------------------------------
+
+/** True when a trimmed line is a session-control directive (`@ launch …` / `@ transport …`). */
+export fn isLaunchDirective(line) {
+  if (line == null) {
+    return false
+  }
+  let toks = tokenize(String(line).trim())
+  if (toks.length < 2 || toks[0] !== "@") {
+    return false
+  }
+  return toks[1] === "launch" || toks[1] === "transport"
+}
+
+fn channelIndexById(project, trackId) {
+  let i = 0
+  while (i < project.channels.length) {
+    if (project.channels[i].id === trackId) {
+      return i
+    }
+    i = i + 1
+  }
+  return -1
+}
+
+// ---- apply (the RECEIVER mutates its shared arming) --------------------------------------------
+
+/**
+ * Apply one control directive to the shared runtime arming. Returns true if it was a directive that
+ * was handled (whether or not authorization allowed the mutation), false if `line` is not a directive.
+ * Authority: scene + transport need master; per-track clip needs track ownership.
+ */
+export fn applyLaunchDirective(project, rt, line, actorId, skillIds) {
+  if (!isLaunchDirective(line)) {
+    return false
+  }
+  ensureProjectSession(project)
+  if (!rt.sessionArmedClipIds) {
+    rt.sessionArmedClipIds = []
+  }
+  if (!rt.trackOverrides) {
+    rt.trackOverrides = []
+  }
+  let toks = tokenize(String(line).trim())
+  let kind = toks[1]
+
+  if (kind === "launch" && toks.length >= 3 && toks[2] === "scene") {
+    if (!laneCanMaster(actorId, skillIds)) {
+      return true
+    }
+    let idx = Math.floor(Number(toks[3]))
+    let sc = Math.floor(Number(project.session.sceneCount))
+    if (idx < 0 || idx >= sc || idx !== idx) {
+      return true
+    }
+    // A full scene launch resets per-track overrides — every track follows the launched scene.
+    rt.trackOverrides = []
+    sessionArmScene(project, rt, idx)
+    rt.songScene = idx
+    rt.songPos = null
+    return true
+  }
+
+  if (kind === "launch" && toks.length >= 4 && toks[2] === "clip") {
+    let trackId = toks[3]
+    let clipId = toks.length >= 5 ? toks[4] : "-"
+    let tix = channelIndexById(project, trackId)
+    if (tix < 0) {
+      return true
+    }
+    // Per-track override is scoped to the track owner (or a new/unclaimed track).
+    if (!actorMayEditTrack(project, trackId, actorId, false)) {
+      return true
+    }
+    if (clipId === "stop") {
+      sessionStopTrack(project, rt, tix)
+      return true
+    }
+    if (clipId === "-" || clipId === ".") {
+      // Release: this track follows the current song scene again.
+      rt.trackOverrides[tix] = null
+      let scene = rt.songScene != null ? rt.songScene : (rt.sessionActiveScene != null ? rt.sessionActiveScene : 0)
+      rt.sessionArmedClipIds[tix] = sceneSlotClipId(project, scene, tix)
+      return true
+    }
+    rt.trackOverrides[tix] = clipId
+    rt.sessionArmedClipIds[tix] = clipId
+    return true
+  }
+
+  if (kind === "transport") {
+    if (!laneCanMaster(actorId, skillIds)) {
+      return true
+    }
+    let mode = toks.length >= 3 ? toks[2] : "stop"
+    if (mode === "stop") {
+      sessionStopAllTracks(project, rt)
+      rt.trackOverrides = []
+      return true
+    }
+    // song / sequence: align the shared song position so a follower that is playing matches the host.
+    if (toks.length >= 4) {
+      let scene = Math.floor(Number(toks[3]))
+      let sc = Math.floor(Number(project.session.sceneCount))
+      if (scene >= 0 && scene < sc && scene === scene) {
+        rt.trackOverrides = []
+        sessionArmScene(project, rt, scene)
+        rt.songScene = scene
+        rt.songPos = null
+      }
+    }
+    return true
+  }
+
+  return true
+}
+
+/**
+ * Split a streamed TPL source into control directives (applied here against rt) and the remaining
+ * project lines (returned for the normal master-gated project merge). Returns the leftover source.
+ */
+export fn applyLaunchLinesFromSource(project, rt, source, actorId, skillIds) {
+  if (source == null) {
+    return ""
+  }
+  let lines = String(source).split("\n")
+  let kept = []
+  let i = 0
+  while (i < lines.length) {
+    let ln = lines[i]
+    if (isLaunchDirective(ln)) {
+      applyLaunchDirective(project, rt, ln, actorId, skillIds)
+    } else {
+      kept.push(ln)
+    }
+    i = i + 1
+  }
+  return kept.join("\n")
+}

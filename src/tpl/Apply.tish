@@ -4,7 +4,8 @@ import {
   ensureChannelSessionClips,
   ensureProjectSession,
   tileStepsPattern,
-  normalizeClipStepLength
+  normalizeClipStepLength,
+  normalizeSongEntries
 } from '../model/Session.tish'
 import { paramKeyToCamel, snakeToCamel } from './RegistryMap.tish'
 import { parseBarSelector, barSelectorMatches } from './BarSelector.tish'
@@ -848,6 +849,12 @@ export fn applyParsed(project, parsed) {
   if (parsed.bpm !== null && parsed.bpm >= 40 && parsed.bpm <= 300) {
     project.bpm = parsed.bpm
   }
+  if (parsed.launchQuant !== null && parsed.launchQuant !== undefined) {
+    let lq = Math.floor(Number(parsed.launchQuant))
+    if (lq >= 1 && lq <= 256 && lq === lq) {
+      project.launchQuant = lq
+    }
+  }
   let userMacros = parsed.macros ? parsed.macros : {}
   let ti = 0
   while (ti < parsed.tracks.length) {
@@ -884,6 +891,9 @@ export fn applyParsed(project, parsed) {
   applySessionClipBlocks(project, parsed.clipBlocks ? parsed.clipBlocks : [], errs)
   applySessionGrid(project, parsed.sessionSceneCount, parsed.sessionSlots ? parsed.sessionSlots : [])
   ensureProjectSession(project)
+  if (parsed.song !== null && parsed.song !== undefined) {
+    project.session.song = normalizeSongEntries(project, parsed.song)
+  }
   if (parsed.masterMixTokens !== null && parsed.masterMixTokens !== undefined) {
     applyMasterMixFromTokens(project, parsed.masterMixTokens)
   }

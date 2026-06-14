@@ -4,6 +4,8 @@ import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
 import { emitProject, emitLivePlayback } from '../src/tpl/Emit.tish'
 import { applyTplSource, findChannelById } from '../src/tpl/Apply.tish'
 import { applyCoDjTplSource } from '../src/codj/Merge.tish'
+import { applyLaunchDirective, isLaunchDirective, launchSceneDirective, launchClipDirective, transportDirective, applyLaunchLinesFromSource } from '../src/codj/Launch.tish'
+import { setTrackOwner } from '../src/codj/CoDjMeta.tish'
 import { createTplLineStream, tplLineStreamPush } from '../src/tpl/Stream.tish'
 import { coDjLineAllowedForSkills } from '../src/codj/Skills.tish'
 import { deckSetCatalog, deckSetTplById } from '../src/model/DeckSets.tish'
@@ -11,7 +13,7 @@ import { emptyProjectShell } from '../src/model/Project.tish'
 import { parseBarSelector, barSelectorMatches } from '../src/tpl/BarSelector.tish'
 import { lookupMacro, expandMacroBody } from '../src/tpl/Macros.tish'
 import { resizeChannelBars, setRackBars, rackBars } from '../src/model/RackBars.tish'
-import { ensureProjectSession, sessionWriteRackToSceneClip, loadSceneIntoRack, sessionArmScene, playbackClipForChannel, firstSongScene, nextSongScene, sceneHasSavedClip, sceneBarLength, armSceneWithOverrides, sceneSlotClipId, findClipOnChannel, loadSceneBarIntoRack, sessionWriteRackBarToSceneClip, sessionStopTrack, sessionTrackStopped, sessionEffectiveArmedClipId } from '../src/model/Session.tish'
+import { ensureProjectSession, sessionWriteRackToSceneClip, loadSceneIntoRack, sessionArmScene, playbackClipForChannel, firstSongScene, nextSongScene, sceneHasSavedClip, sceneBarLength, armSceneWithOverrides, sceneSlotClipId, findClipOnChannel, loadSceneBarIntoRack, sessionWriteRackBarToSceneClip, sessionStopTrack, sessionTrackStopped, sessionEffectiveArmedClipId, songStart, songAdvance, hasExplicitSong, normalizeSongEntries } from '../src/model/Session.tish'
 import { toggleStep, clearAllSteps } from '../src/model/Edits.tish'
 
 let pass = 0
@@ -369,6 +371,99 @@ check("stop track: other tracks untouched", stRt.sessionArmedClipIds[0] !== "" |
 armSceneWithOverrides(stProj, stRt, 0)
 check("stop track: stays silent across scene (re)arm", stRt.sessionArmedClipIds[1] === "")
 check("stop track: not stopped for a track that was never stopped", sessionTrackStopped(stRt, 0) === false)
+
+// 5r. Explicit `song` arrangement + `launch_quant` scalar round-trip through TPL.
+let sgProj = loadDefaultDeckardProject().project
+ensureProjectSession(sgProj)
+sgProj.launchQuant = 8
+sgProj.session.song = [{ scene: 0, repeat: 2 }, { scene: 2, repeat: 1 }, { scene: 1, repeat: 4 }]
+let sgEmit = emitProject(sgProj)
+check("emit: launch_quant scalar present", sgEmit.indexOf("launch_quant 8") >= 0)
+check("emit: song block header present", sgEmit.indexOf("\nsong\n") >= 0)
+check("emit: song entry with repeat (P1 x2)", sgEmit.indexOf("  P1 x2") >= 0)
+check("emit: song entry without repeat omits xN (P3)", sgEmit.indexOf("  P3\n") >= 0)
+check("emit: song entry P2 x4", sgEmit.indexOf("  P2 x4") >= 0)
+let sgBack = loadDefaultDeckardProject().project
+applyTplSource(sgBack, sgEmit)
+check("round-trip: launch_quant preserved", sgBack.launchQuant === 8)
+check("round-trip: song length preserved", sgBack.session.song != null && sgBack.session.song.length === 3)
+check("round-trip: song entry 0 = scene 0 x2", sgBack.session.song[0].scene === 0 && sgBack.session.song[0].repeat === 2)
+check("round-trip: song entry 1 = scene 2 x1", sgBack.session.song[1].scene === 2 && sgBack.session.song[1].repeat === 1)
+check("round-trip: song entry 2 = scene 1 x4", sgBack.session.song[2].scene === 1 && sgBack.session.song[2].repeat === 4)
+
+// 5s. songStart / songAdvance walk the explicit arrangement repeat-aware, wrapping at the end.
+let sgRt = {}
+let s0 = songStart(sgBack, sgRt)
+check("songStart: head of arrangement (scene 0)", s0 === 0 && sgRt.songPos.idx === 0 && sgRt.songPos.rep === 0)
+let s1 = songAdvance(sgBack, sgRt, s0)
+check("songAdvance: repeat keeps same scene (P1 x2, play 2)", s1 === 0 && sgRt.songPos.rep === 1)
+let s2 = songAdvance(sgBack, sgRt, s1)
+check("songAdvance: next entry (scene 2)", s2 === 2 && sgRt.songPos.idx === 1)
+let s3 = songAdvance(sgBack, sgRt, s2)
+check("songAdvance: third entry (scene 1, first of x4)", s3 === 1 && sgRt.songPos.idx === 2 && sgRt.songPos.rep === 0)
+let s4 = songAdvance(sgBack, sgRt, s3)
+let s5 = songAdvance(sgBack, sgRt, s4)
+let s6 = songAdvance(sgBack, sgRt, s5)
+check("songAdvance: scene 1 repeats x4 then wraps to head", s4 === 1 && s5 === 1 && s6 === 1)
+let s7 = songAdvance(sgBack, sgRt, s6)
+check("songAdvance: wraps back to scene 0", s7 === 0 && sgRt.songPos.idx === 0)
+
+// 5t. No song block → derived order (legacy); emit omits the song block.
+let dvProj = loadDefaultDeckardProject().project
+ensureProjectSession(dvProj)
+check("no song block: emit omits song header", emitProject(dvProj).indexOf("\nsong\n") < 0)
+let dvRt = {}
+check("no song block: songStart falls back to firstSongScene", songStart(dvProj, dvRt) === firstSongScene(dvProj) && dvRt.songPos === null)
+
+// 5u. Synchronized launches: a host's `@ launch` / `@ transport` directives applied against a
+// FOLLOWER's runtime move the follower's shared arming — the heart of issue #1 (model B).
+let MASTER = ["master_mixer", "pattern_steps"]
+let GUEST = ["pattern_steps"]
+check("directive detect: launch scene", isLaunchDirective("@ launch scene 2") === true)
+check("directive detect: transport", isLaunchDirective("@ transport song 1") === true)
+check("directive detect: plain TPL is not a directive", isLaunchDirective("  steps x . x .") === false)
+check("directive emit: scene", launchSceneDirective(2) === "@ launch scene 2")
+check("directive emit: clip release", launchClipDirective("kick", "") === "@ launch clip kick -")
+
+// Follower project: save scene 0 + scene 1 so they hold distinct clips to arm.
+let fwProj = loadDefaultDeckardProject().project
+ensureProjectSession(fwProj)
+sessionWriteRackToSceneClip(fwProj, 0)
+sessionWriteRackToSceneClip(fwProj, 1)
+let fwRt = { sessionArmedClipIds: [], trackOverrides: [] }
+// Host (master) launches scene 1 → follower arms every track to scene 1's slots + songScene=1.
+let handled = applyLaunchDirective(fwProj, fwRt, launchSceneDirective(1), "actor-host", MASTER)
+check("launch scene: directive handled", handled === true)
+check("launch scene: follower armed to scene 1 slot (track 0)", fwRt.sessionArmedClipIds[0] === sceneSlotClipId(fwProj, 1, 0))
+check("launch scene: follower songScene = 1", fwRt.songScene === 1)
+
+// A NON-master guest cannot launch a scene (gated) — arming unchanged from the master's launch.
+applyLaunchDirective(fwProj, fwRt, launchSceneDirective(0), "actor-guest", GUEST)
+check("launch scene: non-master rejected (still scene 1)", fwRt.songScene === 1 && fwRt.sessionArmedClipIds[0] === sceneSlotClipId(fwProj, 1, 0))
+
+// Per-track clip override: only the track OWNER may set it. Give the guest ownership of track 2.
+setTrackOwner(fwProj, fwProj.channels[2].id, "actor-guest", "actor-guest")
+let ovClip = fwProj.channels[2].id + "_sc0"
+applyLaunchDirective(fwProj, fwRt, launchClipDirective(fwProj.channels[2].id, ovClip), "actor-guest", GUEST)
+check("launch clip: owner override applied", fwRt.sessionArmedClipIds[2] === ovClip && fwRt.trackOverrides[2] === ovClip)
+// A different actor (not owner, not master) cannot override that track.
+applyLaunchDirective(fwProj, fwRt, launchClipDirective(fwProj.channels[2].id, fwProj.channels[2].id + "_sc1"), "actor-other", GUEST)
+check("launch clip: non-owner rejected", fwRt.sessionArmedClipIds[2] === ovClip)
+
+// transport stop (master) silences every track.
+applyLaunchDirective(fwProj, fwRt, transportDirective("stop", 0), "actor-host", MASTER)
+check("transport stop: all tracks silenced", fwRt.sessionArmedClipIds[0] === "" && fwRt.sessionArmedClipIds[2] === "")
+
+// 5v. Receive-routing splitter: a mixed block (control directive + project line) applies the directive
+// to rt and returns ONLY the project lines for the master-gated merge (mirrors the co-DJ apply path).
+let mxProj = loadDefaultDeckardProject().project
+ensureProjectSession(mxProj)
+sessionWriteRackToSceneClip(mxProj, 1)
+let mxRt = { sessionArmedClipIds: [], trackOverrides: [] }
+let mxRest = applyLaunchLinesFromSource(mxProj, mxRt, "tpl 1\n@ launch scene 1\nbpm 145\n", "actor-host", MASTER)
+check("splitter: directive applied to rt (songScene 1)", mxRt.songScene === 1)
+check("splitter: directive line stripped from remainder", mxRest.indexOf("@ launch") < 0)
+check("splitter: project line kept in remainder", mxRest.indexOf("bpm 145") >= 0)
 
 // 6. Every stem deck set parses cleanly into >= 5 stems (the deck.tsx conversions)
 let cat = deckSetCatalog()

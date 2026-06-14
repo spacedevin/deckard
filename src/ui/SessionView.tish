@@ -10,6 +10,15 @@ import {
   sessionTrackStopped
 } from '../model/Session.tish'
 import { channelDeck, channelDeckColor } from '../model/DeckRouting.tish'
+import { launchClipDirective, launchClipStopDirective } from '../codj/Launch.tish'
+
+// Broadcast a session-control directive to collaborators, if connected (no-op offline).
+fn pushControl(rt, line) {
+  if (rt && rt.coDjPushControl) {
+    let step = rt.nextLaunchStep ? rt.nextLaunchStep() : 0
+    rt.coDjPushControl([line], step)
+  }
+}
 
 // Session clips follow the deck colour of their channel — same scheme as the sequencer / deck
 // (Deck A = cyan, Deck B = magenta) so the whole app reads as one colour system.
@@ -169,6 +178,8 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
     } else if (rt.sessionArmedClipIds) {
       rt.sessionArmedClipIds[trackIdx] = target
     }
+    // Collaborators follow this per-track launch (owner-scoped on their side). next == null = release.
+    pushControl(rt, launchClipDirective(project.channels[trackIdx].id, next != null ? next : ""))
     if (bumpSessionUi) {
       bumpSessionUi()
     }
@@ -190,6 +201,7 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
   // The ■ button stops just this track's clip — silent until a clip / scene is launched again. Instant.
   fn stopTrack(trackIdx) {
     sessionStopTrack(project, rt, trackIdx)
+    pushControl(rt, launchClipStopDirective(project.channels[trackIdx].id))
     if (bumpSessionUi) {
       bumpSessionUi()
     }

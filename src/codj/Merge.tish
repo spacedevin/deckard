@@ -8,7 +8,7 @@ import {
   applySessionClipBlocks,
   applySessionGrid
 } from '../tpl/Apply.tish'
-import { ensureProjectSession } from '../model/Session.tish'
+import { ensureProjectSession, normalizeSongEntries } from '../model/Session.tish'
 import { tplLoopResetChannel } from '../tpl/LoopState.tish'
 import { findChannelById } from '../tpl/Apply.tish'
 import { ensureCoDjMeta, setTrackOwner, setTrackTouched } from './CoDjMeta.tish'
@@ -34,7 +34,7 @@ export fn actorMayEditTrack(project, channelId, actorId, isNewTrack) {
  * Prefer the actor's declared skillIds; fall back to the legacy actorId substring check
  * only when skillIds are absent (e.g. a message that predates skill stamping).
  */
-fn laneCanMaster(actorId, skillIds) {
+export fn laneCanMaster(actorId, skillIds) {
   if (Array.isArray(skillIds)) {
     return skillIdsAllowMaster(skillIds)
   }
@@ -53,6 +53,12 @@ export fn applyCoDjTplSource(project, source, actorId, authorId, currentPerfStep
   let errs = parsed.errors
   if (canMaster && parsed.bpm !== null && parsed.bpm >= 40 && parsed.bpm <= 300) {
     project.bpm = parsed.bpm
+  }
+  if (canMaster && parsed.launchQuant !== null && parsed.launchQuant !== undefined) {
+    let lq = Math.floor(Number(parsed.launchQuant))
+    if (lq >= 1 && lq <= 256 && lq === lq) {
+      project.launchQuant = lq
+    }
   }
   let ti = 0
   while (ti < parsed.tracks.length) {
@@ -90,6 +96,9 @@ export fn applyCoDjTplSource(project, source, actorId, authorId, currentPerfStep
     applySessionClipBlocks(project, parsed.clipBlocks ? parsed.clipBlocks : [], errs)
     applySessionGrid(project, parsed.sessionSceneCount, parsed.sessionSlots ? parsed.sessionSlots : [])
     ensureProjectSession(project)
+    if (parsed.song !== null && parsed.song !== undefined) {
+      project.session.song = normalizeSongEntries(project, parsed.song)
+    }
     applyAutos(project, parsed.autos)
   }
   return { errors: errs, applied: true }

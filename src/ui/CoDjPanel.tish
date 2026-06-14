@@ -4,6 +4,7 @@ import { h, Fragment, useState } from '@tishlang/lattish'
 import { applyCoDjTplSource } from '../codj/Merge.tish'
 import { coDjClearOverlays } from '../codj/Overlay.tish'
 import { coDjHandleIncomingTplBlock } from '../codj/Schedule.tish'
+import { applyLaunchLinesFromSource } from '../codj/Launch.tish'
 import { createTplLineStream, tplLineStreamPush } from '../tpl/Stream.tish'
 import { emitProject } from '../tpl/Emit.tish'
 import { loadProjectFromTpl } from '../model/ProjectLoad.tish'
@@ -49,13 +50,15 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       if (!p) {
         return
       }
-      let s = tpl
-      if (s.indexOf("tpl ") !== 0) {
-        s = "tpl 1\n" + s
-      }
       let step = perfStep
       if (step === undefined || step === null) {
         step = typeof rt.perfStep === "number" ? rt.perfStep : 0
+      }
+      // Session-control directives (@ launch / @ transport) mutate shared runtime arming — apply them
+      // here (we have rt) and merge only the remaining project lines through the master-gated path.
+      let s = applyLaunchLinesFromSource(p, rt, tpl, actorId, skillIds)
+      if (s.indexOf("tpl ") !== 0) {
+        s = "tpl 1\n" + s
       }
       applyCoDjTplSource(p, s, actorId, authorId, step, skillIds)
     }
@@ -262,14 +265,15 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       if (rt) {
         rt.coDjStreamDirty = true
       }
-      let applySrc = r.tpl
-      if (applySrc.indexOf("tpl ") !== 0) {
-        applySrc = "tpl 1\n" + applySrc
-      }
       let p = rt && rt.project ? rt.project : project
       let effStep = msg.effectivePerfStep
       if (effStep === undefined || effStep === null) {
         effStep = rt && typeof rt.perfStep === "number" ? rt.perfStep : 0
+      }
+      // Apply session-control directives to shared arming, merge the rest through the gated path.
+      let applySrc = applyLaunchLinesFromSource(p, rt, r.tpl, actorId, msg.skillIds)
+      if (applySrc.indexOf("tpl ") !== 0) {
+        applySrc = "tpl 1\n" + applySrc
       }
       applyCoDjTplSource(p, applySrc, actorId, authorId, effStep, msg.skillIds)
       setProject(p)

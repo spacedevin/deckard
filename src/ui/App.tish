@@ -15,6 +15,7 @@ import { InstrumentPanel } from './InstrumentPanel.tish'
 import { InstrumentEditor } from './InstrumentEditor.tish'
 import { PatchBayPanel } from './PatchBayPanel.tish'
 import { CoDjPanel } from './CoDjPanel.tish'
+import { launchSceneDirective, transportDirective } from '../codj/Launch.tish'
 import {
   PianoRollCanvas,
   PianoRollZoomBar,
@@ -49,6 +50,8 @@ import {
   loadSceneBarIntoRack,
   firstSongScene,
   nextSongScene,
+  songStart,
+  songAdvance,
   sceneBarLength,
   armSceneWithOverrides,
   mirrorStepToggleToMainClip,
@@ -76,9 +79,6 @@ export fn App() {
   let [selectedCh, setSelectedCh] = useState(3)
   let [playing, setPlaying] = useState(false)
   let [playMode, setPlayMode] = useState("sequence")
-  // Global launch quantize, in 16th steps: clip / scene launches drop on the next multiple of this.
-  // 4 = 1/4, 8 = 1/2, 16 = 1 bar (default), 32 = 2 bars.
-  let [launchQuant, setLaunchQuant] = useState(16)
   let [workspaceTab, setWorkspaceTab] = useState("sequencer")
   let [sessionUiGen, setSessionUiGen] = useState(0)
   let [seqPromoteUi, setSeqPromoteUi] = useState(0)
@@ -117,7 +117,21 @@ export fn App() {
   rt.setSelectedCh = setSelectedCh
   rt.playing = playing
   rt.playMode = playMode
+  // Launch quantize lives on the project (source of truth) so it round-trips in TPL and syncs to every
+  // player via the host snapshot / stream — same value, same UI everywhere. 16 steps = 1 bar default.
+  let launchQuant = project.launchQuant != null && Math.floor(Number(project.launchQuant)) >= 1
+    ? Math.floor(Number(project.launchQuant))
+    : 16
   rt.launchQuantSteps = launchQuant
+  fn setLaunchQuant(q) {
+    let v = Math.floor(Number(q))
+    if (v < 1 || v !== v) {
+      v = 16
+    }
+    project.launchQuant = v
+    rt.launchQuantSteps = v
+    setProjectFromUI(project)
+  }
 
   // Transport hotkeys: Space = Play/Stop Sequence (monitor the rack), Enter = Play/Stop Song (live
   // arrangement). Ignored while typing in an input / textarea / contenteditable.
@@ -387,14 +401,16 @@ export fn App() {
     globalTick = 0
     tplLoopResetAll()
     if (pm === "song") {
-      // A song starts at the first saved pattern and auto-advances through the rest (see playbackTick).
-      // Per-track clip overrides (from clicking single clips) are honoured on top of each scene.
-      let scn = firstSongScene(project)
+      // A song starts at the head of the explicit arrangement (or the first saved pattern when none is
+      // set) and auto-advances through it (see playbackTick). Per-track clip overrides are honoured on
+      // top of each scene. songStart seeds the song cursor (rt.songPos) for repeat-aware advancing.
+      let scn = songStart(project, rt)
       armSceneWithOverrides(project, rt, scn)
       rt.songScene = scn
       rt.songSceneEndTick = sceneBarLength(project, scn) * coDjStepsPerBar()
-      // Tell collaborators which pattern this deck starts on.
+      // Tell collaborators which pattern this deck starts on, and align the shared song position.
       coDjPushLive(project, rt, 0)
+      coDjPushControl([transportDirective("song", scn)], 0)
     } else {
       rt.songScene = null
       rt.songSceneEndTick = null
@@ -457,10 +473,10 @@ export fn App() {
               armedChanged = true
             }
             if (onBar && r.songSceneEndTick != null && globalTick >= r.songSceneEndTick) {
-              // The current pattern has played its length — advance to the next saved pattern,
-              // keeping per-track overrides applied on top of the new scene.
+              // The current pattern has played its length — advance along the explicit arrangement
+              // (repeat-aware) or the derived order, keeping per-track overrides on top of the new scene.
               let cur = r.songScene != null ? r.songScene : 0
-              let nxt = nextSongScene(p, cur)
+              let nxt = songAdvance(p, r, cur)
               if (nxt !== cur) {
                 armSceneWithOverrides(p, r, nxt)
                 r.songScene = nxt
@@ -554,6 +570,38 @@ export fn App() {
     rtObj.coDjWs.send(payload)
   }
 
+  // The perf step a launch should land on: the next launch-quantize boundary while playing (so a
+  // follower commits the host's launch on the same boundary), else 0 (apply on receipt).
+  fn nextLaunchStep() {
+    if (!rt.playing) {
+      return 0
+    }
+    let ps = typeof rt.perfStep === "number" ? Math.floor(rt.perfStep) : 0
+    let q = rt.launchQuantSteps != null && Math.floor(rt.launchQuantSteps) >= 1 ? Math.floor(rt.launchQuantSteps) : 16
+    return (Math.floor(ps / q) + 1) * q
+  }
+
+  // Broadcast session-control directives (@ launch / @ transport) to the hub at a quantized step, so
+  // every player applies the same launch to their shared arming — same UI, same sound (issue #1, B).
+  fn coDjPushControl(directiveLines, effStep) {
+    if (!(rt && rt.coDjWs && rt.coDjWs.readyState === 1)) {
+      return
+    }
+    if (!directiveLines || directiveLines.length === 0) {
+      return
+    }
+    let aid = rt.coDjActorId ? rt.coDjActorId : (rt.coDjClientId ? rt.coDjClientId : "actor")
+    rt.coDjWs.send(JSON.stringify({
+      type: "tpl.block",
+      lines: directiveLines,
+      effectivePerfStep: effStep,
+      actorId: aid,
+      authorId: aid
+    }))
+  }
+  rt.coDjPushControl = coDjPushControl
+  rt.nextLaunchStep = nextLaunchStep
+
   fn curViewBar() {
     return rt.gridViewBar != null ? Math.floor(Number(rt.gridViewBar)) : 0
   }
@@ -625,6 +673,8 @@ export fn App() {
       let b = coDjStepsPerBar()
       coDjPushLive(project, rt, (Math.floor(ps / b) + 1) * b)
     }
+    // Tell collaborators to follow this scene launch on the same quantize boundary (shared session).
+    coDjPushControl([launchSceneDirective(si)], nextLaunchStep())
     bumpSessionUi()
     if (rt.playing && rt.bumpSeqPromoteUi) {
       rt.bumpSeqPromoteUi()
@@ -636,6 +686,8 @@ export fn App() {
     if (rt.coDjNotifyPlaying) {
       rt.coDjNotifyPlaying(false)
     }
+    // A master stopping the transport stops the shared session for followers too (apply on receipt).
+    coDjPushControl([transportDirective("stop", 0)], 0)
     if (playbackTimer) {
       clearTimeout(playbackTimer)
       playbackTimer = null

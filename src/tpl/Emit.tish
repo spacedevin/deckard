@@ -30,7 +30,11 @@ export fn emitProjectInner(project, skipSync) {
   }
   ensureProjectSession(project)
   let o = "tpl 1\n"
-  o = o + "bpm " + formatTplFloat(project.bpm) + "\n\n"
+  o = o + "bpm " + formatTplFloat(project.bpm) + "\n"
+  if (project.launchQuant != null && Math.floor(Number(project.launchQuant)) >= 1) {
+    o = o + "launch_quant " + String(Math.floor(Number(project.launchQuant))) + "\n"
+  }
+  o = o + "\n"
 
   let ci = 0
   while (ci < project.channels.length) {
@@ -285,6 +289,25 @@ export fn emitProjectInner(project, skipSync) {
     sti = sti + 1
   }
   o = o + "\n"
+  // Explicit song arrangement (optional): `song` then one `P<n> [xN]` per entry. Absent = derived order.
+  if (project.session.song && project.session.song.length > 0) {
+    o = o + "song\n"
+    let sgi = 0
+    while (sgi < project.session.song.length) {
+      let e = project.session.song[sgi]
+      let rep = e.repeat != null ? Math.floor(Number(e.repeat)) : 1
+      if (rep < 1) {
+        rep = 1
+      }
+      o = o + "  P" + String(Math.floor(Number(e.scene)) + 1)
+      if (rep > 1) {
+        o = o + " x" + String(rep)
+      }
+      o = o + "\n"
+      sgi = sgi + 1
+    }
+    o = o + "\n"
+  }
   let eci = 0
   while (eci < project.channels.length) {
     let ech = project.channels[eci]

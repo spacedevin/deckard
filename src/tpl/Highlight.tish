@@ -5,9 +5,11 @@ import { tokenize } from './Parser.tish'
 let TOP_KEYS = {}
 TOP_KEYS["tpl"] = true
 TOP_KEYS["bpm"] = true
+TOP_KEYS["launch_quant"] = true
 TOP_KEYS["track"] = true
 TOP_KEYS["auto"] = true
 TOP_KEYS["macro"] = true
+TOP_KEYS["song"] = true
 
 let BODY_KEYS = {}
 BODY_KEYS["mix"] = true
