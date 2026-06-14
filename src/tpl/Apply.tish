@@ -5,7 +5,8 @@ import {
   ensureProjectSession,
   tileStepsPattern,
   normalizeClipStepLength,
-  normalizeSongEntries
+  normalizeSongEntries,
+  normalizeFollow
 } from '../model/Session.tish'
 import { paramKeyToCamel, snakeToCamel } from './RegistryMap.tish'
 import { parseBarSelector, barSelectorMatches } from './BarSelector.tish'
@@ -855,6 +856,12 @@ export fn applyParsed(project, parsed) {
       project.launchQuant = lq
     }
   }
+  if (parsed.songSeed !== null && parsed.songSeed !== undefined) {
+    let ss = Math.floor(Number(parsed.songSeed))
+    if (ss === ss) {
+      project.songSeed = ss
+    }
+  }
   let userMacros = parsed.macros ? parsed.macros : {}
   let ti = 0
   while (ti < parsed.tracks.length) {
@@ -893,6 +900,9 @@ export fn applyParsed(project, parsed) {
   ensureProjectSession(project)
   if (parsed.song !== null && parsed.song !== undefined) {
     project.session.song = normalizeSongEntries(project, parsed.song)
+  }
+  if (parsed.follow !== null && parsed.follow !== undefined) {
+    project.session.follow = normalizeFollow(project, parsed.follow)
   }
   if (parsed.masterMixTokens !== null && parsed.masterMixTokens !== undefined) {
     applyMasterMixFromTokens(project, parsed.masterMixTokens)

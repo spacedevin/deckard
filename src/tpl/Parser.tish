@@ -43,7 +43,9 @@ export fn parseProgram(source) {
   let sessionSceneCount = null
   let sessionSlots = []
   let launchQuant = null
+  let songSeed = null
   let songEntries = null
+  let followEntries = null
   let currentClip = null
 
   let src = source
@@ -63,6 +65,7 @@ export fn parseProgram(source) {
   let curMacroParams = {}
   let curMacroLines = []
   let inSong = false
+  let inFollow = false
 
   while (i < raw.length) {
     let fullLine = raw[i]
@@ -148,6 +151,31 @@ export fn parseProgram(source) {
       }
       continue
     }
+    // A dedent ends a `follow` block (its entries are indented).
+    if (!isIndented && inFollow) {
+      inFollow = false
+    }
+    // Follow entry: `P<scene1> <actionA> <weightA> [<actionB> <weightB>]` (1-based scene).
+    if (isIndented && inFollow) {
+      let ftok = toks[0]
+      let fScene = null
+      if (ftok.length >= 2 && (ftok.charAt(0) === "P" || ftok.charAt(0) === "p")) {
+        fScene = Math.floor(Number(ftok.substring(1))) - 1
+      } else if (isNumberToken(ftok)) {
+        fScene = Math.floor(Number(ftok)) - 1
+      }
+      if (fScene !== null && fScene >= 0 && fScene === fScene && toks.length >= 2) {
+        let aAct = toks[1]
+        let aW = toks.length >= 3 && isNumberToken(toks[2]) ? Number(toks[2]) : 1
+        let bAct = toks.length >= 4 ? toks[3] : null
+        let bW = toks.length >= 5 && isNumberToken(toks[4]) ? Number(toks[4]) : 0
+        if (followEntries == null) {
+          followEntries = []
+        }
+        followEntries.push({ scene: fScene, a: aAct, wa: aW, b: bAct, wb: bW })
+      }
+      continue
+    }
 
     if (inGenBlock && currentTrack) {
       if (toks.length >= 2 && toks[0] === "end" && toks[1] === "gen_block") {
@@ -206,6 +234,12 @@ export fn parseProgram(source) {
       }
       continue
     }
+    if (head === "song_seed") {
+      if (toks.length >= 2) {
+        songSeed = Math.floor(Number(toks[1]))
+      }
+      continue
+    }
     if (head === "macro" && toks.length >= 2) {
       currentClip = null
       currentTrack = null
@@ -234,6 +268,13 @@ export fn parseProgram(source) {
       currentTrack = null
       inSong = true
       songEntries = []
+      continue
+    }
+    if (head === "follow") {
+      currentClip = null
+      currentTrack = null
+      inFollow = true
+      followEntries = []
       continue
     }
     if (head === "session_scenes" && toks.length >= 2) {
@@ -367,7 +408,9 @@ export fn parseProgram(source) {
     sessionSceneCount: sessionSceneCount,
     sessionSlots: sessionSlots,
     song: songEntries,
+    follow: followEntries,
     launchQuant: launchQuant,
+    songSeed: songSeed,
     errors: errors
   }
 }

@@ -38,7 +38,7 @@ fn topLevelHead(trimmed) {
 
 // Statements that have an indented body — they stay "open" and re-apply as the body streams.
 fn isBlockOpener(head) {
-  return head === "track" || head === "clip" || head === "auto" || head === "song"
+  return head === "track" || head === "clip" || head === "auto" || head === "song" || head === "follow"
 }
 
 // Statements that are complete on one line — apply immediately, no open block left dangling.
@@ -46,6 +46,7 @@ fn isStandaloneTopLevel(head) {
   return (
     head === "bpm" ||
     head === "launch_quant" ||
+    head === "song_seed" ||
     head === "master_mix" ||
     head === "actor_mix" ||
     head === "session_scenes" ||

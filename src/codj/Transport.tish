@@ -1,0 +1,45 @@
+// Shared transport clock for the co-DJ session. The HOST is the clock master: while it plays it
+// broadcasts its playhead (perfStep + song scene) once per bar. FOLLOWERS slave their local transport
+// tick to the host so every player is on the same bar/step — the foundation of "everyone hears and sees
+// the same thing." Pure logic here (no DOM / ws); App.tish + CoDjPanel.tish do the wiring.
+
+/** Build the per-bar clock control payload the host broadcasts. */
+export fn coDjClockPayload(actorId, perfStep, scene, bpm) {
+  return {
+    type: "control",
+    op: "clock",
+    actorId: actorId,
+    authorId: actorId,
+    perfStep: Math.floor(Number(perfStep)),
+    scene: scene != null ? Math.floor(Number(scene)) : null,
+    bpm: bpm != null ? Number(bpm) : null
+  }
+}
+
+/** True when `rt` should slave its transport to a host clock: it's a follower (not the host) and the
+ *  user hasn't switched to independent mode (rt.coDjFollowTransport === false). */
+export fn coDjShouldFollow(rt) {
+  if (!rt) {
+    return false
+  }
+  if (rt.coDjIsHost === true) {
+    return false
+  }
+  return rt.coDjFollowTransport !== false
+}
+
+/**
+ * Decide the tick a follower should adopt given its own `localTick` and the host's reported `hostTick`.
+ * Small drift is left alone (avoids audible micro-snapping every bar); drift beyond `threshold` snaps to
+ * the host. Returns an integer tick. The host keeps advancing during message latency, so on a snap we
+ * nudge one step past the reported value to land closer to where the host actually is.
+ */
+export fn coDjClockAlign(localTick, hostTick, threshold) {
+  let lt = Math.floor(Number(localTick))
+  let ht = Math.floor(Number(hostTick))
+  let th = threshold != null && Math.floor(Number(threshold)) >= 0 ? Math.floor(Number(threshold)) : 1
+  if (Math.abs(lt - ht) > th) {
+    return ht + 1
+  }
+  return lt
+}

@@ -7,7 +7,9 @@ import {
   sessionQueueScene,
   sessionStopAllTracks,
   sessionStopTrack,
-  sessionTrackStopped
+  sessionTrackStopped,
+  sceneFollow,
+  setSceneFollow
 } from '../model/Session.tish'
 import { channelDeck, channelDeckColor } from '../model/DeckRouting.tish'
 import { launchClipDirective, launchClipStopDirective } from '../codj/Launch.tish'
@@ -209,6 +211,94 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
     setProjectFromUI(project)
   }
 
+  // ---- Follow actions: per-scene "then →" rule with a deterministic A/B chance ratio. Writing it is
+  // master/project state, so it streams to collaborators via the normal project sync.
+  fn applyFollow(si, a, wa, b, wb) {
+    setSceneFollow(project, si, a, wa, b, wb)
+    if (bumpSessionUi) {
+      bumpSessionUi()
+    }
+    setProjectFromUI(project)
+  }
+  fn onFollowA(si, val) {
+    let f = sceneFollow(project, si)
+    applyFollow(si, val, f ? f.wa : 1, f ? f.b : null, f ? f.wb : 0)
+  }
+  fn onFollowB(si, val) {
+    let f = sceneFollow(project, si)
+    let a = f ? f.a : "repeat"
+    let wa = f && f.wa != null && f.b != null ? f.wa : 50
+    let wb = f && f.b != null ? f.wb : 50
+    applyFollow(si, a, wa, val, wb)
+  }
+  // Toggle the weighted second action on/off (progressive disclosure of the chance ratio).
+  fn toggleFollowB(si) {
+    let f = sceneFollow(project, si)
+    if (f != null && f.b != null) {
+      applyFollow(si, f.a, 1, null, 0)
+    } else {
+      applyFollow(si, f ? f.a : "repeat", 50, "next", 50)
+    }
+  }
+  fn onFollowChance(si, pct) {
+    let f = sceneFollow(project, si)
+    if (!f || f.b == null) {
+      return
+    }
+    let p = Math.floor(Number(pct))
+    if (p < 0) { p = 0 }
+    if (p > 100) { p = 100 }
+    applyFollow(si, f.a, p, f.b, 100 - p)
+  }
+  // Short, readable labels (full text fits a full-width select; glyphs alone were illegible when tiny).
+  fn followOptions(selVal) {
+    let list = [["repeat", "↻ Loop"], ["next", "→ Next"], ["prev", "← Prev"], ["first", "⏮ First"], ["last", "⏭ Last"], ["any", "✦ Any"], ["stop", "■ Stop"]]
+    let opts = []
+    let i = 0
+    while (i < list.length) {
+      opts.push(<option value={list[i][0]} selected={selVal === list[i][0]}>{list[i][1]}</option>)
+      i = i + 1
+    }
+    return opts
+  }
+  fn followRow(si) {
+    let f = sceneFollow(project, si)
+    // No entry → the scene loops (the Ableton default), shown as "Loop".
+    let aVal = f ? f.a : "repeat"
+    let hasB = f != null && f.b != null
+    let total = f ? (Number(f.wa) + Number(f.wb)) : 1
+    let pctA = hasB && total > 0 ? Math.round(Number(f.wa) / total * 100) : 100
+    let bVal = hasB ? f.b : "next"
+    let mixCls = hasB ? "follow-mix follow-mix-on" : "follow-mix"
+    let line2 = null
+    if (hasB) {
+      line2 = (
+        <div class="follow-line2" title={"The rest of the time, do this instead (weighted chance)"}>
+          <span class="follow-else">{"↳"}</span>
+          <select class="follow-sel follow-sel-b" value={bVal} onchange={(e) => onFollowB(si, e.target.value)}>
+            {followOptions(bVal)}
+          </select>
+          <input type="number" class="follow-pct" min="0" max="100" value={String(100 - pctA)} oninput={(e) => onFollowChance(si, 100 - Number(e.target.value))} title={"Chance of this second action"} />
+          <span class="follow-pct-sign">{"%"}</span>
+        </div>
+      )
+    }
+    return (
+      <div class="session-scene-follow" title={"After this pattern plays, do this. Add a weighted second action (⚖) for a deterministic chance (seeded — same for every player)."}>
+        <div class="follow-line1">
+          <span class="session-scene-oplabel">{"THEN"}</span>
+          <select class="follow-sel" value={aVal} onchange={(e) => onFollowA(si, e.target.value)}>
+            {followOptions(aVal)}
+          </select>
+          <button type="button" class={mixCls} title={hasB ? "Remove the weighted second action" : "Add a weighted second action (chance ratio)"} onclick={() => toggleFollowB(si)}>
+            {"⚖"}
+          </button>
+        </div>
+        {line2}
+      </div>
+    )
+  }
+
   fn stopAll() {
     sessionStopAllTracks(project, rt)
     rt.trackOverrides = []
@@ -280,6 +370,7 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
               {"ALL"}
             </button>
           </div>
+          {followRow(sceneI)}
         </div>
       )
     } else {

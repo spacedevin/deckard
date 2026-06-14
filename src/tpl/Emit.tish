@@ -34,6 +34,9 @@ export fn emitProjectInner(project, skipSync) {
   if (project.launchQuant != null && Math.floor(Number(project.launchQuant)) >= 1) {
     o = o + "launch_quant " + String(Math.floor(Number(project.launchQuant))) + "\n"
   }
+  if (project.songSeed != null && Math.floor(Number(project.songSeed)) === Math.floor(Number(project.songSeed))) {
+    o = o + "song_seed " + String(Math.floor(Number(project.songSeed))) + "\n"
+  }
   o = o + "\n"
 
   let ci = 0
@@ -307,6 +310,33 @@ export fn emitProjectInner(project, skipSync) {
       sgi = sgi + 1
     }
     o = o + "\n"
+  }
+  // Per-scene follow actions (optional): `follow` then `P<n> <a> <wa> [<b> <wb>]` per configured scene.
+  if (project.session.follow && project.session.follow.length > 0) {
+    let anyFollow = false
+    let fck = 0
+    while (fck < project.session.follow.length) {
+      if (project.session.follow[fck] != null) {
+        anyFollow = true
+      }
+      fck = fck + 1
+    }
+    if (anyFollow) {
+      o = o + "follow\n"
+      let fgi = 0
+      while (fgi < project.session.follow.length) {
+        let fe = project.session.follow[fgi]
+        if (fe != null) {
+          o = o + "  P" + String(fgi + 1) + " " + String(fe.a) + " " + formatTplFloat(fe.wa != null ? fe.wa : 1)
+          if (fe.b != null) {
+            o = o + " " + String(fe.b) + " " + formatTplFloat(fe.wb != null ? fe.wb : 0)
+          }
+          o = o + "\n"
+        }
+        fgi = fgi + 1
+      }
+      o = o + "\n"
+    }
   }
   let eci = 0
   while (eci < project.channels.length) {

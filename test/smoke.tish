@@ -6,6 +6,7 @@ import { applyTplSource, findChannelById } from '../src/tpl/Apply.tish'
 import { applyCoDjTplSource } from '../src/codj/Merge.tish'
 import { applyLaunchDirective, isLaunchDirective, launchSceneDirective, launchClipDirective, transportDirective, applyLaunchLinesFromSource } from '../src/codj/Launch.tish'
 import { setTrackOwner } from '../src/codj/CoDjMeta.tish'
+import { coDjClockAlign, coDjShouldFollow, coDjClockPayload } from '../src/codj/Transport.tish'
 import { createTplLineStream, tplLineStreamPush } from '../src/tpl/Stream.tish'
 import { coDjLineAllowedForSkills } from '../src/codj/Skills.tish'
 import { deckSetCatalog, deckSetTplById } from '../src/model/DeckSets.tish'
@@ -13,7 +14,7 @@ import { emptyProjectShell } from '../src/model/Project.tish'
 import { parseBarSelector, barSelectorMatches } from '../src/tpl/BarSelector.tish'
 import { lookupMacro, expandMacroBody } from '../src/tpl/Macros.tish'
 import { resizeChannelBars, setRackBars, rackBars } from '../src/model/RackBars.tish'
-import { ensureProjectSession, sessionWriteRackToSceneClip, loadSceneIntoRack, sessionArmScene, playbackClipForChannel, firstSongScene, nextSongScene, sceneHasSavedClip, sceneBarLength, armSceneWithOverrides, sceneSlotClipId, findClipOnChannel, loadSceneBarIntoRack, sessionWriteRackBarToSceneClip, sessionStopTrack, sessionTrackStopped, sessionEffectiveArmedClipId, songStart, songAdvance, hasExplicitSong, normalizeSongEntries } from '../src/model/Session.tish'
+import { ensureProjectSession, sessionWriteRackToSceneClip, loadSceneIntoRack, sessionArmScene, playbackClipForChannel, firstSongScene, nextSongScene, sceneHasSavedClip, sceneBarLength, armSceneWithOverrides, sceneSlotClipId, findClipOnChannel, loadSceneBarIntoRack, sessionWriteRackBarToSceneClip, sessionStopTrack, sessionTrackStopped, sessionEffectiveArmedClipId, songStart, songAdvance, hasExplicitSong, normalizeSongEntries, setSceneFollow, sceneFollow, hasFollowActions, resolveFollowAction, detRand01 } from '../src/model/Session.tish'
 import { toggleStep, clearAllSteps } from '../src/model/Edits.tish'
 
 let pass = 0
@@ -408,12 +409,106 @@ check("songAdvance: scene 1 repeats x4 then wraps to head", s4 === 1 && s5 === 1
 let s7 = songAdvance(sgBack, sgRt, s6)
 check("songAdvance: wraps back to scene 0", s7 === 0 && sgRt.songPos.idx === 0)
 
+// 5t2. Follow actions: per-scene progression + deterministic chance ratio, round-tripped in TPL.
+let faProj = loadDefaultDeckardProject().project
+ensureProjectSession(faProj)
+let q = 0
+while (q < 4) { sessionWriteRackToSceneClip(faProj, q); q = q + 1 }   // save scenes 0..3 so they exist
+faProj.songSeed = 42
+setSceneFollow(faProj, 0, "next", 1, null, 0)
+setSceneFollow(faProj, 1, "next", 0.7, "repeat", 0.3)
+setSceneFollow(faProj, 3, "stop", 1, null, 0)
+check("follow: hasFollowActions true", hasFollowActions(faProj) === true)
+let faEmit = emitProject(faProj)
+check("follow: emit song_seed", faEmit.indexOf("song_seed 42") >= 0)
+check("follow: emit follow header", faEmit.indexOf("\nfollow\n") >= 0)
+check("follow: emit single action (P1 next)", faEmit.indexOf("  P1 next") >= 0)
+check("follow: emit chance ratio (P2 next .. repeat)", faEmit.indexOf("  P2 next 0.7 repeat 0.3") >= 0)
+check("follow: emit stop (P4)", faEmit.indexOf("  P4 stop") >= 0)
+let faBack = loadDefaultDeckardProject().project
+applyTplSource(faBack, faEmit)
+check("follow round-trip: seed", faBack.songSeed === 42)
+let faF1 = sceneFollow(faBack, 1)
+check("follow round-trip: scene 1 A=next wA=0.7 B=repeat wB=0.3", faF1 != null && faF1.a === "next" && Math.abs(faF1.wa - 0.7) < 0.001 && faF1.b === "repeat" && Math.abs(faF1.wb - 0.3) < 0.001)
+let faF3 = sceneFollow(faBack, 3)
+check("follow round-trip: scene 3 = stop", faF3 != null && faF3.a === "stop")
+
+// detRand01 determinism: same (seed,n) → same value; different n → varies.
+check("detRand01: deterministic", detRand01(42, 5) === detRand01(42, 5))
+check("detRand01: in [0,1)", detRand01(42, 5) >= 0 && detRand01(42, 5) < 1)
+check("detRand01: varies with n", detRand01(42, 1) !== detRand01(42, 2))
+
+// resolveFollowAction maps verbs; STOP returns -1; repeat returns same scene.
+let frRt = { followCount: 0 }
+check("resolve: next from 0 → 1 (saved)", resolveFollowAction(faBack, frRt, 0) === 1)
+let frRt2 = { followCount: 0 }
+check("resolve: stop from 3 → -1", resolveFollowAction(faBack, frRt2, 3) === -1)
+let rpProj = loadDefaultDeckardProject().project
+ensureProjectSession(rpProj)
+let q2 = 0
+while (q2 < 2) { sessionWriteRackToSceneClip(rpProj, q2); q2 = q2 + 1 }
+setSceneFollow(rpProj, 0, "repeat", 1, null, 0)
+let rpRt = { followCount: 0 }
+check("resolve: repeat stays on same scene", resolveFollowAction(rpProj, rpRt, 0) === 0)
+
+// Chance ratio honoured deterministically: over a fixed seeded sequence, ~70% land on A(next=1), the
+// rest on B(repeat=stay). Count must be identical on every run (no Math.random).
+let cnt = { stay: 0, adv: 0 }
+let crRt = { followCount: 0 }
+let trial = 0
+while (trial < 200) {
+  let res = resolveFollowAction(faBack, crRt, 1)   // scene 1 = next 0.7 / repeat 0.3
+  if (res === 1) { cnt.stay = cnt.stay + 1 } else { cnt.adv = cnt.adv + 1 }
+  trial = trial + 1
+}
+check("follow chance: A (next) is the majority ~70%", cnt.adv > cnt.stay && cnt.adv >= 110 && cnt.adv <= 170)
+// Re-run identical → identical counts (determinism, the whole point of seeding).
+let cnt2 = { stay: 0, adv: 0 }
+let crRt2 = { followCount: 0 }
+let t2 = 0
+while (t2 < 200) {
+  let res2 = resolveFollowAction(faBack, crRt2, 1)
+  if (res2 === 1) { cnt2.stay = cnt2.stay + 1 } else { cnt2.adv = cnt2.adv + 1 }
+  t2 = t2 + 1
+}
+check("follow chance: re-run is byte-identical (deterministic)", cnt2.adv === cnt.adv && cnt2.stay === cnt.stay)
+
+// A follow action on ONE scene must not change scenes WITHOUT an entry: P2=next, P1 still loops.
+let oneProj = loadDefaultDeckardProject().project
+ensureProjectSession(oneProj)
+let oq = 0
+while (oq < 3) { sessionWriteRackToSceneClip(oneProj, oq); oq = oq + 1 }
+setSceneFollow(oneProj, 1, "next", 1, null, 0)   // only P2 (index 1) follows → Next
+let oneRt = { followCount: 0 }
+check("follow scoping: scene 0 (no entry) still LOOPS", songAdvance(oneProj, oneRt, 0) === 0)
+check("follow scoping: scene 2 (no entry) still LOOPS", songAdvance(oneProj, oneRt, 2) === 2)
+check("follow scoping: scene 1 (entry=next) advances", songAdvance(oneProj, oneRt, 1) === 2)
+
+// songAdvance honours follow actions over an explicit song block when both present.
+let bothProj = loadDefaultDeckardProject().project
+ensureProjectSession(bothProj)
+let q3 = 0
+while (q3 < 3) { sessionWriteRackToSceneClip(bothProj, q3); q3 = q3 + 1 }
+bothProj.session.song = [{ scene: 2, repeat: 1 }]
+setSceneFollow(bothProj, 0, "next", 1, null, 0)
+let baRt = { followCount: 0 }
+check("songAdvance prefers follow actions over song block", songAdvance(bothProj, baRt, 0) === 1)
+
 // 5t. No song block → derived order (legacy); emit omits the song block.
 let dvProj = loadDefaultDeckardProject().project
 ensureProjectSession(dvProj)
 check("no song block: emit omits song header", emitProject(dvProj).indexOf("\nsong\n") < 0)
 let dvRt = {}
 check("no song block: songStart falls back to firstSongScene", songStart(dvProj, dvRt) === firstSongScene(dvProj) && dvRt.songPos === null)
+// Ableton default: with no follow action and no song block, a launched scene LOOPS — songAdvance must
+// return the SAME scene, never auto-jump to the next saved one.
+let loopProj = loadDefaultDeckardProject().project
+ensureProjectSession(loopProj)
+let lq = 0
+while (lq < 3) { sessionWriteRackToSceneClip(loopProj, lq); lq = lq + 1 }   // 3 saved scenes
+let loopRt = {}
+check("default progression: scene loops, does NOT auto-advance", songAdvance(loopProj, loopRt, 0) === 0)
+check("default progression: another saved scene also loops", songAdvance(loopProj, loopRt, 2) === 2)
 
 // 5u. Synchronized launches: a host's `@ launch` / `@ transport` directives applied against a
 // FOLLOWER's runtime move the follower's shared arming — the heart of issue #1 (model B).
@@ -464,6 +559,32 @@ let mxRest = applyLaunchLinesFromSource(mxProj, mxRt, "tpl 1\n@ launch scene 1\n
 check("splitter: directive applied to rt (songScene 1)", mxRt.songScene === 1)
 check("splitter: directive line stripped from remainder", mxRest.indexOf("@ launch") < 0)
 check("splitter: project line kept in remainder", mxRest.indexOf("bpm 145") >= 0)
+
+// 5w. Shared transport clock: a follower slaves its playhead to the host. coDjClockAlign snaps on
+// large drift, holds on small (no jitter); coDjShouldFollow gates host/independent.
+check("clock: small drift held (no snap)", coDjClockAlign(100, 100, 1) === 100)
+check("clock: 1-step drift held (within threshold)", coDjClockAlign(101, 100, 1) === 101)
+check("clock: large drift snaps to host (+1 latency nudge)", coDjClockAlign(40, 100, 1) === 101)
+check("clock: behind host snaps forward", coDjClockAlign(200, 100, 1) === 101)
+check("follow gate: host does NOT follow", coDjShouldFollow({ coDjIsHost: true }) === false)
+check("follow gate: follower follows by default", coDjShouldFollow({ coDjIsHost: false }) === true)
+check("follow gate: independent mode off", coDjShouldFollow({ coDjIsHost: false, coDjFollowTransport: false }) === false)
+let clkMsg = coDjClockPayload("actor-host", 48, 2, 130)
+check("clock payload: control/clock with step+scene", clkMsg.type === "control" && clkMsg.op === "clock" && clkMsg.perfStep === 48 && clkMsg.scene === 2)
+
+// Simulate host advancing across bars, follower starting cold + locking on each clock heartbeat.
+let hostTick = 0
+let followTick = 999            // follower starts wildly out of phase
+let bars = 0
+while (bars < 8) {
+  hostTick = hostTick + 16      // host advances one bar (16 steps)
+  // follower drifts a little each bar (simulated setTimeout jitter), then receives the host clock:
+  followTick = followTick + 17
+  followTick = coDjClockAlign(followTick, hostTick, 2)
+  bars = bars + 1
+}
+check("clock sim: follower converges to within a bar of host", Math.abs(followTick - hostTick) <= 16)
+check("clock sim: follower not stuck at its wild start", followTick < 200)
 
 // 6. Every stem deck set parses cleanly into >= 5 stems (the deck.tsx conversions)
 let cat = deckSetCatalog()

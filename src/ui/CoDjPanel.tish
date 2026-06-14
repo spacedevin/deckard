@@ -5,6 +5,7 @@ import { applyCoDjTplSource } from '../codj/Merge.tish'
 import { coDjClearOverlays } from '../codj/Overlay.tish'
 import { coDjHandleIncomingTplBlock } from '../codj/Schedule.tish'
 import { applyLaunchLinesFromSource } from '../codj/Launch.tish'
+import { coDjShouldFollow } from '../codj/Transport.tish'
 import { createTplLineStream, tplLineStreamPush } from '../tpl/Stream.tish'
 import { emitProject } from '../tpl/Emit.tish'
 import { loadProjectFromTpl } from '../model/ProjectLoad.tish'
@@ -356,6 +357,36 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       coDjClearOverlays(project)
       setProject(project)
     }
+    // Shared transport: the host is the clock master. A follower slaves its playhead to the host so the
+    // whole room is on the same bar/step — the point of the TPL session. (Skipped when this client IS
+    // the host, or the user switched to independent mode.)
+    if (t === "control" && msg.op === "playing_start" && rt && coDjShouldFollow(rt)) {
+      rt.coDjHostPlaying = true
+      let hs = msg.perfStep != null ? Math.floor(Number(msg.perfStep)) : 0
+      if (rt.coDjFollowStart) {
+        rt.coDjFollowStart(hs)
+      }
+      pushLog("follow host play @" + String(hs))
+      return
+    }
+    if (t === "control" && msg.op === "playing_stop" && rt && coDjShouldFollow(rt)) {
+      rt.coDjHostPlaying = false
+      if (rt.coDjFollowStop) {
+        rt.coDjFollowStop()
+      }
+      pushLog("follow host stop")
+      return
+    }
+    if (t === "control" && msg.op === "clock" && rt && coDjShouldFollow(rt)) {
+      rt.coDjHostPlaying = true
+      let hs2 = msg.perfStep != null ? Math.floor(Number(msg.perfStep)) : 0
+      if (!rt.playing && rt.coDjFollowStart) {
+        rt.coDjFollowStart(hs2)
+      } else if (rt.coDjApplyClock) {
+        rt.coDjApplyClock(hs2)
+      }
+      return
+    }
   }
   // Stamp the room roster onto the project so deck routing can place up to 4 players in 2 decks
   // (P1=host A-top, P2=B-top, P3=A-bottom, P4=B-bottom). Player order = [host, …others sorted].
@@ -705,6 +736,24 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
           rt.coDjSessionId = e.target.value
         }
       }} /></label>
+    </div>
+    <div class="codj-row">
+      <label class="codj-follow-toggle" title={"Follow the host's transport — play/stop and song position lock to the host. Turn off to run your deck independently (model A)."}>
+        <input
+          type="checkbox"
+          checked={rt ? rt.coDjFollowTransport !== false : true}
+          disabled={rt != null && rt.coDjIsHost === true}
+          onchange={(e) => {
+            if (rt) {
+              rt.coDjFollowTransport = e.target.checked === true
+              if (rt.coDjBumpUi) {
+                rt.coDjBumpUi()
+              }
+            }
+          }}
+        />
+        {rt != null && rt.coDjIsHost === true ? " Host (clock master)" : " Follow host transport"}
+      </label>
     </div>
     <div class="codj-actions">
       <button type="button" class="btn-codj" onclick={connectWs}>{"Connect"}</button>

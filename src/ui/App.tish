@@ -16,6 +16,7 @@ import { InstrumentEditor } from './InstrumentEditor.tish'
 import { PatchBayPanel } from './PatchBayPanel.tish'
 import { CoDjPanel } from './CoDjPanel.tish'
 import { launchSceneDirective, transportDirective } from '../codj/Launch.tish'
+import { coDjClockPayload, coDjShouldFollow, coDjClockAlign } from '../codj/Transport.tish'
 import {
   PianoRollCanvas,
   PianoRollZoomBar,
@@ -388,7 +389,7 @@ export fn App() {
 
   // mode: "sequence" = play the rack / pattern you are editing (monitor); "song" = play the live
   // arrangement of launched patterns (session arming). Space → sequence, Enter → song.
-  fn onPlay(mode) {
+  fn onPlay(mode, startTick) {
     let pm = mode === "song" ? "song" : "sequence"
     rt.playMode = pm
     setPlayMode(pm)
@@ -398,12 +399,14 @@ export fn App() {
     if (playbackTimer) {
       clearTimeout(playbackTimer)
     }
-    globalTick = 0
+    // A follower joining a song mid-flight starts at the host's playhead so it lands on the same bar.
+    globalTick = startTick != null && Math.floor(Number(startTick)) >= 0 ? Math.floor(Number(startTick)) : 0
     tplLoopResetAll()
     if (pm === "song") {
       // A song starts at the head of the explicit arrangement (or the first saved pattern when none is
       // set) and auto-advances through it (see playbackTick). Per-track clip overrides are honoured on
       // top of each scene. songStart seeds the song cursor (rt.songPos) for repeat-aware advancing.
+      rt.songStopRequested = false
       let scn = songStart(project, rt)
       armSceneWithOverrides(project, rt, scn)
       rt.songScene = scn
@@ -473,16 +476,21 @@ export fn App() {
               armedChanged = true
             }
             if (onBar && r.songSceneEndTick != null && globalTick >= r.songSceneEndTick) {
-              // The current pattern has played its length — advance along the explicit arrangement
-              // (repeat-aware) or the derived order, keeping per-track overrides on top of the new scene.
+              // The current pattern has played its length — advance via per-scene follow actions, the
+              // explicit arrangement, or the derived order, keeping per-track overrides on the new scene.
               let cur = r.songScene != null ? r.songScene : 0
               let nxt = songAdvance(p, r, cur)
-              if (nxt !== cur) {
-                armSceneWithOverrides(p, r, nxt)
-                r.songScene = nxt
-                armedChanged = true
+              if (nxt < 0) {
+                // A follow action said STOP — end the song.
+                r.songStopRequested = true
+              } else {
+                if (nxt !== cur) {
+                  armSceneWithOverrides(p, r, nxt)
+                  r.songScene = nxt
+                  armedChanged = true
+                }
+                r.songSceneEndTick = globalTick + sceneBarLength(p, nxt) * barSteps
               }
-              r.songSceneEndTick = globalTick + sceneBarLength(p, nxt) * barSteps
             }
           }
           if (armedChanged) {
@@ -495,6 +503,10 @@ export fn App() {
           if (sessionCommitQueued(p, r)) {
             bumpSessionUi()
           }
+        }
+        // Host clock heartbeat (once per bar): followers lock their playhead to this.
+        if (onBar && r.coDjPushClock) {
+          r.coDjPushClock(globalTick, r.songScene != null ? r.songScene : null)
         }
       }
       if (globalTick % 64 === 0) {
@@ -529,6 +541,12 @@ export fn App() {
       r.transportNextTick = globalTick
       if (r.sessionQueuePending && r.bumpSeqPromoteUi) {
         r.bumpSeqPromoteUi()
+      }
+      // A follow action's STOP ends the song — halt the transport instead of rescheduling the tick.
+      if (r.songStopRequested) {
+        r.songStopRequested = false
+        onStop()
+        return
       }
       playbackTimer = setTimeout(playbackTick, stepMs())
     }
@@ -601,6 +619,61 @@ export fn App() {
   }
   rt.coDjPushControl = coDjPushControl
   rt.nextLaunchStep = nextLaunchStep
+
+  // Host clock heartbeat: while the host plays, broadcast the playhead (step + scene) once per bar so
+  // followers can lock to it. Only the host emits — followers slave.
+  fn coDjPushClock(perfStep, scene) {
+    if (!(rt && rt.coDjWs && rt.coDjWs.readyState === 1 && rt.coDjIsHost === true)) {
+      return
+    }
+    let aid = rt.coDjActorId ? rt.coDjActorId : (rt.coDjClientId ? rt.coDjClientId : "actor")
+    let bpm = project && typeof project.bpm === "number" ? project.bpm : null
+    rt.coDjWs.send(JSON.stringify(coDjClockPayload(aid, perfStep, scene, bpm)))
+  }
+  rt.coDjPushClock = coDjPushClock
+
+  // Followers call these (from the co-DJ receive path) to slave their transport to the host.
+  rt.setTransportTick = (n) => {
+    let v = Math.floor(Number(n))
+    if (v >= 0 && v === v) {
+      globalTick = v
+      rt.transportNextTick = v
+    }
+  }
+  rt.getTransportTick = () => {
+    return globalTick
+  }
+  // Start following the host's song at `hostStep`: if stopped, begin playback there; if already playing,
+  // just realign the tick. Audio may stay silent until the user interacts (browser gesture policy), but
+  // the transport position stays locked so it's in phase the moment audio resumes.
+  rt.coDjFollowStart = (hostStep) => {
+    if (!coDjShouldFollow(rt)) {
+      return
+    }
+    let step = Math.floor(Number(hostStep))
+    if (step < 0 || step !== step) {
+      step = 0
+    }
+    if (!rt.playing) {
+      onPlay("song", step)
+    } else {
+      globalTick = step
+      rt.transportNextTick = step
+    }
+  }
+  rt.coDjFollowStop = () => {
+    if (coDjShouldFollow(rt) && rt.playing) {
+      onStop()
+    }
+  }
+  // Apply a host clock tick: realign the local tick toward the host (snap on large drift).
+  rt.coDjApplyClock = (hostStep) => {
+    if (!coDjShouldFollow(rt) || !rt.playing) {
+      return
+    }
+    globalTick = coDjClockAlign(globalTick, hostStep, 1)
+    rt.transportNextTick = globalTick
+  }
 
   fn curViewBar() {
     return rt.gridViewBar != null ? Math.floor(Number(rt.gridViewBar)) : 0

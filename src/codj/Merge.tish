@@ -8,7 +8,7 @@ import {
   applySessionClipBlocks,
   applySessionGrid
 } from '../tpl/Apply.tish'
-import { ensureProjectSession, normalizeSongEntries } from '../model/Session.tish'
+import { ensureProjectSession, normalizeSongEntries, normalizeFollow } from '../model/Session.tish'
 import { tplLoopResetChannel } from '../tpl/LoopState.tish'
 import { findChannelById } from '../tpl/Apply.tish'
 import { ensureCoDjMeta, setTrackOwner, setTrackTouched } from './CoDjMeta.tish'
@@ -60,6 +60,12 @@ export fn applyCoDjTplSource(project, source, actorId, authorId, currentPerfStep
       project.launchQuant = lq
     }
   }
+  if (canMaster && parsed.songSeed !== null && parsed.songSeed !== undefined) {
+    let ss = Math.floor(Number(parsed.songSeed))
+    if (ss === ss) {
+      project.songSeed = ss
+    }
+  }
   let ti = 0
   while (ti < parsed.tracks.length) {
     let tb = parsed.tracks[ti]
@@ -98,6 +104,9 @@ export fn applyCoDjTplSource(project, source, actorId, authorId, currentPerfStep
     ensureProjectSession(project)
     if (parsed.song !== null && parsed.song !== undefined) {
       project.session.song = normalizeSongEntries(project, parsed.song)
+    }
+    if (parsed.follow !== null && parsed.follow !== undefined) {
+      project.session.follow = normalizeFollow(project, parsed.follow)
     }
     applyAutos(project, parsed.autos)
   }
