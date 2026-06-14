@@ -11,7 +11,7 @@ import { emptyProjectShell } from '../src/model/Project.tish'
 import { parseBarSelector, barSelectorMatches } from '../src/tpl/BarSelector.tish'
 import { lookupMacro, expandMacroBody } from '../src/tpl/Macros.tish'
 import { resizeChannelBars, setRackBars, rackBars } from '../src/model/RackBars.tish'
-import { ensureProjectSession, sessionWriteRackToSceneClip, loadSceneIntoRack, sessionArmScene, playbackClipForChannel, firstSongScene, nextSongScene, sceneHasSavedClip, sceneBarLength, armSceneWithOverrides, sceneSlotClipId, findClipOnChannel, loadSceneBarIntoRack, sessionWriteRackBarToSceneClip } from '../src/model/Session.tish'
+import { ensureProjectSession, sessionWriteRackToSceneClip, loadSceneIntoRack, sessionArmScene, playbackClipForChannel, firstSongScene, nextSongScene, sceneHasSavedClip, sceneBarLength, armSceneWithOverrides, sceneSlotClipId, findClipOnChannel, loadSceneBarIntoRack, sessionWriteRackBarToSceneClip, sessionStopTrack, sessionTrackStopped, sessionEffectiveArmedClipId } from '../src/model/Session.tish'
 import { toggleStep, clearAllSteps } from '../src/model/Edits.tish'
 
 let pass = 0
@@ -353,6 +353,22 @@ sessionWriteRackBarToSceneClip(tlProj, 1, 1)                                    
 let tlClip = findClipOnChannel(tlc, tlc.id + "_sc1")
 check("save 1 bar: tiled stepped pattern captured (not empty)", tlClip.steps.length === 16 && tlClip.steps[0].on === true)
 check("save 1 bar: per-bar pitch of the viewed bar captured", tlClip.stepPitchByBar != null && tlClip.stepPitchByBar[0] === 34)
+
+// 5q. Per-track STOP silences just that track, persists across song scene advances, and is distinct
+// from following the song (an empty "" override that armSceneWithOverrides re-applies each scene).
+let stProj = loadDefaultDeckardProject().project
+ensureProjectSession(stProj)
+let stRt = { trackOverrides: [], sessionArmedClipIds: [] }
+sessionArmScene(stProj, stRt, 0)
+let stBefore = sessionEffectiveArmedClipId(stProj, stRt, 1)
+sessionStopTrack(stProj, stRt, 1)
+check("stop track: that track is armed silent immediately", stRt.sessionArmedClipIds[1] === "")
+check("stop track: marked stopped (empty override)", sessionTrackStopped(stRt, 1) === true)
+check("stop track: other tracks untouched", stRt.sessionArmedClipIds[0] !== "" || stBefore === "")
+// Advancing to another scene must KEEP the stopped track silent (override re-applied), not resurrect it.
+armSceneWithOverrides(stProj, stRt, 0)
+check("stop track: stays silent across scene (re)arm", stRt.sessionArmedClipIds[1] === "")
+check("stop track: not stopped for a track that was never stopped", sessionTrackStopped(stRt, 0) === false)
 
 // 6. Every stem deck set parses cleanly into >= 5 stems (the deck.tsx conversions)
 let cat = deckSetCatalog()

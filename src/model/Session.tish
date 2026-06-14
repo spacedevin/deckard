@@ -885,6 +885,48 @@ export fn sessionStopAllTracks(project, rt) {
   rt.sessionQueuedScene = null
 }
 
+/** Stop ONE track's clip immediately — it plays nothing until a clip / scene is launched again.
+ *  Unlike releasing a per-track override (which falls back to following the song scene), a stop pins
+ *  the track silent across song auto-advances via an empty ("") override. Effective right away. */
+export fn sessionStopTrack(project, rt, trackIdx) {
+  ensureProjectSession(project)
+  let tix = Math.floor(Number(trackIdx))
+  if (tix < 0 || tix >= project.channels.length || tix !== tix) {
+    return
+  }
+  if (!rt.trackOverrides) {
+    rt.trackOverrides = []
+  }
+  if (!rt.sessionArmedClipIds) {
+    rt.sessionArmedClipIds = []
+  }
+  rt.trackOverrides[tix] = ""
+  rt.sessionArmedClipIds[tix] = ""
+  if (rt.sessionQueuedClipIds && rt.sessionQueuedClipIds[tix] !== undefined) {
+    rt.sessionQueuedClipIds[tix] = ""
+  }
+  if (rt.trackPending) {
+    let kept = []
+    let i = 0
+    while (i < rt.trackPending.length) {
+      if (rt.trackPending[i].t !== tix) {
+        kept.push(rt.trackPending[i])
+      }
+      i = i + 1
+    }
+    rt.trackPending = kept
+  }
+}
+
+/** True when a track has been explicitly stopped (empty override) rather than following the song. */
+export fn sessionTrackStopped(rt, trackIdx) {
+  if (!rt || !rt.trackOverrides) {
+    return false
+  }
+  let tix = Math.floor(Number(trackIdx))
+  return rt.trackOverrides[tix] === ""
+}
+
 /** Clip used for audio + loop cap, or null to fall back to channel.steps / ch.pianoNotes (no session). */
 export fn playbackClipForChannel(project, rt, chIdx) {
   if (!project || !project.channels || chIdx < 0 || chIdx >= project.channels.length) {

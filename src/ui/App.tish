@@ -76,6 +76,9 @@ export fn App() {
   let [selectedCh, setSelectedCh] = useState(3)
   let [playing, setPlaying] = useState(false)
   let [playMode, setPlayMode] = useState("sequence")
+  // Global launch quantize, in 16th steps: clip / scene launches drop on the next multiple of this.
+  // 4 = 1/4, 8 = 1/2, 16 = 1 bar (default), 32 = 2 bars.
+  let [launchQuant, setLaunchQuant] = useState(16)
   let [workspaceTab, setWorkspaceTab] = useState("sequencer")
   let [sessionUiGen, setSessionUiGen] = useState(0)
   let [seqPromoteUi, setSeqPromoteUi] = useState(0)
@@ -114,6 +117,7 @@ export fn App() {
   rt.setSelectedCh = setSelectedCh
   rt.playing = playing
   rt.playMode = playMode
+  rt.launchQuantSteps = launchQuant
 
   // Transport hotkeys: Space = Play/Stop Sequence (monitor the rack), Enter = Play/Stop Song (live
   // arrangement). Ignored while typing in an input / textarea / contenteditable.
@@ -418,25 +422,19 @@ export fn App() {
       }
       let p = r.project
       let barSteps = coDjStepsPerBar()
-      if (barSteps > 0 && globalTick % barSteps === 0 && p) {
-        // Commit queued per-track mute toggles (tap a session track name) on the bar boundary.
-        if (r.muteQueue && r.muteQueue.length > 0) {
-          let mqi = 0
-          while (mqi < r.muteQueue.length) {
-            let mq = r.muteQueue[mqi]
-            if (p.channels[mq.t]) {
-              p.channels[mq.t].mute = mq.mute
-            }
-            mqi = mqi + 1
-          }
-          r.muteQueue = []
-          bumpSessionUi()
-        }
+      // Launch quantize: clip / scene launches drop on the next multiple of `qSteps` (1/4 … 2 bars);
+      // the song chain still auto-advances on whole-bar boundaries.
+      let qSteps = typeof r.launchQuantSteps === "number" && r.launchQuantSteps >= 1
+        ? Math.floor(r.launchQuantSteps)
+        : barSteps
+      let onQuant = qSteps > 0 && globalTick % qSteps === 0
+      let onBar = barSteps > 0 && globalTick % barSteps === 0
+      if ((onQuant || onBar) && p) {
         if (r.playMode === "song") {
           let armedChanged = false
           // A full pattern LAUNCH takes precedence: commit it, clear per-track overrides, restart chain.
           if (r.sessionQueuePending) {
-            if (sessionCommitQueued(p, r)) {
+            if (onQuant && sessionCommitQueued(p, r)) {
               r.trackOverrides = []
               r.trackPending = []
               r.songScene = r.sessionActiveScene
@@ -444,8 +442,8 @@ export fn App() {
               armedChanged = true
             }
           } else {
-            // Per-track clip launches land on the bar boundary without restarting the song chain.
-            if (r.trackPending && r.trackPending.length > 0) {
+            // Per-track clip launches land on the quantize boundary without restarting the song chain.
+            if (onQuant && r.trackPending && r.trackPending.length > 0) {
               if (!r.sessionArmedClipIds) {
                 r.sessionArmedClipIds = []
               }
@@ -458,7 +456,7 @@ export fn App() {
               r.trackPending = []
               armedChanged = true
             }
-            if (r.songSceneEndTick != null && globalTick >= r.songSceneEndTick) {
+            if (onBar && r.songSceneEndTick != null && globalTick >= r.songSceneEndTick) {
               // The current pattern has played its length — advance to the next saved pattern,
               // keeping per-track overrides applied on top of the new scene.
               let cur = r.songScene != null ? r.songScene : 0
@@ -476,7 +474,7 @@ export fn App() {
             // Stream the new armed pattern so collaborators follow — effective one bar ahead for lead.
             coDjPushLive(p, r, globalTick + barSteps)
           }
-        } else {
+        } else if (onQuant) {
           // Sequence mode: nothing to advance, but honour any pending queue commit.
           if (sessionCommitQueued(p, r)) {
             bumpSessionUi()
@@ -753,7 +751,7 @@ export fn App() {
     : sessionPlayingSceneIndex(project, rt)
   let queuedScene = rt.sessionQueuedScene
   let queuePending = rt.sessionQueuePending === true && queuedScene != null
-  let seqBarPx = coDjStepsPerBar()
+  let seqBarPx = launchQuant >= 1 ? Math.floor(launchQuant) : coDjStepsPerBar()
   let seqDropSteps = null
   if (playing && playMode === "song") {
     let nt = rt.transportNextTick
@@ -822,7 +820,9 @@ export fn App() {
         onExport,
         onImport,
         project.transportMainDeck !== "local" ? "live" : "local",
-        onDeckMain
+        onDeckMain,
+        launchQuant,
+        (q) => setLaunchQuant(q)
       )}
       <nav class="daw-workspace-tabs">
         <button type="button" class={tabSeq} onclick={() => setWorkspaceTab("sequencer")}>

@@ -15,12 +15,15 @@ export fn TransportBar(
   onExport,
   onImport,
   mainDeck,
-  onDeckMain
+  onDeckMain,
+  launchQuant,
+  onLaunchQuant
 ) {
   let seqPlaying = playing && playMode === "sequence"
   let songPlaying = playing && playMode === "song"
   let seqCls = seqPlaying ? "btn-play btn-play-seq btn-play-on" : "btn-play btn-play-seq"
   let songCls = songPlaying ? "btn-play btn-play-song btn-play-on" : "btn-play btn-play-song"
+  let qv = typeof launchQuant === "number" ? String(Math.floor(launchQuant)) : "16"
   return (
     <div class="transport-bar">
       <button class={seqCls} onclick={onPlaySequence} title={"Play the pattern you are editing (Space)"}>
@@ -37,6 +40,15 @@ export fn TransportBar(
       <label class="bpm-label">
         {"BPM "}
         <input type="number" class="bpm-input" min="40" max="240" value={String(bpm)} oninput={onBpmInput} />
+      </label>
+      <label class="quant-label" title={"Launch quantize — clip / scene launches drop on this grid"}>
+        {"Q "}
+        <select class="quant-select" value={qv} onchange={(e) => onLaunchQuant(Number(e.target.value))}>
+          <option value="4" selected={qv === "4"}>{"1/4"}</option>
+          <option value="8" selected={qv === "8"}>{"1/2"}</option>
+          <option value="16" selected={qv === "16"}>{"1 Bar"}</option>
+          <option value="32" selected={qv === "32"}>{"2 Bars"}</option>
+        </select>
       </label>
       <span class="transport-spacer" />
       <button class="btn-ghost" onclick={onExport}>

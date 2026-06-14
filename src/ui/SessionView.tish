@@ -5,7 +5,9 @@ import {
   defaultMainClipId,
   sceneSlotClipId,
   sessionQueueScene,
-  sessionStopAllTracks
+  sessionStopAllTracks,
+  sessionStopTrack,
+  sessionTrackStopped
 } from '../model/Session.tish'
 import { channelDeck, channelDeckColor } from '../model/DeckRouting.tish'
 
@@ -174,34 +176,20 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
     setProjectFromUI(project)
   }
 
-  // Tapping a track name toggles its mute — queued to the next bar while playing (like the clip cells),
-  // immediate when stopped. Returns the pending target for a track (or null) so the UI can show it.
-  fn pendingMuteFor(trackIdx) {
-    if (!rt.muteQueue) {
-      return null
-    }
-    let last = null
-    let i = 0
-    while (i < rt.muteQueue.length) {
-      if (rt.muteQueue[i].t === trackIdx) {
-        last = rt.muteQueue[i].mute
-      }
-      i = i + 1
-    }
-    return last
-  }
-
+  // Tapping a track name toggles its mute — instantly, whether playing or stopped (no queued state).
   fn queueMute(trackIdx) {
     let ch = project.channels[trackIdx]
-    let target = !(ch.mute === true)
-    if (rt.playing) {
-      if (!rt.muteQueue) {
-        rt.muteQueue = []
-      }
-      rt.muteQueue.push({ t: trackIdx, mute: target })
-    } else {
-      ch.mute = target
+    ch.mute = !(ch.mute === true)
+    if (bumpSessionUi) {
+      bumpSessionUi()
     }
+    bumpSeqIfPlaying()
+    setProjectFromUI(project)
+  }
+
+  // The ■ button stops just this track's clip — silent until a clip / scene is launched again. Instant.
+  fn stopTrack(trackIdx) {
+    sessionStopTrack(project, rt, trackIdx)
     if (bumpSessionUi) {
       bumpSessionUi()
     }
@@ -213,7 +201,6 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
     sessionStopAllTracks(project, rt)
     rt.trackOverrides = []
     rt.trackPending = []
-    rt.muteQueue = []
     if (bumpSessionUi) {
       bumpSessionUi()
     }
@@ -304,10 +291,10 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
   while (ti < project.channels.length) {
     let ch = project.channels[ti]
     let tix = ti
-    // Effective paused (muted) state, honoring a queued mute. A paused track's clips must NOT show the
-    // green "playing" border — it isn't playing.
-    let pend = pendingMuteFor(tix)
-    let muted = pend != null ? pend === true : ch.mute === true
+    // Paused (muted) tracks must NOT show the green "playing" border — they aren't playing. Mute is now
+    // applied instantly, so this just reads the channel state.
+    let muted = ch.mute === true
+    let stopped = sessionTrackStopped(rt, tix)
     let cells = []
     let sj = 0
     while (sj < sc) {
@@ -373,7 +360,7 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
             class={cellCls}
             key={"c-" + String(tix) + "-" + String(sj)}
             onclick={() => armCell(tix, clipIdCopy)}
-            title={"Queue clip for next bar (16 steps)"}
+            title={"Launch this clip — drops on the next launch-quantize boundary (Q in the transport)"}
           >
             <span class="session-cell-name">{nm}</span>
             <svg class="session-wave" viewBox="0 0 120 24" preserveAspectRatio="none">
@@ -388,9 +375,8 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
       }
       sj = sj + 1
     }
-    // Track name = a play/pause toggle. "live" (green) only when the transport is actually running AND
-    // the track isn't paused, so a stopped transport never looks like it's playing.
-    let isPending = pend != null && pend !== (ch.mute === true)
+    // Track name = an instant mute toggle. "live" (green) only when the transport is actually running
+    // AND the track isn't muted, so a stopped transport never looks like it's playing.
     let live = playing && !muted
     let nameCls = "session-track-name session-track-toggle"
     if (muted) {
@@ -400,21 +386,27 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
     } else {
       nameCls = nameCls + " session-track-ready"
     }
-    if (isPending) {
-      nameCls = nameCls + " session-track-pending"
-    }
     let icon = muted ? "⏸" : "▶"
-    let stateText = muted ? "paused — tap to play" : (live ? "playing — tap to pause" : "ready — tap to pause")
+    let stateText = muted ? "muted — tap to unmute" : (live ? "playing — tap to mute" : "ready — tap to mute")
+    let stopCls = stopped ? "session-track-stop session-track-stop-on" : "session-track-stop"
     rows.push(
       <div class="session-track-row" key={"row-" + String(tix)}>
         <button
           type="button"
           class={nameCls}
-          title={ch.name + ": " + stateText + " (queues to the next bar while playing)"}
+          title={ch.name + ": " + stateText + " (instant)"}
           onclick={() => queueMute(tix)}
         >
           <span class="session-track-ico">{icon}</span>
           <span class="session-track-txt">{ch.name}</span>
+        </button>
+        <button
+          type="button"
+          class={stopCls}
+          title={ch.name + ": stop this track's clip (instant) — silent until you launch a clip"}
+          onclick={() => stopTrack(tix)}
+        >
+          {"■"}
         </button>
         <div class="session-cells">{cells}</div>
       </div>
