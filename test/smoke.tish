@@ -8,6 +8,8 @@ import { createTplLineStream, tplLineStreamPush } from '../src/tpl/Stream.tish'
 import { coDjLineAllowedForSkills } from '../src/codj/Skills.tish'
 import { deckSetCatalog, deckSetTplById } from '../src/model/DeckSets.tish'
 import { emptyProjectShell } from '../src/model/Project.tish'
+import { parseBarSelector, barSelectorMatches } from '../src/tpl/BarSelector.tish'
+import { lookupMacro, expandMacroBody } from '../src/tpl/Macros.tish'
 
 let pass = 0
 let fail = 0
@@ -144,6 +146,53 @@ let barRT = applyTplSource(barProj2, barEmit)
 check("bar sel: multi-bar emit re-parses clean", barRT.errors.length === 0)
 let bs2 = findChannelById(barProj2, "bs")
 check("bar sel: round-trip preserves per-bar step_pitch", bs2 !== null && bs2.stepPitchByBar != null && bs2.stepPitchByBar[1] === 31)
+
+// 5d. Macros: built-in reference, param override, user-defined macro, concise emit + round-trip
+let macSrc = "tpl 1\nmacro my_zap top=4000 q=18\n  osc o sawtooth note\n  filter f lowpass q $q\n  gain a\n  conn o f\n  conn f a\n  conn a out\n  env f.freq set 0 $top exp 0.2 100\n  env a.gain set 0 0.3 lin dur 0.01\nend macro\ntrack Kick id mk gen kick_edm\n  step_pitch 36\n  steps x . . . x . . . x . . . x . . .\ntrack Bass id mb gen bass_acid q 9\n  step_pitch 36\n  steps x . x . x . x . x . x . x . x .\ntrack Lead id ml gen my_zap top 5000\n  note 60 0 0.5 v 90"
+let macProj = loadDefaultDeckardProject().project
+applyTplSource(macProj, macSrc)
+let mk = findChannelById(macProj, "mk")
+check("macro: built-in kick_edm expands to a patch graph", mk !== null && mk.generatorId === "patch" && mk.macroName === "kick_edm" && mk.generatorSpec.graph.nodes.length === 2)
+let mb = findChannelById(macProj, "mb")
+check("macro: param override applies (bass_acid q 9 -> filter Q 9)", mb !== null && mb.macroName === "bass_acid" && mb.macroParams.q === 9 && mb.generatorSpec.graph.nodes[1].q === 9)
+let ml = findChannelById(macProj, "ml")
+check("macro: user-defined macro expands with substituted param", ml !== null && ml.macroName === "my_zap" && ml.generatorSpec.graph.envs[0].segs[0].vExpr === "5000")
+let macEmit = emitProject(macProj)
+check("macro: emit is concise (gen kick_edm, no gen_block for it)", macEmit.indexOf("gen kick_edm") >= 0 && macEmit.indexOf("gen bass_acid q 9") >= 0)
+let macProj2 = loadDefaultDeckardProject().project
+let macRT = applyTplSource(macProj2, macEmit)
+check("macro: round-trip re-parses clean and keeps the macro ref", macRT.errors.length === 0 && findChannelById(macProj2, "mk").macroName === "kick_edm")
+
+// 5e. Bar selector grammar (parse + match) — every supported form
+fn barMatch(sel, bar) {
+  return barSelectorMatches(parseBarSelector(sel), bar)
+}
+check("bar sel: even", barMatch("even", 0) && barMatch("even", 2) && !barMatch("even", 1))
+check("bar sel: odd", barMatch("odd", 1) && barMatch("odd", 3) && !barMatch("odd", 0))
+check("bar sel: single integer", barMatch("2", 2) && !barMatch("2", 1) && !barMatch("2", 3))
+check("bar sel: An+B modulo (3n+1)", barMatch("3n+1", 1) && barMatch("3n+1", 4) && !barMatch("3n+1", 0) && !barMatch("3n+1", 2))
+check("bar sel: An (2n == even)", barMatch("2n", 0) && barMatch("2n", 2) && !barMatch("2n", 1))
+check("bar sel: -n+B first B bars", barMatch("-n+3", 0) && barMatch("-n+3", 2) && !barMatch("-n+3", 3))
+check("bar sel: explicit list", barMatch("0,2,5", 0) && barMatch("0,2,5", 5) && !barMatch("0,2,5", 1))
+check("bar sel: all (n / *)", barMatch("n", 7) && barMatch("*", 99))
+
+// 5f. Macro helpers (registry + expansion) at the unit level
+let m = lookupMacro("bass_acid", {})
+check("macro lookup: built-in resolves", m !== null && m.body.length > 0)
+check("macro lookup: unknown returns null", lookupMacro("definitely_not_a_macro", {}) === null)
+let exp = expandMacroBody(m, { q: 7, top: 1234 })
+let joined = exp.join("\n")
+check("macro expand: overrides substitute $params", joined.indexOf("filter f lowpass q 7") >= 0 && joined.indexOf("set 0 1234 exp") >= 0)
+let expDef = expandMacroBody(m, {})
+check("macro expand: defaults apply when no override", expDef.join("\n").indexOf("q 15") >= 0)
+
+// 5g. Pattern length (`* N`, loops forever) vs finite loop cap (`loops N`) are separate
+let lenProj = loadDefaultDeckardProject().project
+applyTplSource(lenProj, "tpl 1\ntrack A id la gen basic_osc * 4\n  steps x . . . x . . . x . . . x . . .\ntrack B id lb gen basic_osc\n  loops 2\n  steps x . . . x . . . x . . . x . . .")
+let la = findChannelById(lenProj, "la")
+check("pattern len: `* 4` sets patternBars=4, no loop cap", la !== null && la.patternBars === 4 && la.tplLoopBars == null)
+let lb = findChannelById(lenProj, "lb")
+check("loop cap: `loops 2` sets tplLoopBars cap, patternBars stays 1", lb !== null && lb.tplLoopBars === 2 && lb.patternBars === 1)
 
 // 6. Every stem deck set parses cleanly into >= 5 stems (the deck.tsx conversions)
 let cat = deckSetCatalog()

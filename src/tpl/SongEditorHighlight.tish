@@ -1,10 +1,10 @@
 // Build HTML for mirrored TPL highlight layer (textarea overlay). All logic in Tish.
 
 import { tokenize } from './Parser.tish'
-import { classifyLine, isKeyword, isStepToken } from './Highlight.tish'
+import { classifyLine, isKeyword, isInlineKeyword, isStepToken } from './Highlight.tish'
 
 fn escapeHtml(s) {
-  if (s == null || s === undefined) {
+  if (s == null) {
     return ""
   }
   let x = String(s).split("&").join("&amp;")
@@ -79,7 +79,10 @@ fn highlightCoreHtml(core, indentStr, tailStr, activeStep, playing) {
       }
       inner = "<span class=\"" + kwClass + "\">" + inner + "</span>"
     } else {
-      if (cl.kind === "steps" && slotStr !== undefined && slotStr !== null) {
+      if (ti > 0 && isInlineKeyword(tok)) {
+        inner = "<span class=\"tpl-hl-kw tpl-hl-inline\">" + inner + "</span>"
+      } else {
+      if (cl.kind === "steps" && slotStr != null) {
         let slot = slotStr
         let on = tok === "x" || tok === "X" || tok === "1"
         let off = tok === "." || tok === "0"
@@ -90,6 +93,7 @@ fn highlightCoreHtml(core, indentStr, tailStr, activeStep, playing) {
           }
           inner = "<span class=\"" + cls + "\">" + inner + "</span>"
         }
+      }
       }
     }
     html = html + inner
@@ -104,7 +108,7 @@ fn highlightCoreHtml(core, indentStr, tailStr, activeStep, playing) {
 export fn tplDocumentToHighlightHtml(source, playbackStep, playing, lastAppliedLineCount, lastAppliedAt) {
   let active = Math.floor(playbackStep) % 16
   let src = source
-  if (src == null || src === undefined) {
+  if (src == null) {
     src = ""
   }
   let lines = String(src).split("\n")

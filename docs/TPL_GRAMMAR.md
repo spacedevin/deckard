@@ -35,32 +35,31 @@ Must appear before track-specific lines (recommended first non-comment line).
 ## Track block
 
 ```
-track <displayName> id <channelId> gen <generatorId> [ * <N|inf|infinite> ]
+track <displayName> id <channelId> gen <generatorId|macro> [ * <N> ] [ <param> <val> … ]
   ...
 ```
 
-- **generatorId** (TPL): `noise_burst`, `fm`, `basic_osc`, `fm_tone`, `matrix_fm` → internal `noiseBurst`, `fmTone`, `basicOsc`, `matrixFm`.
-- Indented lines (2+ spaces or tab) belong to this track until the next top-level statement (`track`, `auto`, `bpm`, `tpl`).
+- **generatorId** (TPL): `noise_burst`, `fm`, `basic_osc`, `fm_tone`, `matrix_fm`, `patch` → internal `noiseBurst`, `fmTone`, `basicOsc`, `matrixFm`, `patch`. The id may instead be a **macro** name (built-in or user-defined) — see [Macros](#macros).
+- Trailing `key value` pairs after the gen id (and the optional `* N`) are **macro parameter overrides** (ignored for plain generators).
+- Indented lines (2+ spaces or tab) belong to this track until the next top-level statement (`track`, `macro`, `auto`, `bpm`, `tpl`).
 
-### Loop / repeat (bar cap)
+### Pattern length (`* N`) vs loop cap (`loops N`)
 
-- **One loop** = **one bar** = **16 transport steps** (the same grid as the step sequencer and `globalStep % 16`).
-- **Default:** if you omit `*` and any `loops` line, the track repeats **forever** (current behavior).
-- **Finite:** `* 4` on the track header or an indented line `loops 4` means: after **4 complete bars** have elapsed since **Play** (or since this track block was last applied for that `id`), the track **stops sounding** until the next Play or until the same `id` is applied again (counter resets).
-- **Infinite (explicit):** `* inf`, `* infinite`, or `loops inf` / `loops infinite`.
-- **Precedence:** if both header `*` and body `loops` appear, **`loops` in the body wins** (last author wins for that block).
-- **Apply / Sync:** when the project is emitted back into the editor, a finite cap is written as **` * N` on the `track` line** (not a separate `loops` line), so the header form is preserved.
+These are **two independent things** — don't confuse them:
 
-Example:
+- **`* N` on the track header = pattern LENGTH in bars.** The channel's pattern spans `N` bars (its loop span is `N × 16` steps) and **repeats forever**. Notes can live on any bar (`0 ≤ startBeat < N×4`), `step_pitch` can vary per bar, and the sequencer shows an `N`-bar pager. Default (no `*`) = 1 bar. One bar = 16 transport steps.
+- **`loops N` (indented body line) = finite play CAP.** After `N` complete bars since **Play** (or since this `id` was last applied), the track **stops sounding** until the next Play / re-apply (counter resets). `loops inf` / `loops infinite` = no cap (the default).
+
+They compose: `* 4` + `loops 8` = a 4-bar pattern that plays twice, then stops. **Channels may have different `* N`** — drums can be 1-bar while a chord is 4-bar; each loops at its own length, polyrhythmically aligned.
+
+Example — a 4-bar pattern (loops forever):
 
 ```
-track Fill id c9 gen noise_burst * 2
-  mix gain 0.8
-  noise decay 0.08 tone 0.4 pitch_follow 0.2
-  steps x x x x x x x x x x x x x x x x
+track Chord id c3 gen patch * 4
+  note 48 0 16 v 90        # one held note spanning all 4 bars
 ```
 
-After two bars, that channel is silent for scheduling (mixer mute is unchanged). Re-sending a `track … id c9 …` block resets the bar counter and `tplLoopBars` for `c9`.
+Emitted back, the length is written as ` * N` on the `track` line; a cap (if any) as a separate `loops N` line.
 
 ### Mix
 
@@ -75,10 +74,20 @@ mix solo 1
 ### Step pitch
 
 ```
-step_pitch <midi>
+step_pitch <midi> [ bar <selector> ]
 ```
 
 Base MIDI pitch used for step-sequencer hits when the channel has **no** piano notes (default **36**). Has no effect on a channel driven by `note` lines. On Apply / Sync the line is emitted only when it differs from the default `36`.
+
+**Per-bar pitch (multi-bar patterns):** add `bar <selector>` (see [Bar selectors](#bar-selectors)) and supply one `step_pitch` line per bar/group — the active one for the current loop bar sets the pitch. Lets a stepped bass roll change root each bar without changing its rhythm:
+
+```
+track Bass id c2 gen bass_acid * 4
+  step_pitch 36 bar 0
+  step_pitch 31 bar 1
+  step_pitch 32 bar 2,3
+  steps . x x x . x x x . x x x . x x x
+```
 
 ### Steps (16-step row)
 
@@ -101,12 +110,20 @@ Example: `steps euclid 5 16` — five hits distributed across 16 steps.
 ### Notes (piano roll)
 
 ```
-note <midi> <startBeat> <durBeats> v <velocity>
+note <midi> <startBeat> <durBeats> v <velocity> [ bar <selector> ]
 ```
 
-- **Beats** are in **quarter-note units** (1 beat = one quarter note). The **piano roll** shows **one bar only** (4 beats) and snaps to a **zoom-dependent grid** (wheel or **±**): from **1 beat** down to **1/128 beat**.
-- **Single-bar rule:** every note must lie in the **first bar**: `0 <= startBeat < 4` and `startBeat + durBeats <= 4`. Apply rejects the line with an error if not satisfied (streaming stays strict).
-- **DurBeats** is note length in the same units. New piano notes use duration **4× current snap**, capped so the note stays inside the bar.
+- **Beats** are in **quarter-note units** (1 beat = one quarter note). The sequencer shows **one bar at a time** with a bar pager for multi-bar patterns.
+- **Range:** `0 ≤ startBeat` and `startBeat + durBeats ≤ bars × 4`, where `bars` is the track's `* N` length (default 1). Apply rejects out-of-range lines.
+- **`bar <selector>` (sugar):** keep `startBeat` within one bar (`< 4`) and add a [bar selector](#bar-selectors); the note is **repeated on every matching loop bar** (expanded to `startBeat + bar×4`). Great for per-bar progressions:
+
+```
+track Chord id c3 gen patch * 4
+  note 48 0 4 v 90 bar 0,2      # Cmin on bars 0 and 2
+  note 43 0 4 v 90 bar 1,3      # Gmin on bars 1 and 3
+```
+
+- **DurBeats** is note length in the same units. New piano notes use duration **4× current snap**.
 
 Multiple `note` lines append in order of appearance. Re-applying a full track block that contains `note` lines **replaces** all notes for that channel (see streaming note below).
 
@@ -170,6 +187,75 @@ end gen_block
 ```
 
 See [`docs/TPL_EXTENSION.md`](TPL_EXTENSION.md) and [`docs/GENERATORS.md`](GENERATORS.md).
+
+### Patch (`gen_block patch`) — the modular synth voice
+
+`gen patch` + a `gen_block patch` is the **universal voice**: a small modular graph (oscillators, noise, filters, waveshapers, gains) wired by `conn` lines, with breakpoint envelopes on any AudioParam. Anything a fixed generator does, a patch can express — it's how the deck-set instruments are built. Interpreter: [`src/generators/Patch.tish`](../src/generators/Patch.tish).
+
+```
+track Kick id k gen patch
+  gen_block patch
+    osc o sine                       # osc <id> <wave> [note|<hz>] [ratio R] [detune cents]
+    gain a                           # gain <id> [value]
+    conn o a                         # conn <src> <dst>
+    conn a out                       #   dst: another node, a node param (a.gain / f.freq / o.detune / f.q),
+    env o.freq set 0 150 exp 0.5 0.01#   `out` (→ channel, ×velocity), or `reverb` (→ channel reverb send)
+    env a.gain set 0 1 exp 0.5 0.01  # env <node>.<param> <seg> <seg> …  seg = set|lin|exp <t> <v>
+    dur 0.6                          # fixed voice duration (else the note/step length is used)
+  end gen_block
+  step_pitch 36
+  steps x . . . x . . . x . . . x . . .
+```
+
+Node types: `osc`, `noise`, `filter <id> <type> [q Q] [freq Hz]`, `shaper <id> [amount A]`, `gain`.
+Envelope **time/value expressions** resolve per-trigger: a number, `note` (Hz of the played note), `note*2`/`note/2`, `dur`, `dur-0.1`/`dur*0.5`, `vel` (0–1). Velocity also scales the `out` connection automatically.
+
+### Bar selectors
+
+A CSS-`nth`-style predicate for **which loop repetition (bar)** a `note` or `step_pitch` applies to. Bars are 0-indexed within the track's `* N` length. Single token, no spaces:
+
+| Selector | Matches bars |
+|---|---|
+| `even` / `odd` | 0,2,4,… / 1,3,5,… |
+| `<int>` (e.g. `2`) | only that bar |
+| `n` / `*` / `all` | every bar |
+| `<a>n` (e.g. `2n`) | `bar % a == 0` |
+| `<a>n+<b>` (e.g. `3n+1`) | `bar % a == b` |
+| `-n+<b>` (e.g. `-n+3`) | first `b` bars (0…b-1) |
+| `<b0>,<b1>,…` (e.g. `0,2,5`) | explicit list |
+
+### Macros
+
+A **macro** is a named, parameterized **patch template**. Built-ins port the deck.tsx voices; you can define your own. A `gen <name> [overrides]` reference expands to a `gen_block patch` at load (so there's one synth engine), and round-trips back as the concise `gen <name>` line (not the expanded graph). Registry + expander: [`src/tpl/Macros.tish`](../src/tpl/Macros.tish).
+
+**Define** (top-level; `key=default` params; `$name` substituted in the body):
+
+```
+macro my_zap top=4000 q=18
+  osc o sawtooth note
+  filter f lowpass q $q
+  gain a
+  conn o f
+  conn f a
+  conn a out
+  env f.freq set 0 $top exp 0.2 100
+  env a.gain set 0 0.3 lin dur 0.01
+end macro
+```
+
+**Use** (overrides are `key value` after the gen id; compose with `* N`):
+
+```
+track Lead id l gen my_zap top 5000
+  note 60 0 0.5 v 90
+track Kick id k gen kick_edm                 # built-in, defaults
+  steps x . . . x . . . x . . . x . . .
+track Bass id b gen bass_acid * 4 q 9 top 2600
+  step_pitch 36
+  steps x . x . x . x . x . x . x . x .
+```
+
+Built-in macros: `kick_edm`, `kick_deep`, `kick_distorted`, `bass_reese`, `bass_reese_punch`, `bass_reese_sc`, `bass_acid` (`q`/`top`/`level`), `bass_wobble` (`lfo`).
 
 ## Automation
 

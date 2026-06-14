@@ -33,18 +33,28 @@ export fn emitProject(project) {
     if (!gid) {
       gid = "basicOsc"
     }
-    o = o + "track " + ch.name + " id " + ch.id + " gen " + generatorIdToTpl(gid)
+    // A macro-backed channel round-trips as `gen <macroName> [overrides]` (the macro re-expands on load).
+    let genTok = (ch.macroName != null) ? ch.macroName : generatorIdToTpl(gid)
+    o = o + "track " + ch.name + " id " + ch.id + " gen " + genTok
     let pb = ch.patternBars
-    if (pb !== undefined && pb !== null) {
+    if (pb != null) {
       let pn = Math.floor(Number(pb))
       if (pn >= 2 && pn === pn) {
         o = o + " * " + String(pn)
       }
     }
+    if (ch.macroName != null && ch.macroParams) {
+      let mk = Object.keys(ch.macroParams)
+      let mki = 0
+      while (mki < mk.length) {
+        o = o + " " + mk[mki] + " " + String(ch.macroParams[mk[mki]])
+        mki = mki + 1
+      }
+    }
     o = o + "\n"
     // Finite loop cap (play N bars then go silent) — distinct from pattern length above.
     let tlb = ch.tplLoopBars
-    if (tlb !== undefined && tlb !== null) {
+    if (tlb != null) {
       let tn = Math.floor(Number(tlb))
       if (tn >= 1 && tn === tn) {
         o = o + "  loops " + String(tn) + "\n"
@@ -217,7 +227,9 @@ export fn emitProject(project) {
       ni = ni + 1
     }
 
-    if (ch.generatorSpec && ch.generatorSpec.raw) {
+    // Macro-backed channels emit `gen <macro>` above instead of the expanded patch graph.
+    let isMacroChan = ch.macroName != null
+    if (!isMacroChan && ch.generatorSpec && ch.generatorSpec.raw) {
       let gk = ch.generatorSpec.tplHeaderId
       if (!gk && ch.generatorSpec.kind === "matrixFm") {
         gk = "matrix_fm"

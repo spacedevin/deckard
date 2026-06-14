@@ -39,48 +39,7 @@ fn flat(parts) {
 
 // ---- Voice library (deck.tsx AudioEngine ports, as TPL patch blocks) -----------------------------
 
-// Kicks
-fn vKickEdm() {
-  return [
-    "  gen_block patch",
-    "    osc o sine",
-    "    gain a",
-    "    conn o a",
-    "    conn a out",
-    "    env o.freq set 0 150 exp 0.5 0.01",
-    "    env a.gain set 0 1 exp 0.5 0.01",
-    "    dur 0.6",
-    "  end gen_block"
-  ]
-}
-fn vKickDeep() {
-  return [
-    "  gen_block patch",
-    "    osc o triangle",
-    "    gain a",
-    "    conn o a",
-    "    conn a out",
-    "    env o.freq set 0 80 exp 0.4 20",
-    "    env a.gain set 0 0.85 lin 0.6 0.01",
-    "    dur 0.7",
-    "  end gen_block"
-  ]
-}
-fn vKickDistorted() {
-  return [
-    "  gen_block patch",
-    "    osc o sine",
-    "    shaper sh amount 400",
-    "    gain a",
-    "    conn o sh",
-    "    conn sh a",
-    "    conn a out",
-    "    env o.freq set 0 120 exp 0.5 0.01",
-    "    env a.gain set 0 1 exp 0.5 0.01",
-    "    dur 0.6",
-    "  end gen_block"
-  ]
-}
+// Kicks + basses now live as built-in macros (src/tpl/Macros.tish); referenced by name from the sets.
 
 // Hats (noise → highpass → fast/slow decay)
 fn vHatClosed() {
@@ -130,102 +89,6 @@ fn vSnare() {
     "    env ag.gain set 0 0.5 exp 0.2 0.01",
     "    env ng.gain set 0 0.6 exp 0.25 0.01",
     "    dur 0.3",
-    "  end gen_block"
-  ]
-}
-
-// Basses
-fn vBassAcid() {
-  // High-resonance lowpass sweep (the "lasery" 303 zap). Q stays high for the resonance; the level is
-  // kept low so the resonant peak doesn't clip (the master soft-clip catches any residual).
-  return [
-    "  gen_block patch",
-    "    osc o sawtooth note",
-    "    filter f lowpass q 15",
-    "    gain a",
-    "    conn o f",
-    "    conn f a",
-    "    conn a out",
-    "    env f.freq set 0 3200 exp 0.2 100",
-    "    env a.gain set 0 0.26 set dur-0.05 0.26 lin dur 0.01",
-    "  end gen_block"
-  ]
-}
-fn vBassReese() {
-  return [
-    "  gen_block patch",
-    "    osc o1 sawtooth note detune -6",
-    "    osc o2 sawtooth note detune 0",
-    "    osc o3 sawtooth note detune 6",
-    "    filter f lowpass",
-    "    gain a",
-    "    conn o1 f",
-    "    conn o2 f",
-    "    conn o3 f",
-    "    conn f a",
-    "    conn a out",
-    "    env f.freq set 0 800 lin dur 200",
-    "    env a.gain set 0 0.32 set dur-0.1 0.32 lin dur 0.01",
-    "  end gen_block"
-  ]
-}
-fn vBassReesePunch() {
-  // deck.tsx roll reese (dur 0.15, gain 0.6): 3 detuned saws → lowpass swept 800→200, LOUD and SHORT
-  // with a brief hold then snap — a punchy 16th stab regardless of step rate (fixed duration).
-  return [
-    "  gen_block patch",
-    "    osc o1 sawtooth note detune -6",
-    "    osc o2 sawtooth note detune 0",
-    "    osc o3 sawtooth note detune 6",
-    "    filter f lowpass",
-    "    gain a",
-    "    conn o1 f",
-    "    conn o2 f",
-    "    conn o3 f",
-    "    conn f a",
-    "    conn a out",
-    "    env f.freq set 0 800 lin 0.15 200",
-    "    env a.gain set 0 0.5 set 0.06 0.5 lin 0.15 0.01",
-    "    dur 0.16",
-    "  end gen_block"
-  ]
-}
-fn vBassReeseSC() {
-  // sidechain-pumped reese (gain ducked at note start, swells back in)
-  return [
-    "  gen_block patch",
-    "    osc o1 sawtooth note detune -6",
-    "    osc o2 sawtooth note detune 0",
-    "    osc o3 sawtooth note detune 6",
-    "    filter f lowpass",
-    "    gain a",
-    "    conn o1 f",
-    "    conn o2 f",
-    "    conn o3 f",
-    "    conn f a",
-    "    conn a out",
-    "    env f.freq set 0 800 lin dur 200",
-    "    env a.gain set 0 0.05 lin dur*0.4 0.3 set dur*0.75 0.3 lin dur 0.01",
-    "  end gen_block"
-  ]
-}
-fn vBassWobble(lfoHz) {
-  // deck.tsx playWobbleBass: one saw → resonant lowpass (base 300Hz, Q12) whose cutoff is swept ±2500
-  // by a sine LFO at lfoHz — the dubstep "wob". Cutoff bottoms out near 0 (closed) for the deep pulse.
-  return [
-    "  gen_block patch",
-    "    osc o sawtooth note",
-    "    osc lfo sine " + String(lfoHz),
-    "    gain lg 2500",
-    "    filter f lowpass q 12",
-    "    gain a",
-    "    conn o f",
-    "    conn lfo lg",
-    "    conn lg f.freq",
-    "    conn f a",
-    "    conn a out",
-    "    env f.freq set 0 300",
-    "    env a.gain set 0 0.55 set dur-0.1 0.55 lin dur 0.01",
     "  end gen_block"
   ]
 }
@@ -329,22 +192,36 @@ fn reverbForStem(name) {
   return 0
 }
 
-/// Build one stem track: header + open channel filter + (role-derived) reverb send + voice + tail.
-/// The reverbSend argument is kept for call-site readability but the actual send is role-derived.
-fn stem(name, id, reverbSend, voiceLines, tail) {
-  return stemB(name, id, 1, voiceLines, tail)
+/// Build one stem track. `voice` is either an inline patch (array of gen_block lines) OR a macro
+/// reference string ("kick_edm" or "bass_wobble lfo 2"). The reverbSend arg is kept for call-site
+/// readability but the actual send is role-derived.
+fn stem(name, id, reverbSend, voice, tail) {
+  return stemB(name, id, 1, voice, tail)
 }
 
-/// Multi-bar stem: `bars` > 1 emits `* N` in the header so the channel loops over N bars (lets the
-/// chord/bass progression cycle via `bar <sel>` selectors).
-fn stemB(name, id, bars, voiceLines, tail) {
+/// Multi-bar stem: `bars` > 1 emits `* N` in the header so the channel loops over N bars.
+fn stemB(name, id, bars, voice, tail) {
   let rv = reverbForStem(name)
-  let hdr = "track " + name + " id " + id + " gen patch"
-  if (bars > 1) {
-    hdr = hdr + " * " + String(bars)
+  let fx = "  fx cutoff 20000 reverb_send " + String(rv)
+  if (typeof voice === "string") {
+    // Macro reference → `gen <macro> [* N] [params]`, no inline gen_block.
+    let parts = voice.split(" ")
+    let hdr = "track " + name + " id " + id + " gen " + parts[0]
+    if (bars > 1) {
+      hdr = hdr + " * " + String(bars)
+    }
+    let pi = 1
+    while (pi < parts.length) {
+      hdr = hdr + " " + parts[pi]
+      pi = pi + 1
+    }
+    return flat([[hdr, fx], tail])
   }
-  let head = [hdr, "  fx cutoff 20000 reverb_send " + String(rv)]
-  return flat([head, voiceLines, tail])
+  let hdr2 = "track " + name + " id " + id + " gen patch"
+  if (bars > 1) {
+    hdr2 = hdr2 + " * " + String(bars)
+  }
+  return flat([[hdr2, fx], voice, tail])
 }
 
 /// Emit `note` lines for a per-bar progression. entries = [[barSel, [pitch...]], ...]; one note per
@@ -412,9 +289,9 @@ fn deckSetTpls() {
       bpm: 110,
       tpl: L(flat([
         "tpl 1",
-        stem("Kick", "kick", 0.05, vKickDeep(), ["  step_pitch 36", "  steps x . . . . . . . . . . . . . . ."]),
+        stem("Kick", "kick", 0.05, "kick_deep", ["  step_pitch 36", "  steps x . . . . . . . . . . . . . . ."]),
         stem("Hat", "hat", 0.1, vHatClosed(), ["  step_pitch 44", "  steps . . . . x . . . . . . . x . . ."]),
-        stemB("Bass", "bass", 16, vBassReese(), progNotes([["0,8", [36]], ["4", [32]], ["12", [31]]], [0], 7, 100)),
+        stemB("Bass", "bass", 16, "bass_reese", progNotes([["0,8", [36]], ["4", [32]], ["12", [31]]], [0], 7, 100)),
         stemB("Chord", "chord", 16, vChordPad(), progNotes([["0,8", [48, 51, 55]], ["4", [44, 48, 51]], ["12", [43, 46, 50]]], [0], 7, 100)),
         stemB("Pluck", "pluck", 16, vPluck(), aetherialPluck())
       ]))
@@ -426,10 +303,10 @@ fn deckSetTpls() {
       bpm: 125,
       tpl: L(flat([
         "tpl 1",
-        stem("Kick", "kick", 0.05, vKickEdm(), ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
+        stem("Kick", "kick", 0.05, "kick_edm", ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
         stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
-        stemB("Bass", "bass", 4, vBassAcid(), flat([stepPitchProg([["0", 36], ["1,3", 34], ["2", 32]]), "  steps x . x . x . x . x . x . x . x ."])),
+        stemB("Bass", "bass", 4, "bass_acid", flat([stepPitchProg([["0", 36], ["1,3", 34], ["2", 32]]), "  steps x . x . x . x . x . x . x . x ."])),
         stemB("Chord", "chord", 4, vChordStab(), progNotes([["0", [48, 51, 55]], ["1,3", [46, 50, 53]], ["2", [44, 48, 51]]], [0, 2.5], 0.4, 100)),
         stem("Pluck", "pluck", 0.3, vPluck(), ["  note 70 2 0.5 v 90", "  note 70 3 0.5 v 90"])
       ]))
@@ -441,9 +318,9 @@ fn deckSetTpls() {
       bpm: 130,
       tpl: L(flat([
         "tpl 1",
-        stem("Kick", "kick", 0.05, vKickDeep(), ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
+        stem("Kick", "kick", 0.05, "kick_deep", ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
-        stem("Bass", "bass", 0.1, vBassReeseSC(), ["  step_pitch 36", "  steps . . x . . . x . . . x . . . x ."]),
+        stem("Bass", "bass", 0.1, "bass_reese_sc", ["  step_pitch 36", "  steps . . x . . . x . . . x . . . x ."]),
         stemB("Chord", "chord", 4, vChordPad(), ["  voice chord minor", "  note 48 0 16 v 95"]),
         stem("Pluck", "pluck", 0.3, vPluck(), ["  note 67 3.5 0.5 v 90"])
       ]))
@@ -455,10 +332,10 @@ fn deckSetTpls() {
       bpm: 138,
       tpl: L(flat([
         "tpl 1",
-        stem("Kick", "kick", 0.05, vKickEdm(), ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
+        stem("Kick", "kick", 0.05, "kick_edm", ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Hat", "hat", 0.2, vHatOpen(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
         stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
-        stemB("Bass", "bass", 4, vBassReesePunch(), flat([stepPitchProg([["0,1", 32], ["2,3", 34]]), "  steps . x x x . x x x . x x x . x x x"])),
+        stemB("Bass", "bass", 4, "bass_reese_punch", flat([stepPitchProg([["0,1", 32], ["2,3", 34]]), "  steps . x x x . x x x . x x x . x x x"])),
         stemB("Chord", "chord", 4, vChordPad(), ["  note 44 0 7 v 95", "  note 48 0 7 v 95", "  note 51 0 7 v 95", "  note 46 8 7 v 95", "  note 50 8 7 v 95", "  note 53 8 7 v 95"]),
         stem("Pluck", "pluck", 0.4, vPluck(), ["  note 72 0 0.25 v 85", "  note 82 0.75 0.25 v 85", "  note 84 1 0.25 v 85", "  note 75 1.75 0.25 v 85", "  note 79 2 0.25 v 85", "  note 87 2.75 0.25 v 85", "  note 72 3 0.25 v 85", "  note 82 3.75 0.25 v 85"])
       ]))
@@ -470,10 +347,10 @@ fn deckSetTpls() {
       bpm: 90,
       tpl: L(flat([
         "tpl 1",
-        stem("Kick", "kick", 0.05, vKickDeep(), ["  step_pitch 36", "  steps x . . . . . . . . . . x . . . ."]),
+        stem("Kick", "kick", 0.05, "kick_deep", ["  step_pitch 36", "  steps x . . . . . . . . . . x . . . ."]),
         stem("Snare", "snare", 0.25, vSnare(), ["  step_pitch 40", "  steps . . . . . . . . x . . . . . . ."]),
         stem("Hat", "hat", 0.1, vHatClosed(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
-        stemB("Bass", "bass", 8, vBassAcid(), progNotes([["-n+4", [36]], ["4,5,6,7", [39]]], [0, 2.75], 1.5, 100)),
+        stemB("Bass", "bass", 8, "bass_acid", progNotes([["-n+4", [36]], ["4,5,6,7", [39]]], [0, 2.75], 1.5, 100)),
         stemB("Chord", "chord", 8, vChordStab(), progNotes([["-n+4", [48, 51, 55]], ["4,5,6,7", [51, 55, 58]]], [0, 1.5], 0.5, 95)),
         stemB("Pluck", "pluck", 8, vPluck(), ["  note 72 3.5 0.25 v 85 bar even"])
       ]))
@@ -485,11 +362,11 @@ fn deckSetTpls() {
       bpm: 105,
       tpl: L(flat([
         "tpl 1",
-        stem("Kick", "kick", 0.05, vKickDistorted(), ["  step_pitch 36", "  steps x . . . . . . . x . . . . . . ."]),
+        stem("Kick", "kick", 0.05, "kick_distorted", ["  step_pitch 36", "  steps x . . . . . . . x . . . . . . ."]),
         stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . . . . . x . . . . . . ."]),
         stem("Hat", "hat", 0.2, vHatOpen(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
-        stem("Wobble", "wobble", 0.05, vBassWobble(2), ["  note 24 0 1.75 v 100"]),
-        stem("WobFast", "wobfast", 0.05, vBassWobble(8), ["  note 24 2 1.75 v 100"]),
+        stem("Wobble", "wobble", 0.05, "bass_wobble lfo 2", ["  note 24 0 1.75 v 100"]),
+        stem("WobFast", "wobfast", 0.05, "bass_wobble lfo 8", ["  note 24 2 1.75 v 100"]),
         stemB("Stab", "stab", 4, vChordStab(), ["  voice chord minor", "  note 48 0 1 v 95 bar 0"])
       ]))
     },
@@ -500,9 +377,9 @@ fn deckSetTpls() {
       bpm: 145,
       tpl: L(flat([
         "tpl 1",
-        stem("Kick", "kick", 0.05, vKickEdm(), ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
+        stem("Kick", "kick", 0.05, "kick_edm", ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Hat", "hat", 0.2, vHatOpen(), ["  step_pitch 44", "  steps . . . . x . . . . . . . x . . ."]),
-        stem("Bass", "bass", 0.05, vBassReesePunch(), ["  step_pitch 36", "  steps . x x x . x x x . x x x . x x x"]),
+        stem("Bass", "bass", 0.05, "bass_reese_punch", ["  step_pitch 36", "  steps . x x x . x x x . x x x . x x x"]),
         stemB("Chord", "chord", 4, vChordPad(), ["  voice chord minor", "  note 48 0 16 v 95"]),
         stem("Arp", "arp", 0.3, vFmPluck(), ["  note 60 0 0.5 v 90", "  note 60 1.5 0.5 v 90"])
       ]))
@@ -514,10 +391,10 @@ fn deckSetTpls() {
       bpm: 140,
       tpl: L(flat([
         "tpl 1",
-        stem("Kick", "kick", 0.05, vKickDeep(), ["  step_pitch 34", "  steps x . . . . . . . . . x . . . . ."]),
+        stem("Kick", "kick", 0.05, "kick_deep", ["  step_pitch 34", "  steps x . . . . . . . . . x . . . . ."]),
         stem("Snare", "snare", 0.25, vSnare(), ["  step_pitch 40", "  steps . . . . . . . . x . . . . . . ."]),
         stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
-        stem("Sub", "sub", 0.05, vBassReese(), ["  note 19 0 4 v 100"]),
+        stem("Sub", "sub", 0.05, "bass_reese", ["  note 19 0 4 v 100"]),
         stemB("Stab", "stab", 2, vChordStab(), ["  voice chord minor", "  note 43 0 1 v 95 bar 0"]),
         stem("Arp", "arp", 0.4, vFmPluck(), ["  note 63 3.5 0.5 v 90"])
       ]))
@@ -529,10 +406,10 @@ fn deckSetTpls() {
       bpm: 115,
       tpl: L(flat([
         "tpl 1",
-        stem("Kick", "kick", 0.05, vKickEdm(), ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
+        stem("Kick", "kick", 0.05, "kick_edm", ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
         stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
-        stemB("Bass", "bass", 4, vBassAcid(), flat([stepPitchProg([["0,1", 32], ["2,3", 34]]), "  steps x . x . x . x . x . x . x . x ."])),
+        stemB("Bass", "bass", 4, "bass_acid", flat([stepPitchProg([["0,1", 32], ["2,3", 34]]), "  steps x . x . x . x . x . x . x . x ."])),
         stemB("Stab", "stab", 4, vChordStab(), progNotes([["0,1", [44, 48, 51]], ["2,3", [46, 50, 53]]], [0, 1.5], 0.4, 95)),
         stem("Arp", "arp", 0.3, vPluck(), ["  note 67 1.5 0.5 v 90", "  note 67 3.5 0.5 v 90"])
       ]))
@@ -544,10 +421,10 @@ fn deckSetTpls() {
       bpm: 170,
       tpl: L(flat([
         "tpl 1",
-        stem("Kick", "kick", 0.05, vKickDeep(), ["  step_pitch 36", "  steps x . . . . . . . . . x . . . . ."]),
+        stem("Kick", "kick", 0.05, "kick_deep", ["  step_pitch 36", "  steps x . . . . . . . . . x . . . . ."]),
         stem("Snare", "snare", 0.25, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
         stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps x x x x x x x x x x x x x x x x"]),
-        stemB("Bass", "bass", 2, vBassReese(), ["  note 39 0 7 v 100"]),
+        stemB("Bass", "bass", 2, "bass_reese", ["  note 39 0 7 v 100"]),
         stemB("Chord", "chord", 4, vChordPad(), ["  voice chord major", "  note 51 0 16 v 90"]),
         stem("Arp", "arp", 0.4, vFmPluck(), ["  note 72 3.5 0.5 v 90"])
       ]))
@@ -559,10 +436,10 @@ fn deckSetTpls() {
       bpm: 105,
       tpl: L(flat([
         "tpl 1",
-        stem("Kick", "kick", 0.05, vKickDistorted(), ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
+        stem("Kick", "kick", 0.05, "kick_distorted", ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . . . . . x . . . . . . ."]),
         stem("Hat", "hat", 0.08, vHatOpen(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
-        stem("Bass", "bass", 0.05, vBassAcid(), ["  step_pitch 36", "  steps x . . x . . . . x . . x . . . ."]),
+        stem("Bass", "bass", 0.05, "bass_acid", ["  step_pitch 36", "  steps x . . x . . . . x . . x . . . ."]),
         stem("Stab", "stab", 0.15, vChordStab(), ["  voice chord minor", "  note 48 0 0.5 v 95"]),
         stem("Arp", "arp", 0.3, vFmPluck(), ["  note 48 0 0.25 v 88", "  note 58 0.75 0.25 v 88", "  note 48 1.5 0.25 v 88", "  note 58 2.25 0.25 v 88", "  note 48 3 0.25 v 88", "  note 58 3.75 0.25 v 88"])
       ]))
@@ -574,10 +451,10 @@ fn deckSetTpls() {
       bpm: 118,
       tpl: L(flat([
         "tpl 1",
-        stem("Kick", "kick", 0.05, vKickDeep(), ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
+        stem("Kick", "kick", 0.05, "kick_deep", ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Snare", "snare", 0.25, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
         stem("Hat", "hat", 0.1, vHatOpen(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
-        stemB("Bass", "bass", 4, vBassReeseSC(), progNotes([["0,1", [31]], ["2,3", [34]]], [2.5, 3.5], 0.5, 100)),
+        stemB("Bass", "bass", 4, "bass_reese_sc", progNotes([["0,1", [31]], ["2,3", [34]]], [2.5, 3.5], 0.5, 100)),
         stemB("Stab", "stab", 4, vChordStab(), progNotes([["0,1", [43, 46, 50]], ["2,3", [46, 50, 53]]], [1, 3], 0.5, 90)),
         stem("Texture", "texture", 0.35, vNoiseSweep(), ["  step_pitch 50", "  steps x . . . . . . . . . . . . . . ."])
       ]))
@@ -589,9 +466,9 @@ fn deckSetTpls() {
       bpm: 90,
       tpl: L(flat([
         "tpl 1",
-        stem("Kick", "kick", 0.05, vKickDeep(), ["  step_pitch 36", "  steps x . . . . . . . . . . . . . . ."]),
+        stem("Kick", "kick", 0.05, "kick_deep", ["  step_pitch 36", "  steps x . . . . . . . . . . . . . . ."]),
         stem("Hat", "hat", 0.1, vHatClosed(), ["  step_pitch 44", "  steps x . . . x . . . x . . . x . x ."]),
-        stemB("Bass", "bass", 2, vBassWobble(0.5), ["  note 36 0 6 v 95"]),
+        stemB("Bass", "bass", 2, "bass_wobble lfo 0.5", ["  note 36 0 6 v 95"]),
         stemB("Chord", "chord", 4, vChordPad(), ["  voice chord minor", "  note 48 0 16 v 90"]),
         stem("Arp", "arp", 0.4, vFmPluck(), ["  note 60 1.5 0.5 v 85", "  note 67 2 0.5 v 85"])
       ]))
@@ -603,10 +480,10 @@ fn deckSetTpls() {
       bpm: 130,
       tpl: L(flat([
         "tpl 1",
-        stem("Kick", "kick", 0.05, vKickDistorted(), ["  step_pitch 36", "  steps x . . . . . . . x . . x . . . ."]),
+        stem("Kick", "kick", 0.05, "kick_distorted", ["  step_pitch 36", "  steps x . . . . . . . x . . x . . . ."]),
         stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . . . . . x . . . . . . ."]),
         stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
-        stem("Bass", "bass", 0.05, vBassReeseSC(), ["  note 32 0 4 v 100"]),
+        stem("Bass", "bass", 0.05, "bass_reese_sc", ["  note 32 0 4 v 100"]),
         stemB("Chord", "chord", 2, vChordPad(), progNotes([["0", [44, 48, 51]], ["1", [46, 50, 53]]], [0], 4, 90)),
         stem("Arp", "arp", 0.35, vFmPluck(), ["  note 84 0 0.25 v 88", "  note 84 1 0.25 v 88", "  note 84 2 0.25 v 88", "  note 84 3 0.25 v 88"])
       ]))
@@ -618,10 +495,10 @@ fn deckSetTpls() {
       bpm: 124,
       tpl: L(flat([
         "tpl 1",
-        stem("Kick", "kick", 0.05, vKickEdm(), ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
+        stem("Kick", "kick", 0.05, "kick_edm", ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
         stem("Hat", "hat", 0.2, vHatOpen(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
-        stemB("Bass", "bass", 4, vBassAcid(), flat([stepPitchProg([["0", 36], ["1", 31], ["2", 32], ["3", 39]]), "  steps . x x x . x x x . x x x . x x x"])),
+        stemB("Bass", "bass", 4, "bass_acid", flat([stepPitchProg([["0", 36], ["1", 31], ["2", 32], ["3", 39]]), "  steps . x x x . x x x . x x x . x x x"])),
         stemB("Chord", "chord", 4, vChordPad(), progNotes([["0", [48, 51, 55]], ["1", [43, 46, 50]], ["2", [44, 48, 51]], ["3", [51, 55, 58]]], [0], 4, 90)),
         stem("Pluck", "pluck", 0.35, vPluck(), ["  note 70 0.75 0.5 v 85", "  note 60 1.5 0.5 v 85", "  note 75 2.75 0.5 v 85", "  note 67 3.5 0.5 v 85"])
       ]))

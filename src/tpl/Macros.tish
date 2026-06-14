@@ -1,0 +1,186 @@
+// Macros — named, parameterized patch templates. Built-ins port the deck.tsx kick/bass voices; users
+// define their own in TPL:
+//
+//   macro my_kick pitch=150 decay=0.5
+//     osc o sine
+//     gain a
+//     conn o a
+//     conn a out
+//     env o.freq set 0 $pitch exp $decay 0.01
+//     env a.gain set 0 1 exp $decay 0.01
+//     dur 0.6
+//   end macro
+//
+// A track uses one with `gen my_kick [pitch 120 ...]`, which expands to a `gen_block patch` at apply
+// time. `$name` tokens in the body are substituted by the resolved parameter (override else default).
+
+/// Built-in macro library — { name: { params: {k: default}, body: [patch lines] } }.
+export fn builtinMacros() {
+  return {
+    "kick_edm": {
+      params: { pitch: 150, decay: 0.5 },
+      body: [
+        "osc o sine",
+        "gain a",
+        "conn o a",
+        "conn a out",
+        "env o.freq set 0 $pitch exp $decay 0.01",
+        "env a.gain set 0 1 exp $decay 0.01",
+        "dur 0.6"
+      ]
+    },
+    "kick_deep": {
+      params: { pitch: 80, end: 20, decay: 0.4 },
+      body: [
+        "osc o triangle",
+        "gain a",
+        "conn o a",
+        "conn a out",
+        "env o.freq set 0 $pitch exp $decay $end",
+        "env a.gain set 0 0.85 lin 0.6 0.01",
+        "dur 0.7"
+      ]
+    },
+    "kick_distorted": {
+      params: { pitch: 120, decay: 0.5, drive: 400 },
+      body: [
+        "osc o sine",
+        "shaper sh amount $drive",
+        "gain a",
+        "conn o sh",
+        "conn sh a",
+        "conn a out",
+        "env o.freq set 0 $pitch exp $decay 0.01",
+        "env a.gain set 0 1 exp $decay 0.01",
+        "dur 0.6"
+      ]
+    },
+    "bass_reese": {
+      params: { level: 0.32 },
+      body: [
+        "osc o1 sawtooth note detune -6",
+        "osc o2 sawtooth note detune 0",
+        "osc o3 sawtooth note detune 6",
+        "filter f lowpass",
+        "gain a",
+        "conn o1 f",
+        "conn o2 f",
+        "conn o3 f",
+        "conn f a",
+        "conn a out",
+        "env f.freq set 0 800 lin dur 200",
+        "env a.gain set 0 $level set dur-0.1 $level lin dur 0.01"
+      ]
+    },
+    "bass_reese_punch": {
+      params: { level: 0.5 },
+      body: [
+        "osc o1 sawtooth note detune -6",
+        "osc o2 sawtooth note detune 0",
+        "osc o3 sawtooth note detune 6",
+        "filter f lowpass",
+        "gain a",
+        "conn o1 f",
+        "conn o2 f",
+        "conn o3 f",
+        "conn f a",
+        "conn a out",
+        "env f.freq set 0 800 lin 0.15 200",
+        "env a.gain set 0 $level set 0.06 $level lin 0.15 0.01",
+        "dur 0.16"
+      ]
+    },
+    "bass_reese_sc": {
+      params: {},
+      body: [
+        "osc o1 sawtooth note detune -6",
+        "osc o2 sawtooth note detune 0",
+        "osc o3 sawtooth note detune 6",
+        "filter f lowpass",
+        "gain a",
+        "conn o1 f",
+        "conn o2 f",
+        "conn o3 f",
+        "conn f a",
+        "conn a out",
+        "env f.freq set 0 800 lin dur 200",
+        "env a.gain set 0 0.05 lin dur*0.4 0.3 set dur*0.75 0.3 lin dur 0.01"
+      ]
+    },
+    "bass_acid": {
+      params: { q: 15, top: 3200, level: 0.26 },
+      body: [
+        "osc o sawtooth note",
+        "filter f lowpass q $q",
+        "gain a",
+        "conn o f",
+        "conn f a",
+        "conn a out",
+        "env f.freq set 0 $top exp 0.2 100",
+        "env a.gain set 0 $level set dur-0.05 $level lin dur 0.01"
+      ]
+    },
+    "bass_wobble": {
+      params: { lfo: 4 },
+      body: [
+        "osc o sawtooth note",
+        "osc lfo sine $lfo",
+        "gain lg 2500",
+        "filter f lowpass q 12",
+        "gain a",
+        "conn o f",
+        "conn lfo lg",
+        "conn lg f.freq",
+        "conn f a",
+        "conn a out",
+        "env f.freq set 0 300",
+        "env a.gain set 0 0.55 set dur-0.1 0.55 lin dur 0.01"
+      ]
+    }
+  }
+}
+
+/// Resolve a macro by name from user-defined macros first, then built-ins. Returns null if not a macro.
+export fn lookupMacro(name, userMacros) {
+  if (userMacros && userMacros[name]) {
+    return userMacros[name]
+  }
+  let b = builtinMacros()
+  if (b[name]) {
+    return b[name]
+  }
+  return null
+}
+
+/// Expand a macro's body into patch lines, substituting $param with override-or-default values.
+export fn expandMacroBody(macro, overrides) {
+  let vals = {}
+  let keys = Object.keys(macro.params)
+  let i = 0
+  while (i < keys.length) {
+    vals[keys[i]] = macro.params[keys[i]]
+    i = i + 1
+  }
+  if (overrides) {
+    let ok = Object.keys(overrides)
+    let j = 0
+    while (j < ok.length) {
+      vals[ok[j]] = overrides[ok[j]]
+      j = j + 1
+    }
+  }
+  let valKeys = Object.keys(vals)
+  let out = []
+  let li = 0
+  while (li < macro.body.length) {
+    let line = macro.body[li]
+    let ki = 0
+    while (ki < valKeys.length) {
+      line = line.split("$" + valKeys[ki]).join(String(vals[valKeys[ki]]))
+      ki = ki + 1
+    }
+    out.push(line)
+    li = li + 1
+  }
+  return out
+}

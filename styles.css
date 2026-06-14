@@ -2114,6 +2114,13 @@ input[type="range"]::-moz-range-thumb {
   font-weight: 600;
 }
 
+/* Mid-line modifier keywords (bar, v) — distinct from line-leading keywords. */
+.tpl-song-highlight-layer .tpl-hl-kw.tpl-hl-inline {
+  color: var(--mint);
+  font-weight: 500;
+  opacity: 0.85;
+}
+
 .tpl-song-highlight-layer .tpl-hl-st-on {
   color: var(--mint);
 }

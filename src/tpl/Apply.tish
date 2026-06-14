@@ -8,6 +8,7 @@ import {
 } from '../model/Session.tish'
 import { paramKeyToCamel, snakeToCamel } from './RegistryMap.tish'
 import { parseBarSelector, barSelectorMatches } from './BarSelector.tish'
+import { lookupMacro, expandMacroBody } from './Macros.tish'
 import {
   mixParamFromTpl,
   isChannelMixParam,
@@ -847,15 +848,27 @@ export fn applyParsed(project, parsed) {
   if (parsed.bpm !== null && parsed.bpm >= 40 && parsed.bpm <= 300) {
     project.bpm = parsed.bpm
   }
+  let userMacros = parsed.macros ? parsed.macros : {}
   let ti = 0
   while (ti < parsed.tracks.length) {
     let tb = parsed.tracks[ti]
+    // Macro reference (`gen <name> [overrides]`): expand into a patch gen_block before building.
+    let macroName = null
+    let mac = lookupMacro(tb.rawGenId, userMacros)
+    if (mac) {
+      let body = expandMacroBody(mac, tb.genParams)
+      tb.genBlocks.push({ generatorId: "patch", lines: body })
+      tb.generatorId = "patch"
+      macroName = tb.rawGenId
+    }
     let ch = findChannelById(project, tb.id)
     if (!ch) {
       ch = makeChannel(tb.id, tb.name, 36, tb.generatorId)
       project.channels.push(ch)
     }
     ch.name = tb.name
+    ch.macroName = macroName
+    ch.macroParams = mac ? tb.genParams : null
     if (ch.generatorId !== tb.generatorId) {
       ch.generatorId = tb.generatorId
       ch.generatorParams = defaultParamsForGeneratorId(tb.generatorId)

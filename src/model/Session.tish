@@ -77,13 +77,13 @@ export fn copyPianoNotes(arr) {
 /// Pattern length (bars) for a channel's clips — drives the loop span. Uses patternBars; falls back to
 /// tplLoopBars (legacy) then 1. NOTE: this is the loop LENGTH, not the finite play-count cap.
 export fn clipBarsForChannel(ch) {
-  if (ch.patternBars !== undefined && ch.patternBars !== null) {
+  if (ch.patternBars != null) {
     let tn = Math.floor(Number(ch.patternBars))
     if (tn >= 1 && tn === tn) {
       return tn
     }
   }
-  if (ch.tplLoopBars !== undefined && ch.tplLoopBars !== null) {
+  if (ch.tplLoopBars != null) {
     let tn2 = Math.floor(Number(ch.tplLoopBars))
     if (tn2 >= 1 && tn2 === tn2) {
       return tn2
@@ -620,7 +620,7 @@ export fn effectiveTplLoopCap(project, rt, chIdx) {
       return c1
     }
   }
-  if (ch.tplLoopBars !== undefined && ch.tplLoopBars !== null) {
+  if (ch.tplLoopBars != null) {
     let n2 = Math.floor(Number(ch.tplLoopBars))
     if (n2 >= 1 && n2 === n2) {
       return n2

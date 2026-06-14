@@ -7,6 +7,7 @@ TOP_KEYS["tpl"] = true
 TOP_KEYS["bpm"] = true
 TOP_KEYS["track"] = true
 TOP_KEYS["auto"] = true
+TOP_KEYS["macro"] = true
 
 let BODY_KEYS = {}
 BODY_KEYS["mix"] = true
@@ -20,9 +21,29 @@ BODY_KEYS["transpose"] = true
 BODY_KEYS["loops"] = true
 BODY_KEYS["gen_block"] = true
 BODY_KEYS["end"] = true
+BODY_KEYS["step_pitch"] = true
+BODY_KEYS["voice"] = true
+BODY_KEYS["fx"] = true
+BODY_KEYS["gen"] = true
+// Patch (gen_block patch) node + wiring + envelope keywords.
+BODY_KEYS["conn"] = true
+BODY_KEYS["env"] = true
+BODY_KEYS["filter"] = true
+BODY_KEYS["shaper"] = true
+BODY_KEYS["gain"] = true
+BODY_KEYS["dur"] = true
+
+// Mid-line modifier keywords (not line-leading): highlighted wherever they appear.
+let INLINE_KEYS = {}
+INLINE_KEYS["bar"] = true
+INLINE_KEYS["v"] = true
 
 export fn isKeyword(s) {
   return TOP_KEYS[s] === true || BODY_KEYS[s] === true
+}
+
+export fn isInlineKeyword(s) {
+  return INLINE_KEYS[s] === true
 }
 
 export fn isStepToken(s) {
@@ -31,7 +52,7 @@ export fn isStepToken(s) {
 
 // Returns { kind: "steps" | "note" | "keyword" | "plain", tokens: [...], stepIndices: [0..15] for steps lines }.
 export fn classifyLine(line) {
-  if (line == null || line === undefined) {
+  if (line == null) {
     return { kind: "plain", tokens: [], stepIndices: [] }
   }
   let t = line.trim()

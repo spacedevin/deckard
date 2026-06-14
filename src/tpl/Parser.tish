@@ -55,6 +55,11 @@ export fn parseProgram(source) {
   let inGenBlock = false
   let genBlockId = ""
   let genBlockLines = []
+  let macros = {}
+  let inMacro = false
+  let curMacroName = ""
+  let curMacroParams = {}
+  let curMacroLines = []
 
   while (i < raw.length) {
     let fullLine = raw[i]
@@ -92,6 +97,17 @@ export fn parseProgram(source) {
 
     let toks = tokenize(trimmed)
     let isIndented = a > 0
+
+    if (inMacro) {
+      if (toks.length >= 2 && toks[0] === "end" && toks[1] === "macro") {
+        macros[curMacroName] = { params: curMacroParams, body: curMacroLines }
+        inMacro = false
+        curMacroLines = []
+        continue
+      }
+      curMacroLines.push(trimmed)
+      continue
+    }
 
     if (!isIndented && toks.length > 0 && toks[0] !== "auto") {
       currentAuto = null
@@ -145,6 +161,26 @@ export fn parseProgram(source) {
     if (head === "bpm") {
       if (toks.length >= 2) {
         bpm = Number(toks[1])
+      }
+      continue
+    }
+    if (head === "macro" && toks.length >= 2) {
+      currentClip = null
+      currentTrack = null
+      inMacro = true
+      curMacroName = toks[1]
+      curMacroParams = {}
+      curMacroLines = []
+      let mi = 2
+      while (mi < toks.length) {
+        let eq = toks[mi].indexOf("=")
+        if (eq > 0) {
+          let k = toks[mi].substring(0, eq)
+          let v = toks[mi].substring(eq + 1)
+          let nv = Number(v)
+          curMacroParams[k] = (nv === nv && v.length > 0) ? nv : v
+        }
+        mi = mi + 1
       }
       continue
     }
@@ -212,10 +248,25 @@ export fn parseProgram(source) {
             }
           }
         }
+        // Trailing `key value` pairs after the gen id (and optional `* N`) are macro parameter overrides.
+        let genParams = {}
+        let gp = 6
+        if (toks.length >= 8 && toks[6] === "*") {
+          gp = 8
+        }
+        while (gp + 1 < toks.length) {
+          let k = toks[gp]
+          let v = toks[gp + 1]
+          let nv = Number(v)
+          genParams[k] = (nv === nv && v.length > 0) ? nv : v
+          gp = gp + 2
+        }
         currentTrack = {
           name: toks[1],
           id: toks[3],
           generatorId: normalizeGeneratorId(toks[5]),
+          rawGenId: toks[5],
+          genParams: genParams,
           loopBars: loopBars,
           body: [],
           genBlocks: []
@@ -259,6 +310,7 @@ export fn parseProgram(source) {
     tplVersion: tplVersion,
     bpm: bpm,
     tracks: tracks,
+    macros: macros,
     autos: autos,
     masterMixTokens: masterMixTokens,
     actorMixRows: actorMixRows,

@@ -14,11 +14,12 @@ export fn promoteChannelToBars(ch, bars) {
     let reps = Math.floor(target / cur)
     if (reps * cur === target && reps > 1) {
       let orig = ch.pianoNotes
+      let origLen = orig.length
       let span = cur * 4
       let rep = 1
       while (rep < reps) {
         let k = 0
-        while (k < orig.length) {
+        while (k < origLen) {
           let n = orig[k]
           ch.pianoNotes.push({ startBeat: n.startBeat + rep * span, durBeats: n.durBeats, pitch: n.pitch, vel: n.vel })
           k = k + 1
@@ -104,7 +105,7 @@ export fn setGeneratorAdsr(ch, a, d, s, r) {
 export fn clampPianoNoteToFirstBar(n, minDur) {
   let bar = 4
   let md = minDur
-  if (md === undefined || md === null || md <= 0) {
+  if (md == null || md <= 0) {
     md = 0.0078125
   }
   if (n.startBeat < 0) {
@@ -147,7 +148,7 @@ export fn clampPianoNoteToPattern(ch, n, minDur) {
   let bars = (ch.patternBars != null && Math.floor(ch.patternBars) >= 1) ? Math.floor(ch.patternBars) : 1
   let lim = bars * 4
   let md = minDur
-  if (md === undefined || md === null || md <= 0) {
+  if (md == null || md <= 0) {
     md = 0.0078125
   }
   if (n.startBeat < 0) {
