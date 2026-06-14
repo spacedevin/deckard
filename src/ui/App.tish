@@ -44,7 +44,9 @@ import {
   sessionQueueScene,
   sessionPlayingSceneIndex,
   sessionWriteRackToSceneClip,
+  sessionWriteRackBarToSceneClip,
   loadSceneIntoRack,
+  loadSceneBarIntoRack,
   firstSongScene,
   nextSongScene,
   sceneBarLength,
@@ -417,6 +419,19 @@ export fn App() {
       let p = r.project
       let barSteps = coDjStepsPerBar()
       if (barSteps > 0 && globalTick % barSteps === 0 && p) {
+        // Commit queued per-track mute toggles (tap a session track name) on the bar boundary.
+        if (r.muteQueue && r.muteQueue.length > 0) {
+          let mqi = 0
+          while (mqi < r.muteQueue.length) {
+            let mq = r.muteQueue[mqi]
+            if (p.channels[mq.t]) {
+              p.channels[mq.t].mute = mq.mute
+            }
+            mqi = mqi + 1
+          }
+          r.muteQueue = []
+          bumpSessionUi()
+        }
         if (r.playMode === "song") {
           let armedChanged = false
           // A full pattern LAUNCH takes precedence: commit it, clear per-track overrides, restart chain.
@@ -541,10 +556,25 @@ export fn App() {
     rtObj.coDjWs.send(payload)
   }
 
+  fn curViewBar() {
+    return rt.gridViewBar != null ? Math.floor(Number(rt.gridViewBar)) : 0
+  }
+
   // SAVE — copy the current rack (steps / piano / per-bar) into pattern `si`. Edit-only; never plays.
   fn onPatternSave(si) {
     ensureProjectSession(project)
     sessionWriteRackToSceneClip(project, si)
+    bumpSessionUi()
+    if (rt.playing && rt.bumpSeqPromoteUi) {
+      rt.bumpSeqPromoteUi()
+    }
+    setProjectFromUI(project)
+  }
+
+  // SAVE 1 — copy only the bar you're viewing into pattern `si`'s matching bar (others untouched).
+  fn onPatternSaveBar(si) {
+    ensureProjectSession(project)
+    sessionWriteRackBarToSceneClip(project, si, curViewBar())
     bumpSessionUi()
     if (rt.playing && rt.bumpSeqPromoteUi) {
       rt.bumpSeqPromoteUi()
@@ -558,6 +588,17 @@ export fn App() {
     ensureProjectSession(project)
     loadSceneIntoRack(project, si)
     rt.editingScene = si
+    if (rt.bumpGrid) {
+      rt.bumpGrid()
+    }
+    bumpSessionUi()
+    setProjectFromUI(project)
+  }
+
+  // LOAD 1 — pull only pattern `si`'s viewed bar into the rack's current bar (other bars untouched).
+  fn onPatternLoadBar(si) {
+    ensureProjectSession(project)
+    loadSceneBarIntoRack(project, si, curViewBar())
     if (rt.bumpGrid) {
       rt.bumpGrid()
     }
@@ -731,23 +772,24 @@ export fn App() {
     playing: playing,
     playMode: playMode,
     onLoad: onPatternLoad,
+    onLoadBar: onPatternLoadBar,
     onSave: onPatternSave,
-    onLaunch: onPatternLaunch
+    onSaveBar: onPatternSaveBar,
+    onLaunch: onPatternLaunch,
+    viewBar: rt.gridViewBar != null ? Math.floor(Number(rt.gridViewBar)) : 0
   }
 
   let mainWorkspace = null
   if (workspaceTab === "sequencer") {
-    // Sequencer (edit bench), the session panel, and the pattern launcher side nav — side by side.
+    // Sequencer (edit bench) and the session panel side by side. (Patterns side nav hidden for now —
+    // its LOAD/SAVE/LAUNCH live on the session scene headers.)
     mainWorkspace = (
       <div class="seq-session-split">
         <div class="seq-split-main">
           {StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt)}
         </div>
-        <div class="seq-split-session" key={"sv-" + String(sessionUiGen)}>
+        <div class="seq-split-session" key={"sv-" + String(sessionUiGen) + "-" + String(seqPromoteUi)}>
           {SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, patternBank)}
-        </div>
-        <div class="seq-split-side" key={"pb-" + String(sessionUiGen) + "-" + String(seqPromoteUi)}>
-          {PatternBank(patternBank)}
         </div>
       </div>
     )
@@ -766,6 +808,9 @@ export fn App() {
   let tabPatch = workspaceTab === "patch" ? "deck-tab deck-tab-active" : "deck-tab"
   let tabInstr = workspaceTab === "instrument" ? "deck-tab deck-tab-active" : "deck-tab"
 
+  if (typeof window !== "undefined") {
+    window.__dk = { project: project, rt: rt }
+  }
   return <div class="daw-root">
     <header class="daw-header">
       <h1 class="logo">{"Deckard"}</h1>

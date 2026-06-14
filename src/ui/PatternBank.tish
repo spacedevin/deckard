@@ -55,11 +55,8 @@ export fn PatternBank(bank) {
       cardCls = cardCls + " pb-card-queued"
     }
 
-    let loadCls = "pb-btn pb-btn-load"
-    if (isEditing) {
-      loadCls = loadCls + " pb-btn-on"
-    }
-    let launchCls = "pb-btn pb-btn-launch"
+    let loadOn = isEditing ? " pb-btn-on" : ""
+    let launchCls = "pb-btn pb-btn-launch pb-btn-grow"
     if (isLive) {
       launchCls = launchCls + " pb-btn-on"
     }
@@ -71,34 +68,60 @@ export fn PatternBank(bank) {
         launchLabel = "◷ QUEUED"
       }
     }
+    let barN = bank.viewBar != null ? Math.floor(Number(bank.viewBar)) + 1 : 1
+    let one = String(i + 1)
 
     cards.push(
       <div class={cardCls} key={"pb-" + String(i)}>
-        <span class="pb-card-n">{"P" + String(i + 1)}</span>
-        <button
-          type="button"
-          class={loadCls}
-          title={"Load pattern " + String(i + 1) + " into the rack to edit it"}
-          onclick={() => bank.onLoad(sidx)}
-        >
-          {"LOAD"}
-        </button>
-        <button
-          type="button"
-          class="pb-btn pb-btn-save"
-          title={"Save the current rack into pattern " + String(i + 1)}
-          onclick={() => bank.onSave(sidx)}
-        >
-          {"SAVE"}
-        </button>
-        <button
-          type="button"
-          class={launchCls}
-          title={"Launch pattern " + String(i + 1) + " live (queues to the next bar while a song plays)"}
-          onclick={() => bank.onLaunch(sidx)}
-        >
-          {launchLabel}
-        </button>
+        <div class="pb-card-top">
+          <span class="pb-card-n">{"P" + one}</span>
+          <button
+            type="button"
+            class={launchCls}
+            title={"Launch pattern " + one + " live (queues to the next bar while a song plays)"}
+            onclick={() => bank.onLaunch(sidx)}
+          >
+            {launchLabel}
+          </button>
+        </div>
+        <div class="pb-split-row">
+          <span class="pb-split-label">{"LOAD"}</span>
+          <button
+            type="button"
+            class={"pb-btn pb-btn-load" + loadOn}
+            title={"Load only bar " + String(barN) + " (the bar you're viewing) of pattern " + one + " — other bars untouched"}
+            onclick={() => bank.onLoadBar(sidx)}
+          >
+            {"1 BAR"}
+          </button>
+          <button
+            type="button"
+            class={"pb-btn pb-btn-load" + loadOn}
+            title={"Load all bars of pattern " + one + " into the rack"}
+            onclick={() => bank.onLoad(sidx)}
+          >
+            {"ALL"}
+          </button>
+        </div>
+        <div class="pb-split-row">
+          <span class="pb-split-label">{"SAVE"}</span>
+          <button
+            type="button"
+            class="pb-btn pb-btn-save"
+            title={"Save only bar " + String(barN) + " (the bar you're viewing) into pattern " + one + " — its other bars untouched"}
+            onclick={() => bank.onSaveBar(sidx)}
+          >
+            {"1 BAR"}
+          </button>
+          <button
+            type="button"
+            class="pb-btn pb-btn-save"
+            title={"Save the whole rack (all bars) into pattern " + one}
+            onclick={() => bank.onSave(sidx)}
+          >
+            {"ALL"}
+          </button>
+        </div>
       </div>
     )
     i = i + 1
@@ -109,11 +132,11 @@ export fn PatternBank(bank) {
       <span class="pb-rev" style={{ display: "none" }}>{String(bank.rev)}</span>
       <div class="pb-head">
         <span class="pb-label">{"PATTERNS"}</span>
-        <span class="pb-sub">{"LOAD · SAVE · LAUNCH"}</span>
+        <span class="pb-sub">{"1 BAR · ALL"}</span>
       </div>
       <div class="pb-cards">{cards}</div>
       <span class="pb-hint">
-        {"P0 = live output. LOAD to edit · SAVE the rack into a slot · LAUNCH to go live."}
+        {"1 BAR = just the bar you're viewing · ALL = the whole pattern. LAUNCH sends it live."}
       </span>
     </div>
   )

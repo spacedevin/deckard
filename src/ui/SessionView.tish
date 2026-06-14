@@ -174,10 +174,46 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
     setProjectFromUI(project)
   }
 
+  // Tapping a track name toggles its mute — queued to the next bar while playing (like the clip cells),
+  // immediate when stopped. Returns the pending target for a track (or null) so the UI can show it.
+  fn pendingMuteFor(trackIdx) {
+    if (!rt.muteQueue) {
+      return null
+    }
+    let last = null
+    let i = 0
+    while (i < rt.muteQueue.length) {
+      if (rt.muteQueue[i].t === trackIdx) {
+        last = rt.muteQueue[i].mute
+      }
+      i = i + 1
+    }
+    return last
+  }
+
+  fn queueMute(trackIdx) {
+    let ch = project.channels[trackIdx]
+    let target = !(ch.mute === true)
+    if (rt.playing) {
+      if (!rt.muteQueue) {
+        rt.muteQueue = []
+      }
+      rt.muteQueue.push({ t: trackIdx, mute: target })
+    } else {
+      ch.mute = target
+    }
+    if (bumpSessionUi) {
+      bumpSessionUi()
+    }
+    bumpSeqIfPlaying()
+    setProjectFromUI(project)
+  }
+
   fn stopAll() {
     sessionStopAllTracks(project, rt)
     rt.trackOverrides = []
     rt.trackPending = []
+    rt.muteQueue = []
     if (bumpSessionUi) {
       bumpSessionUi()
     }
@@ -217,20 +253,34 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
           launchLabel = "◷ QUEUED"
         }
       }
-      let loadCls = isEditing ? "btn-scene-op btn-scene-load btn-scene-on" : "btn-scene-op btn-scene-load"
+      let loadOn = isEditing ? " btn-scene-on" : ""
       let launchCls = isLive ? "btn-scene-op btn-scene-launch btn-scene-on" : "btn-scene-op btn-scene-launch"
+      let loadCls = "btn-scene-op btn-scene-load" + loadOn
       let sceneI = si
+      let barN = pb.viewBar != null ? Math.floor(Number(pb.viewBar)) + 1 : 1
       headOps = (
         <div class="session-scene-ops">
-          <button type="button" class={loadCls} onclick={() => pb.onLoad(sceneI)} title={"Load this pattern into the rack to edit it"}>
-            {"LOAD"}
-          </button>
-          <button type="button" class="btn-scene-op btn-scene-save" onclick={() => pb.onSave(sceneI)} title={"Save the current rack into this pattern"}>
-            {"SAVE"}
-          </button>
           <button type="button" class={launchCls} onclick={() => pb.onLaunch(sceneI)} title={"Launch this pattern live (queues to the next bar while a song plays)"}>
             {launchLabel}
           </button>
+          <div class="session-scene-oprow">
+            <span class="session-scene-oplabel">{"LOAD"}</span>
+            <button type="button" class={loadCls} onclick={() => pb.onLoadBar(sceneI)} title={"Load only bar " + String(barN) + " (the bar you're viewing) — other bars untouched"}>
+              {"1 BAR"}
+            </button>
+            <button type="button" class={loadCls} onclick={() => pb.onLoad(sceneI)} title={"Load all bars of this pattern into the rack"}>
+              {"ALL"}
+            </button>
+          </div>
+          <div class="session-scene-oprow">
+            <span class="session-scene-oplabel">{"SAVE"}</span>
+            <button type="button" class="btn-scene-op btn-scene-save" onclick={() => pb.onSaveBar(sceneI)} title={"Save only bar " + String(barN) + " (the bar you're viewing) into this pattern"}>
+              {"1 BAR"}
+            </button>
+            <button type="button" class="btn-scene-op btn-scene-save" onclick={() => pb.onSave(sceneI)} title={"Save the whole rack (all bars) into this pattern"}>
+              {"ALL"}
+            </button>
+          </div>
         </div>
       )
     } else {
@@ -254,6 +304,10 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
   while (ti < project.channels.length) {
     let ch = project.channels[ti]
     let tix = ti
+    // Effective paused (muted) state, honoring a queued mute. A paused track's clips must NOT show the
+    // green "playing" border — it isn't playing.
+    let pend = pendingMuteFor(tix)
+    let muted = pend != null ? pend === true : ch.mute === true
     let cells = []
     let sj = 0
     while (sj < sc) {
@@ -289,7 +343,7 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
       }
       let isQueued =
         (rt.sessionQueuePending && slotClipId.length > 0 && queued === slotClipId) || isTrackPending
-      let isPlaying = playing && armed === slotClipId && slotClipId.length > 0
+      let isPlaying = playing && !muted && armed === slotClipId && slotClipId.length > 0
       let sjCopy = sj
       let clipIdCopy = slotClipId
       if (!clip) {
@@ -334,34 +388,35 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
       }
       sj = sj + 1
     }
-    let rowLaunchCls = "btn-session-row-launch"
-    if (playing && project.session.slots[tix] && project.session.slots[tix][activeScene]) {
-      let ac = project.session.slots[tix][activeScene]
-      if (ac && rt.sessionArmedClipIds && rt.sessionArmedClipIds[tix] === ac) {
-        rowLaunchCls = rowLaunchCls + " btn-session-row-launch-on"
-      }
+    // Track name = a play/pause toggle. "live" (green) only when the transport is actually running AND
+    // the track isn't paused, so a stopped transport never looks like it's playing.
+    let isPending = pend != null && pend !== (ch.mute === true)
+    let live = playing && !muted
+    let nameCls = "session-track-name session-track-toggle"
+    if (muted) {
+      nameCls = nameCls + " session-track-paused"
+    } else if (live) {
+      nameCls = nameCls + " session-track-live"
+    } else {
+      nameCls = nameCls + " session-track-ready"
     }
+    if (isPending) {
+      nameCls = nameCls + " session-track-pending"
+    }
+    let icon = muted ? "⏸" : "▶"
+    let stateText = muted ? "paused — tap to play" : (live ? "playing — tap to pause" : "ready — tap to pause")
     rows.push(
       <div class="session-track-row" key={"row-" + String(tix)}>
-        <div class="session-track-label">
-          <span class="session-track-name">{ch.name}</span>
-          <span class="session-track-mini">{"M S"}</span>
-        </div>
-        <div class="session-cells">{cells}</div>
         <button
           type="button"
-          class={rowLaunchCls}
-          title={"Queue clip from active scene column for next bar"}
-          onclick={() => {
-            let cid = ""
-            if (project.session.slots[tix] && project.session.slots[tix][activeScene]) {
-              cid = project.session.slots[tix][activeScene]
-            }
-            armCell(tix, cid)
-          }}
+          class={nameCls}
+          title={ch.name + ": " + stateText + " (queues to the next bar while playing)"}
+          onclick={() => queueMute(tix)}
         >
-          {"▶"}
+          <span class="session-track-ico">{icon}</span>
+          <span class="session-track-txt">{ch.name}</span>
         </button>
+        <div class="session-cells">{cells}</div>
       </div>
     )
     ti = ti + 1

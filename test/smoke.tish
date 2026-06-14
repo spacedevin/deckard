@@ -11,7 +11,7 @@ import { emptyProjectShell } from '../src/model/Project.tish'
 import { parseBarSelector, barSelectorMatches } from '../src/tpl/BarSelector.tish'
 import { lookupMacro, expandMacroBody } from '../src/tpl/Macros.tish'
 import { resizeChannelBars, setRackBars, rackBars } from '../src/model/RackBars.tish'
-import { ensureProjectSession, sessionWriteRackToSceneClip, loadSceneIntoRack, sessionArmScene, playbackClipForChannel, firstSongScene, nextSongScene, sceneHasSavedClip, sceneBarLength, armSceneWithOverrides, sceneSlotClipId } from '../src/model/Session.tish'
+import { ensureProjectSession, sessionWriteRackToSceneClip, loadSceneIntoRack, sessionArmScene, playbackClipForChannel, firstSongScene, nextSongScene, sceneHasSavedClip, sceneBarLength, armSceneWithOverrides, sceneSlotClipId, findClipOnChannel, loadSceneBarIntoRack, sessionWriteRackBarToSceneClip } from '../src/model/Session.tish'
 import { toggleStep, clearAllSteps } from '../src/model/Edits.tish'
 
 let pass = 0
@@ -299,6 +299,51 @@ lpRt.playMode = "sequence"
 let seqTpl = emitLivePlayback(lpProj, lpRt)
 let lpOut2 = emptyProjectShell(); applyTplSource(lpOut2, seqTpl)
 check("mp A: sequence mode streams the rack (P2 step8)", lpOut2.channels[0].steps[8].on && !lpOut2.channels[0].steps[0].on)
+
+// 5n. SAVE 1 BAR saves the viewed bar as a ONE-BAR pattern; LOAD 1 BAR drops it into the viewed bar.
+let pbBar = loadDefaultDeckardProject().project
+ensureProjectSession(pbBar)
+setRackBars(pbBar, 2, false)
+let pbc = pbBar.channels[0]
+let z = 0
+while (z < pbc.steps.length) { pbc.steps[z].on = false; z = z + 1 }
+pbc.steps[0].on = true     // bar 0, step 0
+pbc.steps[28].on = true    // bar 1, step 12 (abs index 16 + 12)
+sessionWriteRackBarToSceneClip(pbBar, 0, 1)        // SAVE 1 BAR while viewing bar 1 (index 1)
+let pbClip = findClipOnChannel(pbc, pbc.id + "_sc0")
+check("save 1 bar: pattern is exactly ONE bar", pbClip.bars === 1 && pbClip.steps.length === 16)
+check("save 1 bar: holds only the viewed bar (step 12, not bar 0's step 0)", pbClip.steps[12].on === true && pbClip.steps[0].on === false)
+pbc.steps[28].on = false                            // wipe the rack's bar 1
+loadSceneBarIntoRack(pbBar, 0, 1)                   // LOAD 1 BAR into the viewed bar (bar 1)
+let pbc2 = pbBar.channels[0]
+check("load 1 bar: drops the bar into the viewed bar, leaves bar 0", pbc2.steps[28].on === true && pbc2.steps[0].on === true)
+
+// 5o. SAVE 1 BAR must capture a HELD note that STARTED in an earlier bar (the nebula-bass empty bug).
+let hnProj = loadDefaultDeckardProject().project
+ensureProjectSession(hnProj)
+setRackBars(hnProj, 2, false)
+let hnc = hnProj.channels[3]
+hnc.patternBars = 2
+hnc.pianoNotes = [{ startBeat: 0, durBeats: 8, pitch: 36, vel: 100 }]   // one note held across both bars
+sessionWriteRackBarToSceneClip(hnProj, 1, 1)                            // SAVE 1 BAR from bar 1 (view 2) → P2
+let hnClip = findClipOnChannel(hnc, hnc.id + "_sc1")
+check("save 1 bar: held note from an earlier bar is captured (not empty)", hnClip.pianoNotes.length === 1)
+check("save 1 bar: held note clipped to the viewed bar", hnClip.pianoNotes[0].startBeat === 0 && Math.abs(hnClip.pianoNotes[0].durBeats - 4) < 0.01)
+
+// 5p. SAVE 1 BAR of a TILED stepped pattern (patternBars=4 but only 16 steps) — the nebula bass bug:
+// reading bar 1 must wrap to the tiled steps, not run off the end → empty.
+let tlProj = loadDefaultDeckardProject().project
+ensureProjectSession(tlProj)
+let tlc = tlProj.channels[0]
+tlc.patternBars = 4
+tlc.steps = []
+let qq = 0
+while (qq < 16) { tlc.steps.push({ on: qq % 2 === 0, vel: 100 }); qq = qq + 1 }   // x . x . … tiled across 4 bars
+tlc.stepPitchByBar = [36, 34, 32, 34]
+sessionWriteRackBarToSceneClip(tlProj, 1, 1)                                       // SAVE 1 BAR from bar 1
+let tlClip = findClipOnChannel(tlc, tlc.id + "_sc1")
+check("save 1 bar: tiled stepped pattern captured (not empty)", tlClip.steps.length === 16 && tlClip.steps[0].on === true)
+check("save 1 bar: per-bar pitch of the viewed bar captured", tlClip.stepPitchByBar != null && tlClip.stepPitchByBar[0] === 34)
 
 // 6. Every stem deck set parses cleanly into >= 5 stems (the deck.tsx conversions)
 let cat = deckSetCatalog()

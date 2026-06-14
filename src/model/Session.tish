@@ -2,6 +2,84 @@
 // Channel rack + piano still edit ch.steps / ch.pianoNotes; main clip mirrors for emit + playback.
 
 import { makeStep } from './Project.tish'
+import { promoteChannelToBars } from './Edits.tish'
+
+// --- single-bar copy helpers (for "load/save 1 bar" into the currently-viewed bar) ---
+fn barOfBeat(beat) {
+  return Math.floor(beat / 4 + 0.0001)
+}
+
+// Notes that OVERLAP `bar` (not just start in it — a held bass note starting earlier still sounds in
+// this bar), clipped to the bar and returned relative to bar 0. This is what makes "save 1 bar" of a
+// sustained note actually capture it.
+fn notesClippedToBar(notes, bar) {
+  let out = []
+  if (!notes) {
+    return out
+  }
+  let barStart = bar * 4
+  let barEnd = barStart + 4
+  let i = 0
+  while (i < notes.length) {
+    let n = notes[i]
+    let ns = n.startBeat
+    let ne = n.startBeat + n.durBeats
+    if (ne > barStart + 0.0001 && ns < barEnd - 0.0001) {
+      let cs = ns < barStart ? barStart : ns
+      let ce = ne > barEnd ? barEnd : ne
+      let dur = ce - cs
+      if (dur > 0.0001) {
+        out.push({ startBeat: cs - barStart, durBeats: dur, pitch: n.pitch, vel: n.vel })
+      }
+    }
+    i = i + 1
+  }
+  return out
+}
+
+fn copyBarSteps(destSteps, destBar, srcSteps, srcBar) {
+  // A pattern may store fewer step-bars than patternBars (a 1-bar pattern tiled across N bars), so
+  // wrap the source index — reading "bar 1" of a 16-step pattern reads bar 0 again, not out of range.
+  let srcLen = srcSteps ? srcSteps.length : 0
+  let i = 0
+  while (i < 16) {
+    let s = srcLen > 0 ? srcSteps[(srcBar * 16 + i) % srcLen] : null
+    destSteps[destBar * 16 + i] = makeStep(s ? s.on : false, s && s.vel != null ? s.vel : 100)
+    i = i + 1
+  }
+}
+
+// Replace destNotes' notes in destBar with srcNotes overlapping srcBar (clipped, shifted to destBar).
+fn spliceBarNotes(destNotes, destBar, srcNotes, srcBar) {
+  let out = []
+  let i = 0
+  while (i < destNotes.length) {
+    if (barOfBeat(destNotes[i].startBeat) !== destBar) {
+      out.push(destNotes[i])
+    }
+    i = i + 1
+  }
+  let clipped = notesClippedToBar(srcNotes, srcBar)
+  let j = 0
+  while (j < clipped.length) {
+    let n = clipped[j]
+    out.push({ startBeat: n.startBeat + destBar * 4, durBeats: n.durBeats, pitch: n.pitch, vel: n.vel })
+    j = j + 1
+  }
+  return out
+}
+
+fn tileStepsToBars(steps, bars) {
+  let want = bars * 16
+  let out = []
+  let i = 0
+  while (i < want) {
+    let s = steps && steps.length > 0 ? steps[i % steps.length] : null
+    out.push(makeStep(s ? s.on : false, s && s.vel != null ? s.vel : 100))
+    i = i + 1
+  }
+  return out
+}
 
 export fn defaultMainClipId(ch) {
   return ch.id + "_main"
@@ -324,6 +402,111 @@ export fn loadSceneIntoRack(project, sceneIdx) {
     ti = ti + 1
   }
   syncAllMainClipsFromChannels(project)
+}
+
+/** Load ONLY bar `barIdx` of a saved pattern into the rack's bar `barIdx` — leaving every other bar
+ *  in the sequencer untouched. The rack channel is materialized up to that bar first. */
+export fn loadSceneBarIntoRack(project, sceneIdx, barIdx) {
+  ensureProjectSession(project)
+  let s = Math.floor(Number(sceneIdx))
+  let b = Math.floor(Number(barIdx))
+  if (b < 0) {
+    b = 0
+  }
+  let sc = Math.floor(Number(project.session.sceneCount))
+  if (s < 0 || s >= sc || s !== s) {
+    return
+  }
+  let ti = 0
+  while (ti < project.channels.length) {
+    let ch = project.channels[ti]
+    let clipId = ""
+    if (project.session.slots[ti] && project.session.slots[ti][s] != null) {
+      clipId = project.session.slots[ti][s]
+    }
+    let clip = clipId !== "" ? findClipOnChannel(ch, clipId) : null
+    if (clip && clip.steps) {
+      let clipBars = clip.bars != null && Math.floor(clip.bars) >= 1 ? Math.floor(clip.bars) : 1
+      let srcBar = b % clipBars
+      promoteChannelToBars(ch, b + 1)
+      copyBarSteps(ch.steps, b, clip.steps, srcBar)
+      ch.pianoNotes = spliceBarNotes(ch.pianoNotes ? ch.pianoNotes : [], b, clip.pianoNotes ? clip.pianoNotes : [], srcBar)
+      if (clip.stepPitchByBar && srcBar < clip.stepPitchByBar.length) {
+        if (!ch.stepPitchByBar) {
+          ch.stepPitchByBar = []
+        }
+        while (ch.stepPitchByBar.length <= b) {
+          ch.stepPitchByBar.push(36)
+        }
+        ch.stepPitchByBar[b] = clip.stepPitchByBar[srcBar]
+      }
+    }
+    ti = ti + 1
+  }
+  syncAllMainClipsFromChannels(project)
+}
+
+/** Save ONLY the bar being viewed in the sequencer as a ONE-BAR pattern (clip.bars = 1). The pattern
+ *  becomes exactly that single bar — not the whole rack, not a multi-bar clip. */
+export fn sessionWriteRackBarToSceneClip(project, sceneIdx, barIdx) {
+  if (!project || !project.channels) {
+    return
+  }
+  ensureProjectSession(project)
+  let s = Math.floor(Number(sceneIdx))
+  let b = Math.floor(Number(barIdx))
+  if (b < 0) {
+    b = 0
+  }
+  let sc = Math.floor(Number(project.session.sceneCount))
+  if (s < 0 || s >= sc || s !== s || sc < 1) {
+    return
+  }
+  let ti = 0
+  while (ti < project.channels.length) {
+    let ch = project.channels[ti]
+    ensureChannelSessionClips(ch)
+    let clipId = String(ch.id) + "_sc" + String(s)
+    let chCur = ch.patternBars != null && Math.floor(ch.patternBars) >= 1 ? Math.floor(ch.patternBars) : 1
+    let srcBar = b % chCur
+    // 16 steps of the viewed bar — wrap the index so a tiled (e.g. 16-step over 4 bars) pattern works.
+    let stepsLen = ch.steps ? ch.steps.length : 0
+    let oneSteps = []
+    let i = 0
+    while (i < 16) {
+      let st = stepsLen > 0 ? ch.steps[(srcBar * 16 + i) % stepsLen] : null
+      oneSteps.push(makeStep(st ? st.on : false, st && st.vel != null ? st.vel : 100))
+      i = i + 1
+    }
+    // Notes sounding in the viewed bar (incl. held notes that started earlier), clipped to the bar.
+    let oneNotes = notesClippedToBar(ch.pianoNotes ? ch.pianoNotes : [], srcBar)
+    let onePitch = null
+    if (ch.stepPitchByBar && srcBar < ch.stepPitchByBar.length) {
+      onePitch = [ch.stepPitchByBar[srcBar]]
+    }
+    let clip = findClipOnChannel(ch, clipId)
+    if (!clip) {
+      clip = {
+        id: clipId,
+        name: String(ch.name) + " ·S" + String(s + 1),
+        bars: 1,
+        steps: oneSteps,
+        pianoNotes: oneNotes,
+        stepPitchByBar: onePitch,
+        tplLoopBars: ch.tplLoopBars != null ? ch.tplLoopBars : null
+      }
+      ch.sessionClips.push(clip)
+    } else {
+      clip.bars = 1
+      clip.steps = oneSteps
+      clip.pianoNotes = oneNotes
+      clip.stepPitchByBar = onePitch
+    }
+    if (project.session.slots[ti] && project.session.slots[ti][s] !== undefined) {
+      project.session.slots[ti][s] = clipId
+    }
+    ti = ti + 1
+  }
 }
 
 /** Clip id string currently driving playback for one track (mirrors playbackClipForChannel arming rules). */
