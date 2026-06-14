@@ -2,22 +2,125 @@ import { h, Fragment } from '@tishlang/lattish'
 import {
   ensureProjectSession,
   findClipOnChannel,
+  defaultMainClipId,
+  sceneSlotClipId,
   sessionQueueScene,
-  sessionQueueTrackClip,
   sessionStopAllTracks
 } from '../model/Session.tish'
+import { channelDeck } from '../model/DeckRouting.tish'
 
-fn clipAccentClass(clipId) {
-  let h = 0
-  let i = 0
-  while (i < clipId.length) {
-    h = (h * 31 + clipId.charCodeAt(i)) % 360
-    i = i + 1
-  }
-  return "session-clip-hue-" + String(h % 6)
+// Session clips follow the deck colour of their channel — same scheme as the sequencer / deck
+// (Deck A = cyan, Deck B = magenta) so the whole app reads as one colour system.
+fn deckSuffix(project, ch) {
+  return channelDeck(project, ch) === "B" ? "b" : "a"
 }
 
-export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi) {
+// Deterministic amplitude envelope (0..1 per column) computed from a clip's content — drum steps
+// become decaying transients, piano notes become sustained blocks. Drives the clip waveform preview.
+fn clipEnvelope(clip) {
+  let N = 60
+  let env = []
+  let z = 0
+  while (z < N) {
+    env.push(0)
+    z = z + 1
+  }
+  if (!clip) {
+    return env
+  }
+  let steps = clip.steps
+  let span = steps && steps.length >= 16 ? steps.length : 16
+  let notes = clip.pianoNotes
+  if (notes && notes.length > 0) {
+    let i = 0
+    while (i < notes.length) {
+      let n = notes[i]
+      let vel = n.vel != null ? n.vel / 127 : 0.8
+      let startCol = (n.startBeat * 4 / span) * N
+      let lenCol = (n.durBeats * 4 / span) * N
+      if (lenCol < 1) {
+        lenCol = 1
+      }
+      let k = Math.floor(startCol)
+      if (k < 0) {
+        k = 0
+      }
+      while (k < N) {
+        let rel = k - startCol
+        if (rel > lenCol) {
+          break
+        }
+        if (rel >= 0) {
+          let frac = rel / lenCol
+          let a = vel * (0.6 + 0.4 * (1 - frac))
+          if (a > env[k]) {
+            env[k] = a
+          }
+        }
+        k = k + 1
+      }
+      i = i + 1
+    }
+  } else if (steps) {
+    let tail = N / 7
+    if (tail < 3) {
+      tail = 3
+    }
+    let i = 0
+    while (i < steps.length) {
+      let st = steps[i]
+      if (st && st.on) {
+        let vel = st.vel != null ? st.vel / 127 : 0.85
+        let center = (i / span) * N
+        let k = Math.floor(center)
+        if (k < 0) {
+          k = 0
+        }
+        while (k < N) {
+          let d = k - center
+          if (d >= -0.5) {
+            let a = vel * (1 - d / tail)
+            if (a <= 0) {
+              break
+            }
+            if (a > env[k]) {
+              env[k] = a
+            }
+          }
+          k = k + 1
+        }
+      }
+      i = i + 1
+    }
+  }
+  return env
+}
+
+// Mirror the envelope into a closed SVG path (viewBox 0 0 120 24, baseline at y=12).
+fn clipWavePath(env) {
+  let N = env.length
+  let W = 120
+  let mid = 12
+  let amp = 10.5
+  let d = "M0 " + String(mid)
+  let i = 0
+  while (i < N) {
+    let x = Math.round((i / (N - 1)) * W)
+    let y = Math.round(mid - env[i] * amp)
+    d = d + " L" + String(x) + " " + String(y)
+    i = i + 1
+  }
+  let j = N - 1
+  while (j >= 0) {
+    let x = Math.round((j / (N - 1)) * W)
+    let y = Math.round(mid + env[j] * amp)
+    d = d + " L" + String(x) + " " + String(y)
+    j = j - 1
+  }
+  return d + " Z"
+}
+
+export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, patternBank) {
   ensureProjectSession(project)
   let sc = project.session.sceneCount
   let activeScene = 0
@@ -43,8 +146,27 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi) {
     setProjectFromUI(project)
   }
 
+  // Per-track clip launch — click a clip to play just that track's clip, holding it across the song's
+  // auto-advance. Click the same clip again to release that track back to following the song.
   fn armCell(trackIdx, clipId) {
-    sessionQueueTrackClip(project, rt, trackIdx, clipId)
+    if (!rt.trackOverrides) {
+      rt.trackOverrides = []
+    }
+    let cur = rt.trackOverrides[trackIdx] != null ? rt.trackOverrides[trackIdx] : null
+    let next = cur === clipId ? null : clipId
+    rt.trackOverrides[trackIdx] = next
+    // The clip this track should land on: the override, or (on release) the current song scene's clip.
+    let scene = rt.songScene != null ? rt.songScene : (rt.sessionActiveScene != null ? rt.sessionActiveScene : 0)
+    let target = next != null ? next : sceneSlotClipId(project, scene, trackIdx)
+    if (rt.playing && rt.playMode === "song") {
+      // Land on the next bar without restarting the song chain.
+      if (!rt.trackPending) {
+        rt.trackPending = []
+      }
+      rt.trackPending.push({ t: trackIdx, clip: target })
+    } else if (rt.sessionArmedClipIds) {
+      rt.sessionArmedClipIds[trackIdx] = target
+    }
     if (bumpSessionUi) {
       bumpSessionUi()
     }
@@ -54,6 +176,8 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi) {
 
   fn stopAll() {
     sessionStopAllTracks(project, rt)
+    rt.trackOverrides = []
+    rt.trackPending = []
     if (bumpSessionUi) {
       bumpSessionUi()
     }
@@ -77,12 +201,49 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi) {
     ) {
       hdrCls = hdrCls + " session-scene-head-queued"
     }
-    sceneHeaders.push(
-      <div class={hdrCls} key={"sc-h-" + String(si)}>
-        <span class="session-scene-label">{"SCENE "}{String(si + 1)}</span>
+    // Scene header carries the merged pattern controls: LOAD (edit) · SAVE (rack → pattern) · LAUNCH.
+    let pb = patternBank
+    let headOps = null
+    if (pb && pb.onLaunch) {
+      let isEditing = pb.editingScene != null && Math.floor(Number(pb.editingScene)) === si
+      let isLive = pb.liveScene != null && Math.floor(Number(pb.liveScene)) === si
+      let isQueuedLaunch =
+        pb.queuePending && pb.queuedScene != null && Math.floor(Number(pb.queuedScene)) === si
+      let launchLabel = "LAUNCH"
+      if (isQueuedLaunch) {
+        if (pb.dropSteps != null) {
+          launchLabel = pb.dropSteps === 0 ? "● NOW" : "◷ " + String(pb.dropSteps)
+        } else {
+          launchLabel = "◷ QUEUED"
+        }
+      }
+      let loadCls = isEditing ? "btn-scene-op btn-scene-load btn-scene-on" : "btn-scene-op btn-scene-load"
+      let launchCls = isLive ? "btn-scene-op btn-scene-launch btn-scene-on" : "btn-scene-op btn-scene-launch"
+      let sceneI = si
+      headOps = (
+        <div class="session-scene-ops">
+          <button type="button" class={loadCls} onclick={() => pb.onLoad(sceneI)} title={"Load this pattern into the rack to edit it"}>
+            {"LOAD"}
+          </button>
+          <button type="button" class="btn-scene-op btn-scene-save" onclick={() => pb.onSave(sceneI)} title={"Save the current rack into this pattern"}>
+            {"SAVE"}
+          </button>
+          <button type="button" class={launchCls} onclick={() => pb.onLaunch(sceneI)} title={"Launch this pattern live (queues to the next bar while a song plays)"}>
+            {launchLabel}
+          </button>
+        </div>
+      )
+    } else {
+      headOps = (
         <button type="button" class="btn-session-launch" onclick={() => armScene(si)} title={"Queue scene for next bar (16 steps)"}>
           {"Launch"}
         </button>
+      )
+    }
+    sceneHeaders.push(
+      <div class={hdrCls} key={"sc-h-" + String(si)}>
+        <span class="session-scene-label">{"P"}{String(si + 1)}</span>
+        {headOps}
       </div>
     )
     sh = sh + 1
@@ -100,8 +261,12 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi) {
       if (project.session.slots[tix] && project.session.slots[tix][sj] !== undefined) {
         slotClipId = project.session.slots[tix][sj]
       }
+      // A slot still pointing at the shared default rack clip (never SAVEd into this pattern) reads
+      // as empty — only patterns that have a real saved clip on this track show a cell. Empty cells
+      // are where per-track layers will later be filled in.
+      let isDefaultClip = slotClipId === defaultMainClipId(ch)
       let clip = null
-      if (slotClipId && slotClipId.length > 0) {
+      if (slotClipId && slotClipId.length > 0 && !isDefaultClip) {
         clip = findClipOnChannel(ch, slotClipId)
       }
       let armed = ""
@@ -112,7 +277,18 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi) {
       if (rt.sessionQueuePending && rt.sessionQueuedClipIds && rt.sessionQueuedClipIds[tix] !== undefined) {
         queued = rt.sessionQueuedClipIds[tix]
       }
-      let isQueued = rt.sessionQueuePending && slotClipId.length > 0 && queued === slotClipId
+      let isTrackPending = false
+      if (rt.trackPending && slotClipId.length > 0) {
+        let qp = 0
+        while (qp < rt.trackPending.length) {
+          if (rt.trackPending[qp].t === tix && rt.trackPending[qp].clip === slotClipId) {
+            isTrackPending = true
+          }
+          qp = qp + 1
+        }
+      }
+      let isQueued =
+        (rt.sessionQueuePending && slotClipId.length > 0 && queued === slotClipId) || isTrackPending
       let isPlaying = playing && armed === slotClipId && slotClipId.length > 0
       let sjCopy = sj
       let clipIdCopy = slotClipId
@@ -128,13 +304,15 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi) {
           bars = 1
         }
         let nm = clip.name && String(clip.name).length > 0 ? String(clip.name) : clip.id
-        let cellCls = "session-cell " + clipAccentClass(clip.id)
+        let dsuf = deckSuffix(project, ch)
+        let cellCls = "session-cell session-cell-deck-" + dsuf
         if (isPlaying) {
           cellCls = cellCls + " session-cell-playing"
         }
         if (isQueued) {
           cellCls = cellCls + " session-cell-queued"
         }
+        let wavePath = clipWavePath(clipEnvelope(clip))
         cells.push(
           <button
             type="button"
@@ -144,6 +322,9 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi) {
             title={"Queue clip for next bar (16 steps)"}
           >
             <span class="session-cell-name">{nm}</span>
+            <svg class="session-wave" viewBox="0 0 120 24" preserveAspectRatio="none">
+              <path class={"session-wave-fill session-wave-" + dsuf} d={wavePath} />
+            </svg>
             <span class="session-cell-meta">
               {isPlaying ? "■" : "▶"}{" · "}{String(bars)}{" bar"}
               {bars === 1 ? "" : "s"}
@@ -199,7 +380,7 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi) {
       </div>
       <p class="session-hint">
         {
-          "Use Save edit → 1–4 in the transport bar to copy the rack + piano into a sequence. SEQ buttons only queue playback. Launch queues a column for the next bar. Stop all applies immediately."
+          "Per pattern: LOAD it into the rack to edit · SAVE the rack into it · LAUNCH it live (queues to the next bar). Click a clip to queue just that track. Stop all applies immediately."
         }
       </p>
       <div class="session-grid-wrap">

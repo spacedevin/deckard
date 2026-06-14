@@ -1,4 +1,4 @@
-import { useState, useRef, h, Fragment } from '@tishlang/lattish'
+import { useState, useRef, useEffect, h, Fragment } from '@tishlang/lattish'
 import { projectToJson, projectFromJson } from '../model/Project.tish'
 import { loadDefaultDeckardProject } from '../model/ProjectLoad.tish'
 import { emitProject } from '../tpl/Emit.tish'
@@ -44,6 +44,11 @@ import {
   sessionQueueScene,
   sessionPlayingSceneIndex,
   sessionWriteRackToSceneClip,
+  loadSceneIntoRack,
+  firstSongScene,
+  nextSongScene,
+  sceneBarLength,
+  armSceneWithOverrides,
   mirrorStepToggleToMainClip,
   mirrorClearStepToMainClip
 } from '../model/Session.tish'
@@ -68,6 +73,7 @@ export fn App() {
   let [tplText, setTplText] = useState(tplInit)
   let [selectedCh, setSelectedCh] = useState(3)
   let [playing, setPlaying] = useState(false)
+  let [playMode, setPlayMode] = useState("sequence")
   let [workspaceTab, setWorkspaceTab] = useState("sequencer")
   let [sessionUiGen, setSessionUiGen] = useState(0)
   let [seqPromoteUi, setSeqPromoteUi] = useState(0)
@@ -105,6 +111,49 @@ export fn App() {
   rt.selectedCh = selectedCh
   rt.setSelectedCh = setSelectedCh
   rt.playing = playing
+  rt.playMode = playMode
+
+  // Transport hotkeys: Space = Play/Stop Sequence (monitor the rack), Enter = Play/Stop Song (live
+  // arrangement). Ignored while typing in an input / textarea / contenteditable.
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return () => {}
+    }
+    fn onKey(e) {
+      let r = rtRef.current
+      if (!r) {
+        return
+      }
+      let tgt = e.target
+      let tag = tgt && tgt.tagName ? String(tgt.tagName).toLowerCase() : ""
+      if (tag === "input" || tag === "textarea" || tag === "select" || (tgt && tgt.isContentEditable)) {
+        return
+      }
+      if (e.code === "Space" || e.key === " ") {
+        e.preventDefault()
+        if (r.playing && r.playMode === "sequence") {
+          if (r.stopPlayback) {
+            r.stopPlayback()
+          }
+        } else if (r.onPlaySequence) {
+          r.onPlaySequence()
+        }
+      } else if (e.key === "Enter") {
+        e.preventDefault()
+        if (r.playing && r.playMode === "song") {
+          if (r.stopPlayback) {
+            r.stopPlayback()
+          }
+        } else if (r.onPlaySong) {
+          r.onPlaySong()
+        }
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => {
+      window.removeEventListener("keydown", onKey)
+    }
+  }, [])
 
   rt.ensureStreamSeeded = () => {
     if (!rt.coDjWs || rt.coDjWs.readyState !== 1 || !Array.isArray(rt.tplSessionStream) || rt.tplSessionStream.length > 0) {
@@ -317,7 +366,12 @@ export fn App() {
     requestAnimationFrame(scopeFrame)
   }
 
-  fn onPlay() {
+  // mode: "sequence" = play the rack / pattern you are editing (monitor); "song" = play the live
+  // arrangement of launched patterns (session arming). Space → sequence, Enter → song.
+  fn onPlay(mode) {
+    let pm = mode === "song" ? "song" : "sequence"
+    rt.playMode = pm
+    setPlayMode(pm)
     ensureAudio(project, audioStore)
     updateMixerFromProject(project, audioStore)
     let ctx = audioStore.ctx
@@ -326,11 +380,17 @@ export fn App() {
     }
     globalTick = 0
     tplLoopResetAll()
-    let scn = 0
-    if (rt.sessionActiveScene !== undefined && rt.sessionActiveScene !== null) {
-      scn = Math.floor(Number(rt.sessionActiveScene))
+    if (pm === "song") {
+      // A song starts at the first saved pattern and auto-advances through the rest (see playbackTick).
+      // Per-track clip overrides (from clicking single clips) are honoured on top of each scene.
+      let scn = firstSongScene(project)
+      armSceneWithOverrides(project, rt, scn)
+      rt.songScene = scn
+      rt.songSceneEndTick = sceneBarLength(project, scn) * coDjStepsPerBar()
+    } else {
+      rt.songScene = null
+      rt.songSceneEndTick = null
     }
-    sessionArmScene(project, rt, scn)
     rt.playing = true
     rt.transportNextTick = 0
     // Self-scheduling tick: the step interval is recomputed from the LIVE project.bpm every step,
@@ -354,9 +414,54 @@ export fn App() {
       }
       let p = r.project
       let barSteps = coDjStepsPerBar()
-      if (barSteps > 0 && globalTick % barSteps === 0) {
-        if (p && sessionCommitQueued(p, r)) {
-          bumpSessionUi()
+      if (barSteps > 0 && globalTick % barSteps === 0 && p) {
+        if (r.playMode === "song") {
+          // A full pattern LAUNCH takes precedence: commit it, clear per-track overrides, restart chain.
+          if (r.sessionQueuePending) {
+            if (sessionCommitQueued(p, r)) {
+              r.trackOverrides = []
+              r.trackPending = []
+              r.songScene = r.sessionActiveScene
+              r.songSceneEndTick = globalTick + sceneBarLength(p, r.songScene) * barSteps
+              bumpSessionUi()
+            }
+          } else {
+            let changed = false
+            // Per-track clip launches land on the bar boundary without restarting the song chain.
+            if (r.trackPending && r.trackPending.length > 0) {
+              if (!r.sessionArmedClipIds) {
+                r.sessionArmedClipIds = []
+              }
+              let pi = 0
+              while (pi < r.trackPending.length) {
+                let it = r.trackPending[pi]
+                r.sessionArmedClipIds[it.t] = it.clip
+                pi = pi + 1
+              }
+              r.trackPending = []
+              changed = true
+            }
+            if (r.songSceneEndTick != null && globalTick >= r.songSceneEndTick) {
+              // The current pattern has played its length — advance to the next saved pattern,
+              // keeping per-track overrides applied on top of the new scene.
+              let cur = r.songScene != null ? r.songScene : 0
+              let nxt = nextSongScene(p, cur)
+              if (nxt !== cur) {
+                armSceneWithOverrides(p, r, nxt)
+                r.songScene = nxt
+                changed = true
+              }
+              r.songSceneEndTick = globalTick + sceneBarLength(p, nxt) * barSteps
+            }
+            if (changed) {
+              bumpSessionUi()
+            }
+          }
+        } else {
+          // Sequence mode: nothing to advance, but honour any pending queue commit.
+          if (sessionCommitQueued(p, r)) {
+            bumpSessionUi()
+          }
         }
       }
       if (globalTick % 64 === 0) {
@@ -412,7 +517,8 @@ export fn App() {
     setProjectFromUI(project)
   }
 
-  fn onSeqStore(si) {
+  // SAVE — copy the current rack (steps / piano / per-bar) into pattern `si`. Edit-only; never plays.
+  fn onPatternSave(si) {
     ensureProjectSession(project)
     sessionWriteRackToSceneClip(project, si)
     bumpSessionUi()
@@ -422,14 +528,32 @@ export fn App() {
     setProjectFromUI(project)
   }
 
-  fn onSeqSelect(si) {
+  // LOAD — pull pattern `si` into the rack so you can see / edit it. Does not arm anything live;
+  // in Play Sequence mode this is also what you hear (the rack is the monitored buffer).
+  fn onPatternLoad(si) {
     ensureProjectSession(project)
-    if (playing) {
+    loadSceneIntoRack(project, si)
+    rt.editingScene = si
+    if (rt.bumpGrid) {
+      rt.bumpGrid()
+    }
+    bumpSessionUi()
+    setProjectFromUI(project)
+  }
+
+  // LAUNCH — make pattern `si` the LIVE one (P0). While playing a song it queues to the next bar
+  // (committed in playbackTick via sessionCommitQueued); otherwise it arms immediately so the next
+  // Play Song starts there. The rack you are editing is untouched.
+  fn onPatternLaunch(si) {
+    ensureProjectSession(project)
+    // A full pattern LAUNCH resets the per-track mix — every track follows this pattern again.
+    rt.trackOverrides = []
+    rt.trackPending = []
+    if (rt.playing && rt.playMode === "song") {
       sessionQueueScene(project, rt, si)
     } else {
       sessionArmScene(project, rt, si)
       rt.sessionQueuePending = false
-      rt.sessionQueuedClipIds = []
       rt.sessionQueuedScene = null
     }
     if (rt.coDjWs && rt.coDjWs.readyState === 1) {
@@ -477,6 +601,8 @@ export fn App() {
     setPlaying(false)
   }
   rt.stopPlayback = onStop
+  rt.onPlaySequence = () => onPlay("sequence")
+  rt.onPlaySong = () => onPlay("song")
   // Deck-set hot-swap: rebuild channel buses on the LIVE audio context so playback continues
   // seamlessly through a set load (no stop / no manual re-Play). No-op until audio has started.
   rt.resyncAudio = () => {
@@ -559,19 +685,59 @@ export fn App() {
   }
 
   ensureActorMixerEntries(project)
+  ensureProjectSession(project)
+
+  let seqBarCount = Math.floor(Number(project.session.sceneCount))
+  if (seqBarCount < 1 || seqBarCount !== seqBarCount) {
+    seqBarCount = 4
+  }
+  // editingScene = pattern loaded in the rack (LOAD highlight). liveScene = pattern currently armed
+  // as the live output / P0 (LAUNCH highlight). queuedScene = a launch waiting for the next bar.
+  let editingScene = rt.editingScene != null ? Math.floor(Number(rt.editingScene)) : null
+  // While a song plays, the live pattern is the song's current scene (per-track overrides can make the
+  // armed clips a hybrid that wouldn't match any single scene); otherwise infer it from the armed clips.
+  let liveScene = playing && playMode === "song" && rt.songScene != null
+    ? Math.floor(Number(rt.songScene))
+    : sessionPlayingSceneIndex(project, rt)
+  let queuedScene = rt.sessionQueuedScene
+  let queuePending = rt.sessionQueuePending === true && queuedScene != null
+  let seqBarPx = coDjStepsPerBar()
+  let seqDropSteps = null
+  if (playing && playMode === "song") {
+    let nt = rt.transportNextTick
+    if (nt !== undefined && nt !== null) {
+      seqDropSteps = coDjStepsUntilBarBoundary(nt, seqBarPx)
+    }
+  }
+  let patternBank = {
+    count: seqBarCount,
+    editingScene: editingScene,
+    liveScene: liveScene,
+    queuedScene: queuedScene,
+    queuePending: queuePending,
+    dropSteps: seqDropSteps,
+    rev: seqPromoteUi,
+    playing: playing,
+    playMode: playMode,
+    onLoad: onPatternLoad,
+    onSave: onPatternSave,
+    onLaunch: onPatternLaunch
+  }
 
   let mainWorkspace = null
   if (workspaceTab === "sequencer") {
+    // Sequencer (edit bench), the session panel, and the pattern launcher side nav — side by side.
     mainWorkspace = (
-      <Fragment>
-        {StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt)}
-        {CoDjPanel(project, setProject, tplMirrorFlush, rt)}
-      </Fragment>
-    )
-  } else if (workspaceTab === "session") {
-    mainWorkspace = (
-      <div class="session-workspace-wrap" key={"sv-" + String(sessionUiGen)}>
-        {SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi)}
+      <div class="seq-session-split">
+        <div class="seq-split-main">
+          {StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt)}
+        </div>
+        <div class="seq-split-session" key={"sv-" + String(sessionUiGen)}>
+          {SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, patternBank)}
+        </div>
+        <div class="seq-split-side" key={"pb-" + String(sessionUiGen) + "-" + String(seqPromoteUi)}>
+          {PatternBank(patternBank)}
+        </div>
       </div>
     )
   } else if (workspaceTab === "patch") {
@@ -586,37 +752,8 @@ export fn App() {
   }
 
   let tabSeq = workspaceTab === "sequencer" ? "deck-tab deck-tab-active" : "deck-tab"
-  let tabSession = workspaceTab === "session" ? "deck-tab deck-tab-active" : "deck-tab"
   let tabPatch = workspaceTab === "patch" ? "deck-tab deck-tab-active" : "deck-tab"
   let tabInstr = workspaceTab === "instrument" ? "deck-tab deck-tab-active" : "deck-tab"
-
-  ensureProjectSession(project)
-  let seqBarCount = Math.floor(Number(project.session.sceneCount))
-  if (seqBarCount < 1 || seqBarCount !== seqBarCount) {
-    seqBarCount = 4
-  }
-  let seqPlayingIdx = sessionPlayingSceneIndex(project, rt)
-  let seqQueuePending = rt.sessionQueuePending === true
-  let seqQueuedScene = rt.sessionQueuedScene
-  let seqBarPx = coDjStepsPerBar()
-  let seqDropSteps = null
-  if (playing) {
-    let nt = rt.transportNextTick
-    if (nt !== undefined && nt !== null) {
-      seqDropSteps = coDjStepsUntilBarBoundary(nt, seqBarPx)
-    }
-  }
-  let seqUiRev = seqPromoteUi
-  let patternBank = {
-    count: seqBarCount,
-    playingIdx: seqPlayingIdx,
-    queuedScene: seqQueuedScene,
-    queuePending: seqQueuePending,
-    dropSteps: seqDropSteps,
-    rev: seqUiRev,
-    onSelect: onSeqSelect,
-    onStore: onSeqStore
-  }
 
   return <div class="daw-root">
     <header class="daw-header">
@@ -624,29 +761,19 @@ export fn App() {
       {TransportBar(
         project.bpm,
         playing,
-        onPlay,
+        playMode,
+        () => onPlay("sequence"),
+        () => onPlay("song"),
         onStop,
         onBpmInput,
         onExport,
         onImport,
         project.transportMainDeck !== "local" ? "live" : "local",
-        onDeckMain,
-        seqBarCount,
-        seqPlayingIdx,
-        seqQueuedScene,
-        seqQueuePending,
-        seqDropSteps,
-        seqBarPx,
-        seqUiRev,
-        onSeqSelect,
-        onSeqStore
+        onDeckMain
       )}
       <nav class="daw-workspace-tabs">
         <button type="button" class={tabSeq} onclick={() => setWorkspaceTab("sequencer")}>
           {"Sequencer"}
-        </button>
-        <button type="button" class={tabSession} onclick={() => setWorkspaceTab("session")}>
-          {"Session"}
         </button>
         <button type="button" class={tabPatch} onclick={() => setWorkspaceTab("patch")}>
           {"Patch"}
@@ -656,11 +783,13 @@ export fn App() {
         </button>
       </nav>
     </header>
-    {PatternBank(patternBank)}
     <div class="daw-body daw-body-stack">
       <div class="daw-main-stack">{mainWorkspace}</div>
       {DeckMixer(project, setProjectFromUI, touchMixer, rt)}
-      <div class="daw-tpl-dock">{CodeDebugView(project, setProject, tplText, setTplText, rt, true)}</div>
+      <div class="daw-bottom-split">
+        <div class="daw-bottom-col daw-bottom-codj">{CoDjPanel(project, setProject, tplMirrorFlush, rt)}</div>
+        <div class="daw-bottom-col daw-tpl-dock">{CodeDebugView(project, setProject, tplText, setTplText, rt, true)}</div>
+      </div>
     </div>
     <footer class="daw-foot">{"TPL: docs/TPL_GRAMMAR.md · ARCH: docs/ARCHITECTURE.md · DEV_NODE: AETHER_LABS"}</footer>
   </div>

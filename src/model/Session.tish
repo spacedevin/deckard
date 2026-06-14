@@ -74,6 +74,19 @@ export fn copyPianoNotes(arr) {
   return out
 }
 
+export fn copyStepPitchByBar(arr) {
+  if (!arr || arr.length === 0) {
+    return null
+  }
+  let out = []
+  let i = 0
+  while (i < arr.length) {
+    out.push(arr[i])
+    i = i + 1
+  }
+  return out
+}
+
 /// Pattern length (bars) for a channel's clips — drives the loop span. Uses patternBars; falls back to
 /// tplLoopBars (legacy) then 1. NOTE: this is the loop LENGTH, not the finite play-count cap.
 export fn clipBarsForChannel(ch) {
@@ -247,6 +260,7 @@ export fn sessionWriteRackToSceneClip(project, sceneIdx) {
     let clipId = String(ch.id) + "_sc" + String(s)
     let bars = clipBarsForChannel(ch)
     let baseSteps = stepsForClip(ch, bars)
+    let spb = copyStepPitchByBar(ch.stepPitchByBar)
     let clip = findClipOnChannel(ch, clipId)
     if (!clip) {
       let nm = String(ch.name) + " ·S" + String(s + 1)
@@ -256,6 +270,7 @@ export fn sessionWriteRackToSceneClip(project, sceneIdx) {
         bars: bars,
         steps: baseSteps,
         pianoNotes: copyPianoNotes(ch.pianoNotes),
+        stepPitchByBar: spb,
         tplLoopBars: ch.tplLoopBars != null ? ch.tplLoopBars : null
       }
       ch.sessionClips.push(clip)
@@ -263,6 +278,7 @@ export fn sessionWriteRackToSceneClip(project, sceneIdx) {
       clip.bars = bars
       clip.steps = baseSteps
       clip.pianoNotes = copyPianoNotes(ch.pianoNotes)
+      clip.stepPitchByBar = spb
       clip.tplLoopBars = ch.tplLoopBars != null ? ch.tplLoopBars : null
     }
     normalizeClipStepLength(clip)
@@ -271,6 +287,43 @@ export fn sessionWriteRackToSceneClip(project, sceneIdx) {
     }
     ti = ti + 1
   }
+}
+
+/**
+ * Load a saved scene's clips back INTO the editable rack — so selecting a pattern shows and lets you
+ * edit it (not just arm a hidden clip). Each channel's steps / notes / bars / per-bar pitch are copied
+ * from its slot clip; the main clips re-sync so playback follows the loaded pattern.
+ */
+export fn loadSceneIntoRack(project, sceneIdx) {
+  ensureProjectSession(project)
+  let s = Math.floor(Number(sceneIdx))
+  let sc = Math.floor(Number(project.session.sceneCount))
+  if (s < 0 || s >= sc || s !== s) {
+    return
+  }
+  let ti = 0
+  while (ti < project.channels.length) {
+    let ch = project.channels[ti]
+    let clipId = ""
+    if (project.session.slots[ti] && project.session.slots[ti][s] != null) {
+      clipId = project.session.slots[ti][s]
+    }
+    let clip = (clipId !== "") ? findClipOnChannel(ch, clipId) : null
+    if (clip && clip.steps) {
+      let ns = []
+      let si = 0
+      while (si < clip.steps.length) {
+        ns.push(makeStep(clip.steps[si].on, clip.steps[si].vel != null ? clip.steps[si].vel : 100))
+        si = si + 1
+      }
+      ch.steps = ns
+      ch.pianoNotes = copyPianoNotes(clip.pianoNotes)
+      ch.patternBars = (clip.bars != null && Math.floor(clip.bars) >= 1) ? Math.floor(clip.bars) : 1
+      ch.stepPitchByBar = copyStepPitchByBar(clip.stepPitchByBar)
+    }
+    ti = ti + 1
+  }
+  syncAllMainClipsFromChannels(project)
 }
 
 /** Clip id string currently driving playback for one track (mirrors playbackClipForChannel arming rules). */
@@ -348,6 +401,121 @@ export fn sessionPlayingSceneIndex(project, rt) {
     si = si + 1
   }
   return null
+}
+
+/** True if any channel has a real SAVED clip (not the shared default rack clip) in this scene. */
+export fn sceneHasSavedClip(project, sceneIdx) {
+  ensureProjectSession(project)
+  let s = Math.floor(Number(sceneIdx))
+  let ti = 0
+  while (ti < project.channels.length) {
+    let ch = project.channels[ti]
+    let slot = ""
+    if (project.session.slots[ti] && project.session.slots[ti][s] != null) {
+      slot = project.session.slots[ti][s]
+    }
+    if (slot != null && slot !== "" && slot !== defaultMainClipId(ch)) {
+      return true
+    }
+    ti = ti + 1
+  }
+  return false
+}
+
+/** How many bars this scene plays in a song before advancing — the longest clip in the column. */
+export fn sceneBarLength(project, sceneIdx) {
+  ensureProjectSession(project)
+  let s = Math.floor(Number(sceneIdx))
+  let maxBars = 1
+  let ti = 0
+  while (ti < project.channels.length) {
+    let ch = project.channels[ti]
+    let slot = ""
+    if (project.session.slots[ti] && project.session.slots[ti][s] != null) {
+      slot = project.session.slots[ti][s]
+    }
+    if (slot != null && slot !== "") {
+      let cl = findClipOnChannel(ch, slot)
+      if (cl && cl.bars != null) {
+        let b = Math.floor(Number(cl.bars))
+        if (b > maxBars && b === b) {
+          maxBars = b
+        }
+      }
+    }
+    ti = ti + 1
+  }
+  return maxBars
+}
+
+/** First scene with a saved clip (where a song should start); falls back to 0. */
+export fn firstSongScene(project) {
+  ensureProjectSession(project)
+  let sc = Math.floor(Number(project.session.sceneCount))
+  let s = 0
+  while (s < sc) {
+    if (sceneHasSavedClip(project, s)) {
+      return s
+    }
+    s = s + 1
+  }
+  return 0
+}
+
+/** Next saved scene after `fromIdx` (wrapping). If no other saved scene exists, returns fromIdx. */
+export fn nextSongScene(project, fromIdx) {
+  ensureProjectSession(project)
+  let sc = Math.floor(Number(project.session.sceneCount))
+  if (sc < 1) {
+    return 0
+  }
+  let from = Math.floor(Number(fromIdx))
+  let step = 1
+  while (step <= sc) {
+    let cand = (from + step) % sc
+    if (sceneHasSavedClip(project, cand)) {
+      return cand
+    }
+    step = step + 1
+  }
+  return from
+}
+
+/** The clip id assigned to one track in one scene's column (or "" if none). */
+export fn sceneSlotClipId(project, sceneIdx, trackIdx) {
+  ensureProjectSession(project)
+  let s = Math.floor(Number(sceneIdx))
+  let t = Math.floor(Number(trackIdx))
+  let slot = ""
+  if (project.session.slots[t] && project.session.slots[t][s] != null) {
+    slot = project.session.slots[t][s]
+  }
+  if (slot == null) {
+    slot = ""
+  }
+  return slot
+}
+
+/**
+ * Arm a whole scene, then re-apply any per-track clip overrides on top. Per-track launches (clicking
+ * a single clip cell) set rt.trackOverrides[t]; those tracks keep their chosen clip even as the song
+ * auto-advances through scenes. A full pattern LAUNCH clears the overrides.
+ */
+export fn armSceneWithOverrides(project, rt, sceneIdx) {
+  sessionArmScene(project, rt, sceneIdx)
+  if (!rt.trackOverrides) {
+    return
+  }
+  if (!rt.sessionArmedClipIds) {
+    rt.sessionArmedClipIds = []
+  }
+  let t = 0
+  while (t < project.channels.length) {
+    if (rt.trackOverrides[t] != null) {
+      rt.sessionArmedClipIds[t] = rt.trackOverrides[t]
+    }
+    t = t + 1
+  }
 }
 
 fn sessionEnsureQueuedArray(project, rt) {
@@ -509,6 +677,11 @@ export fn playbackClipForChannel(project, rt, chIdx) {
     return null
   }
   let ch = project.channels[chIdx]
+  // Play Sequence mode: ignore session arming entirely and play the rack / edit buffer
+  // (ch.steps / ch.pianoNotes) directly — this is the pattern you are editing, monitored live.
+  if (rt && rt.playMode === "sequence") {
+    return null
+  }
   if (!ch.sessionClips || ch.sessionClips.length === 0) {
     return null
   }

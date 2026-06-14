@@ -1,0 +1,124 @@
+// Add/remove bars across the whole sequencer rack. Growing duplicates the last bar (copyLast) so a
+// loop extends into something you can immediately tweak; not copying leaves the new bars empty.
+// Shrinking truncates content past the new length. Steps, piano notes, and per-bar step pitch all move.
+
+import { makeStep } from './Project.tish'
+import { syncMainClipFromChannel } from './Session.tish'
+
+fn channelBars(ch) {
+  if (ch.patternBars != null && Math.floor(ch.patternBars) >= 1) {
+    return Math.floor(ch.patternBars)
+  }
+  return 1
+}
+
+/// Resize one channel to `newBars`. copyLast: new bars copy the last existing bar (else tile / empty).
+export fn resizeChannelBars(ch, newBars, copyLast) {
+  let nb = Math.floor(Number(newBars))
+  if (nb < 1) {
+    nb = 1
+  }
+  let oldBars = channelBars(ch)
+
+  // Steps — rebuild a nb-bar grid, sourcing each bar (clone the last when extending past the old end).
+  let stored = Math.max(1, Math.floor(ch.steps.length / 16))
+  let newSteps = []
+  let b = 0
+  while (b < nb) {
+    let srcBar = b < oldBars ? b : (copyLast ? (oldBars - 1) : (b % oldBars))
+    let storedBar = srcBar % stored
+    let s = 0
+    while (s < 16) {
+      let st = ch.steps[storedBar * 16 + s]
+      newSteps.push(makeStep(st.on, st.vel != null ? st.vel : 100))
+      s = s + 1
+    }
+    b = b + 1
+  }
+  ch.steps = newSteps
+
+  // Piano notes — grow: copy the source bar's notes into each new bar; shrink: drop notes past the end.
+  if (ch.pianoNotes && ch.pianoNotes.length > 0) {
+    if (nb > oldBars) {
+      let added = []
+      let tb = oldBars
+      while (tb < nb) {
+        let srcBar = copyLast ? (oldBars - 1) : (tb % oldBars)
+        let k = 0
+        while (k < ch.pianoNotes.length) {
+          let n = ch.pianoNotes[k]
+          if (Math.floor(n.startBeat / 4) === srcBar) {
+            added.push({ startBeat: (n.startBeat - srcBar * 4) + tb * 4, durBeats: n.durBeats, pitch: n.pitch, vel: n.vel })
+          }
+          k = k + 1
+        }
+        tb = tb + 1
+      }
+      let ai = 0
+      while (ai < added.length) {
+        ch.pianoNotes.push(added[ai])
+        ai = ai + 1
+      }
+    } else {
+      if (nb < oldBars) {
+        let kept = []
+        let k2 = 0
+        while (k2 < ch.pianoNotes.length) {
+          if (ch.pianoNotes[k2].startBeat < nb * 4) {
+            kept.push(ch.pianoNotes[k2])
+          }
+          k2 = k2 + 1
+        }
+        ch.pianoNotes = kept
+      }
+    }
+  }
+
+  // Per-bar step pitch — resize to match (clone last when extending).
+  if (ch.stepPitchByBar && ch.stepPitchByBar.length > 0) {
+    let stp = []
+    let b2 = 0
+    while (b2 < nb) {
+      let src = b2 < ch.stepPitchByBar.length ? b2 : (copyLast ? (ch.stepPitchByBar.length - 1) : (b2 % ch.stepPitchByBar.length))
+      stp.push(ch.stepPitchByBar[src])
+      b2 = b2 + 1
+    }
+    ch.stepPitchByBar = nb > 1 ? stp : null
+  }
+
+  ch.patternBars = nb
+}
+
+/// Set the whole rack to `newBars` and rebuild each channel's main clip so playback spans match.
+export fn setRackBars(project, newBars, copyLast) {
+  if (!project || !project.channels) {
+    return
+  }
+  let i = 0
+  while (i < project.channels.length) {
+    resizeChannelBars(project.channels[i], newBars, copyLast)
+    i = i + 1
+  }
+  let j = 0
+  while (j < project.channels.length) {
+    syncMainClipFromChannel(project.channels[j])
+    j = j + 1
+  }
+}
+
+/// Widest channel pattern = the rack's bar count.
+export fn rackBars(project) {
+  let mx = 1
+  if (!project || !project.channels) {
+    return mx
+  }
+  let i = 0
+  while (i < project.channels.length) {
+    let pb = channelBars(project.channels[i])
+    if (pb > mx) {
+      mx = pb
+    }
+    i = i + 1
+  }
+  return mx
+}

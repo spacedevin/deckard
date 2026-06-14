@@ -10,6 +10,9 @@ import { deckSetCatalog, deckSetTplById } from '../src/model/DeckSets.tish'
 import { emptyProjectShell } from '../src/model/Project.tish'
 import { parseBarSelector, barSelectorMatches } from '../src/tpl/BarSelector.tish'
 import { lookupMacro, expandMacroBody } from '../src/tpl/Macros.tish'
+import { resizeChannelBars, setRackBars, rackBars } from '../src/model/RackBars.tish'
+import { ensureProjectSession, sessionWriteRackToSceneClip, loadSceneIntoRack, sessionArmScene, playbackClipForChannel, firstSongScene, nextSongScene, sceneHasSavedClip, sceneBarLength, armSceneWithOverrides, sceneSlotClipId } from '../src/model/Session.tish'
+import { toggleStep, clearAllSteps } from '../src/model/Edits.tish'
 
 let pass = 0
 let fail = 0
@@ -193,6 +196,92 @@ let la = findChannelById(lenProj, "la")
 check("pattern len: `* 4` sets patternBars=4, no loop cap", la !== null && la.patternBars === 4 && la.tplLoopBars == null)
 let lb = findChannelById(lenProj, "lb")
 check("loop cap: `loops 2` sets tplLoopBars cap, patternBars stays 1", lb !== null && lb.tplLoopBars === 2 && lb.patternBars === 1)
+
+// 5h. Rack bar add/remove (duplicate-last on grow, truncate on shrink)
+let rbProj = loadDefaultDeckardProject().project
+let rbCh = rbProj.channels[0]
+applyTplSource(rbProj, "tpl 1\ntrack RB id rbx gen patch\n  step_pitch 36\n  steps x . . . x . . . . . . . . . . .")
+let rbx = findChannelById(rbProj, "rbx")
+resizeChannelBars(rbx, 3, true)
+check("rack bars: grow duplicates last bar (3 bars, steps 0/4 per bar)", rbx.steps.length === 48 && rbx.patternBars === 3 && rbx.steps[0].on && rbx.steps[16].on && rbx.steps[32].on)
+resizeChannelBars(rbx, 1, false)
+check("rack bars: shrink truncates to 1 bar (16 steps)", rbx.steps.length === 16 && rbx.patternBars === 1)
+let rbMel = loadDefaultDeckardProject().project
+applyTplSource(rbMel, "tpl 1\ntrack M id mmx gen patch\n  note 60 1 0.5 v 100")
+let mmx = findChannelById(rbMel, "mmx")
+resizeChannelBars(mmx, 2, true)
+check("rack bars: grow duplicates piano notes into the new bar", mmx.pianoNotes.length === 2 && mmx.pianoNotes.some(n => n.startBeat === 1) && mmx.pianoNotes.some(n => n.startBeat === 5))
+setRackBars(rbMel, 4, true)
+check("rack bars: setRackBars sets every channel + rebuilds (patternBars=4, rackBars=4)", mmx.patternBars === 4 && rackBars(rbMel) === 4)
+
+// 5i. Pattern bank — capture rack into a slot, then load it back into the editable rack
+let pbProj = loadDefaultDeckardProject().project
+ensureProjectSession(pbProj)
+let pbCh = pbProj.channels[0]
+clearAllSteps(pbCh)
+toggleStep(pbCh, 0)
+toggleStep(pbCh, 4)
+sessionWriteRackToSceneClip(pbProj, 0)
+clearAllSteps(pbCh)
+toggleStep(pbCh, 2)
+toggleStep(pbCh, 6)
+sessionWriteRackToSceneClip(pbProj, 1)
+loadSceneIntoRack(pbProj, 0)
+check("pattern bank: load P1 restores its steps into the rack", pbCh.steps[0].on && pbCh.steps[4].on && !pbCh.steps[2].on)
+loadSceneIntoRack(pbProj, 1)
+check("pattern bank: load P2 restores a different pattern", pbCh.steps[2].on && pbCh.steps[6].on && !pbCh.steps[0].on)
+
+// 5j. Play modes — Play Sequence plays the rack (ignores arming); Play Song plays the launched pattern.
+// Set up two distinct saved patterns, launch P1 (arm scene 0) but leave the rack showing P2.
+let pmProj = loadDefaultDeckardProject().project
+ensureProjectSession(pmProj)
+let pmCh = pmProj.channels[0]
+clearAllSteps(pmCh)
+toggleStep(pmCh, 0)
+sessionWriteRackToSceneClip(pmProj, 0)
+clearAllSteps(pmCh)
+toggleStep(pmCh, 8)
+sessionWriteRackToSceneClip(pmProj, 1)
+// rack currently shows P2 (step 8). Launch P1 (scene 0, step 0) as the live output.
+let pmRt = { sessionArmedClipIds: [] }
+sessionArmScene(pmProj, pmRt, 0)
+pmRt.playMode = "song"
+let songClip = playbackClipForChannel(pmProj, pmRt, 0)
+check("play song: armed pattern (P1) drives audio, not the rack", songClip != null && !songClip.silent && songClip.steps[0].on && !songClip.steps[8].on)
+pmRt.playMode = "sequence"
+let seqClip = playbackClipForChannel(pmProj, pmRt, 0)
+check("play sequence: ignores arming, returns null so the rack is monitored", seqClip == null)
+
+// 5k. Song chain — Play Song advances through SAVED patterns, skipping empty ones, wrapping.
+let songProj = loadDefaultDeckardProject().project
+ensureProjectSession(songProj)
+let songCh = songProj.channels[0]
+clearAllSteps(songCh); toggleStep(songCh, 0); sessionWriteRackToSceneClip(songProj, 0)   // P1 saved
+clearAllSteps(songCh); toggleStep(songCh, 4); sessionWriteRackToSceneClip(songProj, 2)   // P3 saved (P2/P4 empty)
+check("song chain: scene 0 has a saved clip", sceneHasSavedClip(songProj, 0))
+check("song chain: scene 1 is empty (no saved clip)", !sceneHasSavedClip(songProj, 1))
+check("song chain: starts at first saved scene (0)", firstSongScene(songProj) === 0)
+check("song chain: next after 0 skips empty 1 → 2", nextSongScene(songProj, 0) === 2)
+check("song chain: next after 2 wraps + skips 3 → 0", nextSongScene(songProj, 2) === 0)
+check("song chain: 1-bar scene length", sceneBarLength(songProj, 0) === 1)
+
+// 5l. Per-track clip override — a launched track clip holds across song scene advances.
+let ovProj = loadDefaultDeckardProject().project
+ensureProjectSession(ovProj)
+let ovCh0 = ovProj.channels[0]
+clearAllSteps(ovCh0); toggleStep(ovCh0, 0); sessionWriteRackToSceneClip(ovProj, 0)
+clearAllSteps(ovCh0); toggleStep(ovCh0, 8); sessionWriteRackToSceneClip(ovProj, 1)
+let ovP2clip = sceneSlotClipId(ovProj, 1, 0)   // track 0's clip in pattern 2
+let ovRt = { sessionArmedClipIds: [], trackOverrides: [] }
+ovRt.trackOverrides[0] = ovP2clip              // override track 0 to pattern 2's clip
+armSceneWithOverrides(ovProj, ovRt, 0)          // arm scene 0, but track 0 keeps the override
+check("override: track 0 uses its override clip, not scene 0's", ovRt.sessionArmedClipIds[0] === ovP2clip)
+check("override: track 1 still follows scene 0", ovRt.sessionArmedClipIds[1] === sceneSlotClipId(ovProj, 0, 1))
+armSceneWithOverrides(ovProj, ovRt, 1)          // song advances to scene 1
+check("override: holds through a scene advance", ovRt.sessionArmedClipIds[0] === ovP2clip)
+ovRt.trackOverrides[0] = null                   // release the override
+armSceneWithOverrides(ovProj, ovRt, 0)
+check("override: released track returns to following the scene", ovRt.sessionArmedClipIds[0] === sceneSlotClipId(ovProj, 0, 0))
 
 // 6. Every stem deck set parses cleanly into >= 5 stems (the deck.tsx conversions)
 let cat = deckSetCatalog()

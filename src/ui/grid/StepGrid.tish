@@ -8,6 +8,7 @@ import { toggleStep, clearStep, setChannelMute, setChannelSolo, promoteChannelTo
 import { syncMainClipFromChannel } from '../../model/Session.tish'
 import { generatorLabelById } from '../../generators/Registry.tish'
 import { tplLoopSkipsChannel } from '../../tpl/LoopState.tish'
+import { setRackBars } from '../../model/RackBars.tish'
 import { channelDeck } from '../../model/DeckRouting.tish'
 import { ensureCoDjMeta, setMasterLock } from '../../codj/CoDjMeta.tish'
 import { pianoRowsForChannel } from './PianoGrid.tish'
@@ -276,6 +277,39 @@ fn applyGridPlayhead(step, playing, gridBars, viewBar) {
   }
 }
 
+/// Add a bar to the whole rack (duplicates the last bar so it's immediately editable) and jump to it.
+/// Reads the live bar count from the project (not a render-time closure) so rapid clicks don't race.
+fn rackAddBar(project, rt, setProjectFromUI) {
+  let cur = gridBarsForProject(project)
+  setRackBars(project, cur + 1, true)
+  if (rt) {
+    rt.gridViewBar = cur
+  }
+  setProjectFromUI(project)
+  if (rt && rt.bumpGrid) {
+    rt.bumpGrid()
+  }
+}
+
+/// Remove the last bar from the whole rack (drops its content), clamping the viewed bar.
+fn rackRemoveBar(project, rt, setProjectFromUI) {
+  let cur = gridBarsForProject(project)
+  if (cur <= 1) {
+    return
+  }
+  setRackBars(project, cur - 1, false)
+  if (rt && rt.gridViewBar != null && rt.gridViewBar > cur - 2) {
+    rt.gridViewBar = cur - 2
+  }
+  if (rt && rt.gridViewBar != null && rt.gridViewBar < 0) {
+    rt.gridViewBar = 0
+  }
+  setProjectFromUI(project)
+  if (rt && rt.bumpGrid) {
+    rt.bumpGrid()
+  }
+}
+
 /// Shift + scroll pages through bars, clamped at both ends (no wrap).
 fn handleBarWheel(e, rt, gridBars) {
   if (!e.shiftKey || !rt) {
@@ -388,12 +422,30 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
         <h2>{"SEQUENCER // CHANNEL RACK"}</h2>
         <span class="sg-head-hint">{"Left: toggle · Right: clear · ▸ expand any track into its piano roll"}</span>
       </div>
-      {gridBars > 1 ? (
-        <div class="sg-barpager" title="Shift + scroll to page through bars" onwheel={(e) => handleBarWheel(e, rt, gridBars)}>
-          <span class="sg-barpager-label">{"BAR"}</span>
-          {pager}
-        </div>
-      ) : null}
+      <div class="sg-barpager" title="Shift + scroll to page through bars" onwheel={(e) => handleBarWheel(e, rt, gridBars)}>
+        <span class="sg-barpager-label">{"BARS"}</span>
+        <button
+          type="button"
+          class="sg-barbtn sg-barbtn-mod"
+          title="Remove the last bar"
+          disabled={gridBars <= 1}
+          onclick={() => rackRemoveBar(project, rt, setProjectFromUI)}
+        >
+          {"−"}
+        </button>
+        <span class="sg-barpager-count">{String(gridBars)}</span>
+        <button
+          type="button"
+          class="sg-barbtn sg-barbtn-mod"
+          title="Add a bar (duplicates the last bar so you can tweak it)"
+          onclick={() => rackAddBar(project, rt, setProjectFromUI)}
+        >
+          {"+"}
+        </button>
+        {gridBars > 1 ? <span class="sg-barpager-sep">{"·"}</span> : null}
+        {gridBars > 1 ? <span class="sg-barpager-label">{"VIEW"}</span> : null}
+        {gridBars > 1 ? pager : null}
+      </div>
       <div class="sg-grid" onwheel={(e) => handleBarWheel(e, rt, gridBars)}>{rows}</div>
       <div class="sg-ruler">
         <div class="sg-ruler-pad" />

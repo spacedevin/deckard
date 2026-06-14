@@ -1,7 +1,10 @@
-// Pattern bank — the cue/save surface, lifted out of the cramped transport into one clean strip.
-// Launch a pattern (queued to the next bar) · CAPTURE the current grid into a slot. Reuses the
-// existing session scene model (sessionQueueScene / sessionWriteRackToSceneClip via the handlers).
-// CUE vs LIVE is now the crossfader position on the deck mixer, not a separate toggle.
+// Pattern launcher — the live surface beside the sequencer. Patterns ARE scenes (one concept).
+// Each pattern card stacks three actions:
+//   LOAD   → pull the pattern into the rack so you can edit it (Play Sequence monitors the rack)
+//   SAVE   → copy the current rack back into the pattern (edit-only, never plays)
+//   LAUNCH → make the pattern the LIVE output (P0); queues to the next bar while a song plays
+// P0 is the LIVE card: read-only, it just reflects whichever pattern is currently armed.
+// The deck mixer is separate equipment — it is live-only and unrelated to LOAD/SAVE/LAUNCH.
 
 import { h, Fragment } from '@tishlang/lattish'
 
@@ -10,66 +13,107 @@ export fn PatternBank(bank) {
   if (count < 1 || count !== count) {
     count = 4
   }
-  let launchBtns = []
+  let editing = bank.editingScene
+  let live = bank.liveScene
+  let queued = bank.queuedScene
+  let queuePending = bank.queuePending === true
+
+  let cards = []
+
+  // P0 — the LIVE output. Not editable; mirrors the currently armed pattern.
+  let liveLabel = "idle"
+  if (live != null) {
+    liveLabel = "P" + String(Math.floor(Number(live)) + 1)
+  }
+  let liveCls = "pb-card pb-card-p0"
+  if (live != null) {
+    liveCls = liveCls + " pb-card-live-on"
+  }
+  cards.push(
+    <div class={liveCls} key="pb-p0" title={"P0 is the live output — launch a pattern to send it here"}>
+      <span class="pb-card-n">{"P0"}</span>
+      <span class="pb-live-badge">{"LIVE"}</span>
+      <span class="pb-live-src">{liveLabel}</span>
+    </div>
+  )
+
   let i = 0
   while (i < count) {
-    let idx = i
-    let cls = "pb-slot"
-    if (bank.playingIdx !== null && bank.playingIdx !== undefined && bank.playingIdx === i) {
-      cls = cls + " pb-slot-active"
+    let sidx = i
+    let isEditing = editing != null && Math.floor(Number(editing)) === sidx
+    let isLive = live != null && Math.floor(Number(live)) === sidx
+    let isQueued = queuePending && queued != null && Math.floor(Number(queued)) === sidx
+
+    let cardCls = "pb-card"
+    if (isEditing) {
+      cardCls = cardCls + " pb-card-editing"
     }
-    let queued =
-      bank.queuePending &&
-      bank.queuedScene !== null &&
-      bank.queuedScene !== undefined &&
-      Math.floor(Number(bank.queuedScene)) === i
-    if (queued) {
-      cls = cls + " pb-slot-queued"
+    if (isLive) {
+      cardCls = cardCls + " pb-card-live"
     }
-    let meta = ""
-    if (queued && bank.dropSteps !== null && bank.dropSteps !== undefined) {
-      meta = bank.dropSteps === 0 ? "●" : String(bank.dropSteps)
+    if (isQueued) {
+      cardCls = cardCls + " pb-card-queued"
     }
-    launchBtns.push(
-      <button
-        type="button"
-        class={cls}
-        key={"pb-" + String(i)}
-        title={"Launch pattern " + String(i + 1) + " (queued to the next bar)"}
-        onclick={() => bank.onSelect(idx)}
-      >
-        <span class="pb-slot-n">{"P" + String(i + 1)}</span>
-        {meta.length > 0 ? <span class="pb-slot-meta">{meta}</span> : null}
-      </button>
+
+    let loadCls = "pb-btn pb-btn-load"
+    if (isEditing) {
+      loadCls = loadCls + " pb-btn-on"
+    }
+    let launchCls = "pb-btn pb-btn-launch"
+    if (isLive) {
+      launchCls = launchCls + " pb-btn-on"
+    }
+    let launchLabel = "LAUNCH"
+    if (isQueued) {
+      if (bank.dropSteps != null) {
+        launchLabel = bank.dropSteps === 0 ? "● NOW" : "◷ " + String(bank.dropSteps)
+      } else {
+        launchLabel = "◷ QUEUED"
+      }
+    }
+
+    cards.push(
+      <div class={cardCls} key={"pb-" + String(i)}>
+        <span class="pb-card-n">{"P" + String(i + 1)}</span>
+        <button
+          type="button"
+          class={loadCls}
+          title={"Load pattern " + String(i + 1) + " into the rack to edit it"}
+          onclick={() => bank.onLoad(sidx)}
+        >
+          {"LOAD"}
+        </button>
+        <button
+          type="button"
+          class="pb-btn pb-btn-save"
+          title={"Save the current rack into pattern " + String(i + 1)}
+          onclick={() => bank.onSave(sidx)}
+        >
+          {"SAVE"}
+        </button>
+        <button
+          type="button"
+          class={launchCls}
+          title={"Launch pattern " + String(i + 1) + " live (queues to the next bar while a song plays)"}
+          onclick={() => bank.onLaunch(sidx)}
+        >
+          {launchLabel}
+        </button>
+      </div>
     )
     i = i + 1
   }
-  let capBtns = []
-  let q = 0
-  while (q < count) {
-    let qi = q
-    capBtns.push(
-      <button
-        type="button"
-        class="pb-cap"
-        key={"pbc-" + String(q)}
-        title={"Capture the current rack/piano into pattern " + String(q + 1)}
-        onclick={() => bank.onStore(qi)}
-      >
-        {String(q + 1)}
-      </button>
-    )
-    q = q + 1
-  }
+
   return (
-    <div class="panel pb-panel">
+    <div class="panel pb-panel pb-panel-col">
       <span class="pb-rev" style={{ display: "none" }}>{String(bank.rev)}</span>
-      <span class="pb-label">{"PATTERN BANK"}</span>
-      <div class="pb-slots">{launchBtns}</div>
-      <span class="pb-cap-label">{"CAPTURE →"}</span>
-      <div class="pb-caps">{capBtns}</div>
+      <div class="pb-head">
+        <span class="pb-label">{"PATTERNS"}</span>
+        <span class="pb-sub">{"LOAD · SAVE · LAUNCH"}</span>
+      </div>
+      <div class="pb-cards">{cards}</div>
       <span class="pb-hint">
-        {"Launch = queue to next bar · Capture = save current grid · CUE/LIVE = crossfader"}
+        {"P0 = live output. LOAD to edit · SAVE the rack into a slot · LAUNCH to go live."}
       </span>
     </div>
   )
