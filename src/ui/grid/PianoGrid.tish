@@ -61,13 +61,16 @@ fn pitchWindow(ch) {
   return { lo: lo, hi: hi }
 }
 
-fn pianoCell(ch, pitch, step, project, setProjectFromUI) {
-  let on = noteIdxAt(ch, pitch, step) >= 0
-  let cls = "sg-cell sg-pcell sg-col-" + String(step)
+fn pianoCell(ch, pitch, col, viewBar, project, setProjectFromUI) {
+  // col is the on-screen column (0..15) of the viewed bar; map to the channel's own (tiled) pattern.
+  let chBars = (ch.patternBars != null && Math.floor(ch.patternBars) >= 1) ? Math.floor(ch.patternBars) : 1
+  let local = (viewBar * 16 + col) % (chBars * 16)
+  let on = noteIdxAt(ch, pitch, local) >= 0
+  let cls = "sg-cell sg-pcell sg-col-" + String(col)
   if (on) {
     cls = cls + " sg-on"
   }
-  if (step % 4 === 0) {
+  if (col % 4 === 0) {
     cls = cls + " sg-beat"
   }
   return (
@@ -76,11 +79,11 @@ fn pianoCell(ch, pitch, step, project, setProjectFromUI) {
       class={cls}
       onclick={(e) => {
         e.stopPropagation()
-        let idx = noteIdxAt(ch, pitch, step)
+        let idx = noteIdxAt(ch, pitch, local)
         if (idx >= 0) {
           removePianoNoteAt(ch, idx)
         } else {
-          addPianoNote(ch, step * 0.25, 0.25, pitch, 100)
+          addPianoNote(ch, local * 0.25, 0.25, pitch, 100)
         }
         setProjectFromUI(project)
       }}
@@ -88,8 +91,10 @@ fn pianoCell(ch, pitch, step, project, setProjectFromUI) {
   )
 }
 
-/** Array of inline piano rows (sg-row variants) for one channel — appended under its step row. */
-export fn pianoRowsForChannel(project, ch, setProjectFromUI) {
+/** Array of inline piano rows (sg-row variants) for one channel — appended under its step row,
+ *  showing the currently-viewed bar (16 columns). */
+export fn pianoRowsForChannel(project, ch, setProjectFromUI, viewBar) {
+  let vb = (viewBar != null && viewBar >= 0) ? Math.floor(viewBar) : 0
   let win = pitchWindow(ch)
   let deckCls = channelDeck(project, ch) === "B" ? "sg-deck-b" : "sg-deck-a"
   let rows = []
@@ -99,7 +104,7 @@ export fn pianoRowsForChannel(project, ch, setProjectFromUI) {
     let cells = []
     let i = 0
     while (i < 16) {
-      cells.push(pianoCell(ch, pitch, i, project, setProjectFromUI))
+      cells.push(pianoCell(ch, pitch, i, vb, project, setProjectFromUI))
       i = i + 1
     }
     let rowCls = "sg-row sg-prow " + deckCls

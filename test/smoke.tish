@@ -128,6 +128,23 @@ applyTplSource(patchProj2, patchEmit)
 let pk2 = findChannelById(patchProj2, "pk")
 check("patch: re-parse preserves node count", pk2 !== null && pk2.generatorSpec.graph.nodes.length === 2)
 
+// 5c. Bar selectors: per-bar note expansion + per-bar step_pitch + multi-bar round-trip
+let barSrc = "tpl 1\ntrack Ch id ch gen patch * 4\n  gen_block patch\n    osc o sine\n    gain a\n    conn o a\n    conn a out\n    env a.gain set 0 0.3 exp 0.4 0.01\n    dur 0.4\n  end gen_block\n  note 48 0 4 v 90 bar 0\n  note 43 0 4 v 90 bar 1,3\n  note 44 0 4 v 90 bar 2\ntrack Bs id bs gen patch * 4\n  gen_block patch\n    osc o sawtooth note\n    gain a\n    conn o a\n    conn a out\n    env a.gain set 0 0.3 exp 0.3 0.01\n    dur 0.3\n  end gen_block\n  step_pitch 36 bar 0\n  step_pitch 31 bar 1\n  step_pitch 34 bar 2,3\n  steps x . x . x . x . x . x . x . x ."
+let barProj = loadDefaultDeckardProject().project
+applyTplSource(barProj, barSrc)
+let chCh = findChannelById(barProj, "ch")
+check("bar sel: note expands across loop bars (3 sel -> 4 notes)", chCh !== null && chCh.pianoNotes.length === 4)
+check("bar sel: 'bar 1,3' note lands at beats 4 and 12", chCh !== null && chCh.pianoNotes.some(n => n.pitch === 43 && n.startBeat === 4) && chCh.pianoNotes.some(n => n.pitch === 43 && n.startBeat === 12))
+let bsCh = findChannelById(barProj, "bs")
+check("bar sel: per-bar step_pitch builds [36,31,34,34]", bsCh !== null && bsCh.stepPitchByBar != null && bsCh.stepPitchByBar.length === 4 && bsCh.stepPitchByBar[0] === 36 && bsCh.stepPitchByBar[1] === 31 && bsCh.stepPitchByBar[3] === 34)
+let barEmit = emitProject(barProj)
+check("bar sel: emit keeps the * 4 loop header", barEmit.indexOf("gen patch * 4") >= 0)
+let barProj2 = loadDefaultDeckardProject().project
+let barRT = applyTplSource(barProj2, barEmit)
+check("bar sel: multi-bar emit re-parses clean", barRT.errors.length === 0)
+let bs2 = findChannelById(barProj2, "bs")
+check("bar sel: round-trip preserves per-bar step_pitch", bs2 !== null && bs2.stepPitchByBar != null && bs2.stepPitchByBar[1] === 31)
+
 // 6. Every stem deck set parses cleanly into >= 5 stems (the deck.tsx conversions)
 let cat = deckSetCatalog()
 check("15 stem deck sets in catalog", cat.length === 15)

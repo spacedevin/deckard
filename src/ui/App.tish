@@ -385,7 +385,7 @@ export fn App() {
         r.setPlaybackHighlight(globalTick % 16, true)
       }
       if (r.updateGridPlayhead) {
-        r.updateGridPlayhead(globalTick % 16, true)
+        r.updateGridPlayhead(globalTick, true)
       }
       globalTick = globalTick + 1
       r.transportNextTick = globalTick

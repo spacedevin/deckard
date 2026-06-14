@@ -34,14 +34,22 @@ export fn emitProject(project) {
       gid = "basicOsc"
     }
     o = o + "track " + ch.name + " id " + ch.id + " gen " + generatorIdToTpl(gid)
+    let pb = ch.patternBars
+    if (pb !== undefined && pb !== null) {
+      let pn = Math.floor(Number(pb))
+      if (pn >= 2 && pn === pn) {
+        o = o + " * " + String(pn)
+      }
+    }
+    o = o + "\n"
+    // Finite loop cap (play N bars then go silent) — distinct from pattern length above.
     let tlb = ch.tplLoopBars
     if (tlb !== undefined && tlb !== null) {
       let tn = Math.floor(Number(tlb))
       if (tn >= 1 && tn === tn) {
-        o = o + " * " + String(tn)
+        o = o + "  loops " + String(tn) + "\n"
       }
     }
-    o = o + "\n"
     o = o + "  mix gain " + formatTplFloat(ch.gain) + " pan " + formatTplFloat(ch.pan)
     if (ch.mute) {
       o = o + " mute 1"
@@ -54,8 +62,16 @@ export fn emitProject(project) {
     let hiV = ch.eqHi != null ? ch.eqHi : 0
     o = o + " eq_lo " + formatTplFloat(loV) + " eq_mid " + formatTplFloat(midV) + " eq_hi " + formatTplFloat(hiV)
     o = o + "\n"
-    if (ch.stepPitch != null && ch.stepPitch !== 36) {
-      o = o + "  step_pitch " + String(Math.floor(ch.stepPitch)) + "\n"
+    if (ch.stepPitchByBar && ch.stepPitchByBar.length > 0) {
+      let sbi = 0
+      while (sbi < ch.stepPitchByBar.length) {
+        o = o + "  step_pitch " + String(Math.floor(ch.stepPitchByBar[sbi])) + " bar " + String(sbi) + "\n"
+        sbi = sbi + 1
+      }
+    } else {
+      if (ch.stepPitch != null && ch.stepPitch !== 36) {
+        o = o + "  step_pitch " + String(Math.floor(ch.stepPitch)) + "\n"
+      }
     }
 
     let p = ch.generatorParams

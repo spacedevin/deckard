@@ -1,0 +1,103 @@
+// Bar selectors — CSS-nth-style predicates for WHICH loop repetition (bar) an event fires on.
+// Used by `note ... bar <sel>` and `step_pitch <p> bar <sel>` to express multi-bar progressions
+// compactly. Bars are 0-indexed within the track's loop (`track ... gen <g> * N`).
+//
+// Grammar (a single token, no spaces):
+//   even            bars 0,2,4,…           odd             bars 1,3,5,…
+//   <int>           only that bar (e.g. 2) n / * / all      every bar
+//   <a>n            bar % a == 0           <a>n+<b>         bar % a == b
+//   -n+<b>          first b bars (0..b-1)  <b0>,<b1>,…      explicit list
+
+export fn parseBarSelector(raw) {
+  let s = String(raw).toLowerCase()
+  if (s === "even") {
+    return { kind: "mod", a: 2, b: 0 }
+  }
+  if (s === "odd") {
+    return { kind: "mod", a: 2, b: 1 }
+  }
+  if (s === "n" || s === "*" || s === "all" || s === "every") {
+    return { kind: "all" }
+  }
+  if (s.indexOf(",") >= 0) {
+    let parts = s.split(",")
+    let list = []
+    let i = 0
+    while (i < parts.length) {
+      let n = Math.floor(Number(parts[i]))
+      if (n === n) {
+        list.push(n)
+      }
+      i = i + 1
+    }
+    return { kind: "list", list: list }
+  }
+  if (s.indexOf("n") >= 0) {
+    let nIdx = s.indexOf("n")
+    let aStr = s.substring(0, nIdx)
+    let bStr = s.substring(nIdx + 1)
+    let a = 1
+    if (aStr === "-") {
+      a = -1
+    } else {
+      if (aStr.length > 0) {
+        let av = Number(aStr)
+        if (av === av) {
+          a = Math.floor(av)
+        }
+      }
+    }
+    let b = 0
+    if (bStr.length > 0) {
+      let bv = Number(bStr)
+      if (bv === bv) {
+        b = Math.floor(bv)
+      }
+    }
+    if (a < 0) {
+      // -n+b → first b bars (0 .. b-1)
+      return { kind: "first", b: b }
+    }
+    if (a === 0) {
+      return { kind: "all" }
+    }
+    return { kind: "mod", a: a, b: ((b % a) + a) % a }
+  }
+  let n = Math.floor(Number(s))
+  if (n === n) {
+    return { kind: "eq", n: n }
+  }
+  return { kind: "all" }
+}
+
+export fn barSelectorMatches(desc, bar) {
+  if (!desc) {
+    return true
+  }
+  if (desc.kind === "all") {
+    return true
+  }
+  if (desc.kind === "eq") {
+    return bar === desc.n
+  }
+  if (desc.kind === "first") {
+    return bar >= 0 && bar < desc.b
+  }
+  if (desc.kind === "list") {
+    let i = 0
+    while (i < desc.list.length) {
+      if (desc.list[i] === bar) {
+        return true
+      }
+      i = i + 1
+    }
+    return false
+  }
+  if (desc.kind === "mod") {
+    if (desc.a <= 0) {
+      return true
+    }
+    return ((bar % desc.a) + desc.a) % desc.a === desc.b
+  }
+  return true
+}

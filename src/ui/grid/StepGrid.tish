@@ -27,6 +27,40 @@ fn stepHasNote(ch, i) {
   return false
 }
 
+let SG_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+fn sgNoteName(midi) {
+  let n = Math.floor(midi)
+  let pc = ((n % 12) + 12) % 12
+  return SG_NOTE_NAMES[pc] + String(Math.floor(n / 12) - 1)
+}
+
+/// Number of bars the rack spans = the widest channel pattern (so the bar pager can step through them).
+fn gridBarsForProject(project) {
+  let mx = 1
+  let i = 0
+  while (i < project.channels.length) {
+    let pb = project.channels[i].patternBars
+    if (pb != null && Math.floor(pb) > mx) {
+      mx = Math.floor(pb)
+    }
+    i = i + 1
+  }
+  if (mx > 16) {
+    mx = 16
+  }
+  return mx
+}
+
+/// Is cell i (within the viewed bar) lit for this channel — tiling shorter patterns across the bars.
+fn cellOnAtView(ch, i, melodic, viewBar) {
+  let chBars = (ch.patternBars != null && Math.floor(ch.patternBars) >= 1) ? Math.floor(ch.patternBars) : 1
+  let local = (viewBar * 16 + i) % (chBars * 16)
+  if (melodic) {
+    return stepHasNote(ch, local)
+  }
+  return ch.steps[local % 16].on
+}
+
 fn deckClass(project, ch) {
   if (channelDeck(project, ch) === "B") {
     return "sg-deck-b"
@@ -45,6 +79,10 @@ fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh,
   if (i % 4 === 0) {
     cls = cls + " sg-beat"
   }
+  if (i % 16 === 0 && i > 0) {
+    cls = cls + " sg-barline"
+  }
+  let stepIdx = i % 16
   return (
     <button
       type="button"
@@ -58,9 +96,9 @@ fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh,
           }
           return
         }
-        toggleStep(project.channels[chIdx], i)
+        toggleStep(project.channels[chIdx], stepIdx)
         if (rt && rt.mirrorStepToSessionClip) {
-          rt.mirrorStepToSessionClip(project.channels[chIdx], i)
+          rt.mirrorStepToSessionClip(project.channels[chIdx], stepIdx)
         }
         setProjectFromUI(project)
       }}
@@ -70,9 +108,9 @@ fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh,
         if (melodic) {
           return
         }
-        clearStep(project.channels[chIdx], i)
+        clearStep(project.channels[chIdx], stepIdx)
         if (rt && rt.mirrorClearStepToSessionClip) {
-          rt.mirrorClearStepToSessionClip(project.channels[chIdx], i)
+          rt.mirrorClearStepToSessionClip(project.channels[chIdx], stepIdx)
         }
         setProjectFromUI(project)
       }}
@@ -80,14 +118,19 @@ fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh,
   )
 }
 
-fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh, rt) {
+fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh, rt, viewBar) {
   let melodic = ch.pianoNotes && ch.pianoNotes.length > 0
   let cells = []
   let i = 0
   while (i < 16) {
-    let on = melodic ? stepHasNote(ch, i) : ch.steps[i].on
+    let on = cellOnAtView(ch, i, melodic, viewBar)
     cells.push(StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh, rt))
     i = i + 1
+  }
+  // Per-bar root for stepped pitched channels (bass rolls) — shows the note changing as you page bars.
+  let barPitch = null
+  if (ch.stepPitchByBar && viewBar < ch.stepPitchByBar.length) {
+    barPitch = sgNoteName(ch.stepPitchByBar[viewBar])
   }
   let gid = ch.generatorId ? ch.generatorId : "basicOsc"
   ensureCoDjMeta(project)
@@ -125,7 +168,7 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
           {expanded ? "▾" : "▸"}
         </button>
         <div class="sg-gutter-main" onclick={() => setSelectedCh(chIdx)} title="Select channel">
-          <span class="sg-ch-name">{ch.name}</span>
+          <span class="sg-ch-name">{ch.name}{barPitch !== null ? <span class="sg-ch-rootpitch">{barPitch}</span> : null}</span>
           <span class="sg-ch-instr">{generatorLabelById(gid)}</span>
         </div>
         <div class="sg-gutter-ctl">
@@ -187,8 +230,9 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
   )
 }
 
-/** Direct-DOM playhead: mark the active step column (cells carry an sg-col-N class) without a re-render. */
-fn applyGridPlayhead(step, playing) {
+/** Direct-DOM playhead: highlight the active step column only when the VIEWED bar is the one playing,
+ *  and mark which bar-pager button is currently sounding — all without a React re-render. */
+fn applyGridPlayhead(step, playing, gridBars, viewBar) {
   if (typeof document === "undefined") {
     return
   }
@@ -198,11 +242,30 @@ fn applyGridPlayhead(step, playing) {
     prev[i].classList.remove("sg-col-active")
     i = i + 1
   }
+  let pbPrev = document.querySelectorAll(".sg-barbtn-playing")
+  let pi = 0
+  while (pi < pbPrev.length) {
+    pbPrev[pi].classList.remove("sg-barbtn-playing")
+    pi = pi + 1
+  }
   if (!playing) {
     return
   }
-  let s = Math.floor(step) % 16
-  let cur = document.querySelectorAll(".sg-col-" + String(s))
+  let nbars = (gridBars != null && gridBars >= 1) ? gridBars : 1
+  let vb = (viewBar != null && viewBar >= 0) ? viewBar : 0
+  let playingBar = Math.floor(Math.floor(step) / 16) % nbars
+  let colInBar = Math.floor(step) % 16
+  // Mark the pager button for the sounding bar (so you see the progression move even off-screen).
+  let btn = document.querySelectorAll(".sg-barbtn-" + String(playingBar))
+  let bj = 0
+  while (bj < btn.length) {
+    btn[bj].classList.add("sg-barbtn-playing")
+    bj = bj + 1
+  }
+  if (playingBar !== vb) {
+    return
+  }
+  let cur = document.querySelectorAll(".sg-col-" + String(colInBar))
   let j = 0
   while (j < cur.length) {
     cur[j].classList.add("sg-col-active")
@@ -211,19 +274,32 @@ fn applyGridPlayhead(step, playing) {
 }
 
 export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt) {
+  let gridBars = gridBarsForProject(project)
+  let viewBar = 0
+  if (rt != null && rt.gridViewBar != null) {
+    viewBar = Math.floor(rt.gridViewBar)
+  }
+  if (viewBar >= gridBars) {
+    viewBar = gridBars - 1
+  }
+  if (viewBar < 0) {
+    viewBar = 0
+  }
   if (rt) {
+    rt.gridViewBar = viewBar
+    rt.gridBars = gridBars
     rt.updateGridPlayhead = (step, playing) => {
-      applyGridPlayhead(step, playing)
+      applyGridPlayhead(step, playing, gridBars, viewBar)
     }
   }
   let rows = []
   let ci = 0
   while (ci < project.channels.length) {
     let ch = project.channels[ci]
-    rows.push(ChannelRowGrid(ch, ci, project, setProjectFromUI, ci === selectedCh, setSelectedCh, rt))
+    rows.push(ChannelRowGrid(ch, ci, project, setProjectFromUI, ci === selectedCh, setSelectedCh, rt, viewBar))
     let expanded = rt != null && rt.gridExpanded != null && rt.gridExpanded[ch.id] === true
     if (expanded) {
-      let prows = pianoRowsForChannel(project, ch, setProjectFromUI)
+      let prows = pianoRowsForChannel(project, ch, setProjectFromUI, viewBar)
       let k = 0
       while (k < prows.length) {
         rows.push(prows[k])
@@ -231,6 +307,37 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
       }
     }
     ci = ci + 1
+  }
+  // Bar pager — view one bar at a time, page through a multi-bar progression.
+  let pager = []
+  if (gridBars > 1) {
+    let b = 0
+    while (b < gridBars) {
+      let bb = b
+      let pcls = "sg-barbtn sg-barbtn-" + String(b)
+      if (b === viewBar) {
+        pcls = pcls + " sg-barbtn-active"
+      }
+      pager.push(
+        <button
+          type="button"
+          class={pcls}
+          key={"bar-" + String(b)}
+          title={"View bar " + String(b + 1)}
+          onclick={() => {
+            if (rt) {
+              rt.gridViewBar = bb
+              if (rt.bumpGrid) {
+                rt.bumpGrid()
+              }
+            }
+          }}
+        >
+          {String(b + 1)}
+        </button>
+      )
+      b = b + 1
+    }
   }
   let ruler = []
   let r = 0
@@ -243,7 +350,7 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
   if (rt && typeof setTimeout !== "undefined") {
     setTimeout(() => {
       let st = typeof rt.playbackUiStep === "number" ? rt.playbackUiStep : 0
-      applyGridPlayhead(st, rt.playing === true)
+      applyGridPlayhead(st, rt.playing === true, gridBars, viewBar)
     }, 0)
   }
   return (
@@ -252,6 +359,39 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
         <h2>{"SEQUENCER // CHANNEL RACK"}</h2>
         <span class="sg-head-hint">{"Left: toggle · Right: clear · ▸ expand any track into its piano roll"}</span>
       </div>
+      {gridBars > 1 ? (
+        <div
+          class="sg-barpager"
+          title="Shift + scroll to page through bars"
+          onwheel={(e) => {
+            if (!e.shiftKey || !rt) {
+              return
+            }
+            e.preventDefault()
+            let amt = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX
+            if (amt === 0) {
+              return
+            }
+            let cur = rt.gridViewBar != null ? Math.floor(rt.gridViewBar) : 0
+            let next = cur + (amt > 0 ? 1 : -1)
+            if (next < 0) {
+              next = 0
+            }
+            if (next > gridBars - 1) {
+              next = gridBars - 1
+            }
+            if (next !== cur) {
+              rt.gridViewBar = next
+              if (rt.bumpGrid) {
+                rt.bumpGrid()
+              }
+            }
+          }}
+        >
+          <span class="sg-barpager-label">{"BAR"}</span>
+          {pager}
+        </div>
+      ) : null}
       <div class="sg-grid">{rows}</div>
       <div class="sg-ruler">
         <div class="sg-ruler-pad" />

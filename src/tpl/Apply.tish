@@ -7,6 +7,7 @@ import {
   normalizeClipStepLength
 } from '../model/Session.tish'
 import { paramKeyToCamel, snakeToCamel } from './RegistryMap.tish'
+import { parseBarSelector, barSelectorMatches } from './BarSelector.tish'
 import {
   mixParamFromTpl,
   isChannelMixParam,
@@ -109,8 +110,13 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
   if (hl === undefined) {
     hl = null
   }
-  ch.tplLoopBars = hl
+  // `* N` header = PATTERN LENGTH in bars (the loop repeats forever). The finite loop CAP (play N bars
+  // then go silent) is separate and comes only from a `loops N` body line.
+  let nbars = (hl != null && hl >= 1) ? Math.floor(hl) : 1
+  ch.patternBars = nbars
+  ch.tplLoopBars = null
   let noteLines = []
+  let stepPitchEntries = []
   let hadSteps = false
   let transposeSemi = 0
   let sawTranspose = false
@@ -141,7 +147,14 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
     if (h === "step_pitch" && t.length >= 2) {
       let sp = Math.floor(Number(t[1]))
       if (sp === sp && sp >= 0 && sp <= 127) {
-        ch.stepPitch = sp
+        let sel = null
+        if (t.length >= 4 && t[2] === "bar") {
+          sel = parseBarSelector(t[3])
+        }
+        stepPitchEntries.push({ pitch: sp, sel: sel })
+        if (sel === null) {
+          ch.stepPitch = sp
+        }
       }
     } else if (h === "gen") {
       if (!ch.generatorParams) {
@@ -251,18 +264,31 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
           if (t.length >= 6 && t[4] === "v") {
             let sb = Number(t[2])
             let db = Number(t[3])
-            if (sb < 0 || sb >= 4 || sb + db > 4 + 0.0001) {
+            let barMax = nbars * 4
+            // Optional `bar <sel>` repeats this (within-bar) note on matching loop bars.
+            let sel = null
+            if (t.length >= 8 && t[6] === "bar") {
+              sel = parseBarSelector(t[7])
+            }
+            if (sb < 0 || sb >= barMax || sb + db > barMax + 0.0001 || (sel !== null && sb >= 4)) {
               errors.push({
                 line: row.lineNo,
-                msg: "note: must fit in first bar (0<=start<4, start+dur<=4)"
+                msg: "note: out of range (0<=start, start+dur<=bars*4; with `bar`, start<4)"
               })
             } else {
-              noteLines.push({
-                pitch: Math.floor(Number(t[1])),
-                startBeat: sb,
-                durBeats: db,
-                vel: Math.floor(Number(t[5]))
-              })
+              let pitch = Math.floor(Number(t[1]))
+              let vel = Math.floor(Number(t[5]))
+              if (sel === null) {
+                noteLines.push({ pitch: pitch, startBeat: sb, durBeats: db, vel: vel })
+              } else {
+                let b = 0
+                while (b < nbars) {
+                  if (barSelectorMatches(sel, b)) {
+                    noteLines.push({ pitch: pitch, startBeat: sb + b * 4, durBeats: db, vel: vel })
+                  }
+                  b = b + 1
+                }
+              }
             }
           }
         } else {
@@ -325,6 +351,40 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
       })
       ni = ni + 1
     }
+  }
+
+  // Per-bar step pitch: resolve each loop bar to the last `step_pitch ... bar <sel>` that matches it.
+  if (stepPitchEntries.length > 0 && nbars > 1) {
+    let hasSel = false
+    let ei0 = 0
+    while (ei0 < stepPitchEntries.length) {
+      if (stepPitchEntries[ei0].sel !== null) {
+        hasSel = true
+      }
+      ei0 = ei0 + 1
+    }
+    if (hasSel) {
+      let byBar = []
+      let b = 0
+      while (b < nbars) {
+        let pitch = ch.stepPitch
+        let ei = 0
+        while (ei < stepPitchEntries.length) {
+          let e = stepPitchEntries[ei]
+          if (e.sel === null || barSelectorMatches(e.sel, b)) {
+            pitch = e.pitch
+          }
+          ei = ei + 1
+        }
+        byBar.push(pitch)
+        b = b + 1
+      }
+      ch.stepPitchByBar = byBar
+    } else {
+      ch.stepPitchByBar = null
+    }
+  } else {
+    ch.stepPitchByBar = null
   }
 
   if (sawTranspose) {

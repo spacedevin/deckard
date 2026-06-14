@@ -42,6 +42,7 @@ export fn makeChannel(id, name, stepPitch, generatorId) {
     steps: makeSteps16(),
     pianoNotes: [],
     generatorSpec: null,
+    patternBars: 1,
     tplLoopBars: null,
     deck: "live"
   }

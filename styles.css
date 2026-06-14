@@ -3002,6 +3002,51 @@ input[type="range"]::-moz-range-thumb {
 .sg-cell.sg-beat {
   background: #121218;
 }
+.sg-barpager {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 10px;
+  padding-left: 168px;
+}
+.sg-barpager-label {
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  color: #5a5a66;
+  margin-right: 2px;
+}
+.sg-barbtn {
+  min-width: 28px;
+  height: 22px;
+  border: 1px solid #2a2a35;
+  border-radius: 4px;
+  background: #0d0d11;
+  color: #8a8a96;
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: background 90ms, box-shadow 90ms, color 90ms;
+}
+.sg-barbtn:hover {
+  background: #1c1c24;
+}
+.sg-barbtn-active {
+  border-color: var(--row-accent, #00f3ff);
+  color: #fff;
+  box-shadow: 0 0 8px var(--row-glow, rgba(0, 243, 255, 0.4));
+}
+.sg-barbtn-playing {
+  background: #15202c;
+}
+.sg-barbtn-active.sg-barbtn-playing {
+  background: var(--row-accent, #00f3ff);
+  color: #04040a;
+}
+.sg-ch-rootpitch {
+  margin-left: 6px;
+  font-size: 0.6rem;
+  color: var(--row-accent, #00f3ff);
+  opacity: 0.85;
+}
 .sg-cell:hover {
   background: #1c1c24;
 }

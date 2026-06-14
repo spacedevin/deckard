@@ -18,6 +18,25 @@ export fn copySteps16FromChannel(ch) {
   return out
 }
 
+/// bars*16 steps for a clip: copies the channel's steps directly when it already stores multiple bars
+/// (per-bar edits), or tiles its single bar across `bars` otherwise.
+export fn stepsForClip(ch, bars) {
+  let want = Math.max(1, Math.floor(Number(bars))) * 16
+  let src = ch.steps
+  let n = src.length
+  if (n < 1) {
+    n = 1
+  }
+  let out = []
+  let i = 0
+  while (i < want) {
+    let st = src[i % n]
+    out.push(makeStep(st.on, st.vel != null ? st.vel : 100))
+    i = i + 1
+  }
+  return out
+}
+
 export fn tileStepsPattern(base16, bars) {
   let b = Math.floor(Number(bars))
   if (b < 1 || b !== b) {
@@ -55,6 +74,24 @@ export fn copyPianoNotes(arr) {
   return out
 }
 
+/// Pattern length (bars) for a channel's clips — drives the loop span. Uses patternBars; falls back to
+/// tplLoopBars (legacy) then 1. NOTE: this is the loop LENGTH, not the finite play-count cap.
+export fn clipBarsForChannel(ch) {
+  if (ch.patternBars !== undefined && ch.patternBars !== null) {
+    let tn = Math.floor(Number(ch.patternBars))
+    if (tn >= 1 && tn === tn) {
+      return tn
+    }
+  }
+  if (ch.tplLoopBars !== undefined && ch.tplLoopBars !== null) {
+    let tn2 = Math.floor(Number(ch.tplLoopBars))
+    if (tn2 >= 1 && tn2 === tn2) {
+      return tn2
+    }
+  }
+  return 1
+}
+
 export fn ensureChannelSessionClips(ch) {
   if (!ch.sessionClips) {
     ch.sessionClips = []
@@ -62,19 +99,12 @@ export fn ensureChannelSessionClips(ch) {
   if (ch.sessionClips.length > 0) {
     return
   }
-  let bars = 1
-  if (ch.tplLoopBars !== undefined && ch.tplLoopBars !== null) {
-    let tn = Math.floor(Number(ch.tplLoopBars))
-    if (tn >= 1 && tn === tn) {
-      bars = tn
-    }
-  }
-  let base = copySteps16FromChannel(ch)
+  let bars = clipBarsForChannel(ch)
   ch.sessionClips.push({
     id: defaultMainClipId(ch),
     name: ch.name,
     bars: bars,
-    steps: tileStepsPattern(base, bars),
+    steps: stepsForClip(ch, bars),
     pianoNotes: copyPianoNotes(ch.pianoNotes),
     tplLoopBars: ch.tplLoopBars != null ? ch.tplLoopBars : null
   })
@@ -128,15 +158,9 @@ export fn mirrorClearStepToMainClip(ch, stepIdx) {
 export fn syncMainClipFromChannel(ch) {
   ensureChannelSessionClips(ch)
   let c0 = ch.sessionClips[0]
-  let bars = 1
-  if (ch.tplLoopBars !== undefined && ch.tplLoopBars !== null) {
-    let tn = Math.floor(Number(ch.tplLoopBars))
-    if (tn >= 1 && tn === tn) {
-      bars = tn
-    }
-  }
+  let bars = clipBarsForChannel(ch)
   c0.bars = bars
-  c0.steps = tileStepsPattern(copySteps16FromChannel(ch), bars)
+  c0.steps = stepsForClip(ch, bars)
   c0.pianoNotes = copyPianoNotes(ch.pianoNotes)
   c0.tplLoopBars = ch.tplLoopBars != null ? ch.tplLoopBars : null
 }
@@ -221,14 +245,8 @@ export fn sessionWriteRackToSceneClip(project, sceneIdx) {
     let ch = project.channels[ti]
     ensureChannelSessionClips(ch)
     let clipId = String(ch.id) + "_sc" + String(s)
-    let bars = 1
-    if (ch.tplLoopBars !== undefined && ch.tplLoopBars !== null) {
-      let tn = Math.floor(Number(ch.tplLoopBars))
-      if (tn >= 1 && tn === tn) {
-        bars = tn
-      }
-    }
-    let baseSteps = tileStepsPattern(copySteps16FromChannel(ch), bars)
+    let bars = clipBarsForChannel(ch)
+    let baseSteps = stepsForClip(ch, bars)
     let clip = findClipOnChannel(ch, clipId)
     if (!clip) {
       let nm = String(ch.name) + " ·S" + String(s + 1)

@@ -66,7 +66,15 @@ export fn transportTick(project, store, globalStep, rt) {
       if (useSteps && useSteps.length > stepInPat && useSteps[stepInPat].on) {
         let dur = sixteenthSeconds(project.bpm) * 0.85
         let gch = generatorChannelAtBeat(project, ch, beat)
-        let pitches = expandTriggerPitches(ch, ch.stepPitch, rt)
+        // Per-bar step pitch (step_pitch ... bar <sel>): pick the pitch for the current loop bar.
+        let basePitch = ch.stepPitch
+        if (ch.stepPitchByBar) {
+          let barInLoop = Math.floor(stepInPat / 16)
+          if (barInLoop >= 0 && barInLoop < ch.stepPitchByBar.length) {
+            basePitch = ch.stepPitchByBar[barInLoop]
+          }
+        }
+        let pitches = expandTriggerPitches(ch, basePitch, rt)
         let pk = 0
         while (pk < pitches.length) {
           playHitAt(ctx, bus, t, pitches[pk], useSteps[stepInPat].vel, dur, gch, bend)
