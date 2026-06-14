@@ -7,12 +7,12 @@ import {
   sessionQueueScene,
   sessionStopAllTracks
 } from '../model/Session.tish'
-import { channelDeck } from '../model/DeckRouting.tish'
+import { channelDeck, channelDeckColor } from '../model/DeckRouting.tish'
 
 // Session clips follow the deck colour of their channel — same scheme as the sequencer / deck
 // (Deck A = cyan, Deck B = magenta) so the whole app reads as one colour system.
 fn deckSuffix(project, ch) {
-  return channelDeck(project, ch) === "B" ? "b" : "a"
+  return channelDeckColor(project, ch)
 }
 
 // Deterministic amplitude envelope (0..1 per column) computed from a clip's content — drum steps

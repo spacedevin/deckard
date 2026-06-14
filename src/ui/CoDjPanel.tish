@@ -6,6 +6,8 @@ import { coDjClearOverlays } from '../codj/Overlay.tish'
 import { coDjHandleIncomingTplBlock } from '../codj/Schedule.tish'
 import { createTplLineStream, tplLineStreamPush } from '../tpl/Stream.tish'
 import { emitProject } from '../tpl/Emit.tish'
+import { loadProjectFromTpl } from '../model/ProjectLoad.tish'
+import { ensureCoDjMeta, setTrackOwner } from '../codj/CoDjMeta.tish'
 
 export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
   let [poll, setPoll] = useState(0)
@@ -204,6 +206,11 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
     if (t === "presence") {
       if (rt) {
         rt.coDjActors = msg.actors ? msg.actors : []
+        if (msg.hostActorId != null) {
+          rt.coDjHostActorId = msg.hostActorId
+          rt.coDjIsHost = rt.coDjActorId != null && msg.hostActorId === rt.coDjActorId
+        }
+        syncPlayerRoster()
         let al = rt.coDjActors
         let s = "presence: actors " + (al.length > 0 ? al.join(",") : "none")
         pushLog(s)
@@ -346,16 +353,109 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       setProject(project)
     }
   }
+  // Stamp the room roster onto the project so deck routing can place up to 4 players in 2 decks
+  // (P1=host A-top, P2=B-top, P3=A-bottom, P4=B-bottom). Player order = [host, …others sorted].
+  fn syncPlayerRoster() {
+    if (!rt || !rt.project) {
+      return
+    }
+    let host = rt.coDjHostActorId != null ? rt.coDjHostActorId : null
+    let actors = Array.isArray(rt.coDjActors) ? rt.coDjActors : []
+    let players = []
+    if (host != null && host !== "") {
+      players.push(host)
+    }
+    let sorted = actors.slice().sort()
+    let i = 0
+    while (i < sorted.length && players.length < 4) {
+      if (sorted[i] !== host) {
+        players.push(sorted[i])
+      }
+      i = i + 1
+    }
+    rt.project.coDjSelfActorId = rt.coDjActorId != null ? rt.coDjActorId : ""
+    rt.project.coDjHostActorId = host
+    rt.project.coDjIsHost = rt.coDjIsHost === true
+    rt.project.coDjPlayers = players
+  }
+
+  // Host: push the authoritative full project as a state.snapshot (seeds the gateway cache + clobbers
+  // every follower's local default). Sent on connect when designated host, and on gateway request.
+  fn sendStateSnapshot() {
+    if (!(rt && rt.coDjWs && rt.coDjWs.readyState === 1)) {
+      return
+    }
+    let p = rt.project ? rt.project : project
+    let lines = emitProject(p).split("\n")
+    let aid = rt.coDjActorId ? rt.coDjActorId : ""
+    // Carry per-track ownership so followers reconstruct the right decks (host's tracks → Deck A, each
+    // agent on its own lane). The host's own locally-authored ("human") tracks are attributed to it.
+    let owners = {}
+    if (p.coDjMeta && p.coDjMeta.tracks) {
+      let ci = 0
+      while (ci < p.channels.length) {
+        let cid = p.channels[ci].id
+        let m = p.coDjMeta.tracks[cid]
+        let ow = m && m.ownerActorId ? String(m.ownerActorId) : "human"
+        owners[cid] = ow === "human" ? aid : ow
+        ci = ci + 1
+      }
+    }
+    rt.coDjWs.send(JSON.stringify({ type: "state.snapshot", actorId: aid, authorId: aid, lines: lines, owners: owners }))
+    if (typeof console !== "undefined" && console.log) {
+      console.log("[Co-DJ UI] OUTPUT state.snapshot (" + String(lines.length) + " lines)")
+    }
+    pushLog("pushed host snapshot (" + String(p.channels.length) + " tracks)")
+  }
+
+  // Follower: replace (clobber) the local project with the host's authoritative state.
+  fn applyHostSnapshot(lines, owners, fromHost) {
+    if (!Array.isArray(lines) || lines.length === 0) {
+      return
+    }
+    let res = loadProjectFromTpl(lines.join("\n"))
+    if (!res || !res.project) {
+      return
+    }
+    let np = res.project
+    // Reconstruct ownership so decks survive the clobber: the host's tracks → Deck A, agents on their
+    // own lanes. Without this every track would default to "human" and collapse onto Deck A.
+    ensureCoDjMeta(np)
+    if (owners != null) {
+      let ci = 0
+      while (ci < np.channels.length) {
+        let cid = np.channels[ci].id
+        if (owners[cid] != null) {
+          setTrackOwner(np, cid, owners[cid], owners[cid])
+        }
+        ci = ci + 1
+      }
+    }
+    rt.project = np
+    syncPlayerRoster()
+    setProject(np)
+    if (rt.resyncAudio) {
+      rt.resyncAudio()
+    }
+    pushLog("clobbered local state from host (" + String(np.channels.length) + " tracks)")
+    if (typeof console !== "undefined" && console.log) {
+      console.log("[Co-DJ UI] applied host snapshot -> " + String(res.project.channels.length) + " tracks")
+    }
+  }
+
   fn handleWsMessage(ev) {
     let raw = ev.data
-    if (typeof console !== "undefined" && console.log) {
-      console.log("[Co-DJ UI] INPUT raw:", typeof raw === "string" && raw.length > 300 ? (raw.substring(0, 300) + "...") : raw)
-    }
     let msg = null
     try {
       msg = JSON.parse(raw)
     } catch (e) {
       return
+    }
+    if (msg != null && msg.type === "ping") {
+      return
+    }
+    if (typeof console !== "undefined" && console.log) {
+      console.log("[Co-DJ UI] INPUT raw:", typeof raw === "string" && raw.length > 300 ? (raw.substring(0, 300) + "...") : raw)
     }
     if (typeof console !== "undefined" && console.log) {
       console.log("[Co-DJ UI] INPUT parsed type=" + (msg.type || "?") + " keys=" + JSON.stringify(Object.keys(msg)))
@@ -375,14 +475,34 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
           }
         }
         rt.coDjActors = msg.actors ? msg.actors : []
+        rt.coDjHostActorId = msg.hostActorId != null ? msg.hostActorId : null
+        rt.coDjIsHost = rt.coDjActorId != null && msg.hostActorId === rt.coDjActorId
+        syncPlayerRoster()
         rt.coDjPairingDirty = true
       }
       pushLog(
         "joined actor=" +
           (msg.you && msg.you.actorId ? String(msg.you.actorId).slice(0, 16) : "?") +
+          (rt && rt.coDjIsHost ? " [HOST]" : " [follower]") +
           " actors=" +
           (msg.actors && msg.actors.length > 0 ? msg.actors.join(",") : "none")
       )
+      // Host seeds the gateway cache immediately so any follower already waiting gets the real project.
+      if (rt && rt.coDjIsHost) {
+        sendStateSnapshot()
+      }
+      return
+    }
+    if (t === "request.snapshot") {
+      // The gateway asks the host to push fresh state for a new joiner.
+      if (rt && rt.coDjIsHost) {
+        sendStateSnapshot()
+      }
+      return
+    }
+    if (t === "state.snapshot") {
+      // Follower: adopt the host's authoritative project, clobbering the local default.
+      applyHostSnapshot(msg.lines, msg.owners, msg.fromHost)
       return
     }
     if (t === "error") {
@@ -576,7 +696,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       />
     </div>
     <div class="codj-row">
-      <label>{"Session "}<input type="text" class="codj-input" placeholder="default" oninput={(e) => {
+      <label>{"Room "}<input type="text" class="codj-input" placeholder="default (room id, max 4 players)" oninput={(e) => {
         if (rt) {
           rt.coDjSessionId = e.target.value
         }

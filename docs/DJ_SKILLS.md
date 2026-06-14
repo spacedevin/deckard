@@ -4,15 +4,33 @@ Skills limit what a **lane** (especially AI) may emit. Hub or browser validates.
 
 | skill id | Allowed TPL / ops |
 |----------|-------------------|
-| `add_track` | New `track ... id <id> gen ...` (id allocation may be server-assisted) |
+| `add_track` | New `track ... id <id> gen <generator|macro>` (id allocation may be server-assisted) |
 | `remove_track` | `control` remove (not in base TPL — future) |
-| `adjust_instrument` | `osc`, `fm`, `noise`, `adsr`, `gen` line on **owned** tracks |
-| `pattern_steps` | `steps`, `steps euclid` on owned tracks |
+| `adjust_instrument` | `gen <generator|macro>`, `gen_block patch` (`osc`/`noise`/`filter`/`shaper`/`gain`/`conn`/`env`/`dur`), `osc`, `fm`, `noise`, `adsr`, `fx cutoff|reverb_send` on **owned** tracks |
+| `pattern_steps` | `steps`, `steps euclid`, `step_pitch` (incl. `bar <sel>`) on owned tracks |
 | `pattern_piano` | `note` lines on owned tracks |
-| `channel_mix` | `mix gain|pan|mute|solo` on owned tracks |
-| `master_mixer` | `bpm`, `auto master_gain` — usually **human + master** only |
+| `channel_mix` | `mix gain|pan|mute|solo|eq_lo|eq_mid|eq_hi` on owned tracks |
+| `master_mixer` | `bpm`, `tpl`, `auto`, `master_mix`, `actor_mix`, `session_scenes`, `session_slot`, `clip` — usually **human + master** only |
 | `transpose_track` | `transpose` in body |
 | `promote_song` | Append to full song doc |
+
+## Agent presets & synthesis vocabulary
+
+The agent's **primary contribution is a deck preset** on its own lane, not a single hand-written track. Implemented in [`services/agent-worker/main.tish`](../services/agent-worker/main.tish):
+
+- On a styled/preset direct (`"play nebula pulse"`, `"give me something dark"`) or on **auto-jam** (when a peer presses Play), the agent picks one of the 15 deck sets in [`src/model/DeckSets.tish`](../src/model/DeckSets.tish) and streams it as one `tpl.block`.
+- **Selection order:** `matchDeckSetId` (keyword/name match on the directive) → `llmPickDeckSetId` (LLM chooses an id from the catalog, only when `GRADIENT_MODEL_ACCESS_KEY` is set) → `rotateDeckSetId` (round-robin, for variety).
+- `prefixTrackIds` rewrites every `track … id <id>` → `<actorId>_<id>`, so the whole preset is **owned by this lane** and lands on **Deck B** (the human stays on Deck A; the crossfader blends them).
+- A **fine single-element** direct (`"add a hihat"`) still produces one LLM/demo track instead of a full preset (`looksLikeSingleElement`).
+
+**Synthesis vocabulary a preset (or the LLM) may emit** — all of these are non-master, so the denylist gating below allows them on the receiver:
+
+- Generators: `noise_burst`, `fm`, `basic_osc`.
+- Macros (kick/bass): `kick_edm`, `kick_deep`, `kick_distorted`, `bass_reese`, `bass_reese_punch`, `bass_reese_sc`, `bass_acid`, `bass_wobble` (see [`src/tpl/Macros.tish`](../src/tpl/Macros.tish)).
+- Modular voices: `gen_block patch` with `osc`/`noise`/`filter`/`shaper`/`gain`/`conn`/`env`/`dur`.
+- Per-track: `steps`, `steps euclid`, `step_pitch`, `note`, `mix … eq_*`, `fx cutoff/reverb_send`.
+
+The agent's declared skills are `add_track`, `adjust_instrument`, `pattern_steps`, `pattern_piano`, `channel_mix` (no `master_mixer`) — which is exactly the set a preset needs, since presets never emit master-scope lines.
 
 ## Lane matrix (default)
 

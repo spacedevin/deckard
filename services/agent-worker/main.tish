@@ -1,8 +1,16 @@
 // Co-DJ worker (Tish): connect to gateway, handle direct + playing stream. Actor + skills only.
-// Run: tish run --features ws,process,http services/agent-worker/main.tish
+// Run: tish run services/agent-worker/main.tish   (capabilities default on; omit --feature)
+//
+// Primary contribution = a DECK PRESET on this actor's lane: on a styled direct ("play nebula") or
+// on auto-jam, it loads one of the 15 deck sets (src/model/DeckSets.tish), prefixes every track id
+// with the actor id so the preset is owned by this lane (→ Deck B), and streams it as one tpl.block.
+// A fine single-element direct ("add a hihat") still produces a single LLM/demo track. Skill-gating
+// (src/codj/Skills.tish) is a denylist: only master-scope lines (bpm/tpl/auto/session_*/clip) need
+// master_mixer — so presets (gen/macro/patch/fx/eq/step_pitch/steps/note) apply on the receiver.
 import { WebSocket } from "tish:ws"
 import { process } from "tish:process"
 import { fetch } from "http"
+import { deckSetCatalog, deckSetTplById } from "../../src/model/DeckSets.tish"
 
 let actorId = "actor-1"
 let hub = "ws://127.0.0.1:35987"
@@ -48,7 +56,15 @@ if (typeof process !== "undefined" && process.env) {
   else if ("MODEL_ACCESS_KEY" in process.env) { GRADIENT_MODEL_ACCESS_KEY = process.env["MODEL_ACCESS_KEY"] }
 }
 
-let SYSTEM_PROMPT = "You are a Co-DJ actor. Output ONLY valid TPL lines. No markdown, no explanation.\nUse track ids prefixed with \"" + actorId + "_\" (e.g. " + actorId + "_hat, " + actorId + "_bass).\nGenerators: noise_burst (noise attack decay tone pitch_follow + steps), fm (fm ratio mod_index carrier mod + adsr + steps), basic_osc (osc waveform + adsr + steps).\nPatterns: steps with 16 x/. tokens, or steps euclid <hits> 16.\nComplement the project: add hi-hats, percussion, bass, or melodic parts that fit the tempo and fill gaps."
+let SYSTEM_PROMPT =
+  "You are a Co-DJ actor. Output ONLY valid TPL lines. No markdown, no explanation.\n" +
+  "Use track ids prefixed with \"" + actorId + "_\" (e.g. " + actorId + "_hat, " + actorId + "_bass).\n" +
+  "Raw generators: noise_burst (noise attack decay tone pitch_follow), fm (fm ratio mod_index carrier mod + adsr), basic_osc (osc waveform + adsr).\n" +
+  "Macros (preferred for kick/bass): kick_edm, kick_deep, kick_distorted, bass_reese, bass_reese_punch, bass_acid, bass_wobble — e.g. `track Bass id " + actorId + "_bass gen bass_reese`.\n" +
+  "Patterns: `steps` with 16 x/. tokens, or `steps euclid <hits> 16`; melodic `note <pitch> <startBeat> <durBeats> v <vel>`.\n" +
+  "Per track you may also use: `mix gain <g> pan <p> eq_lo <db> eq_mid <db> eq_hi <db>`, `fx cutoff <hz> reverb_send <0..1>`, `step_pitch <midi>`.\n" +
+  "Do NOT emit bpm, tpl re-headers, auto, session_*, or clip lines (those are master-only and will be skipped).\n" +
+  "Complement the project: add hats, percussion, bass, or melodic parts that fit the tempo and fill gaps."
 
 let SKILL_IDS = ["add_track", "adjust_instrument", "pattern_steps", "pattern_piano", "channel_mix"]
 
@@ -61,6 +77,132 @@ fn buildDemoPatch(text) {
     return "tpl 1\ntrack Bass id " + actorId + "_bass gen fm\n  fm ratio 2 mod_index 5 carrier sine mod square\n  adsr a 0.01 d 0.1 s 0.3 r 0.15\n  steps x . x . x . x . x . x . x . x ."
   }
   return null
+}
+
+// ---- Deck presets: the agent's main contribution is a full preset on its own lane ----
+let deckSetRotation = 0
+
+// Prefix every `track <name> id <id> …` so the streamed set is OWNED by this actor (lands on its deck).
+fn prefixTrackIds(tpl, prefix) {
+  let lines = tpl.split("\n")
+  let out = []
+  let i = 0
+  while (i < lines.length) {
+    let line = lines[i]
+    if (line.trim().indexOf("track ") === 0) {
+      let idx = line.indexOf(" id ")
+      if (idx >= 0) {
+        let before = line.substring(0, idx + 4)
+        let rest = line.substring(idx + 4)
+        let sp = rest.indexOf(" ")
+        let idTok = sp >= 0 ? rest.substring(0, sp) : rest
+        let after = sp >= 0 ? rest.substring(sp) : ""
+        line = before + prefix + "_" + idTok + after
+      }
+    }
+    out.push(line)
+    i = i + 1
+  }
+  return out
+}
+
+// Keyword/name match against the catalog (no rotation). Returns an id or null.
+fn matchDeckSetId(text) {
+  let cat = deckSetCatalog()
+  if (!cat || cat.length === 0) return null
+  let lower = String(text || "").toLowerCase()
+  let i = 0
+  while (i < cat.length) {
+    let id = String(cat[i].id).toLowerCase()
+    if (lower.indexOf(id) >= 0 || lower.indexOf(id.split("_").join(" ")) >= 0) return cat[i].id
+    let nm = String(cat[i].name || cat[i].label || "").toLowerCase()
+    let words = nm.split(" ")
+    let w = 0
+    while (w < words.length) {
+      if (words[w].length >= 4 && lower.indexOf(words[w]) >= 0) return cat[i].id
+      w = w + 1
+    }
+    i = i + 1
+  }
+  return null
+}
+
+// Next preset in rotation (varies the agent's auto-jam each time).
+fn rotateDeckSetId() {
+  let cat = deckSetCatalog()
+  if (!cat || cat.length === 0) return null
+  let pick = cat[deckSetRotation % cat.length].id
+  deckSetRotation = deckSetRotation + 1
+  return pick
+}
+
+// Optional: let the LLM pick the best-fitting preset by id (graceful fallback to deterministic).
+fn llmPickDeckSetId(text) {
+  if (!GRADIENT_MODEL_ACCESS_KEY || GRADIENT_MODEL_ACCESS_KEY === "") return null
+  let cat = deckSetCatalog()
+  if (!cat || cat.length === 0) return null
+  let list = ""
+  let i = 0
+  while (i < cat.length) {
+    list = list + "- " + cat[i].id + ": " + String(cat[i].name || cat[i].id) + "\n"
+    i = i + 1
+  }
+  let sys = "You pick a music preset. Reply with ONLY one preset id from the list, nothing else."
+  let prompt = "Presets (id: name):\n" + list + "\nDJ direction: " + String(text || "(free jam)") + "\nBest-fitting preset id:"
+  let raw = await callLLMRaw(prompt, sys)
+  if (!raw) return null
+  let cleaned = String(raw).trim().toLowerCase()
+  let j = 0
+  while (j < cat.length) {
+    if (cleaned.indexOf(String(cat[j].id).toLowerCase()) >= 0) return cat[j].id
+    j = j + 1
+  }
+  return null
+}
+
+// Resolve a preset for the given direction → { id, lines } (track ids prefixed), or null.
+fn deckSetLinesForLane(text, allowRotate) {
+  let id = matchDeckSetId(text)
+  if (id == null) {
+    let llmId = await llmPickDeckSetId(text)
+    if (llmId != null) {
+      id = llmId
+    } else if (allowRotate) {
+      id = rotateDeckSetId()
+    }
+  }
+  if (id == null) return null
+  let set = deckSetTplById(id)
+  if (!set || !set.tpl) return null
+  return { id: id, lines: prefixTrackIds(set.tpl, actorId) }
+}
+
+// Single-element requests ("add a hihat") stay fine-grained; everything else gets a full preset.
+fn looksLikeSingleElement(text) {
+  let lower = String(text || "").toLowerCase()
+  if (lower.split(" ").length > 5) return false
+  let singles = ["hat", "hihat", "bass", "kick", "snare", "clap", "perc", "pluck", "lead", "stab"]
+  let i = 0
+  while (i < singles.length) {
+    if (lower.indexOf(singles[i]) >= 0) return true
+    i = i + 1
+  }
+  return false
+}
+
+// Send a tpl.block directly (no slow char-by-char stream) — presets are large.
+fn sendBlockOnly(ws, lines, perfStep) {
+  if (!ws || !ws.send) return
+  let blockPayload = JSON.stringify({
+    type: "tpl.block",
+    actorId: actorId,
+    authorId: actorId,
+    lines: lines,
+    effectivePerfStep: perfStep,
+    asap: true
+  })
+  ws.send(blockPayload)
+  console.log("[worker] OUTPUT deck-set tpl.block (" + String(lines.length) + " lines)")
 }
 
 fn lineStartsWithSpace(l) {
@@ -118,14 +260,16 @@ fn extractTplFromResponse(raw) {
   return out
 }
 
-fn callLLM(userPrompt) {
+// Raw LLM call — returns the assistant's text content (or null). systemPrompt overrides the default.
+fn callLLMRaw(userPrompt, systemPrompt) {
   if (!GRADIENT_MODEL_ACCESS_KEY || GRADIENT_MODEL_ACCESS_KEY === "") return null
+  let sys = (systemPrompt != null && systemPrompt !== "") ? systemPrompt : SYSTEM_PROMPT
   try {
     let url = DO_BASE + "/chat/completions"
     let bodyObj = {
       model: DO_MODEL,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: sys },
         { role: "user", content: userPrompt }
       ],
       max_tokens: 1024,
@@ -160,11 +304,17 @@ fn callLLM(userPrompt) {
     if (!msg || typeof msg !== "object") return null
     let content = msg.content
     if (!content) return null
-    return extractTplFromResponse(content)
+    return content
   } catch (e) {
     console.error("[worker] LLM fetch failed:", String(e))
     return null
   }
+}
+
+fn callLLM(userPrompt) {
+  let content = await callLLMRaw(userPrompt, null)
+  if (!content) return null
+  return extractTplFromResponse(content)
 }
 
 let activeWs = null
@@ -205,6 +355,15 @@ fn llmLinesFrom(directive) {
 fn handleDirect(ws, msg) {
   let text = msg.text || "add hi-hat"
   let ps = (msg.perfStep != null && typeof msg.perfStep === "number") ? msg.perfStep : 0
+  // A fine-grained single-element request stays a single track; anything else loads a full preset.
+  if (!looksLikeSingleElement(text)) {
+    let ds = await deckSetLinesForLane(text, true)
+    if (ds != null && ds.lines && ds.lines.length > 0 && ws && ws.send) {
+      sendBlockOnly(ws, ds.lines, ps)
+      console.log("[worker] direct '" + text + "' -> deck preset '" + ds.id + "' (" + String(ds.lines.length) + " lines)")
+      return
+    }
+  }
   let lines = llmLinesFrom("DJ direction: " + text + ". Output ONE complementary track on your lane as TPL.")
   if (!lines) {
     let demo = buildDemoPatch(text)
@@ -242,7 +401,15 @@ fn streamChunkThenBlock(ws, lines, perfStep) {
 }
 
 fn handlePlayingStream(ws, perfStep) {
-  // Snapshot the buffered human/peer stream → LLM (real model output), else demo fallback.
+  // Auto-jam: drop a full preset on the agent's lane (rotating for variety), so collaborators get a
+  // rich deck set blended on Deck B rather than a one-line demo. Falls back to LLM/demo if needed.
+  let ctx = tplLineBuffer.length > 0 ? tplLineBuffer.join(" ") : ""
+  let ds = await deckSetLinesForLane(ctx, true)
+  if (ds != null && ds.lines && ds.lines.length > 0) {
+    console.log("[worker] play response: deck preset '" + ds.id + "' (" + String(ds.lines.length) + " lines) -> " + (playingActorId || "?"))
+    sendBlockOnly(ws, ds.lines, perfStep)
+    return
+  }
   let lines = llmLinesFrom(
     "Listen to the session below and add ONE complementary track on your lane (id prefix " +
       actorId +

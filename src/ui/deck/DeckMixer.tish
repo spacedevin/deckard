@@ -4,16 +4,16 @@
 // writes through to that deck's channels (a deck-wide macro until dedicated buses land).
 
 import { h, Fragment } from '@tishlang/lattish'
-import { channelDeck, crossfadeValue } from '../../model/DeckRouting.tish'
+import { channelDeck, channelDeckRow, crossfadeValue, crossfadeValueY } from '../../model/DeckRouting.tish'
 import { ensureMasterMixer, channelActorLane } from '../../model/MixerRouting.tish'
 import { setChannelGain } from '../../model/Edits.tish'
 import { loadDeckSet, deckSetCatalog } from '../../model/DeckSets.tish'
 
 fn ensureDeckEq(project) {
   if (!project.deckEq) {
-    project.deckEq = { A: { hi: 0, mid: 0, lo: 0, flt: 0 }, B: { hi: 0, mid: 0, lo: 0, flt: 0 } }
+    project.deckEq = {}
   }
-  let ks = ["A", "B"]
+  let ks = ["A", "B", "C", "D"]
   let i = 0
   while (i < ks.length) {
     let d = project.deckEq[ks[i]]
@@ -35,6 +35,19 @@ fn deckEntries(project, deck) {
   while (i < project.channels.length) {
     if (channelDeck(project, project.channels[i]) === deck) {
       out.push({ ch: project.channels[i], idx: i })
+    }
+    i = i + 1
+  }
+  return out
+}
+
+fn deckRowEntries(project, deck, row) {
+  let out = []
+  let i = 0
+  while (i < project.channels.length) {
+    let ch = project.channels[i]
+    if (channelDeck(project, ch) === deck && channelDeckRow(project, ch) === row) {
+      out.push({ ch: ch, idx: i })
     }
     i = i + 1
   }
@@ -144,7 +157,10 @@ fn DeckSetPicker(project, deck, setProjectFromUI, touchMixer, rt) {
   )
 }
 
-fn DeckColumn(project, deck, setProjectFromUI, touchMixer, rt) {
+// One of the 4 decks (A/B/C/D): coloured header + set picker + stem faders + its own compact EQ.
+fn DeckSlot(project, deck, setProjectFromUI, touchMixer, rt) {
+  ensureDeckEq(project)
+  let suf = deck === "B" ? "b" : deck === "C" ? "c" : deck === "D" ? "d" : "a"
   let entries = deckEntries(project, deck)
   let faders = []
   let i = 0
@@ -152,31 +168,45 @@ fn DeckColumn(project, deck, setProjectFromUI, touchMixer, rt) {
     faders.push(StemFader(entries[i], setProjectFromUI, touchMixer, project))
     i = i + 1
   }
-  let isB = deck === "B"
-  let role = isB ? "CLIENT" : "HOST"
-  let meta = ""
-  if (isB) {
-    let client = deckBClientLabel(project)
-    meta = client ? client + " · " + String(entries.length) + " STEMS" : "AWAITING CLIENT"
-  } else {
-    meta = "HOST · " + String(entries.length) + " STEMS"
+  let empty = faders.length === 0
+  if (empty) {
+    faders.push(<div class="dk-empty">{"DECK " + deck + " — open"}</div>)
   }
-  if (faders.length === 0) {
-    let msg = isB ? "AWAITING CLIENT — a connected agent (or a channel you hand off) appears here" : "no host channels"
-    faders.push(<div class="dk-empty">{msg}</div>)
+  let de = project.deckEq[deck]
+  fn setEq(band, v) {
+    de[band] = v
+    applyDeckEq(project, deck)
+    if (touchMixer) {
+      touchMixer()
+    }
+    setProjectFromUI(project)
   }
-  let cls = isB ? "dk-deck dk-deck-b" : "dk-deck dk-deck-a"
+  let acc = "dk-acc-" + suf
+  let cls = empty ? "dk-deckslot dk-deck-" + suf + " dk-player-empty" : "dk-deckslot dk-deck-" + suf
   return (
     <div class={cls}>
-      <div class="dk-deck-head">
-        <div class="dk-deck-titlewrap">
-          <span class="dk-deck-title">{"[ DECK " + deck + " ]"}</span>
-          <span class="dk-deck-role">{role}</span>
-        </div>
-        <span class="dk-deck-meta">{meta}</span>
+      <div class="dk-player-head">
+        <span class={"dk-player-tag " + acc}>{"DECK " + deck}</span>
+        <span class="dk-player-meta">{empty ? "—" : String(entries.length) + " stems"}</span>
       </div>
       {DeckSetPicker(project, deck, setProjectFromUI, touchMixer, rt)}
       <div class="dk-fader-row">{faders}</div>
+      <div class="dk-eq-row">
+        {EqSlider("HI", de.hi, (v) => setEq("hi", v), acc)}
+        {EqSlider("MID", de.mid, (v) => setEq("mid", v), acc)}
+        {EqSlider("LO", de.lo, (v) => setEq("lo", v), acc)}
+        {EqSlider("FLT", de.flt, (v) => setEq("flt", v), acc)}
+      </div>
+    </div>
+  )
+}
+
+// A side column = two stacked decks: left = A (top) / C (bottom), right = B (top) / D (bottom).
+fn DeckColumnSide(project, topDeck, botDeck, setProjectFromUI, touchMixer, rt) {
+  return (
+    <div class="dk-deck-col">
+      {DeckSlot(project, topDeck, setProjectFromUI, touchMixer, rt)}
+      {DeckSlot(project, botDeck, setProjectFromUI, touchMixer, rt)}
     </div>
   )
 }
@@ -229,6 +259,30 @@ export fn DeckMixer(project, setProjectFromUI, touchMixer, rt) {
   ensureMasterMixer(project)
   ensureDeckEq(project)
   let x = crossfadeValue(project)
+  let y = crossfadeValueY(project)
+  fn updateXY(e) {
+    let r = e.currentTarget.getBoundingClientRect()
+    let px = (e.clientX - r.left) / r.width
+    let py = (e.clientY - r.top) / r.height
+    if (px < 0) {
+      px = 0
+    }
+    if (px > 1) {
+      px = 1
+    }
+    if (py < 0) {
+      py = 0
+    }
+    if (py > 1) {
+      py = 1
+    }
+    project.transportCrossfade = px
+    project.transportCrossfadeY = py
+    if (touchMixer) {
+      touchMixer()
+    }
+    setProjectFromUI(project)
+  }
   return (
     <section class="panel dk-panel">
       <div class="dk-master-strip">
@@ -236,45 +290,43 @@ export fn DeckMixer(project, setProjectFromUI, touchMixer, rt) {
           <p class="dk-master-title">{"MASTER_OUT"}</p>
           <p>{"COMPRESSOR: ACTIVE"}</p>
           <p>{"REVERB_BUS: ACTIVE"}</p>
-          <p>{"XFADE: " + String(Math.round(x * 100)) + "%"}</p>
+          <p>{"XFADE X: " + String(Math.round(x * 100)) + "% Y: " + String(Math.round(y * 100)) + "%"}</p>
         </div>
         <div class="dk-master-scope">
           <canvas class="dk-spectrum" width="320" height="72" />
         </div>
       </div>
       <div class="dk-desk">
-        {DeckColumn(project, "A", setProjectFromUI, touchMixer, rt)}
+        {DeckColumnSide(project, "A", "C", setProjectFromUI, touchMixer, rt)}
         <div class="dk-center">
-          <div class="dk-eq-pair">
-            {DeckEqColumn(project, "A", setProjectFromUI, touchMixer)}
-            <div class="dk-center-gutter"><span class="dk-center-label">{"MIXER"}</span></div>
-            {DeckEqColumn(project, "B", setProjectFromUI, touchMixer)}
-          </div>
           <div class="dk-xfade">
             <div class="dk-xfade-labels">
-              <span class="dk-acc-a">{"A"}</span>
-              <span class="dk-xfade-mid">{"X-FADE"}</span>
-              <span class="dk-acc-b">{"B"}</span>
+              <span class="dk-xfade-mid">{"4-WAY FADER"}</span>
             </div>
-            <input
-              type="range"
-              class="dk-xfade-slider"
-              min="0"
-              max="1"
-              step="0.01"
-              value={String(x)}
-              onmousedown={(e) => e.stopPropagation()}
-              oninput={(e) => {
-                project.transportCrossfade = Number(e.target.value)
-                if (touchMixer) {
-                  touchMixer()
-                }
-                setProjectFromUI(project)
+            <div
+              class="dk-xypad"
+              onmousedown={(e) => {
+                e.stopPropagation()
+                updateXY(e)
               }}
-            />
+              onmousemove={(e) => {
+                if (e.buttons === 1) {
+                  updateXY(e)
+                }
+              }}
+            >
+              <span class="dk-xypad-corner dk-xy-tl dk-acc-a">{"A"}</span>
+              <span class="dk-xypad-corner dk-xy-tr dk-acc-b">{"B"}</span>
+              <span class="dk-xypad-corner dk-xy-bl dk-acc-c">{"C"}</span>
+              <span class="dk-xypad-corner dk-xy-br dk-acc-d">{"D"}</span>
+              <span
+                class="dk-xypad-knob"
+                style={{ left: String(Math.round(x * 100)) + "%", top: String(Math.round(y * 100)) + "%" }}
+              />
+            </div>
           </div>
         </div>
-        {DeckColumn(project, "B", setProjectFromUI, touchMixer, rt)}
+        {DeckColumnSide(project, "B", "D", setProjectFromUI, touchMixer, rt)}
       </div>
     </section>
   )

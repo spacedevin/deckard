@@ -8,10 +8,21 @@ export fn channelActorLane(ch, project) {
   }
   ensureCoDjMeta(project)
   let meta = project.coDjMeta.tracks[ch.id]
-  if (meta && meta.ownerActorId && meta.ownerActorId !== "human") {
-    return String(meta.ownerActorId)
+  let owner = meta && meta.ownerActorId ? String(meta.ownerActorId) : "human"
+  // Deck A = "local" = the ROOM HOST's tracks (the source of truth), so every viewer sees the real
+  // host on Deck A; Deck B = every other contributor (you-as-follower + agents). When solo or when
+  // YOU are the host, your locally-authored ("human") tracks are the host lane.
+  let host = project.coDjHostActorId ? String(project.coDjHostActorId) : null
+  if (host == null) {
+    return owner === "human" ? "local" : owner
   }
-  return "local"
+  if (owner === host) {
+    return "local"
+  }
+  if (owner === "human") {
+    return project.coDjIsHost === true ? "local" : "self"
+  }
+  return owner
 }
 
 export fn collectActorLanes(project) {

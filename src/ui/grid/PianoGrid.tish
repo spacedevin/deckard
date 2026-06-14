@@ -5,7 +5,7 @@
 import { h } from '@tishlang/lattish'
 import { addPianoNote, removePianoNoteAt, promoteChannelToBars } from '../../model/Edits.tish'
 import { syncMainClipFromChannel } from '../../model/Session.tish'
-import { channelDeck } from '../../model/DeckRouting.tish'
+import { channelDeck, channelDeckColor } from '../../model/DeckRouting.tish'
 
 let NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
@@ -103,7 +103,7 @@ export fn pianoRowsForChannel(project, ch, setProjectFromUI, viewBar, gridBars) 
   let vb = (viewBar != null && viewBar >= 0) ? Math.floor(viewBar) : 0
   let gb = (gridBars != null && gridBars >= 1) ? Math.floor(gridBars) : 1
   let win = pitchWindow(ch)
-  let deckCls = channelDeck(project, ch) === "B" ? "sg-deck-b" : "sg-deck-a"
+  let deckCls = "sg-deck-" + channelDeckColor(project, ch)
   let rows = []
   let p = win.hi
   while (p >= win.lo) {

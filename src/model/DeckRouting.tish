@@ -1,9 +1,9 @@
-// DJ-style deck split by PLAYER: Deck A = the host (local lane), Deck B = the connected client
-// (any remote / agent lane). Each player owns a deck — Deck B only populates when a client/agent is
-// connected and owns channels, which makes the connection visible. (More decks later for >2 players.)
-// The crossfader (project.transportCrossfade, 0..1) equal-power blends the two decks into main out.
+// Up to 4 PLAYERS share 2 decks: P1=Deck A top, P2=Deck B top, P3=Deck A bottom, P4=Deck B bottom.
+// A 2-axis crossfader (transportCrossfade = X = A↔B, transportCrossfadeY = Y = top↔bottom) equal-power
+// blends the four player corners into main out. Player order = [host, …others] in project.coDjPlayers.
 
 import { channelActorLane } from './MixerRouting.tish'
+import { ensureCoDjMeta } from '../codj/CoDjMeta.tish'
 
 export fn normalizeMainDeck(project) {
   if (!project) {
@@ -16,18 +16,7 @@ export fn normalizeMainDeck(project) {
   return "live"
 }
 
-/** "A" = host deck (local lane); "B" = client deck (any non-local / agent lane). */
-export fn channelDeck(project, ch) {
-  if (!ch) {
-    return "A"
-  }
-  if (channelActorLane(ch, project) === "local") {
-    return "A"
-  }
-  return "B"
-}
-
-/** Crossfader position 0..1 (0 = Deck A / host, 1 = Deck B / client). */
+/** X crossfader 0..1 (0 = Deck A / left, 1 = Deck B / right). */
 export fn crossfadeValue(project) {
   if (!project) {
     return 0.5
@@ -45,18 +34,117 @@ export fn crossfadeValue(project) {
   return x
 }
 
-/** Equal-power gain multiplier for this channel given the crossfader position. */
-export fn deckMainOutGainMultiplier(project, ch) {
-  let x = crossfadeValue(project)
-  let gA = Math.cos((x * Math.PI) / 2)
-  let gB = Math.sin((x * Math.PI) / 2)
-  if (channelDeck(project, ch) === "B") {
-    return gB
+/** Y crossfader 0..1 (0 = top players P1/P2, 1 = bottom players P3/P4). Defaults to the mains (top). */
+export fn crossfadeValueY(project) {
+  if (!project) {
+    return 0
   }
-  return gA
+  let y = project.transportCrossfadeY
+  if (typeof y !== "number" || y !== y) {
+    return 0
+  }
+  if (y < 0) {
+    y = 0
+  }
+  if (y > 1) {
+    y = 1
+  }
+  return y
 }
 
-/** True if this channel's deck still has audible crossfader gain (drives note triggering). */
+/** Player slot 0..3 for a channel: 0=P1 (host), 1=P2, 2=P3, 3=P4 — by owner's position in the room. */
+export fn channelPlayerIndex(project, ch) {
+  if (!ch || !project) {
+    return 0
+  }
+  let players = project.coDjPlayers
+  if (!Array.isArray(players) || players.length <= 1) {
+    // Solo / single player: an explicit deck slot (set by loadDeckSet or the manual deck handoff)
+    // routes to any of the 4 decks; otherwise the local lane is Deck A (P1) vs B (P2).
+    if (ch.deckSlot != null) {
+      let s = Math.floor(Number(ch.deckSlot))
+      if (s >= 0 && s <= 3 && s === s) {
+        return s
+      }
+    }
+    return channelActorLane(ch, project) === "local" ? 0 : 1
+  }
+  ensureCoDjMeta(project)
+  let meta = project.coDjMeta.tracks[ch.id]
+  let owner = meta && meta.ownerActorId ? String(meta.ownerActorId) : "human"
+  if (owner === "human") {
+    // Local tracks belong to whichever player THIS client is.
+    if (project.coDjSelfActorId != null && project.coDjSelfActorId !== "") {
+      owner = String(project.coDjSelfActorId)
+    } else if (project.coDjHostActorId != null) {
+      owner = String(project.coDjHostActorId)
+    }
+  }
+  let i = 0
+  while (i < players.length && i < 4) {
+    if (String(players[i]) === owner) {
+      return i
+    }
+    i = i + 1
+  }
+  // Owner not in the current roster (e.g. just-joined, mid-sync): never dump it onto the host's
+  // deck (P1) — only the actual host belongs there. Park unknown contributors on P2.
+  if (project.coDjHostActorId != null && owner === String(project.coDjHostActorId)) {
+    return 0
+  }
+  return 1
+}
+
+/** One deck per player: A (top-left), B (top-right), C (bottom-left), D (bottom-right). */
+export fn channelDeck(project, ch) {
+  let idx = channelPlayerIndex(project, ch)
+  if (idx === 1) {
+    return "B"
+  }
+  if (idx === 2) {
+    return "C"
+  }
+  if (idx === 3) {
+    return "D"
+  }
+  return "A"
+}
+
+/** Lowercase deck letter for CSS class suffixes (a/b/c/d). */
+export fn channelDeckColor(project, ch) {
+  let d = channelDeck(project, ch)
+  if (d === "B") {
+    return "b"
+  }
+  if (d === "C") {
+    return "c"
+  }
+  if (d === "D") {
+    return "d"
+  }
+  return "a"
+}
+
+/** "top" (decks A/B) or "bottom" (decks C/D) row in the 2×2 deck grid. */
+export fn channelDeckRow(project, ch) {
+  return channelPlayerIndex(project, ch) < 2 ? "top" : "bottom"
+}
+
+/** Equal-power gain for one of the 4 corners given the 2-axis crossfader. */
+export fn deckMainOutGainMultiplier(project, ch) {
+  let x = crossfadeValue(project)
+  let y = crossfadeValueY(project)
+  let gLeft = Math.cos((x * Math.PI) / 2)
+  let gRight = Math.sin((x * Math.PI) / 2)
+  let gTop = Math.cos((y * Math.PI) / 2)
+  let gBottom = Math.sin((y * Math.PI) / 2)
+  let idx = channelPlayerIndex(project, ch)
+  let gx = idx % 2 === 0 ? gLeft : gRight
+  let gy = idx < 2 ? gTop : gBottom
+  return gx * gy
+}
+
+/** True if this channel's player corner still has audible crossfader gain (drives note triggering). */
 export fn channelHeardOnMainDeck(project, ch) {
   if (!ch) {
     return false
