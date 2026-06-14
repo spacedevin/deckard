@@ -136,16 +136,18 @@ fn vSnare() {
 
 // Basses
 fn vBassAcid() {
+  // High-resonance lowpass sweep (the "lasery" 303 zap). Q stays high for the resonance; the level is
+  // kept low so the resonant peak doesn't clip (the master soft-clip catches any residual).
   return [
     "  gen_block patch",
     "    osc o sawtooth note",
-    "    filter f lowpass q 9",
+    "    filter f lowpass q 15",
     "    gain a",
     "    conn o f",
     "    conn f a",
     "    conn a out",
-    "    env f.freq set 0 2600 exp 0.18 110",
-    "    env a.gain set 0 0.3 set dur-0.05 0.3 lin dur 0.01",
+    "    env f.freq set 0 3200 exp 0.2 100",
+    "    env a.gain set 0 0.26 set dur-0.05 0.26 lin dur 0.01",
     "  end gen_block"
   ]
 }
@@ -311,7 +313,7 @@ fn deckSetTpls() {
         stem("Hat", "hat", 0.1, vHatClosed(), ["  step_pitch 44", "  steps . . . . x . . . . . . . x . . ."]),
         stem("Bass", "bass", 0.1, vBassReese(), ["  note 36 0 4 v 100"]),
         stem("Chord", "chord", 0.4, vChordPad(), ["  voice chord minor", "  note 48 0 4 v 100"]),
-        stem("Pluck", "pluck", 0.3, vPluck(), ["  note 60 0 0.5 v 90", "  note 63 0.75 0.5 v 90", "  note 67 1.5 0.5 v 90", "  note 70 2.25 0.5 v 90", "  note 72 3 0.5 v 90"])
+        stem("Pluck", "pluck", 0.3, vPluck(), ["  note 60 0 0.25 v 80", "  note 60 1.5 0.25 v 80", "  note 70 2.25 0.25 v 80", "  note 70 3.75 0.25 v 80"])
       ]))
     },
     {
@@ -325,8 +327,8 @@ fn deckSetTpls() {
         stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
         stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
         stem("Bass", "bass", 0.05, vBassAcid(), ["  step_pitch 36", "  steps x . x . x . x . x . x . x . x ."]),
-        stem("Chord", "chord", 0.4, vChordStab(), ["  voice chord minor", "  note 48 0 0.5 v 100", "  note 48 2.5 0.5 v 100"]),
-        stem("Pluck", "pluck", 0.3, vPluck(), ["  note 70 2 0.5 v 90", "  note 67 2.5 0.5 v 90", "  note 63 3 0.5 v 90", "  note 60 3.5 0.5 v 90"])
+        stem("Chord", "chord", 0.4, vChordStab(), ["  voice chord minor", "  note 48 0 0.4 v 100", "  note 48 2.5 0.4 v 100"]),
+        stem("Pluck", "pluck", 0.3, vPluck(), ["  note 70 2 0.5 v 90", "  note 70 3 0.5 v 90"])
       ]))
     },
     {
