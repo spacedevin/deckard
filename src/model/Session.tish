@@ -1259,18 +1259,12 @@ export fn playbackClipForChannel(project, rt, chIdx) {
   if (rt && rt.playMode === "sequence") {
     return null
   }
-  if (!ch.sessionClips || ch.sessionClips.length === 0) {
-    return null
-  }
-  if (!rt || !rt.sessionArmedClipIds) {
-    return findClipOnChannel(ch, defaultMainClipId(ch))
-  }
-  let armed = rt.sessionArmedClipIds[chIdx]
-  if (armed === "") {
+  // Session mode: only an explicitly SAVED scene clip plays. An unsaved slot is the channel's default
+  // "main" clip — shown as an empty cell in the session grid — so it is SILENT here too. Session does
+  // NOT fall back to the rack (that's what Sequence mode is for). Empty session ⇒ silence.
+  let armed = rt && rt.sessionArmedClipIds ? rt.sessionArmedClipIds[chIdx] : null
+  if (armed === undefined || armed === null || armed === "" || armed === defaultMainClipId(ch)) {
     return { silent: true }
-  }
-  if (armed === undefined || armed === null) {
-    return findClipOnChannel(ch, defaultMainClipId(ch))
   }
   let cl = findClipOnChannel(ch, armed)
   if (!cl) {

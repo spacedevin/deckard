@@ -8,9 +8,10 @@ export fn TransportBar(
   bpm,
   playing,
   playMode,
-  onPlaySequence,
-  onPlaySong,
-  onStop,
+  previewing,
+  onPreview,
+  onPlayStop,
+  onSelectMode,
   onBpmInput,
   onExport,
   onImport,
@@ -19,23 +20,32 @@ export fn TransportBar(
   launchQuant,
   onLaunchQuant
 ) {
-  let seqPlaying = playing && playMode === "sequence"
-  let songPlaying = playing && playMode === "song"
-  let seqCls = seqPlaying ? "btn-play btn-play-seq btn-play-on" : "btn-play btn-play-seq"
-  let songCls = songPlaying ? "btn-play btn-play-song btn-play-on" : "btn-play btn-play-song"
+  // Preview = audition the rack on its OWN clock (separate, never live). The Sequence | Session toggle
+  // + Play are the LIVE transport: both modes share one clock; flip between them live, no restart.
+  let prevCls = previewing ? "btn-play btn-play-seq btn-play-on" : "btn-play btn-play-seq"
+  let isSeq = playMode !== "song"
+  let seqCls = isSeq ? "mode-seg mode-seg-on" : "mode-seg"
+  let sesCls = isSeq ? "mode-seg" : "mode-seg mode-seg-on"
+  let playCls = playing ? "btn-play btn-play-song btn-play-on" : "btn-play btn-play-song"
   let qv = typeof launchQuant === "number" ? String(Math.floor(launchQuant)) : "16"
   return (
     <div class="transport-bar">
-      <button class={seqCls} onclick={onPlaySequence} title={"Play the pattern you are editing (Space)"}>
-        {"▶ Sequence"}
+      <button class={prevCls} onclick={onPreview} title={"Preview the rack pattern on its own clock — a monitor, fully separate from the live transport (Space)"}>
+        {previewing ? "■ Preview" : "▶ Preview"}
         <span class="btn-key">{"Space"}</span>
       </button>
-      <button class={songCls} onclick={onPlaySong} title={"Play the live arrangement of launched patterns (Enter)"}>
-        {"▶ Song"}
+      <span class="transport-div" />
+      <div class="mode-switch" title={"The LIVE source — Sequence (the rack as a live song) or Session (the launched clips). Both share one clock; switch between them live."}>
+        <button type="button" class={seqCls} onclick={() => onSelectMode("sequence")}>
+          {"Sequence"}
+        </button>
+        <button type="button" class={sesCls} onclick={() => onSelectMode("song")}>
+          {"Session"}
+        </button>
+      </div>
+      <button class={playCls} onclick={onPlayStop} title={"Play / stop the live transport in the selected mode (Enter)"}>
+        {playing ? "■ Stop" : "▶ Play"}
         <span class="btn-key">{"Enter"}</span>
-      </button>
-      <button class="btn-stop" onclick={onStop} disabled={!playing}>
-        {"Stop"}
       </button>
       <label class="bpm-label">
         {"BPM "}

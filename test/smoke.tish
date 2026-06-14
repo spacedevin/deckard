@@ -9,7 +9,7 @@ import { setTrackOwner } from '../src/codj/CoDjMeta.tish'
 import { coDjClockAlign, coDjShouldFollow, coDjClockPayload } from '../src/codj/Transport.tish'
 import { createTplLineStream, tplLineStreamPush } from '../src/tpl/Stream.tish'
 import { coDjLineAllowedForSkills } from '../src/codj/Skills.tish'
-import { deckSetCatalog, deckSetTplById } from '../src/model/DeckSets.tish'
+import { deckSetCatalog, deckSetTplById, loadDeckSet } from '../src/model/DeckSets.tish'
 import { emptyProjectShell } from '../src/model/Project.tish'
 import { parseBarSelector, barSelectorMatches } from '../src/tpl/BarSelector.tish'
 import { lookupMacro, expandMacroBody } from '../src/tpl/Macros.tish'
@@ -254,6 +254,13 @@ check("play song: armed pattern (P1) drives audio, not the rack", songClip != nu
 pmRt.playMode = "sequence"
 let seqClip = playbackClipForChannel(pmProj, pmRt, 0)
 check("play sequence: ignores arming, returns null so the rack is monitored", seqClip == null)
+// Session mode with an UNSAVED slot (default main clip) is silent — it must NOT fall back to the rack.
+let emptyProj2 = loadDefaultDeckardProject().project
+ensureProjectSession(emptyProj2)
+let emptyRt = { sessionArmedClipIds: [], playMode: "song" }
+sessionArmScene(emptyProj2, emptyRt, 0)   // fresh session → slots are default main clips
+let emptyClip = playbackClipForChannel(emptyProj2, emptyRt, 0)
+check("play session: unsaved slot is SILENT, not the rack", emptyClip != null && emptyClip.silent === true)
 
 // 5k. Song chain — Play Song advances through SAVED patterns, skipping empty ones, wrapping.
 let songProj = loadDefaultDeckardProject().project
@@ -585,6 +592,31 @@ while (bars < 8) {
 }
 check("clock sim: follower converges to within a bar of host", Math.abs(followTick - hostTick) <= 16)
 check("clock sim: follower not stuck at its wild start", followTick < 200)
+
+// 5x. Switching a deck preset must NOT wipe the rest of the session — other decks' queued scenes
+// persist (everything is in TPL; swapping one deck only replaces that deck's channels).
+let dsProj = loadDefaultDeckardProject().project
+ensureProjectSession(dsProj)
+sessionWriteRackToSceneClip(dsProj, 0)                 // save all current (deck A) channels into scene 0
+let aId = dsProj.channels[0].id
+check("deck swap setup: scene 0 saved on deck A", dsProj.session.slots[0][0] === aId + "_sc0")
+loadDeckSet(dsProj, "B", "nebula_pulse")               // load a preset onto deck B — deck A must survive
+let aIdx = -1
+let dz = 0
+while (dz < dsProj.channels.length) {
+  if (dsProj.channels[dz].id === aId) { aIdx = dz }
+  dz = dz + 1
+}
+check("deck swap: deck A channel survives the swap", aIdx >= 0)
+check("deck swap: deck A's saved scene 0 PERSISTS (not cleared)", aIdx >= 0 && dsProj.session.slots[aIdx][0] === aId + "_sc0")
+check("deck swap: deck A channel keeps its saved clip object", findClipOnChannel(dsProj.channels[aIdx], aId + "_sc0") != null)
+let bChan = null
+let bz = 0
+while (bz < dsProj.channels.length) {
+  if (String(dsProj.channels[bz].id).indexOf("b_") === 0) { bChan = dsProj.channels[bz] }
+  bz = bz + 1
+}
+check("deck swap: deck B preset loaded its stems", bChan != null)
 
 // 6. Every stem deck set parses cleanly into >= 5 stems (the deck.tsx conversions)
 let cat = deckSetCatalog()

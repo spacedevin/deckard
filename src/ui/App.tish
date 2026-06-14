@@ -72,6 +72,9 @@ if (initialDeckardBoot.errors.length > 0 && typeof console !== "undefined" && co
 let audioStore = {}
 let playbackTimer = null
 let globalTick = 0
+// Preview runs on its OWN clock, fully independent of the live (Sequence/Session) transport.
+let previewTimer = null
+let previewTick = 0
 export fn App() {
   let [project, setProject] = useState(initialDeckardBoot.project)
   migrateProjectGenerators(project)
@@ -79,7 +82,10 @@ export fn App() {
   let [tplText, setTplText] = useState(tplInit)
   let [selectedCh, setSelectedCh] = useState(3)
   let [playing, setPlaying] = useState(false)
-  let [playMode, setPlayMode] = useState("sequence")
+  let [previewing, setPreviewing] = useState(false)
+  // The live transport's source — "sequence" (FL rack as the live song) or "song" (the session clips).
+  // Sequence and Session share ONE clock; toggling between them while playing never restarts it.
+  let [playMode, setPlayMode] = useState("song")
   let [workspaceTab, setWorkspaceTab] = useState("sequencer")
   let [sessionUiGen, setSessionUiGen] = useState(0)
   let [seqPromoteUi, setSeqPromoteUi] = useState(0)
@@ -151,22 +157,16 @@ export fn App() {
         return
       }
       if (e.code === "Space" || e.key === " ") {
+        // Space = Preview: audition the rack on its own clock (separate from the live transport).
         e.preventDefault()
-        if (r.playing && r.playMode === "sequence") {
-          if (r.stopPlayback) {
-            r.stopPlayback()
-          }
-        } else if (r.onPlaySequence) {
-          r.onPlaySequence()
+        if (r.onPreview) {
+          r.onPreview()
         }
       } else if (e.key === "Enter") {
+        // Enter = live Play / Stop (in the current Sequence/Session mode).
         e.preventDefault()
-        if (r.playing && r.playMode === "song") {
-          if (r.stopPlayback) {
-            r.stopPlayback()
-          }
-        } else if (r.onPlaySong) {
-          r.onPlaySong()
+        if (r.onPlayStop) {
+          r.onPlayStop()
         }
       }
     }
@@ -389,7 +389,7 @@ export fn App() {
 
   // mode: "sequence" = play the rack / pattern you are editing (monitor); "song" = play the live
   // arrangement of launched patterns (session arming). Space → sequence, Enter → song.
-  fn onPlay(mode, startTick) {
+  fn onPlay(mode, startTick, songScene) {
     let pm = mode === "song" ? "song" : "sequence"
     rt.playMode = pm
     setPlayMode(pm)
@@ -407,12 +407,20 @@ export fn App() {
       // set) and auto-advances through it (see playbackTick). Per-track clip overrides are honoured on
       // top of each scene. songStart seeds the song cursor (rt.songPos) for repeat-aware advancing.
       rt.songStopRequested = false
+      // Launching a specific scene (LAUNCH / clip click) goes live on THAT scene; a plain Play Song
+      // starts at the head of the arrangement. Either way the song cursor resets.
       let scn = songStart(project, rt)
+      if (songScene != null && Math.floor(Number(songScene)) >= 0) {
+        scn = Math.floor(Number(songScene))
+        rt.followCount = 0
+        rt.songPos = null
+        rt.sessionActiveScene = scn
+      }
       armSceneWithOverrides(project, rt, scn)
       rt.songScene = scn
-      rt.songSceneEndTick = sceneBarLength(project, scn) * coDjStepsPerBar()
+      rt.songSceneEndTick = globalTick + sceneBarLength(project, scn) * coDjStepsPerBar()
       // Tell collaborators which pattern this deck starts on, and align the shared song position.
-      coDjPushLive(project, rt, 0)
+      coDjPushLive(project, rt, globalTick)
       coDjPushControl([transportDirective("song", scn)], 0)
     } else {
       rt.songScene = null
@@ -725,29 +733,22 @@ export fn App() {
     setProjectFromUI(project)
   }
 
-  // LAUNCH — make pattern `si` the LIVE one (P0). While playing a song it queues to the next bar
-  // (committed in playbackTick via sessionCommitQueued); otherwise it arms immediately so the next
-  // Play Song starts there. The rack you are editing is untouched.
+  // LAUNCH — go LIVE on pattern `si`. If a song is already live, queue the swap for the next quantize
+  // boundary (no restart). If nothing live is running (stopped, or just previewing the rack), launching
+  // STARTS the session live on this scene immediately — launching is a live act, so you hear it.
   fn onPatternLaunch(si) {
     ensureProjectSession(project)
     // A full pattern LAUNCH resets the per-track mix — every track follows this pattern again.
     rt.trackOverrides = []
     rt.trackPending = []
     if (rt.playing && rt.playMode === "song") {
-      // Queued: the actual swap (and the co-DJ broadcast of the new armed pattern) happens at the
-      // bar boundary in playbackTick, once the armed clips reflect the launched pattern.
+      // Already live — queue the swap (and the co-DJ broadcast) for the next bar.
       sessionQueueScene(project, rt, si)
+      coDjPushControl([launchSceneDirective(si)], nextLaunchStep())
     } else {
-      sessionArmScene(project, rt, si)
-      rt.sessionQueuePending = false
-      rt.sessionQueuedScene = null
-      // Armed immediately — broadcast the live pattern at the next bar boundary.
-      let ps = typeof rt.perfStep === "number" ? rt.perfStep : 0
-      let b = coDjStepsPerBar()
-      coDjPushLive(project, rt, (Math.floor(ps / b) + 1) * b)
+      // Not live (stopped or previewing) — start the session live on this scene now.
+      onPlay("song", 0, si)
     }
-    // Tell collaborators to follow this scene launch on the same quantize boundary (shared session).
-    coDjPushControl([launchSceneDirective(si)], nextLaunchStep())
     bumpSessionUi()
     if (rt.playing && rt.bumpSeqPromoteUi) {
       rt.bumpSeqPromoteUi()
@@ -778,6 +779,89 @@ export fn App() {
   rt.stopPlayback = onStop
   rt.onPlaySequence = () => onPlay("sequence")
   rt.onPlaySong = () => onPlay("song")
+
+  // ---- Live transport: Sequence ⟷ Session on ONE shared clock ----------------------------------
+  // Toggle the live source. Stopped → just selects what Play uses. Playing → flips the source LIVE on
+  // the same running clock (no restart) — the whole point of "Sequence and Session share a clock".
+  fn selectPlayMode(pm) {
+    let m = pm === "song" ? "song" : "sequence"
+    if (m === rt.playMode) {
+      return
+    }
+    rt.playMode = m
+    setPlayMode(m)
+    if (!rt.playing) {
+      return
+    }
+    if (m === "song") {
+      rt.songStopRequested = false
+      let scn = songStart(project, rt)
+      armSceneWithOverrides(project, rt, scn)
+      rt.songScene = scn
+      rt.songSceneEndTick = globalTick + sceneBarLength(project, scn) * coDjStepsPerBar()
+      coDjPushLive(project, rt, globalTick + coDjStepsPerBar())
+      coDjPushControl([transportDirective("song", scn)], 0)
+    } else {
+      rt.songScene = null
+      rt.songSceneEndTick = null
+    }
+    bumpSessionUi()
+  }
+  rt.selectPlayMode = selectPlayMode
+  // The live Play / Stop button: start in the current mode when stopped, stop when playing.
+  fn onPlayStop() {
+    if (rt.playing) {
+      onStop()
+    } else {
+      onPlay(rt.playMode)
+    }
+  }
+  rt.onPlayStop = onPlayStop
+
+  // ---- Preview transport: its OWN independent clock, NOT bundled with the live transport ----------
+  // Auditions the rack pattern (always sequence rendering) on a separate timer + tick. Starting/stopping
+  // it never touches the live Sequence/Session clock, and vice versa.
+  fn previewStepMs() {
+    let b = project && typeof project.bpm === "number" ? project.bpm : 120
+    if (b < 40) { b = 40 }
+    if (b > 300) { b = 300 }
+    return (60 / b / 4) * 1000
+  }
+  fn onStopPreview() {
+    if (previewTimer) {
+      clearTimeout(previewTimer)
+      previewTimer = null
+    }
+    setPreviewing(false)
+  }
+  fn onPreview() {
+    if (previewing) {
+      onStopPreview()
+      return
+    }
+    ensureAudio(project, audioStore)
+    updateMixerFromProject(project, audioStore)
+    if (previewTimer) {
+      clearTimeout(previewTimer)
+    }
+    previewTick = 0
+    // A throwaway runtime forced to sequence mode so transportTick renders the rack (ch.steps/pianoNotes).
+    let pRt = { playMode: "sequence", playing: true }
+    fn previewStep() {
+      let r = rtRef.current
+      if (!r || !audioStore.ctx) {
+        return
+      }
+      pRt.project = r.project
+      transportTick(r.project, audioStore, previewTick, pRt)
+      previewTick = previewTick + 1
+      previewTimer = setTimeout(previewStep, previewStepMs())
+    }
+    previewStep()
+    setPreviewing(true)
+  }
+  rt.onPreview = onPreview
+  rt.onStopPreview = onStopPreview
   // Deck-set hot-swap: rebuild channel buses on the LIVE audio context so playback continues
   // seamlessly through a set load (no stop / no manual re-Play). No-op until audio has started.
   rt.resyncAudio = () => {
@@ -938,9 +1022,10 @@ export fn App() {
         project.bpm,
         playing,
         playMode,
-        () => onPlay("sequence"),
-        () => onPlay("song"),
-        onStop,
+        previewing,
+        onPreview,
+        onPlayStop,
+        (m) => selectPlayMode(m),
         onBpmInput,
         onExport,
         onImport,

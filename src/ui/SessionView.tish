@@ -172,7 +172,7 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
     let scene = rt.songScene != null ? rt.songScene : (rt.sessionActiveScene != null ? rt.sessionActiveScene : 0)
     let target = next != null ? next : sceneSlotClipId(project, scene, trackIdx)
     if (rt.playing && rt.playMode === "song") {
-      // Land on the next bar without restarting the song chain.
+      // Already live — land on the next bar without restarting the song chain.
       if (!rt.trackPending) {
         rt.trackPending = []
       }
@@ -182,6 +182,10 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
     }
     // Collaborators follow this per-track launch (owner-scoped on their side). next == null = release.
     pushControl(rt, launchClipDirective(project.channels[trackIdx].id, next != null ? next : ""))
+    // Launching a clip when nothing is live goes LIVE — the override is applied on start, so you hear it.
+    if (next != null && !rt.playing && rt.onPlaySong) {
+      rt.onPlaySong()
+    }
     if (bumpSessionUi) {
       bumpSessionUi()
     }
@@ -517,12 +521,13 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
     ti = ti + 1
   }
 
+  let sessionLive = playing && rt.playMode === "song"
   return (
     <section class="panel session-panel">
       <div class="session-panel-head">
-        <div class="session-brand">
+        <div class={sessionLive ? "session-brand session-brand-live" : "session-brand"}>
           <span class="session-dot" />
-          <span class="session-title">{"SESSION"}</span>
+          <span class="session-title">{sessionLive ? "● LIVE" : "SESSION"}</span>
         </div>
         <button type="button" class="btn-session-stop-all" onclick={stopAll}>
           {"Stop all clips"}

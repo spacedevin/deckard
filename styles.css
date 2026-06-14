@@ -607,7 +607,7 @@ input[type="range"]::-moz-range-thumb {
   cursor: default;
 }
 
-/* Two play modes: Sequence (edit monitor, orange) vs Song (live arrangement, green). */
+/* Two transports: Preview (audition the rack, orange) vs Song (the session arrangement, green). */
 .btn-play {
   display: inline-flex;
   align-items: center;
@@ -647,6 +647,44 @@ input[type="range"]::-moz-range-thumb {
 }
 .btn-play-on .btn-key {
   opacity: 0.8;
+}
+
+/* Thin divider between the independent Preview transport and the live Sequence/Session transport. */
+.transport-div {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border, #2a2a2a);
+  margin: 0 0.2rem;
+}
+/* Live-source switch: Sequence (rack as live song) | Session (clips). Both share one clock. */
+.mode-switch {
+  display: inline-flex;
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 5px;
+  overflow: hidden;
+  background: #0e0e0e;
+}
+.mode-seg {
+  font-family: inherit;
+  background: transparent;
+  color: var(--muted, #8a8a93);
+  border: none;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.mode-seg + .mode-seg {
+  border-left: 1px solid var(--border, #2a2a2a);
+}
+.mode-seg:hover {
+  color: var(--text, #cfcfcf);
+  background: #161616;
+}
+.mode-seg.mode-seg-on {
+  background: var(--accent-green, #7cff7c);
+  color: #0b0b0b;
 }
 
 .btn-stop {
@@ -2690,6 +2728,14 @@ input[type="range"]::-moz-range-thumb {
   border-radius: 50%;
   background: var(--accent-green);
   box-shadow: 0 0 10px rgba(124, 255, 124, 0.55);
+}
+/* When the session is actually playing live, pulse the brand so "live" is never hidden. */
+.session-brand-live .session-dot {
+  animation: session-queue-pulse 1s ease-in-out infinite;
+}
+.session-brand-live .session-title {
+  color: var(--accent-green);
+  text-shadow: 0 0 8px rgba(124, 255, 124, 0.4);
 }
 
 .session-title {

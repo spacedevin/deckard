@@ -542,6 +542,16 @@ export fn loadDeckSet(project, deckId, setId) {
   let lane = idx === 0 ? "" : "client"
   let deckField = idx === 0 ? "local" : "live"
   let prefix = idx === 1 ? "b_" : idx === 2 ? "c_" : idx === 3 ? "d_" : "a_"
+  // Swapping ONE deck must not wipe the rest of the session. Capture each existing channel's session
+  // slot row (and ownership) by id, so channels that survive the swap keep their saved scenes/clips.
+  let prevSlots = {}
+  if (project.session && project.session.slots) {
+    let pi = 0
+    while (pi < project.channels.length && pi < project.session.slots.length) {
+      prevSlots[project.channels[pi].id] = project.session.slots[pi]
+      pi = pi + 1
+    }
+  }
   // Drop the channels currently on THIS deck (only) — never touch the other 3 decks.
   let kept = []
   let j = 0
@@ -567,14 +577,31 @@ export fn loadDeckSet(project, deckId, setId) {
     project.channels.push(ch)
     k = k + 1
   }
-  if (project.coDjMeta) {
-    project.coDjMeta.tracks = {}
+  // Keep ownership for the surviving channels; drop only the swapped-out deck's (orphaned) entries.
+  if (project.coDjMeta && project.coDjMeta.tracks) {
+    let keptTracks = {}
+    let mi = 0
+    while (mi < project.channels.length) {
+      let cid = project.channels[mi].id
+      if (project.coDjMeta.tracks[cid] != null) {
+        keptTracks[cid] = project.coDjMeta.tracks[cid]
+      }
+      mi = mi + 1
+    }
+    project.coDjMeta.tracks = keptTracks
   }
   ensureCoDjMeta(project)
-  // Drop the old scene grid so it rebuilds for the new channel set (stale slot ids would otherwise
-  // arm clips that don't exist on the swapped-in channels, silencing them on Play).
+  // Rebuild the scene grid in the new channel order: surviving channels keep their saved slot row (so
+  // other decks' queued sessions persist); the swapped-in channels get fresh rows. No stale slot ids.
   if (project.session) {
-    project.session.slots = []
+    let newSlots = []
+    let ci = 0
+    while (ci < project.channels.length) {
+      let cid = project.channels[ci].id
+      newSlots.push(prevSlots[cid] != null ? prevSlots[cid] : [])
+      ci = ci + 1
+    }
+    project.session.slots = newSlots
   }
   ensureProjectSession(project)
   return true
