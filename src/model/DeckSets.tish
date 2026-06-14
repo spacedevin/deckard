@@ -274,6 +274,22 @@ fn vFmPluck() {
     "  end gen_block"
   ]
 }
+fn vNoiseSweep() {
+  // Vinyl/atmosphere texture: bandpassed noise swept top→bottom with a slow swell (deck.tsx playNoiseSweep).
+  return [
+    "  gen_block patch",
+    "    noise n",
+    "    filter f bandpass q 5 freq 6000",
+    "    gain a",
+    "    conn n f",
+    "    conn f a",
+    "    conn a out",
+    "    env f.freq set 0 6000 exp 1.5 200",
+    "    env a.gain set 0 0.01 lin 0.75 0.22 lin 1.5 0.01",
+    "    dur 1.5",
+    "  end gen_block"
+  ]
+}
 
 /// Reverb send per stem role — drums and bass stay DRY (deck.tsx sent only chords/snare/leads to the
 /// reverb); melodic/atmospheric stems get a tail. Derived from the stem name so every set is consistent.
@@ -283,6 +299,9 @@ fn reverbForStem(name) {
   }
   if (name === "Pluck" || name === "Arp") {
     return 0.25
+  }
+  if (name === "Texture") {
+    return 0.35
   }
   if (name === "Snare") {
     return 0.12
@@ -357,7 +376,7 @@ fn deckSetTpls() {
         stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
         stem("Bass", "bass", 0.05, vBassReese(), ["  step_pitch 32", "  steps . x x x . x x x . x x x . x x x"]),
         stem("Chord", "chord", 0.4, vChordPad(), ["  voice chord major", "  note 44 0 4 v 95"]),
-        stem("Pluck", "pluck", 0.4, vPluck(), ["  note 72 0 0.5 v 90", "  note 75 0.75 0.5 v 90", "  note 72 1.5 0.5 v 90", "  note 79 2.25 0.5 v 90", "  note 72 3 0.5 v 90"])
+        stem("Pluck", "pluck", 0.4, vPluck(), ["  note 72 0 0.25 v 85", "  note 82 0.75 0.25 v 85", "  note 84 1 0.25 v 85", "  note 75 1.75 0.25 v 85", "  note 79 2 0.25 v 85", "  note 87 2.75 0.25 v 85", "  note 72 3 0.25 v 85", "  note 82 3.75 0.25 v 85"])
       ]))
     },
     {
@@ -371,7 +390,8 @@ fn deckSetTpls() {
         stem("Snare", "snare", 0.25, vSnare(), ["  step_pitch 40", "  steps . . . . . . . . x . . . . . . ."]),
         stem("Hat", "hat", 0.1, vHatClosed(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
         stem("Bass", "bass", 0.1, vBassAcid(), ["  step_pitch 36", "  steps x . . . . . . . . . . x . . . ."]),
-        stem("Chord", "chord", 0.4, vChordStab(), ["  voice chord minor", "  note 48 0 1.5 v 95", "  note 48 1.5 1.5 v 90"])
+        stem("Chord", "chord", 0.4, vChordStab(), ["  voice chord minor", "  note 48 0 1.5 v 95", "  note 48 1.5 1.5 v 90"]),
+        stem("Pluck", "pluck", 0.3, vPluck(), ["  note 72 3.5 0.25 v 85"])
       ]))
     },
     {
@@ -399,7 +419,7 @@ fn deckSetTpls() {
         stem("Hat", "hat", 0.2, vHatOpen(), ["  step_pitch 44", "  steps . . . . x . . . . . . . x . . ."]),
         stem("Bass", "bass", 0.05, vBassReese(), ["  step_pitch 36", "  steps . x x x . x x x . x x x . x x x"]),
         stem("Chord", "chord", 0.4, vChordPad(), ["  voice chord minor", "  note 48 0 4 v 95"]),
-        stem("Arp", "arp", 0.3, vFmPluck(), ["  note 60 0 0.5 v 90", "  note 63 1 0.5 v 90", "  note 67 1.5 0.5 v 90", "  note 72 2.5 0.5 v 90"])
+        stem("Arp", "arp", 0.3, vFmPluck(), ["  note 60 0 0.5 v 90", "  note 60 1.5 0.5 v 90"])
       ]))
     },
     {
@@ -412,9 +432,9 @@ fn deckSetTpls() {
         stem("Kick", "kick", 0.05, vKickDeep(), ["  step_pitch 34", "  steps x . . . . . . . . . x . . . . ."]),
         stem("Snare", "snare", 0.25, vSnare(), ["  step_pitch 40", "  steps . . . . . . . . x . . . . . . ."]),
         stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
-        stem("Sub", "sub", 0.05, vBassReese(), ["  note 22 0 4 v 100"]),
+        stem("Sub", "sub", 0.05, vBassReese(), ["  note 19 0 4 v 100"]),
         stem("Stab", "stab", 0.2, vChordStab(), ["  voice chord minor", "  note 43 0 1 v 95"]),
-        stem("Arp", "arp", 0.4, vFmPluck(), ["  note 70 3.5 0.5 v 90"])
+        stem("Arp", "arp", 0.4, vFmPluck(), ["  note 63 3.5 0.5 v 90"])
       ]))
     },
     {
@@ -427,9 +447,9 @@ fn deckSetTpls() {
         stem("Kick", "kick", 0.05, vKickEdm(), ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
         stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
-        stem("Bass", "bass", 0.05, vBassReese(), ["  step_pitch 32", "  steps x . x . x . x . x . x . x . x ."]),
-        stem("Stab", "stab", 0.3, vChordStab(), ["  voice chord major", "  note 44 0 0.5 v 95", "  note 44 1.5 0.5 v 90", "  note 44 2 0.5 v 90", "  note 44 3.5 0.5 v 90"]),
-        stem("Arp", "arp", 0.3, vPluck(), ["  note 63 1.5 0.5 v 90", "  note 67 2.5 0.5 v 90", "  note 70 3.5 0.5 v 90"])
+        stem("Bass", "bass", 0.05, vBassAcid(), ["  step_pitch 32", "  steps x . x . x . x . x . x . x . x ."]),
+        stem("Stab", "stab", 0.3, vChordStab(), ["  voice chord major", "  note 44 0 0.5 v 95", "  note 44 1.5 0.5 v 90"]),
+        stem("Arp", "arp", 0.3, vPluck(), ["  note 67 1.5 0.5 v 90", "  note 67 3.5 0.5 v 90"])
       ]))
     },
     {
@@ -442,7 +462,7 @@ fn deckSetTpls() {
         stem("Kick", "kick", 0.05, vKickDeep(), ["  step_pitch 36", "  steps x . . . . . . . . . x . . . . ."]),
         stem("Snare", "snare", 0.25, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
         stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps x x x x x x x x x x x x x x x x"]),
-        stem("Bass", "bass", 0.05, vBassReese(), ["  note 27 0 4 v 100"]),
+        stem("Bass", "bass", 0.05, vBassReese(), ["  note 39 0 4 v 100"]),
         stem("Chord", "chord", 0.4, vChordPad(), ["  voice chord major", "  note 51 0 4 v 90"]),
         stem("Arp", "arp", 0.4, vFmPluck(), ["  note 72 3.5 0.5 v 90"])
       ]))
@@ -456,10 +476,10 @@ fn deckSetTpls() {
         "tpl 1",
         stem("Kick", "kick", 0.05, vKickDistorted(), ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . . . . . x . . . . . . ."]),
-        stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
+        stem("Hat", "hat", 0.08, vHatOpen(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
         stem("Bass", "bass", 0.05, vBassAcid(), ["  step_pitch 36", "  steps x . . x . . . . x . . x . . . ."]),
         stem("Stab", "stab", 0.15, vChordStab(), ["  voice chord minor", "  note 48 0 0.5 v 95"]),
-        stem("Arp", "arp", 0.3, vFmPluck(), ["  note 48 0 0.5 v 90", "  note 51 0.75 0.5 v 90", "  note 55 1.5 0.5 v 90", "  note 48 2.25 0.5 v 90", "  note 55 3 0.5 v 90"])
+        stem("Arp", "arp", 0.3, vFmPluck(), ["  note 48 0 0.25 v 88", "  note 58 0.75 0.25 v 88", "  note 48 1.5 0.25 v 88", "  note 58 2.25 0.25 v 88", "  note 48 3 0.25 v 88", "  note 58 3.75 0.25 v 88"])
       ]))
     },
     {
@@ -474,7 +494,7 @@ fn deckSetTpls() {
         stem("Hat", "hat", 0.1, vHatOpen(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
         stem("Bass", "bass", 0.1, vBassReeseSC(), ["  note 31 2.5 0.5 v 100", "  note 31 3.5 0.5 v 100"]),
         stem("Stab", "stab", 0.25, vChordStab(), ["  voice chord minor", "  note 43 1 0.5 v 90", "  note 43 3 0.5 v 85"]),
-        stem("Pluck", "pluck", 0.3, vPluck(), ["  note 67 2 0.5 v 85"])
+        stem("Texture", "texture", 0.35, vNoiseSweep(), ["  step_pitch 50", "  steps x . . . . . . . . . . . . . . ."])
       ]))
     },
     {
@@ -501,9 +521,9 @@ fn deckSetTpls() {
         stem("Kick", "kick", 0.05, vKickDistorted(), ["  step_pitch 36", "  steps x . . . . . . . x . . x . . . ."]),
         stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . . . . . x . . . . . . ."]),
         stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
-        stem("Bass", "bass", 0.05, vBassReese(), ["  note 32 0 4 v 100"]),
+        stem("Bass", "bass", 0.05, vBassReeseSC(), ["  note 32 0 4 v 100"]),
         stem("Chord", "chord", 0.4, vChordPad(), ["  voice chord major", "  note 44 0 4 v 90"]),
-        stem("Arp", "arp", 0.35, vFmPluck(), ["  note 72 0 0.5 v 90", "  note 72 1 0.5 v 90", "  note 72 2 0.5 v 90", "  note 72 3 0.5 v 90"])
+        stem("Arp", "arp", 0.35, vFmPluck(), ["  note 84 0 0.25 v 88", "  note 84 1 0.25 v 88", "  note 84 2 0.25 v 88", "  note 84 3 0.25 v 88"])
       ]))
     },
     {
@@ -516,9 +536,9 @@ fn deckSetTpls() {
         stem("Kick", "kick", 0.05, vKickEdm(), ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
         stem("Hat", "hat", 0.2, vHatOpen(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
-        stem("Bass", "bass", 0.05, vBassReese(), ["  step_pitch 36", "  steps . x x x . x x x . x x x . x x x"]),
+        stem("Bass", "bass", 0.05, vBassAcid(), ["  step_pitch 36", "  steps . x x x . x x x . x x x . x x x"]),
         stem("Chord", "chord", 0.4, vChordPad(), ["  voice chord minor", "  note 48 0 4 v 90"]),
-        stem("Pluck", "pluck", 0.35, vPluck(), ["  note 60 0.75 0.5 v 85", "  note 63 1.5 0.5 v 85", "  note 67 2.75 0.5 v 85", "  note 70 3.5 0.5 v 85"])
+        stem("Pluck", "pluck", 0.35, vPluck(), ["  note 70 0.75 0.5 v 85", "  note 60 1.5 0.5 v 85", "  note 75 2.75 0.5 v 85", "  note 67 3.5 0.5 v 85"])
       ]))
     }
   ]
