@@ -10,8 +10,7 @@ fn barOfBeat(beat) {
 }
 
 // Notes that OVERLAP `bar` (not just start in it — a held bass note starting earlier still sounds in
-// this bar), clipped to the bar and returned relative to bar 0. This is what makes "save 1 bar" of a
-// sustained note actually capture it.
+// this bar), clipped to the bar and returned relative to bar 0. Used by LOAD-1-bar.
 fn notesClippedToBar(notes, bar) {
   let out = []
   if (!notes) {
@@ -30,6 +29,37 @@ fn notesClippedToBar(notes, bar) {
       let dur = ce - cs
       if (dur > 0.0001) {
         out.push({ startBeat: cs - barStart, durBeats: dur, pitch: n.pitch, vel: n.vel })
+      }
+    }
+    i = i + 1
+  }
+  return out
+}
+
+// Notes that START inside `bar`, returned relative to bar 0 and clipped to the bar length. This mirrors
+// exactly what the sequencer's piano roll DRAWS for that bar (it renders a note only where the note
+// begins) — so SAVE-1-bar captures the bar you SEE, not held-over notes from earlier bars. A sustained
+// chord that begins in bar 0 therefore saves only from VIEW 1, and VIEW 2+ save an empty row, matching
+// the rack.
+fn notesStartingInBar(notes, bar) {
+  let out = []
+  if (!notes) {
+    return out
+  }
+  let barStart = bar * 4
+  let barEnd = barStart + 4
+  let i = 0
+  while (i < notes.length) {
+    let n = notes[i]
+    let ns = n.startBeat
+    if (ns >= barStart - 0.0001 && ns < barEnd - 0.0001) {
+      let ce = ns + n.durBeats
+      if (ce > barEnd) {
+        ce = barEnd
+      }
+      let dur = ce - ns
+      if (dur > 0.0001) {
+        out.push({ startBeat: ns - barStart, durBeats: dur, pitch: n.pitch, vel: n.vel })
       }
     }
     i = i + 1
@@ -478,8 +508,9 @@ export fn sessionWriteRackBarToSceneClip(project, sceneIdx, barIdx) {
       oneSteps.push(makeStep(st ? st.on : false, st && st.vel != null ? st.vel : 100))
       i = i + 1
     }
-    // Notes sounding in the viewed bar (incl. held notes that started earlier), clipped to the bar.
-    let oneNotes = notesClippedToBar(ch.pianoNotes ? ch.pianoNotes : [], srcBar)
+    // Notes the rack actually SHOWS in the viewed bar — those that START there (mirrors the piano roll),
+    // not held-over notes from earlier bars. Save the bar you see, with no carry-in from the preset.
+    let oneNotes = notesStartingInBar(ch.pianoNotes ? ch.pianoNotes : [], srcBar)
     let onePitch = null
     if (ch.stepPitchByBar && srcBar < ch.stepPitchByBar.length) {
       onePitch = [ch.stepPitchByBar[srcBar]]

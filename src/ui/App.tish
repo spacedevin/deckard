@@ -808,9 +808,6 @@ export fn App() {
   let tabPatch = workspaceTab === "patch" ? "deck-tab deck-tab-active" : "deck-tab"
   let tabInstr = workspaceTab === "instrument" ? "deck-tab deck-tab-active" : "deck-tab"
 
-  if (typeof window !== "undefined") {
-    window.__dk = { project: project, rt: rt }
-  }
   return <div class="daw-root">
     <header class="daw-header">
       <h1 class="logo">{"Deckard"}</h1>

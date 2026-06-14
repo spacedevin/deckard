@@ -318,17 +318,26 @@ loadSceneBarIntoRack(pbBar, 0, 1)                   // LOAD 1 BAR into the viewe
 let pbc2 = pbBar.channels[0]
 check("load 1 bar: drops the bar into the viewed bar, leaves bar 0", pbc2.steps[28].on === true && pbc2.steps[0].on === true)
 
-// 5o. SAVE 1 BAR must capture a HELD note that STARTED in an earlier bar (the nebula-bass empty bug).
+// 5o. SAVE 1 BAR captures exactly the bar the rack SHOWS: notes that START in the viewed bar, NOT a
+// held note carried over from an earlier bar. The piano roll only draws a note where it begins, so a
+// chord held from bar 0 must be EMPTY on view 2 — saving view 2 must match what's on screen.
 let hnProj = loadDefaultDeckardProject().project
 ensureProjectSession(hnProj)
 setRackBars(hnProj, 2, false)
 let hnc = hnProj.channels[3]
 hnc.patternBars = 2
-hnc.pianoNotes = [{ startBeat: 0, durBeats: 8, pitch: 36, vel: 100 }]   // one note held across both bars
+hnc.pianoNotes = [
+  { startBeat: 0, durBeats: 8, pitch: 36, vel: 100 },                   // held across both bars (starts bar 0)
+  { startBeat: 5, durBeats: 1, pitch: 48, vel: 100 }                    // starts IN bar 1 (beat 5 = bar 1, beat 1)
+]
 sessionWriteRackBarToSceneClip(hnProj, 1, 1)                            // SAVE 1 BAR from bar 1 (view 2) → P2
 let hnClip = findClipOnChannel(hnc, hnc.id + "_sc1")
-check("save 1 bar: held note from an earlier bar is captured (not empty)", hnClip.pianoNotes.length === 1)
-check("save 1 bar: held note clipped to the viewed bar", hnClip.pianoNotes[0].startBeat === 0 && Math.abs(hnClip.pianoNotes[0].durBeats - 4) < 0.01)
+check("save 1 bar: held note from bar 0 is NOT carried into bar 1's save", !hnClip.pianoNotes.some(n => n.pitch === 36))
+check("save 1 bar: a note that STARTS in the viewed bar is captured, bar-relative", hnClip.pianoNotes.length === 1 && hnClip.pianoNotes[0].pitch === 48 && Math.abs(hnClip.pianoNotes[0].startBeat - 1) < 0.01)
+// And saving VIEW 1 (bar 0) captures the held chord, since that's where it begins / is drawn.
+sessionWriteRackBarToSceneClip(hnProj, 0, 0)
+let hnClip0 = findClipOnChannel(hnc, hnc.id + "_sc0")
+check("save 1 bar: the held note IS captured from the bar it starts in (view 1)", hnClip0.pianoNotes.some(n => n.pitch === 36 && n.startBeat === 0))
 
 // 5p. SAVE 1 BAR of a TILED stepped pattern (patternBars=4 but only 16 steps) — the nebula bass bug:
 // reading bar 1 must wrap to the tiled steps, not run off the end → empty.
