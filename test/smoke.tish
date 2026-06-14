@@ -1,7 +1,7 @@
 // Headless smoke test: TPL round-trip, incremental decode, skill-gating, co-DJ permissions.
 // Run: npm test  (builds to JS and runs under node — the same target the browser app uses).
 import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
-import { emitProject } from '../src/tpl/Emit.tish'
+import { emitProject, emitLivePlayback } from '../src/tpl/Emit.tish'
 import { applyTplSource, findChannelById } from '../src/tpl/Apply.tish'
 import { applyCoDjTplSource } from '../src/codj/Merge.tish'
 import { createTplLineStream, tplLineStreamPush } from '../src/tpl/Stream.tish'
@@ -282,6 +282,23 @@ check("override: holds through a scene advance", ovRt.sessionArmedClipIds[0] ===
 ovRt.trackOverrides[0] = null                   // release the override
 armSceneWithOverrides(ovProj, ovRt, 0)
 check("override: released track returns to following the scene", ovRt.sessionArmedClipIds[0] === sceneSlotClipId(ovProj, 0, 0))
+
+// 5m. Multiplayer A — co-DJ stream reflects the ARMED pattern, not the edit rack.
+let lpProj = loadDefaultDeckardProject().project
+ensureProjectSession(lpProj)
+let lpCh = lpProj.channels[0]
+clearAllSteps(lpCh); toggleStep(lpCh, 0); sessionWriteRackToSceneClip(lpProj, 0)   // P1: step 0
+clearAllSteps(lpCh); toggleStep(lpCh, 8); sessionWriteRackToSceneClip(lpProj, 1)   // P2: step 8 (rack now shows P2)
+let lpRt = { playMode: "song", sessionArmedClipIds: [], trackOverrides: [] }
+sessionArmScene(lpProj, lpRt, 0)                                                   // arm P1 live
+let liveTpl = emitLivePlayback(lpProj, lpRt)
+let lpOut = emptyProjectShell(); applyTplSource(lpOut, liveTpl)
+check("mp A: stream carries the armed pattern (P1 step0), not the rack (P2 step8)", lpOut.channels[0].steps[0].on && !lpOut.channels[0].steps[8].on)
+check("mp A: emitting the live view leaves the rack untouched", lpCh.steps[8].on && !lpCh.steps[0].on)
+lpRt.playMode = "sequence"
+let seqTpl = emitLivePlayback(lpProj, lpRt)
+let lpOut2 = emptyProjectShell(); applyTplSource(lpOut2, seqTpl)
+check("mp A: sequence mode streams the rack (P2 step8)", lpOut2.channels[0].steps[8].on && !lpOut2.channels[0].steps[0].on)
 
 // 6. Every stem deck set parses cleanly into >= 5 stems (the deck.tsx conversions)
 let cat = deckSetCatalog()

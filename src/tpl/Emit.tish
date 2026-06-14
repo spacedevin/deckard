@@ -2,7 +2,7 @@ import { formatTplBeat, formatTplFloat } from './Format.tish'
 import { camelToSnake } from './RegistryMap.tish'
 import { mixParamToTpl } from '../audio/MixerAutomation.tish'
 import { collectActorLanes } from '../model/MixerRouting.tish'
-import { syncAllMainClipsFromChannels, ensureProjectSession } from '../model/Session.tish'
+import { syncAllMainClipsFromChannels, ensureProjectSession, playbackClipForChannel } from '../model/Session.tish'
 
 export fn generatorIdToTpl(id) {
   if (id === "noiseBurst") {
@@ -21,7 +21,13 @@ export fn generatorIdToTpl(id) {
 }
 
 export fn emitProject(project) {
-  syncAllMainClipsFromChannels(project)
+  return emitProjectInner(project, false)
+}
+
+export fn emitProjectInner(project, skipSync) {
+  if (!skipSync) {
+    syncAllMainClipsFromChannels(project)
+  }
   ensureProjectSession(project)
   let o = "tpl 1\n"
   o = o + "bpm " + formatTplFloat(project.bpm) + "\n\n"
@@ -435,4 +441,60 @@ export fn emitProject(project) {
   }
 
   return o
+}
+
+/**
+ * Emit the project as TPL reflecting what is ACTUALLY PLAYING right now, not the rack you are editing.
+ * In song mode each channel's body becomes its currently-armed session clip (honouring per-track
+ * overrides); a track armed to silence emits an empty bar; in sequence mode it falls back to the rack.
+ * This is what a co-DJ streams so collaborators hear your launches, not your edit buffer. The channel
+ * pattern fields are swapped in place, emitted, then restored — and main-clip sync is skipped so the
+ * saved clips are never clobbered by the temporary swap.
+ */
+export fn emitLivePlayback(project, rt) {
+  if (!project || !project.channels) {
+    return emitProject(project)
+  }
+  let saved = []
+  let i = 0
+  while (i < project.channels.length) {
+    let ch = project.channels[i]
+    saved.push({
+      steps: ch.steps,
+      pianoNotes: ch.pianoNotes,
+      patternBars: ch.patternBars,
+      stepPitchByBar: ch.stepPitchByBar
+    })
+    let clip = playbackClipForChannel(project, rt, i)
+    if (clip && clip.silent) {
+      let empty = []
+      let z = 0
+      while (z < 16) {
+        empty.push({ on: false, vel: 100 })
+        z = z + 1
+      }
+      ch.steps = empty
+      ch.pianoNotes = []
+      ch.patternBars = 1
+      ch.stepPitchByBar = null
+    } else if (clip) {
+      ch.steps = clip.steps
+      ch.pianoNotes = clip.pianoNotes
+      ch.patternBars = clip.bars != null ? clip.bars : 1
+      ch.stepPitchByBar = clip.stepPitchByBar != null ? clip.stepPitchByBar : null
+    }
+    i = i + 1
+  }
+  let out = emitProjectInner(project, true)
+  let j = 0
+  while (j < project.channels.length) {
+    let ch = project.channels[j]
+    let s = saved[j]
+    ch.steps = s.steps
+    ch.pianoNotes = s.pianoNotes
+    ch.patternBars = s.patternBars
+    ch.stepPitchByBar = s.stepPitchByBar
+    j = j + 1
+  }
+  return out
 }
