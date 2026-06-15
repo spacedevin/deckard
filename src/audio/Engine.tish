@@ -250,6 +250,26 @@ export fn ensureAudio(project, store) {
   store.masterComp = comp
   store.analyser = analyser
   store.ctx = ctx
+  // Audio-thread clock: an AudioWorklet that pumps ~20ms ticks immune to main-thread/background-tab
+  // throttling. Loads async; until ready (or if unavailable) the scheduler uses a setTimeout fallback.
+  store.clockNode = null
+  if (typeof ctx.audioWorklet !== "undefined" && ctx.audioWorklet && ctx.audioWorklet.addModule) {
+    let pmod = ctx.audioWorklet.addModule("/clock-worklet.js")
+    if (pmod && pmod.then) {
+      pmod.then(() => {
+        let node = new AudioWorkletNode(ctx, "deckard-clock")
+        node.connect(ctx.destination)
+        store.clockNode = node
+        if (store.onClockReady) {
+          store.onClockReady()
+        }
+      }, (e) => {
+        if (typeof console !== "undefined" && console.warn) {
+          console.warn("[Deckard] clock worklet unavailable, using setTimeout fallback", e)
+        }
+      })
+    }
+  }
   store.master = masterGain
   store.masterSum = masterSum
   store.masterEq = { lo: mLo, mid: mMid, hi: mHi }

@@ -5,7 +5,7 @@ import { expandTriggerPitches } from './NoteExpand.tish'
 import { tplLoopOnBarBoundary, tplLoopSkipsChannel } from '../tpl/LoopState.tish'
 import { playbackClipForChannel, clipPatternSpanSteps } from '../model/Session.tish'
 
-export fn transportTick(project, store, globalStep, rt) {
+export fn transportTick(project, store, globalStep, rt, whenSec) {
   if (!store.ctx) {
     return
   }
@@ -13,7 +13,9 @@ export fn transportTick(project, store, globalStep, rt) {
   let beat = globalStep * 0.25
   updateMixerFromProject(project, store, beat)
   let ctx = store.ctx
-  let t = ctx.currentTime + 0.04
+  // Lookahead scheduler passes the EXACT audio-clock time this step should sound; legacy callers omit it
+  // and fall back to a small fixed lookahead from "now".
+  let t = whenSec != null ? Number(whenSec) : ctx.currentTime + 0.04
   let bend = 0
   if (project.automation && project.automation.pitchBend && project.automation.pitchBend.length > 0) {
     let stepInBar = globalStep % 16

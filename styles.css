@@ -723,6 +723,31 @@ input[type="range"]::-moz-range-thumb {
   font-size: 0.72rem;
   letter-spacing: 0.04em;
 }
+
+/* Transport health readout (target vs true BPM, scheduler buffer margin, underruns). Direct-DOM updated. */
+.bpm-debug {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 4px;
+  white-space: nowrap;
+  color: #6a6a72;
+}
+.bpm-debug.ok {
+  color: var(--accent-green, #7cff7c);
+  border-color: rgba(124, 255, 124, 0.35);
+}
+.bpm-debug.warn {
+  color: #e8b34a;
+  border-color: rgba(232, 179, 74, 0.5);
+}
+.bpm-debug.bad {
+  color: #ff6b6b;
+  border-color: rgba(255, 107, 107, 0.6);
+  box-shadow: inset 0 0 0 1px rgba(255, 107, 107, 0.15);
+}
 .quant-select {
   background: var(--bg);
   border: 1px solid var(--border);

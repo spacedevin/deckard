@@ -6,6 +6,7 @@ import { CodeDebugView } from './CodeDebugView.tish'
 import { migrateProjectGenerators } from '../model/Migrate.tish'
 import { ensureAudio, updateMixerFromProject, resyncAllChannelBuses } from '../audio/Engine.tish'
 import { transportTick } from '../audio/Playback.tish'
+import { secondsPerStep } from '../audio/Scheduler.tish'
 import { tplLoopResetAll } from '../tpl/LoopState.tish'
 import { TransportBar } from './Transport.tish'
 import { MasterMixerStrip, ActorMixerStrip, TrackMixerStrip } from './Mixer.tish'
@@ -72,6 +73,13 @@ if (initialDeckardBoot.errors.length > 0 && typeof console !== "undefined" && co
 let audioStore = {}
 let playbackTimer = null
 let globalTick = 0
+// Lookahead scheduler ("two clocks"): notes are scheduled ahead on the audio clock so timer jitter
+// can't drift the audio. nextStepSec = audio-clock time of the step at globalTick; drawQueue feeds the
+// rAF visual loop so the playhead lands when the audio actually sounds.
+let nextStepSec = 0
+let drawQueue = []
+let schedRafId = 0
+let LOOKAHEAD_SEC = 0.1
 // Preview runs on its OWN clock, fully independent of the live (Sequence/Session) transport.
 let previewTimer = null
 let previewTick = 0
@@ -427,49 +435,37 @@ export fn App() {
       rt.songSceneEndTick = null
     }
     rt.playing = true
-    rt.transportNextTick = 0
-    // Self-scheduling tick: the step interval is recomputed from the LIVE project.bpm every step,
-    // so tempo changes (local edits or a master actor's `bpm` line) take effect without restart.
-    fn stepMs() {
-      let r = rtRef.current
-      let p = r.project
-      let b = p && typeof p.bpm === "number" ? p.bpm : 120
-      if (b < 40) {
-        b = 40
-      }
-      if (b > 300) {
-        b = 300
-      }
-      return (60 / b / 4) * 1000
-    }
-    fn playbackTick() {
-      let r = rtRef.current
-      if (!r.playing) {
-        return
-      }
-      let p = r.project
+    rt.transportNextTick = globalTick
+    // Seed the lookahead cursor a hair ahead of the audio clock; reset perf + visual state.
+    nextStepSec = ctx.currentTime + 0.06
+    drawQueue = []
+    rt.trueBpm = null
+    rt.lastPlayedSec = null
+    rt.schedUnderruns = 0
+    rt.schedMarginMs = LOOKAHEAD_SEC * 1000
+
+    // All the non-audio per-step bookkeeping (session/song advance, co-DJ flush, prune), for ONE step.
+    // Pure of timing: `when` is the exact audio-clock time the step sounds; visuals are deferred to the
+    // draw loop so they land with the audio, not ~lookahead early.
+    fn scheduleStep(p, r, step, when) {
       let barSteps = coDjStepsPerBar()
-      // Launch quantize: clip / scene launches drop on the next multiple of `qSteps` (1/4 … 2 bars);
-      // the song chain still auto-advances on whole-bar boundaries.
       let qSteps = typeof r.launchQuantSteps === "number" && r.launchQuantSteps >= 1
         ? Math.floor(r.launchQuantSteps)
         : barSteps
-      let onQuant = qSteps > 0 && globalTick % qSteps === 0
-      let onBar = barSteps > 0 && globalTick % barSteps === 0
+      let onQuant = qSteps > 0 && step % qSteps === 0
+      let onBar = barSteps > 0 && step % barSteps === 0
       if ((onQuant || onBar) && p) {
         if (r.playMode === "song") {
           let armedChanged = false
-          // A full pattern LAUNCH takes precedence: commit it, clear per-track overrides, restart chain.
           if (r.sessionQueuePending) {
             if (onQuant && sessionCommitQueued(p, r)) {
               r.trackOverrides = []
               r.trackPending = []
               r.songScene = r.sessionActiveScene
-              r.songSceneEndTick = globalTick + sceneBarLength(p, r.songScene) * barSteps
+              r.songSceneEndTick = step + sceneBarLength(p, r.songScene) * barSteps
               armedChanged = true
             }
           } else {
-            // Per-track clip launches land on the quantize boundary without restarting the song chain.
             if (onQuant && r.trackPending && r.trackPending.length > 0) {
               if (!r.sessionArmedClipIds) {
                 r.sessionArmedClipIds = []
@@ -483,13 +479,10 @@ export fn App() {
               r.trackPending = []
               armedChanged = true
             }
-            if (onBar && r.songSceneEndTick != null && globalTick >= r.songSceneEndTick) {
-              // The current pattern has played its length — advance via per-scene follow actions, the
-              // explicit arrangement, or the derived order, keeping per-track overrides on the new scene.
+            if (onBar && r.songSceneEndTick != null && step >= r.songSceneEndTick) {
               let cur = r.songScene != null ? r.songScene : 0
               let nxt = songAdvance(p, r, cur)
               if (nxt < 0) {
-                // A follow action said STOP — end the song.
                 r.songStopRequested = true
               } else {
                 if (nxt !== cur) {
@@ -497,68 +490,161 @@ export fn App() {
                   r.songScene = nxt
                   armedChanged = true
                 }
-                r.songSceneEndTick = globalTick + sceneBarLength(p, nxt) * barSteps
+                r.songSceneEndTick = step + sceneBarLength(p, nxt) * barSteps
               }
             }
           }
           if (armedChanged) {
             bumpSessionUi()
-            // Stream the new armed pattern so collaborators follow — effective one bar ahead for lead.
-            coDjPushLive(p, r, globalTick + barSteps)
+            coDjPushLive(p, r, step + barSteps)
           }
         } else if (onQuant) {
-          // Sequence mode: nothing to advance, but honour any pending queue commit.
           if (sessionCommitQueued(p, r)) {
             bumpSessionUi()
           }
         }
-        // Host clock heartbeat (once per bar): followers lock their playhead to this.
         if (onBar && r.coDjPushClock) {
-          r.coDjPushClock(globalTick, r.songScene != null ? r.songScene : null)
+          r.coDjPushClock(step, r.songScene != null ? r.songScene : null)
         }
       }
-      if (globalTick % 64 === 0) {
+      if (step % 64 === 0) {
         if (p && audioStore.buses) {
-          let res = pruneStaleTracks(p, audioStore, globalTick, coDjTrackExpirySequences())
+          let res = pruneStaleTracks(p, audioStore, step, coDjTrackExpirySequences())
           if (res.removedCount > 0 && r.setProject) {
             r.setProject(p)
           }
-          if (
-            res.removedCount > 0 &&
-            r.setSelectedCh &&
-            typeof r.selectedCh === "number" &&
-            r.selectedCh >= p.channels.length
-          ) {
+          if (res.removedCount > 0 && r.setSelectedCh && typeof r.selectedCh === "number" && r.selectedCh >= p.channels.length) {
             r.setSelectedCh(p.channels.length > 0 ? p.channels.length - 1 : 0)
           }
         }
         if (r.consumePlayedBlocks) {
-          r.consumePlayedBlocks(globalTick)
+          r.consumePlayedBlocks(step)
         }
       }
-      r.perfStep = globalTick
-      coDjFlushScheduledForStep(globalTick, r)
-      transportTick(r.project, audioStore, globalTick, r)
-      if (r.setPlaybackHighlight) {
-        r.setPlaybackHighlight(globalTick % 16, true)
-      }
-      if (r.updateGridPlayhead) {
-        r.updateGridPlayhead(globalTick, true)
-      }
-      globalTick = globalTick + 1
-      r.transportNextTick = globalTick
+      r.perfStep = step
+      coDjFlushScheduledForStep(step, r)
+      // THE audio: schedule this step's notes at the EXACT audio time `when` (jitter-immune).
+      transportTick(r.project, audioStore, step, r, when)
       if (r.sessionQueuePending && r.bumpSeqPromoteUi) {
         r.bumpSeqPromoteUi()
       }
-      // A follow action's STOP ends the song — halt the transport instead of rescheduling the tick.
-      if (r.songStopRequested) {
-        r.songStopRequested = false
-        onStop()
+    }
+
+    // The scheduler: on each clock pump, schedule every step whose audio-time is within the lookahead
+    // window. nextStepSec advances by secondsPerStep on the AUDIO clock → self-correcting, no drift.
+    fn runScheduler() {
+      let r = rtRef.current
+      if (!r.playing) {
         return
       }
-      playbackTimer = setTimeout(playbackTick, stepMs())
+      let ctx2 = audioStore.ctx
+      if (!ctx2) {
+        return
+      }
+      let p = r.project
+      let now = ctx2.currentTime
+      let horizon = now + LOOKAHEAD_SEC
+      let safety = 0
+      while (nextStepSec < horizon && safety < 256) {
+        if (nextStepSec < now) {
+          r.schedUnderruns = (r.schedUnderruns != null ? r.schedUnderruns : 0) + 1
+        }
+        scheduleStep(p, r, globalTick, nextStepSec)
+        drawQueue.push({ step: globalTick, when: nextStepSec })
+        globalTick = globalTick + 1
+        r.transportNextTick = globalTick
+        nextStepSec = nextStepSec + secondsPerStep(p && typeof p.bpm === "number" ? p.bpm : 120)
+        safety = safety + 1
+        if (r.songStopRequested) {
+          r.songStopRequested = false
+          onStop()
+          return
+        }
+      }
+      r.schedMarginMs = (nextStepSec - now) * 1000
+      // setTimeout fallback pump only while the worklet clock isn't driving us.
+      if (!audioStore.clockNode) {
+        if (playbackTimer) {
+          clearTimeout(playbackTimer)
+        }
+        playbackTimer = setTimeout(runScheduler, 25)
+      }
     }
-    playbackTimer = setTimeout(playbackTick, stepMs())
+
+    // Visual draw loop (rAF): fire playhead/grid highlights + the perf readout when the audio clock
+    // reaches each scheduled step, so visuals track the sound rather than the ~lookahead-early schedule.
+    fn drawLoop() {
+      let r = rtRef.current
+      if (!r.playing) {
+        schedRafId = 0
+        return
+      }
+      let ctx2 = audioStore.ctx
+      if (ctx2) {
+        let now = ctx2.currentTime
+        let lastFired = -1
+        let keep = []
+        let i = 0
+        while (i < drawQueue.length) {
+          let item = drawQueue[i]
+          if (item.when <= now) {
+            lastFired = item.step
+            if (r.lastPlayedSec != null) {
+              let dt = item.when - r.lastPlayedSec
+              if (dt > 0.0001) {
+                let inst = 60 / (dt * 4)
+                r.trueBpm = r.trueBpm != null ? (r.trueBpm * 0.85 + inst * 0.15) : inst
+              }
+            }
+            r.lastPlayedSec = item.when
+          } else {
+            keep.push(item)
+          }
+          i = i + 1
+        }
+        drawQueue = keep
+        if (lastFired >= 0) {
+          if (r.setPlaybackHighlight) {
+            r.setPlaybackHighlight(lastFired % 16, true)
+          }
+          if (r.updateGridPlayhead) {
+            r.updateGridPlayhead(lastFired, true)
+          }
+        }
+        r.drawFrame = (r.drawFrame != null ? r.drawFrame : 0) + 1
+        if (r.setBpmReadout && r.drawFrame % 10 === 0) {
+          let tgt = r.project && typeof r.project.bpm === "number" ? r.project.bpm : 120
+          r.setBpmReadout(tgt, r.trueBpm, r.schedMarginMs, r.schedUnderruns)
+        }
+      }
+      schedRafId = requestAnimationFrame(drawLoop)
+    }
+
+    // Pump source: the audio-thread worklet clock if available, else a 25ms setTimeout. The worklet may
+    // finish loading mid-play — onClockReady re-binds the pump to it then.
+    fn startPump() {
+      if (audioStore.clockNode && audioStore.clockNode.port) {
+        audioStore.clockNode.port.onmessage = () => {
+          runScheduler()
+        }
+      } else {
+        if (playbackTimer) {
+          clearTimeout(playbackTimer)
+        }
+        playbackTimer = setTimeout(runScheduler, 25)
+      }
+    }
+    audioStore.onClockReady = () => {
+      if (rtRef.current && rtRef.current.playing) {
+        startPump()
+      }
+    }
+    runScheduler()
+    startPump()
+    if (schedRafId) {
+      cancelAnimationFrame(schedRafId)
+    }
+    schedRafId = requestAnimationFrame(drawLoop)
     setPlaying(true)
     if (rt.coDjNotifyPlaying) {
       rt.coDjNotifyPlaying(true)
@@ -766,6 +852,15 @@ export fn App() {
       clearTimeout(playbackTimer)
       playbackTimer = null
     }
+    // Tear down the lookahead scheduler's pump + draw loop.
+    if (schedRafId) {
+      cancelAnimationFrame(schedRafId)
+      schedRafId = 0
+    }
+    if (audioStore.clockNode && audioStore.clockNode.port) {
+      audioStore.clockNode.port.onmessage = null
+    }
+    drawQueue = []
     rt.playing = false
     rt.transportNextTick = null
     if (rt.setPlaybackHighlight) {
@@ -779,6 +874,37 @@ export fn App() {
   rt.stopPlayback = onStop
   rt.onPlaySequence = () => onPlay("sequence")
   rt.onPlaySong = () => onPlay("song")
+
+  // Perf debug readout (direct-DOM, no React churn): target vs measured BPM, the scheduler's lookahead
+  // buffer margin (headroom before audio underruns), and an underrun count. Colour = health.
+  rt.setBpmReadout = (target, trueBpm, marginMs, underruns) => {
+    if (typeof document === "undefined") {
+      return
+    }
+    let el = document.querySelector(".bpm-debug")
+    if (!el) {
+      return
+    }
+    let tb = trueBpm != null ? Math.round(Number(trueBpm) * 10) / 10 : null
+    let mm = marginMs != null ? Math.round(Number(marginMs)) : null
+    let ur = underruns != null ? Math.floor(Number(underruns)) : 0
+    let txt = "TGT " + String(Math.round(Number(target)))
+    txt = txt + " · TRUE " + (tb != null ? String(tb) : "—")
+    txt = txt + " · BUF " + (mm != null ? String(mm) + "ms" : "—")
+    if (ur > 0) {
+      txt = txt + " · ✕" + String(ur)
+    }
+    el.textContent = txt
+    let cls = "bpm-debug ok"
+    if (ur > 0) {
+      cls = "bpm-debug bad"
+    } else if (mm != null && mm < 25) {
+      cls = "bpm-debug warn"
+    } else if (tb != null && Number(target) - tb > 2) {
+      cls = "bpm-debug warn"
+    }
+    el.className = cls
+  }
 
   // ---- Live transport: Sequence ⟷ Session on ONE shared clock ----------------------------------
   // Toggle the live source. Stopped → just selects what Play uses. Playing → flips the source LIVE on

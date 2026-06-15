@@ -1,0 +1,59 @@
+// Pure helpers for the lookahead ("two clocks") transport scheduler. No DOM / no audio nodes — these
+// are unit-testable. The scheduler schedules every step whose audio-clock time falls within a lookahead
+// window, advancing self-correctingly by the per-step duration so there is no accumulated drift.
+
+/** Seconds per 16th-note step at `bpm` (clamped to the transport's 40..300 range, matching stepMs). */
+export fn secondsPerStep(bpm) {
+  let b = typeof bpm === "number" ? bpm : 120
+  if (b < 40) {
+    b = 40
+  }
+  if (b > 300) {
+    b = 300
+  }
+  return 60 / b / 4
+}
+
+/**
+ * Given the next step to play (`startStep` at audio-time `nextStepSec`), the current audio clock
+ * (`ctxNow`), a `lookahead` window, and the per-step duration `secPerStep`, return the batch of
+ * { step, when } to schedule now plus the advanced cursor. Self-correcting: `when` accumulates by
+ * `secPerStep` from the audio clock, never from wall-clock timer jitter. `maxBatch` caps a catch-up
+ * burst if the clock jumps (e.g. after a stall / tab resume) so we never loop unbounded.
+ *
+ * Returns { items: [{step, when}], nextStep, nextSec }.
+ */
+export fn stepsToScheduleInWindow(startStep, nextStepSec, ctxNow, lookahead, secPerStep, maxBatch) {
+  let out = []
+  let step = Math.floor(Number(startStep))
+  let when = Number(nextStepSec)
+  let sp = Number(secPerStep)
+  let limit = maxBatch != null && Math.floor(Number(maxBatch)) > 0 ? Math.floor(Number(maxBatch)) : 256
+  if (sp <= 0 || sp !== sp) {
+    return { items: out, nextStep: step, nextSec: when }
+  }
+  let horizon = Number(ctxNow) + Number(lookahead)
+  while (when < horizon && out.length < limit) {
+    out.push({ step: step, when: when })
+    step = step + 1
+    when = when + sp
+  }
+  return { items: out, nextStep: step, nextSec: when }
+}
+
+/** Count of scheduled items whose audio-time is already in the past relative to `ctxNow` (we were too
+ *  late to schedule them ahead — an underrun signal for the perf readout). */
+export fn underrunsInBatch(items, ctxNow) {
+  let n = 0
+  if (!items) {
+    return 0
+  }
+  let i = 0
+  while (i < items.length) {
+    if (Number(items[i].when) < Number(ctxNow)) {
+      n = n + 1
+    }
+    i = i + 1
+  }
+  return n
+}

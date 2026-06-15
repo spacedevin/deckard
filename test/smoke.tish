@@ -16,6 +16,7 @@ import { lookupMacro, expandMacroBody } from '../src/tpl/Macros.tish'
 import { resizeChannelBars, setRackBars, rackBars } from '../src/model/RackBars.tish'
 import { ensureProjectSession, sessionWriteRackToSceneClip, loadSceneIntoRack, sessionArmScene, playbackClipForChannel, firstSongScene, nextSongScene, sceneHasSavedClip, sceneBarLength, armSceneWithOverrides, sceneSlotClipId, findClipOnChannel, loadSceneBarIntoRack, sessionWriteRackBarToSceneClip, sessionStopTrack, sessionTrackStopped, sessionEffectiveArmedClipId, songStart, songAdvance, hasExplicitSong, normalizeSongEntries, setSceneFollow, sceneFollow, hasFollowActions, resolveFollowAction, detRand01 } from '../src/model/Session.tish'
 import { toggleStep, clearAllSteps } from '../src/model/Edits.tish'
+import { secondsPerStep, stepsToScheduleInWindow, underrunsInBatch } from '../src/audio/Scheduler.tish'
 
 let pass = 0
 let fail = 0
@@ -638,6 +639,43 @@ check("all 15 deck sets parse clean with >=5 stems", badSet === "")
 if (badSet !== "") {
   console.log("  -> offending set: " + badSet)
 }
+
+// 7. Lookahead scheduler helpers: self-correcting step advance, no accumulated drift.
+check("secondsPerStep: 120bpm = 0.125s per 16th", Math.abs(secondsPerStep(120) - 0.125) < 1e-9)
+check("secondsPerStep: clamps low bpm to 40", secondsPerStep(10) === secondsPerStep(40))
+check("secondsPerStep: clamps high bpm to 300", secondsPerStep(999) === secondsPerStep(300))
+// Normal cadence: scheduler just past a step, window 0.1s, 0.125s/step → schedules ~1 step ahead.
+let sp = secondsPerStep(120)
+let r1 = stepsToScheduleInWindow(0, 0.06, 0.0, 0.1, sp, 256)
+check("window: schedules the steps within lookahead", r1.items.length === 1 && r1.items[0].step === 0)
+check("window: advances cursor by one step", r1.nextStep === 1 && Math.abs(r1.nextSec - (0.06 + sp)) < 1e-9)
+check("window: nothing scheduled in the past under normal cadence", underrunsInBatch(r1.items, 0.0) === 0)
+// Self-correcting: 100 consecutive windows must land step N at exactly start + N*sp (no drift).
+let stepC = 0
+let secC = 0.0
+let now = 0.0
+let lastWhen = -1
+let drift = 0
+let iter = 0
+while (iter < 100) {
+  now = now + 0.05                                  // advance the (jittery) clock ~half a step
+  let rr = stepsToScheduleInWindow(stepC, secC, now, 0.1, sp, 256)
+  let k = 0
+  while (k < rr.items.length) {
+    let expected = rr.items[k].step * sp            // step N must be at exactly N * sp
+    if (Math.abs(rr.items[k].when - expected) > 1e-9) { drift = drift + 1 }
+    lastWhen = rr.items[k].when
+    k = k + 1
+  }
+  stepC = rr.nextStep
+  secC = rr.nextSec
+  iter = iter + 1
+}
+check("window: 100-iter run has ZERO accumulated drift", drift === 0)
+check("window: reached ~step 100 over 100 half-step ticks", stepC >= 38 && stepC <= 42)
+// Catch-up burst is capped by maxBatch (clock jumped far ahead, e.g. tab resume).
+let rb = stepsToScheduleInWindow(0, 0.0, 100.0, 0.1, sp, 8)
+check("window: maxBatch caps a runaway catch-up", rb.items.length === 8)
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))
