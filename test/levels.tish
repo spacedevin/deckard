@@ -9,6 +9,7 @@ import { emitProject } from '../src/tpl/Emit.tish'
 import { applyTplSource, findChannelById } from '../src/tpl/Apply.tish'
 import { emitLevel, retargetTpl, splitTplBlocks, levelList } from '../src/core/Levels.tish'
 import { createSetPresets } from '../src/core/SetPresets.tish'
+import { levelPresetList, addLevelPreset, findLevelPreset, removeLevelPreset } from '../src/model/LevelPresets.tish'
 
 let pass = 0
 let fail = 0
@@ -115,6 +116,18 @@ check("[set] export carries name tag", setExp.indexOf("# deckard-set name=Keep")
 let sets3 = createSetPresets({ read: () => null, write: (s) => {} })
 let setImp = sets3.importText(setExp, null)
 check("[set] import recovers the set", setImp != null && setImp.name === "Keep" && setImp.tpl.indexOf("bpm 99") >= 0)
+
+console.log("=== Contextual level presets (sequence/rack/session, in-project) ===")
+let lp = loadDefaultDeckardProject().project
+check("[lp] starts empty", levelPresetList(lp, "rack").length === 0)
+addLevelPreset(lp, "rack", "r1", "tpl 1\nbpm 100\n")
+addLevelPreset(lp, "rack", "r2", "tpl 1\nbpm 101\n")
+check("[lp] add appends", levelPresetList(lp, "rack").length === 2)
+check("[lp] find by name", findLevelPreset(lp, "rack", "r2") != null && findLevelPreset(lp, "rack", "r2").tpl.indexOf("bpm 101") >= 0)
+addLevelPreset(lp, "rack", "r1", "tpl 1\nbpm 999\n")
+check("[lp] save with same name upserts (no dupe)", levelPresetList(lp, "rack").length === 2 && findLevelPreset(lp, "rack", "r1").tpl.indexOf("bpm 999") >= 0)
+check("[lp] levels are independent", levelPresetList(lp, "sequence").length === 0 && levelPresetList(lp, "session").length === 0)
+check("[lp] remove drops it", removeLevelPreset(lp, "rack", "r1") === true && levelPresetList(lp, "rack").length === 1)
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))

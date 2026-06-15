@@ -2,6 +2,9 @@ import { useState, useRef, useEffect, h, Fragment } from '@tishlang/lattish'
 import { projectToJson, projectFromJson } from '../model/Project.tish'
 import { loadDefaultDeckardProject, loadProjectFromTpl } from '../model/ProjectLoad.tish'
 import { createSetPresets } from '../core/SetPresets.tish'
+import { emitLevel, retargetTpl } from '../core/Levels.tish'
+import { levelPresetList, addLevelPreset, findLevelPreset } from '../model/LevelPresets.tish'
+import { PresetBar } from './PresetBar.tish'
 import { emitProject, emitLivePlayback } from '../tpl/Emit.tish'
 import { CodeDebugView } from './CodeDebugView.tish'
 import { migrateProjectGenerators } from '../model/Migrate.tish'
@@ -988,6 +991,29 @@ export fn App() {
       }
     }, 0)
   }
+  // ---- Contextual level presets (sequence / rack / session): save the current level, load in-context.
+  fn savePreset(level) {
+    let nm = prompt("Save " + level + " preset as", level)
+    if (!nm || nm.length === 0) {
+      return
+    }
+    let scope = level === "sequence" && project.channels[selectedCh] ? project.channels[selectedCh].id : null
+    addLevelPreset(project, level, nm, emitLevel(project, level, scope))
+    setProjectFromUI(project)
+  }
+  fn loadPreset(level, nm) {
+    let pr = findLevelPreset(project, level, nm)
+    if (!pr) {
+      return
+    }
+    let tpl = pr.tpl
+    // A sequence preset is one channel's pattern — retarget it onto the channel you're editing.
+    if (level === "sequence" && project.channels[selectedCh]) {
+      tpl = retargetTpl(pr.tpl, project.channels[selectedCh])
+    }
+    rt.applyTpl(tpl)
+  }
+
   fn onLoadSet(nm) {
     let sp = setPresets.get(nm)
     if (!sp) {
@@ -1131,12 +1157,20 @@ export fn App() {
   if (workspaceTab === "sequencer") {
     // Sequencer (edit bench) and the session panel side by side. (Patterns side nav hidden for now —
     // its LOAD/SAVE/LAUNCH live on the session scene headers.)
+    let seqChName = project.channels[selectedCh] ? project.channels[selectedCh].name : ""
     mainWorkspace = (
       <div class="seq-session-split">
         <div class="seq-split-main">
+          <div class="preset-bars-row">
+            {PresetBar("Sequence", levelPresetList(project, "sequence"), (n) => loadPreset("sequence", n), () => savePreset("sequence"), seqChName)}
+            {PresetBar("Rack", levelPresetList(project, "rack"), (n) => loadPreset("rack", n), () => savePreset("rack"), "")}
+          </div>
           {StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt)}
         </div>
         <div class="seq-split-session" key={"sv-" + String(sessionUiGen) + "-" + String(seqPromoteUi)}>
+          <div class="preset-bars-row">
+            {PresetBar("Session", levelPresetList(project, "session"), (n) => loadPreset("session", n), () => savePreset("session"), "")}
+          </div>
           {SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, patternBank)}
         </div>
       </div>

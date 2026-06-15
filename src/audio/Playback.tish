@@ -5,22 +5,17 @@ import { expandTriggerPitches } from './NoteExpand.tish'
 import { tplLoopOnBarBoundary, tplLoopSkipsChannel } from '../tpl/LoopState.tish'
 import { playbackClipForChannel, clipPatternSpanSteps } from '../model/Session.tish'
 
-export fn transportTick(project, store, globalStep, rt, whenSec) {
-  if (!store.ctx) {
-    return
-  }
+/**
+ * PURE note selection: which notes fire at `globalStep`, given ONLY the fold (project) + the performance
+ * runtime (rt: arp state, armed clips, tpl-loop state). No audio / no store. Returns a list of
+ * { busIndex, pitch, vel, durSec, beat } — the musical content of this step. This is the single source of
+ * truth for "what sounds": transportTick maps it to playHitAt, and tests compare it across peers to prove
+ * a host and guest hear EXACTLY the same thing (identical fold + step ⇒ identical triggers). It advances
+ * rt.arpState / tpl-loop state exactly like playback, so callers must invoke it once per played step.
+ */
+export fn stepTriggers(project, rt, globalStep) {
   tplLoopOnBarBoundary(project, globalStep, rt)
-  let beat = globalStep * 0.25
-  updateMixerFromProject(project, store, beat)
-  let ctx = store.ctx
-  // Lookahead scheduler passes the EXACT audio-clock time this step should sound; legacy callers omit it
-  // and fall back to a small fixed lookahead from "now".
-  let t = whenSec != null ? Number(whenSec) : ctx.currentTime + 0.04
-  let bend = 0
-  if (project.automation && project.automation.pitchBend && project.automation.pitchBend.length > 0) {
-    let stepInBar = globalStep % 16
-    bend = automationAt(project.automation.pitchBend, stepInBar * 0.25)
-  }
+  let out = []
   let bi = 0
   while (bi < project.channels.length) {
     if (!channelAudible(project, bi)) {
@@ -32,7 +27,6 @@ export fn transportTick(project, store, globalStep, rt, whenSec) {
       continue
     }
     let ch = project.channels[bi]
-    let bus = store.buses[bi]
     let pclip = playbackClipForChannel(project, rt, bi)
     if (pclip && pclip.silent) {
       bi = bi + 1
@@ -54,11 +48,10 @@ export fn transportTick(project, store, globalStep, rt, whenSec) {
         let noteStep = Math.floor(n.startBeat * 4 + 0.0001)
         if (noteStep >= 0 && noteStep < span && stepInPat === noteStep) {
           let sec = (n.durBeats * 60) / project.bpm
-          let gch2 = generatorChannelAtBeat(project, ch, n.startBeat)
           let pitches = expandTriggerPitches(ch, n.pitch, rt)
           let pk = 0
           while (pk < pitches.length) {
-            playHitAt(ctx, bus, t, pitches[pk], n.vel, sec, gch2, bend)
+            out.push({ busIndex: bi, pitch: pitches[pk], vel: n.vel, durSec: sec, beat: n.startBeat })
             pk = pk + 1
           }
         }
@@ -67,7 +60,6 @@ export fn transportTick(project, store, globalStep, rt, whenSec) {
     } else {
       if (useSteps && useSteps.length > stepInPat && useSteps[stepInPat].on) {
         let dur = sixteenthSeconds(project.bpm) * 0.85
-        let gch = generatorChannelAtBeat(project, ch, beat)
         // Per-bar step pitch (step_pitch ... bar <sel>): pick the pitch for the current loop bar.
         let basePitch = ch.stepPitch
         if (ch.stepPitchByBar) {
@@ -79,11 +71,39 @@ export fn transportTick(project, store, globalStep, rt, whenSec) {
         let pitches = expandTriggerPitches(ch, basePitch, rt)
         let pk = 0
         while (pk < pitches.length) {
-          playHitAt(ctx, bus, t, pitches[pk], useSteps[stepInPat].vel, dur, gch, bend)
+          out.push({ busIndex: bi, pitch: pitches[pk], vel: useSteps[stepInPat].vel, durSec: dur, beat: globalStep * 0.25 })
           pk = pk + 1
         }
       }
     }
     bi = bi + 1
+  }
+  return out
+}
+
+export fn transportTick(project, store, globalStep, rt, whenSec) {
+  if (!store.ctx) {
+    return
+  }
+  let beat = globalStep * 0.25
+  updateMixerFromProject(project, store, beat)
+  let ctx = store.ctx
+  // Lookahead scheduler passes the EXACT audio-clock time this step should sound; legacy callers omit it
+  // and fall back to a small fixed lookahead from "now".
+  let t = whenSec != null ? Number(whenSec) : ctx.currentTime + 0.04
+  let bend = 0
+  if (project.automation && project.automation.pitchBend && project.automation.pitchBend.length > 0) {
+    let stepInBar = globalStep % 16
+    bend = automationAt(project.automation.pitchBend, stepInBar * 0.25)
+  }
+  // Selection (pure) → audio (the only difference between a real client and a headless one).
+  let triggers = stepTriggers(project, rt, globalStep)
+  let i = 0
+  while (i < triggers.length) {
+    let tr = triggers[i]
+    let bus = store.buses[tr.busIndex]
+    let gch = generatorChannelAtBeat(project, project.channels[tr.busIndex], tr.beat)
+    playHitAt(ctx, bus, t, tr.pitch, tr.vel, tr.durSec, gch, bend)
+    i = i + 1
   }
 }

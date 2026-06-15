@@ -1,0 +1,72 @@
+// Contextual presets for the in-project levels: sequence (a channel's pattern), rack (all channels),
+// session (scenes/song/follow). Same idea as instrument presets (project.instrumentPresets) — saved in
+// the project, loaded WHERE you edit that thing. Each preset is a named TPL fragment (from emitLevel), so
+// loading just routes its TPL through the gated ingest. Set presets are separate (whole-workspace, can't
+// nest in the project — see SetPresets.tish). NOT a global browser — that can't know the target.
+
+let LEVELS = ["sequence", "rack", "session"]
+
+export fn ensureLevelPresets(project) {
+  if (!project.levelPresets) {
+    project.levelPresets = {}
+  }
+  let i = 0
+  while (i < LEVELS.length) {
+    if (!project.levelPresets[LEVELS[i]]) {
+      project.levelPresets[LEVELS[i]] = []
+    }
+    i = i + 1
+  }
+}
+
+export fn levelPresetList(project, level) {
+  ensureLevelPresets(project)
+  let m = project.levelPresets[level]
+  return m ? m : []
+}
+
+export fn findLevelPreset(project, level, name) {
+  let list = levelPresetList(project, level)
+  let i = 0
+  while (i < list.length) {
+    if (list[i].name === name) {
+      return list[i]
+    }
+    i = i + 1
+  }
+  return null
+}
+
+// Upsert by name (saving with an existing name overwrites it).
+export fn addLevelPreset(project, level, name, tpl) {
+  ensureLevelPresets(project)
+  let list = project.levelPresets[level]
+  let i = 0
+  while (i < list.length) {
+    if (list[i].name === name) {
+      list[i] = { name: name, tpl: tpl }
+      return list[i]
+    }
+    i = i + 1
+  }
+  let row = { name: name, tpl: tpl }
+  list.push(row)
+  return row
+}
+
+export fn removeLevelPreset(project, level, name) {
+  let list = levelPresetList(project, level)
+  let out = []
+  let removed = false
+  let i = 0
+  while (i < list.length) {
+    if (list[i].name === name) {
+      removed = true
+    } else {
+      out.push(list[i])
+    }
+    i = i + 1
+  }
+  project.levelPresets[level] = out
+  return removed
+}

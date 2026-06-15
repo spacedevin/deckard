@@ -4386,3 +4386,13 @@ input[type="range"]::-moz-range-thumb {
 .set-btn { padding: 0.28rem 0.55rem; background: var(--panel, #15151b); color: var(--fg, #e8e8ea);
   border: 1px solid var(--border, #2a2a2a); border-radius: 5px; font-size: 0.72rem; cursor: pointer; }
 .set-import { display: inline-flex; align-items: center; cursor: pointer; }
+
+/* ---- Contextual level preset bars (sequence / rack / session) ---- */
+.preset-bars-row { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 0.5rem; }
+.preset-bar { display: inline-flex; align-items: center; gap: 0.35rem; }
+.preset-bar-label { color: var(--muted); font-size: 0.66rem; letter-spacing: 0.06em; text-transform: uppercase; }
+.preset-bar-select { padding: 0.24rem 0.45rem; background: var(--panel, #15151b); color: var(--fg, #e8e8ea);
+  border: 1px solid var(--border, #2a2a2a); border-radius: 5px; font-size: 0.72rem; max-width: 130px; }
+.preset-bar-save { padding: 0.24rem 0.5rem; background: var(--panel, #15151b); color: var(--fg, #e8e8ea);
+  border: 1px solid var(--border, #2a2a2a); border-radius: 5px; font-size: 0.7rem; cursor: pointer; }
+.preset-bar-scope { color: var(--muted); font-size: 0.66rem; font-style: italic; }

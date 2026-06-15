@@ -20,6 +20,8 @@ import { createEditor } from '../src/core/Edit.tish'
 import { isPrivateDirective, launchSceneDirective, transportPlayDirective, transportPreviewDirective, cueDirective, throwDirective } from '../src/codj/Launch.tish'
 import { setTrackOwner } from '../src/codj/CoDjMeta.tish'
 import { ensureProjectSession } from '../src/model/Session.tish'
+import { stepTriggers } from '../src/audio/Playback.tish'
+import { findChannelById as findCh2 } from '../src/tpl/Apply.tish'
 
 let pass = 0
 let fail = 0
@@ -231,6 +233,90 @@ let jStore = { project: joiner, runtime: {} }
 let jIng = createIngest(jStore)
 jIng.ingest(joinSrc, { actorId: "human", skillIds: ["master_mixer"], perfStep: 0 })
 check("[join] a fresh peer replaying the host's TPL reaches the identical fold", emitProject(joiner) === emitProject(host.project))
+
+console.log("=== REALISTIC live session: host plays, guest contributes, both hear 100% identical ===")
+// The acceptance test. host (master) is playing; guest OWNS one track and contributes to it mid-flight.
+// At EVERY played step we assert (a) both folds are byte-identical and (b) the exact set of notes that
+// SOUND is identical — stepTriggers() is the pure note-selection the audio engine maps to oscillators, so
+// identical triggers == identical audio. arp/chord state advances inside it, proving the performance
+// runtime stays in lockstep too, not just the document.
+let H = makePeer("human", ["master_mixer"])
+let G = makePeer("guestA", [])
+let live = [H, G]
+H.store.runtime.playMode = "sequence"   // both monitor the rack (ch.steps) on the shared clock
+G.store.runtime.playMode = "sequence"
+let GTRACK = H.project.channels[1].id    // the track the guest owns + contributes to
+let HDRUM = H.project.channels[0].id     // a host-owned track
+setTrackOwner(H.project, GTRACK, "guestA", "guestA")
+setTrackOwner(G.project, GTRACK, "guestA", "guestA")
+
+fn fp(triggers) {
+  let parts = []
+  let i = 0
+  while (i < triggers.length) {
+    parts.push(String(triggers[i].busIndex) + ":" + String(triggers[i].pitch) + ":" + String(triggers[i].vel))
+    i = i + 1
+  }
+  parts.sort()
+  return parts.join("|")
+}
+
+let foldMismatches = 0
+let soundMismatches = 0
+let sawGuestTrackAfterContribution = false
+let onPat = [true, false, false, false, true, false, false, false, true, false, false, false, true, false, false, false]
+let drumPat = [true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false]
+let step = 0
+while (step < 64) {
+  // Contributions land between steps (as a real edit would, before the next step is scheduled).
+  if (step === 16) {
+    // GUEST contributes to ITS track: an arpeggiated minor chord + a 4-on-the-floor pattern.
+    G.editor.emit("track/" + GTRACK + "/voice/chord", "minor")
+    G.editor.emit("track/" + GTRACK + "/voice/arp", "up")
+    G.editor.emit("track/" + GTRACK + "/steps", onPat)
+    deliver(live, G)
+  }
+  if (step === 32) {
+    // HOST contributes: changes a drum pattern.
+    H.editor.emit("track/" + HDRUM + "/steps", drumPat)
+    deliver(live, H)
+  }
+  if (step === 40) {
+    // GUEST tries to edit a HOST-owned track — must be DENIED on both, so sync is never broken.
+    G.editor.emit("track/" + HDRUM + "/mix/gain", 0.01)
+    deliver(live, G)
+  }
+  if (step === 48) {
+    // GUEST contributes again: its own track's gain.
+    G.editor.emit("track/" + GTRACK + "/mix/gain", 0.5)
+    deliver(live, G)
+  }
+
+  if (emitProject(H.project) !== emitProject(G.project)) {
+    foldMismatches = foldMismatches + 1
+  }
+  let tH = stepTriggers(H.project, H.store.runtime, step)
+  let tG = stepTriggers(G.project, G.store.runtime, step)
+  if (fp(tH) !== fp(tG)) {
+    soundMismatches = soundMismatches + 1
+  }
+  if (step > 16) {
+    let k = 0
+    while (k < tH.length) {
+      if (tH[k].busIndex === 1) {
+        sawGuestTrackAfterContribution = true
+      }
+      k = k + 1
+    }
+  }
+  step = step + 1
+}
+
+check("[live] folds byte-identical at every one of 64 steps", foldMismatches === 0)
+check("[live] host & guest schedule the EXACT same notes at every step (hear identical)", soundMismatches === 0)
+check("[live] the guest's contribution is actually audible on both", sawGuestTrackAfterContribution === true)
+// Authority held during live play: the guest's attempt to edit a host track never landed anywhere.
+check("[live] guest could NOT alter the host-owned track (gain unchanged)", Math.abs(findCh2(H.project, HDRUM).gain - findCh2(G.project, HDRUM).gain) < 1e-9 && Math.abs(findCh2(H.project, HDRUM).gain - 0.01) > 1e-9)
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))
