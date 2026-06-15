@@ -22,6 +22,7 @@ import { setTrackOwner } from '../src/codj/CoDjMeta.tish'
 import { ensureProjectSession } from '../src/model/Session.tish'
 import { stepTriggers } from '../src/audio/Playback.tish'
 import { findChannelById as findCh2 } from '../src/tpl/Apply.tish'
+import { channelDeckColor, channelPlayerIndex } from '../src/model/DeckRouting.tish'
 
 let pass = 0
 let fail = 0
@@ -317,6 +318,101 @@ check("[live] host & guest schedule the EXACT same notes at every step (hear ide
 check("[live] the guest's contribution is actually audible on both", sawGuestTrackAfterContribution === true)
 // Authority held during live play: the guest's attempt to edit a host track never landed anywhere.
 check("[live] guest could NOT alter the host-owned track (gain unchanged)", Math.abs(findCh2(H.project, HDRUM).gain - findCh2(G.project, HDRUM).gain) < 1e-9 && Math.abs(findCh2(H.project, HDRUM).gain - 0.01) > 1e-9)
+
+console.log("=== Deck colour is CANONICAL: same channel = same colour on host & guest ===")
+// The real 2-client situation: identical shared roster + host id, but DIFFERENT coDjSelfActorId per
+// client. The deck/colour of every channel must be identical on both — it's a function of order/owner,
+// never of who's viewing. (Regression guard for the viewer-relative colour bug.)
+let cpA = loadDefaultDeckardProject().project   // host's view
+let cpB = loadDefaultDeckardProject().project   // guest's view
+let roster = ["host-1", "guest-1"]
+cpA.coDjPlayers = roster
+cpB.coDjPlayers = roster
+cpA.coDjHostActorId = "host-1"
+cpB.coDjHostActorId = "host-1"
+cpA.coDjSelfActorId = "host-1"
+cpB.coDjSelfActorId = "guest-1"
+let ownedId = cpA.channels[1].id
+setTrackOwner(cpA, ownedId, "guest-1", "guest-1")
+setTrackOwner(cpB, ownedId, "guest-1", "guest-1")
+let colourMismatch = 0
+let idxMismatch = 0
+let ci2 = 0
+while (ci2 < cpA.channels.length) {
+  if (channelDeckColor(cpA, cpA.channels[ci2]) !== channelDeckColor(cpB, cpB.channels[ci2])) {
+    colourMismatch = colourMismatch + 1
+  }
+  if (channelPlayerIndex(cpA, cpA.channels[ci2]) !== channelPlayerIndex(cpB, cpB.channels[ci2])) {
+    idxMismatch = idxMismatch + 1
+  }
+  ci2 = ci2 + 1
+}
+check("[color] every channel has the SAME deck colour on host & guest", colourMismatch === 0)
+check("[color] every channel has the SAME player index on host & guest", idxMismatch === 0)
+check("[color] unclaimed channel = host deck A on BOTH", channelDeckColor(cpA, cpA.channels[0]) === "a" && channelDeckColor(cpB, cpB.channels[0]) === "a")
+check("[color] guest-owned channel = deck B on BOTH (by roster order)", channelDeckColor(cpA, cpA.channels[1]) === "b" && channelDeckColor(cpB, cpB.channels[1]) === "b")
+
+console.log("=== Multi-bar rack playback: sequence mode plays ALL bars, not just bar 1 ===")
+let mbp = loadDefaultDeckardProject().project
+let mbrt = { playMode: "sequence" }
+let mbch = mbp.channels[0]
+mbch.patternBars = 2
+mbch.pianoNotes = []
+let steps32 = []
+let z = 0
+while (z < 32) {
+  steps32.push({ on: z === 20, vel: 100 })   // single hit in BAR 2 (step 20)
+  z = z + 1
+}
+mbch.steps = steps32
+fn ch0FiresAt(step) {
+  let trg = stepTriggers(mbp, mbrt, step)
+  let i = 0
+  while (i < trg.length) {
+    if (trg[i].busIndex === 0) {
+      return true
+    }
+    i = i + 1
+  }
+  return false
+}
+check("[multibar] BAR-2 hit (step 20) fires", ch0FiresAt(20) === true)
+check("[multibar] bar-1 empty step (4) does NOT fire ch0", ch0FiresAt(4) === false)
+check("[multibar] loops at 2 bars: step 52 (=20 mod 32) fires", ch0FiresAt(52) === true)
+check("[multibar] step 36 (=4 mod 32, empty) does NOT fire", ch0FiresAt(36) === false)
+
+// The "Nebula Pulse bass" case: a 16-step rhythm that LOOPS every bar, with a different pitch per bar
+// (step_pitch ... bar). The rhythm must sound in every bar, at the right per-bar pitch.
+let pbp = loadDefaultDeckardProject().project
+let pbrt = { playMode: "sequence" }
+let pbch = pbp.channels[0]
+pbch.patternBars = 4
+pbch.pianoNotes = []
+pbch.stepPitch = 36
+pbch.stepPitchByBar = [36, 34, 32, 34]
+let s16 = []
+let q = 0
+while (q < 16) {
+  s16.push({ on: q === 0, vel: 100 })   // one hit per bar (step 0)
+  q = q + 1
+}
+pbch.steps = s16
+fn ch0PitchAt(step) {
+  let trg = stepTriggers(pbp, pbrt, step)
+  let i = 0
+  while (i < trg.length) {
+    if (trg[i].busIndex === 0) {
+      return trg[i].pitch
+    }
+    i = i + 1
+  }
+  return -1
+}
+check("[barpitch] bar 0 plays at pitch 36", ch0PitchAt(0) === 36)
+check("[barpitch] bar 1 plays (rhythm loops) at pitch 34", ch0PitchAt(16) === 34)
+check("[barpitch] bar 2 plays at pitch 32", ch0PitchAt(32) === 32)
+check("[barpitch] bar 3 plays at pitch 34", ch0PitchAt(48) === 34)
+check("[barpitch] bar 4 wraps to bar 0 (pitch 36)", ch0PitchAt(64) === 36)
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))

@@ -34,19 +34,27 @@ export fn stepTriggers(project, rt, globalStep) {
     }
     let useSteps = ch.steps
     let usePiano = ch.pianoNotes
-    let span = 16
+    // Bar count of the active pattern (channel patternBars in rack mode, or the clip's). Drives the
+    // melodic span and the per-bar step pitch — NOT the step-rhythm length (see below).
+    let nbars = ch.patternBars != null && Math.floor(Number(ch.patternBars)) >= 1 ? Math.floor(Number(ch.patternBars)) : 1
+    let patSpan = nbars * 16
     if (pclip && !pclip.silent) {
       useSteps = pclip.steps
       usePiano = pclip.pianoNotes
-      span = clipPatternSpanSteps(pclip)
+      patSpan = clipPatternSpanSteps(pclip)
+      if (patSpan >= 16) {
+        nbars = Math.floor(patSpan / 16)
+      }
     }
-    let stepInPat = globalStep % span
     if (usePiano && usePiano.length > 0) {
+      // Melodic: notes are positioned by ABSOLUTE beat across all bars (bar-selected notes are expanded
+      // to absolute notes at apply time). span = full pattern length, so bars 2+ are NOT skipped.
+      let stepInSpan = globalStep % patSpan
       let pi = 0
       while (pi < usePiano.length) {
         let n = usePiano[pi]
         let noteStep = Math.floor(n.startBeat * 4 + 0.0001)
-        if (noteStep >= 0 && noteStep < span && stepInPat === noteStep) {
+        if (noteStep >= 0 && noteStep < patSpan && stepInSpan === noteStep) {
           let sec = (n.durBeats * 60) / project.bpm
           let pitches = expandTriggerPitches(ch, n.pitch, rt)
           let pk = 0
@@ -58,20 +66,26 @@ export fn stepTriggers(project, rt, globalStep) {
         pi = pi + 1
       }
     } else {
-      if (useSteps && useSteps.length > stepInPat && useSteps[stepInPat].on) {
+      // Steps: the rhythm LOOPS over its own array length — a 16-step pattern repeats every bar (the
+      // common case, e.g. a bass groove), while a captured N*16 array plays distinct per-bar steps. The
+      // per-bar step pitch (step_pitch … bar <sel> → stepPitchByBar) is chosen by the GLOBAL bar index, so
+      // multi-bar pitch progressions actually change across bars (the old code used the wrong index and
+      // either pinned bar-1's pitch or, with the naive span fix, silenced bars 2+ entirely).
+      let rlen = (useSteps && useSteps.length >= 1) ? useSteps.length : 16
+      let stepInRhythm = globalStep % rlen
+      if (useSteps && stepInRhythm < useSteps.length && useSteps[stepInRhythm].on) {
         let dur = sixteenthSeconds(project.bpm) * 0.85
-        // Per-bar step pitch (step_pitch ... bar <sel>): pick the pitch for the current loop bar.
         let basePitch = ch.stepPitch
         if (ch.stepPitchByBar) {
-          let barInLoop = Math.floor(stepInPat / 16)
-          if (barInLoop >= 0 && barInLoop < ch.stepPitchByBar.length) {
-            basePitch = ch.stepPitchByBar[barInLoop]
+          let barIdx = Math.floor(globalStep / 16) % nbars
+          if (barIdx >= 0 && barIdx < ch.stepPitchByBar.length) {
+            basePitch = ch.stepPitchByBar[barIdx]
           }
         }
         let pitches = expandTriggerPitches(ch, basePitch, rt)
         let pk = 0
         while (pk < pitches.length) {
-          out.push({ busIndex: bi, pitch: pitches[pk], vel: useSteps[stepInPat].vel, durSec: dur, beat: globalStep * 0.25 })
+          out.push({ busIndex: bi, pitch: pitches[pk], vel: useSteps[stepInRhythm].vel, durSec: dur, beat: globalStep * 0.25 })
           pk = pk + 1
         }
       }

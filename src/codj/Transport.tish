@@ -3,8 +3,9 @@
 // tick to the host so every player is on the same bar/step — the foundation of "everyone hears and sees
 // the same thing." Pure logic here (no DOM / ws); App.tish + CoDjPanel.tish do the wiring.
 
-/** Build the per-bar clock control payload the host broadcasts. */
-export fn coDjClockPayload(actorId, perfStep, scene, bpm) {
+/** Build the per-bar clock control payload the host broadcasts. Carries the host's play MODE so a
+ *  follower starting from a clock plays the same thing (sequence = rack, song = session clips). */
+export fn coDjClockPayload(actorId, perfStep, scene, bpm, playMode) {
   return {
     type: "control",
     op: "clock",
@@ -12,7 +13,8 @@ export fn coDjClockPayload(actorId, perfStep, scene, bpm) {
     authorId: actorId,
     perfStep: Math.floor(Number(perfStep)),
     scene: scene != null ? Math.floor(Number(scene)) : null,
-    bpm: bpm != null ? Number(bpm) : null
+    bpm: bpm != null ? Number(bpm) : null,
+    playMode: playMode === "sequence" ? "sequence" : "song"
   }
 }
 

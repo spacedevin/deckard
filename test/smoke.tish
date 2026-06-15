@@ -580,8 +580,11 @@ check("clock: behind host snaps forward", coDjClockAlign(200, 100, 1) === 101)
 check("follow gate: host does NOT follow", coDjShouldFollow({ coDjIsHost: true }) === false)
 check("follow gate: follower follows by default", coDjShouldFollow({ coDjIsHost: false }) === true)
 check("follow gate: independent mode off", coDjShouldFollow({ coDjIsHost: false, coDjFollowTransport: false }) === false)
-let clkMsg = coDjClockPayload("actor-host", 48, 2, 130)
+let clkMsg = coDjClockPayload("actor-host", 48, 2, 130, "sequence")
 check("clock payload: control/clock with step+scene", clkMsg.type === "control" && clkMsg.op === "clock" && clkMsg.perfStep === 48 && clkMsg.scene === 2)
+// The host's play MODE rides the clock so a follower plays the same thing (sequence=rack, not empty session).
+check("clock payload: carries host playMode (sequence)", clkMsg.playMode === "sequence")
+check("clock payload: defaults playMode to song", coDjClockPayload("h", 0, null, 120).playMode === "song")
 
 // Simulate host advancing across bars, follower starting cold + locking on each clock heartbeat.
 let hostTick = 0

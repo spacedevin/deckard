@@ -696,7 +696,7 @@ export fn App() {
     }
     let aid = rt.coDjActorId ? rt.coDjActorId : (rt.coDjClientId ? rt.coDjClientId : "actor")
     let bpm = project && typeof project.bpm === "number" ? project.bpm : null
-    rt.coDjWs.send(JSON.stringify(coDjClockPayload(aid, perfStep, scene, bpm)))
+    rt.coDjWs.send(JSON.stringify(coDjClockPayload(aid, perfStep, scene, bpm, rt.playMode)))
   }
   rt.coDjPushClock = coDjPushClock
 
@@ -714,7 +714,7 @@ export fn App() {
   // Start following the host's song at `hostStep`: if stopped, begin playback there; if already playing,
   // just realign the tick. Audio may stay silent until the user interacts (browser gesture policy), but
   // the transport position stays locked so it's in phase the moment audio resumes.
-  rt.coDjFollowStart = (hostStep) => {
+  rt.coDjFollowStart = (hostStep, hostMode) => {
     if (!coDjShouldFollow(rt)) {
       return
     }
@@ -723,7 +723,9 @@ export fn App() {
       step = 0
     }
     if (!rt.playing) {
-      onPlay("song", step)
+      // Follow the HOST's mode: sequence = play the (synced) rack, song = play the session clips. Forcing
+      // "song" made a guest silent whenever the host was jamming the rack in Sequence mode.
+      onPlay(hostMode === "sequence" ? "sequence" : "song", step)
     } else {
       transport.setTick(step)
       rt.transportNextTick = step

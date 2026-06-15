@@ -17,6 +17,7 @@ export fn createTransport(audioStore, signals) {
   let cfg = null
   let trueBpm = null
   let lastPlayedSec = null
+  let lastPos = -1
   let underruns = 0
   let marginMs = LOOKAHEAD_SEC * 1000
   let drawFrame = 0
@@ -109,7 +110,14 @@ export fn createTransport(audioStore, signals) {
       }
       drawQueue = keep
       if (lastFired >= 0) {
-        signals.publish("transport.position", lastFired)
+        lastPos = lastFired
+      }
+      // Re-assert the playhead EVERY frame (not only on a new step). The highlight is applied via direct
+      // DOM, so any React re-render (e.g. the per-bar session/arming update) reconciles the grid and wipes
+      // the active class — re-publishing each frame restores it within ~16ms instead of lagging until the
+      // next step fires (the "playhead jumps/lags the first few steps of every bar" bug).
+      if (lastPos >= 0) {
+        signals.publish("transport.position", lastPos)
       }
       drawFrame = drawFrame + 1
       if (drawFrame % 10 === 0) {
@@ -141,6 +149,7 @@ export fn createTransport(audioStore, signals) {
     drawQueue = []
     trueBpm = null
     lastPlayedSec = null
+    lastPos = -1
     underruns = 0
     marginMs = LOOKAHEAD_SEC * 1000
     drawFrame = 0
