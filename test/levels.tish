@@ -8,6 +8,7 @@ import { emptyProjectShell } from '../src/model/Project.tish'
 import { emitProject } from '../src/tpl/Emit.tish'
 import { applyTplSource, findChannelById } from '../src/tpl/Apply.tish'
 import { emitLevel, retargetTpl, splitTplBlocks, levelList } from '../src/core/Levels.tish'
+import { createSetPresets } from '../src/core/SetPresets.tish'
 
 let pass = 0
 let fail = 0
@@ -93,6 +94,27 @@ while (bi < blocks.length) {
 }
 check("splitter finds one track block per channel", trackBlocks === p.channels.length)
 check("levelList has all 7 levels", levelList().length === 7)
+
+console.log("=== Set presets (whole-workspace, global) ===")
+let setMem = { v: null }
+let setBe = { read: () => setMem.v, write: (s) => { setMem.v = s } }
+let sets = createSetPresets(setBe)
+check("[set] built-in Default present", sets.get("Default") != null && sets.get("Default").factory === true)
+check("[set] list starts with just Default", sets.list().length === 1)
+sets.save("MySet", "tpl 1\nbpm 142\n")
+check("[set] save adds a user set", sets.list().length === 2 && sets.get("MySet") != null)
+check("[set] saved set tpl intact", sets.get("MySet").tpl.indexOf("bpm 142") >= 0)
+check("[set] cannot remove the factory Default", sets.remove("Default") === false)
+check("[set] can remove a user set", sets.remove("MySet") === true && sets.list().length === 1)
+// persistence + export/import
+sets.save("Keep", "tpl 1\nbpm 99\n")
+let sets2 = createSetPresets(setBe)
+check("[set] persists across instances", sets2.get("Keep") != null)
+let setExp = sets.exportText("Keep")
+check("[set] export carries name tag", setExp.indexOf("# deckard-set name=Keep") === 0)
+let sets3 = createSetPresets({ read: () => null, write: (s) => {} })
+let setImp = sets3.importText(setExp, null)
+check("[set] import recovers the set", setImp != null && setImp.name === "Keep" && setImp.tpl.indexOf("bpm 99") >= 0)
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))

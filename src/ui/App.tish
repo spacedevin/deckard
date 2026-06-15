@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, h, Fragment } from '@tishlang/lattish'
 import { projectToJson, projectFromJson } from '../model/Project.tish'
-import { loadDefaultDeckardProject } from '../model/ProjectLoad.tish'
+import { loadDefaultDeckardProject, loadProjectFromTpl } from '../model/ProjectLoad.tish'
+import { createSetPresets } from '../core/SetPresets.tish'
 import { emitProject, emitLivePlayback } from '../tpl/Emit.tish'
 import { CodeDebugView } from './CodeDebugView.tish'
 import { migrateProjectGenerators } from '../model/Migrate.tish'
@@ -16,7 +17,6 @@ import { TransportBar } from './Transport.tish'
 import { collectActorLanes, channelActorLane, ensureActorMixerEntries } from '../model/MixerRouting.tish'
 import { InstrumentPanel } from './InstrumentPanel.tish'
 import { InstrumentEditor } from './InstrumentEditor.tish'
-import { PatchBayPanel } from './PatchBayPanel.tish'
 import { CoDjPanel } from './CoDjPanel.tish'
 import { launchSceneDirective, transportDirective } from '../codj/Launch.tish'
 import { coDjClockPayload, coDjShouldFollow, coDjClockAlign } from '../codj/Transport.tish'
@@ -172,6 +172,16 @@ export fn App() {
   }
   rt.emit = (addr, val) => editorRef.current.emit(addr, val)
   rt.directive = (line) => editorRef.current.directive(line)
+  // Apply an arbitrary TPL fragment (e.g. a preset's TPL) through the one gated write door.
+  rt.applyTpl = (tpl) => editorRef.current.directive(tpl)
+  // Set presets: named, saveable copies of the WHOLE workspace (the one level a global load fits — it
+  // replaces everything, no target). Built-in "Default" is always present (loading it resets the set).
+  let setPresetsRef = useRef(null)
+  if (!setPresetsRef.current) {
+    setPresetsRef.current = createSetPresets()
+  }
+  let setPresets = setPresetsRef.current
+  let [setListGen, setSetListGen] = useState(0)
 
   // ---- Transport/Clock projection + signal bus (rearch step 4). The scheduler publishes step position
   // and health on `signals`; the playhead / grid / BPM readout SUBSCRIBE here (decoupled from timing). ----
@@ -958,6 +968,75 @@ export fn App() {
     a.click()
   }
 
+  // ---- Set presets: load REPLACES the whole workspace (a set has no merge target). ----
+  fn loadFullProject(p) {
+    migrateProjectGenerators(p)
+    setProject(p)
+    let r = rtRef.current
+    r.rackPrSigCache = []
+    r.rackPrNode = []
+    if (audioStore.ctx) {
+      resyncAllChannelBuses(p, audioStore)
+      updateMixerFromProject(p, audioStore)
+    }
+    let em = emitProject(p)
+    setTplText(em)
+    setTimeout(() => {
+      let r2 = rtRef.current
+      if (r2.setSongText) {
+        r2.setSongText(emitProject(r2.project))
+      }
+    }, 0)
+  }
+  fn onLoadSet(nm) {
+    let sp = setPresets.get(nm)
+    if (!sp) {
+      return
+    }
+    let res = loadProjectFromTpl(sp.tpl)
+    loadFullProject(res.project)
+  }
+  fn onSaveSet() {
+    let nm = prompt("Save current workspace as set", "My Set")
+    if (nm && nm.length > 0) {
+      setPresets.save(nm, emitProject(project))
+      setSetListGen(setListGen + 1)
+    }
+  }
+  fn onDeleteSet(nm) {
+    if (setPresets.remove(nm)) {
+      setSetListGen(setListGen + 1)
+    }
+  }
+  fn onExportSet(nm) {
+    let text = setPresets.exportText(nm)
+    if (text == null || typeof document === "undefined") {
+      return
+    }
+    let blob = new Blob([text], { type: "text/plain" })
+    let url = URL.createObjectURL(blob)
+    let a = document.createElement("a")
+    a.href = url
+    a.download = "deckard-set-" + nm + ".tpl"
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+  fn onImportSetFile(e) {
+    let f = e.target.files && e.target.files.length > 0 ? e.target.files[0] : null
+    if (!f) {
+      return
+    }
+    let reader = new FileReader()
+    reader.onload = () => {
+      let imp = setPresets.importText(reader.result, f.name)
+      setSetListGen(setListGen + 1)
+      if (imp) {
+        onLoadSet(imp.name)
+      }
+    }
+    reader.readAsText(f)
+  }
+
   fn onImport() {
     let s = prompt("Paste full project JSON", "")
     if (s && s.length > 2) {
@@ -1062,8 +1141,6 @@ export fn App() {
         </div>
       </div>
     )
-  } else if (workspaceTab === "patch") {
-    mainWorkspace = PatchBayPanel()
   } else {
     mainWorkspace = (
       <Fragment>
@@ -1074,8 +1151,18 @@ export fn App() {
   }
 
   let tabSeq = workspaceTab === "sequencer" ? "deck-tab deck-tab-active" : "deck-tab"
-  let tabPatch = workspaceTab === "patch" ? "deck-tab deck-tab-active" : "deck-tab"
   let tabInstr = workspaceTab === "instrument" ? "deck-tab deck-tab-active" : "deck-tab"
+
+  // Set-preset picker options (built-in Default first, then saved user sets). setListGen forces refresh.
+  let setItems = setPresets.list()
+  let setOpts = [<option value="">{"— load set —"}</option>]
+  let spi = 0
+  while (spi < setItems.length) {
+    let it = setItems[spi]
+    setOpts.push(<option value={it.name}>{it.name + (it.factory ? " (default)" : "")}</option>)
+    spi = spi + 1
+  }
+  let setListGenKey = setListGen
 
   return <div class="daw-root">
     <header class="daw-header">
@@ -1096,12 +1183,29 @@ export fn App() {
         launchQuant,
         (q) => setLaunchQuant(q)
       )}
+      <div class="set-presets" key={"sp-" + String(setListGenKey)}>
+        <span class="set-presets-label">{"SET"}</span>
+        <select
+          class="set-select"
+          value=""
+          onchange={(e) => {
+            let n = e.target.value
+            e.target.value = ""
+            if (n && n.length > 0) {
+              onLoadSet(n)
+            }
+          }}
+        >
+          {setOpts}
+        </select>
+        <button type="button" class="set-btn" onclick={onSaveSet} title="Save the whole workspace as a named set">{"Save Set"}</button>
+        <label class="set-btn set-import" title="Import a .tpl set file">{"⤒"}
+          <input type="file" accept=".tpl,.txt" style={{ display: "none" }} onchange={onImportSetFile} />
+        </label>
+      </div>
       <nav class="daw-workspace-tabs">
         <button type="button" class={tabSeq} onclick={() => setWorkspaceTab("sequencer")}>
           {"Sequencer"}
-        </button>
-        <button type="button" class={tabPatch} onclick={() => setWorkspaceTab("patch")}>
-          {"Patch"}
         </button>
         <button type="button" class={tabInstr} onclick={() => setWorkspaceTab("instrument")}>
           {"Instrument"}

@@ -4376,3 +4376,13 @@ input[type="range"]::-moz-range-thumb {
   background: #fff;
   box-shadow: 0 0 10px rgba(255, 255, 255, 0.9);
 }
+
+
+/* ---- Set presets (whole-workspace named save/load, global) ---- */
+.set-presets { display: inline-flex; align-items: center; gap: 0.35rem; }
+.set-presets-label { color: var(--muted); font-size: 0.66rem; letter-spacing: 0.08em; }
+.set-select { padding: 0.28rem 0.5rem; background: var(--panel, #15151b); color: var(--fg, #e8e8ea);
+  border: 1px solid var(--border, #2a2a2a); border-radius: 5px; font-size: 0.74rem; max-width: 150px; }
+.set-btn { padding: 0.28rem 0.55rem; background: var(--panel, #15151b); color: var(--fg, #e8e8ea);
+  border: 1px solid var(--border, #2a2a2a); border-radius: 5px; font-size: 0.72rem; cursor: pointer; }
+.set-import { display: inline-flex; align-items: center; cursor: pointer; }
