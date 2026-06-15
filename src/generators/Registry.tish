@@ -38,6 +38,11 @@ export fn generatorCatalog() {
       description: "Pitch-envelope drum synth — punchy kicks, snares, toms, 808s (+ noise + drive)."
     },
     {
+      id: "guitar",
+      label: "Guitar",
+      description: "Karplus-Strong plucked electric guitar — string model + palm mute + drive + body. Pairs with the chord voice for strums."
+    },
+    {
       id: "patch",
       label: "Patch",
       description: "Modular synth patch (gen_block patch): osc/noise/filter/shaper/gain + breakpoint envelopes — any voice, written in TPL."
@@ -150,7 +155,18 @@ export fn defaultParamsForGeneratorId(id) {
       decay: 0.35,
       noise: 0,
       noiseDecay: 0.12,
+      noiseHp: 1500,
       drive: 0
+    }
+  }
+  if (id === "guitar") {
+    return {
+      tone: 0.5,
+      decay: 0.6,
+      damping: 0.4,
+      drive: 0.25,
+      body: 3500,
+      mute: 0
     }
   }
   if (id === "patch") {

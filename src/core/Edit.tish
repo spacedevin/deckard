@@ -15,7 +15,19 @@ fn f(v) {
 fn trackHeader(ch) {
   let gid = ch.generatorId ? ch.generatorId : "basicOsc"
   let genTok = (ch.macroName != null) ? ch.macroName : generatorIdToTpl(gid)
-  return "track " + ch.name + " id " + ch.id + " gen " + genTok
+  let s = "track " + ch.name + " id " + ch.id + " gen " + genTok
+  // CRITICAL: a macro re-expands from this header on apply, so the overrides MUST ride along — otherwise
+  // any fx/voice/mix edit re-emits a bare `gen <macro>` and resets the macro to its defaults (the
+  // "change cutoff → bass becomes unrecognizable, no way back" bug).
+  if (ch.macroName != null && ch.macroParams) {
+    let mk = Object.keys(ch.macroParams)
+    let i = 0
+    while (i < mk.length) {
+      s = s + " " + mk[i] + " " + String(ch.macroParams[mk[i]])
+      i = i + 1
+    }
+  }
+  return s
 }
 
 fn mixLine(ch, param, value) {

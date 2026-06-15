@@ -15,11 +15,28 @@ export fn ensureInstrumentPresets(project) {
 export fn addInstrumentPreset(project, displayName, ch) {
   ensureInstrumentPresets(project)
   let pid = "p_" + String(project.instrumentPresets.length) + "_" + String(Math.floor(Math.random() * 99999))
+  // A preset is the whole SOUND (every instrument panel), not just the generator: macro identity, the
+  // generator graph, the FX insert, and the voice/pitch behaviour. (Mixer gain/pan/eq stays per-channel.)
   let row = {
     presetId: pid,
     name: displayName,
     generatorId: ch.generatorId,
-    params: deepCloneParams(ch.generatorParams)
+    params: deepCloneParams(ch.generatorParams),
+    macroName: ch.macroName != null ? ch.macroName : null,
+    macroParams: ch.macroParams ? deepCloneParams(ch.macroParams) : null,
+    fx: {
+      reverbSend: ch.reverbSend,
+      drive: ch.drive,
+      filterCutoff: ch.filterCutoff,
+      filterQ: ch.filterQ,
+      lfoRate: ch.lfoRate,
+      lfoDepth: ch.lfoDepth
+    },
+    voice: {
+      octave: ch.octave,
+      arp: ch.arp,
+      chord: ch.chord
+    }
   }
   if (ch.generatorSpec) {
     row.generatorSpec = deepCloneParams(ch.generatorSpec)
@@ -38,4 +55,20 @@ export fn applyInstrumentPresetToChannel(ch, preset) {
   if (ch.generatorId === "matrixFm" && !ch.generatorSpec) {
     ch.generatorSpec = parseGenBlock("matrix_fm", defaultMatrixFmRawLines())
   }
+  // Macro identity (so the Sound box shows the macro designer + the voice picker highlights it).
+  ch.macroName = preset.macroName != null ? preset.macroName : null
+  ch.macroParams = preset.macroParams ? deepCloneParams(preset.macroParams) : null
+  // Filter / FX box (older presets without `fx` reset to neutral so nothing stale lingers).
+  let fx = preset.fx ? preset.fx : {}
+  ch.reverbSend = fx.reverbSend != null ? fx.reverbSend : 0
+  ch.drive = fx.drive != null ? fx.drive : 0
+  ch.filterCutoff = fx.filterCutoff != null ? fx.filterCutoff : 20000
+  ch.filterQ = fx.filterQ != null ? fx.filterQ : 0.7
+  ch.lfoRate = fx.lfoRate != null ? fx.lfoRate : 0
+  ch.lfoDepth = fx.lfoDepth != null ? fx.lfoDepth : 0
+  // Pitch box.
+  let voice = preset.voice ? preset.voice : {}
+  ch.octave = voice.octave != null ? voice.octave : 0
+  ch.arp = voice.arp != null ? voice.arp : "off"
+  ch.chord = voice.chord != null ? voice.chord : "off"
 }

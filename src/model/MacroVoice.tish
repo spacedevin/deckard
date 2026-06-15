@@ -1,0 +1,164 @@
+// Macro voice helpers for the UI designers. A macro-backed channel stores `macroName` + `macroParams`
+// (overrides) and re-expands to a `gen_block patch` graph on every edit, so the designers stay a pure
+// TPL client: a slider move writes one override, re-expands the patch, and the channel emits
+// `gen <macro> <k> <v> ...` — identical to what the TPL parser produces. No graph is hand-edited.
+
+import { lookupMacro, expandMacroBody, builtinMacros } from '../tpl/Macros.tish'
+import { parseGenBlock } from '../tpl/TplExtension.tish'
+
+/// The dedicated designers — kick & bass families that dominate the factory deck-sets.
+export fn macroCatalog() {
+  return [
+    { name: "kick_edm", label: "Kick · EDM", kind: "kick" },
+    { name: "kick_deep", label: "Kick · Deep", kind: "kick" },
+    { name: "kick_distorted", label: "Kick · Distorted", kind: "kick" },
+    { name: "bass_acid", label: "Bass · Acid", kind: "bass" },
+    { name: "bass_reese", label: "Bass · Reese", kind: "bass" },
+    { name: "bass_reese_punch", label: "Bass · Reese Punch", kind: "bass" },
+    { name: "bass_reese_sc", label: "Bass · Reese SC", kind: "bass" },
+    { name: "bass_wobble", label: "Bass · Wobble", kind: "bass" }
+  ]
+}
+
+export fn macroKind(name) {
+  let cat = macroCatalog()
+  let i = 0
+  while (i < cat.length) {
+    if (cat[i].name === name) {
+      return cat[i].kind
+    }
+    i = i + 1
+  }
+  return null
+}
+
+export fn macroLabel(name) {
+  let cat = macroCatalog()
+  let i = 0
+  while (i < cat.length) {
+    if (cat[i].name === name) {
+      return cat[i].label
+    }
+    i = i + 1
+  }
+  return name
+}
+
+/// Per-param UI metadata, keyed by the (shared) param name. Kick/bass macros reuse the same
+/// param vocabulary (pitch/decay/end/drive/q/top/level/lfo), so a per-key table covers them all.
+fn knownParamSpec(key) {
+  if (key === "pitch") {
+    return { label: "Punch (Hz)", min: 40, max: 400, step: 1 }
+  }
+  if (key === "end") {
+    return { label: "Sub floor (Hz)", min: 5, max: 200, step: 1 }
+  }
+  if (key === "decay") {
+    return { label: "Decay (s)", min: 0.05, max: 1.5, step: 0.01 }
+  }
+  if (key === "drive") {
+    return { label: "Drive", min: 0, max: 1000, step: 5 }
+  }
+  if (key === "q") {
+    return { label: "Resonance", min: 1, max: 25, step: 0.1 }
+  }
+  if (key === "top") {
+    return { label: "Filter top (Hz)", min: 400, max: 9000, step: 10 }
+  }
+  if (key === "level") {
+    return { label: "Level", min: 0, max: 1, step: 0.01 }
+  }
+  if (key === "lfo") {
+    return { label: "Wobble (Hz)", min: 0.25, max: 16, step: 0.25 }
+  }
+  return null
+}
+
+/// Synthesize a sane range for an unknown param from its default (covers user-defined macros).
+fn genericParamSpec(key, def) {
+  let d = typeof def === "number" && def === def ? def : 1
+  if (d >= 0 && d <= 1) {
+    return { label: key, min: 0, max: 1, step: 0.01 }
+  }
+  let mx = Math.abs(d) * 4
+  if (mx < 10) {
+    mx = 10
+  }
+  let st = Math.abs(d) < 50 ? 0.1 : 1
+  return { label: key, min: 0, max: Math.round(mx), step: st }
+}
+
+/// Resolve the value a param currently shows: explicit override, else the macro's default.
+fn resolvedParamValue(mac, macroParams, key) {
+  if (macroParams && macroParams[key] !== undefined && macroParams[key] !== null) {
+    return Number(macroParams[key])
+  }
+  return Number(mac.params[key])
+}
+
+/// Build the list of slider controls for a macro channel: { key, label, min, max, step, value }.
+export fn macroParamControls(macroName, macroParams, userMacros) {
+  let mac = lookupMacro(macroName, userMacros)
+  if (!mac) {
+    return []
+  }
+  let keys = Object.keys(mac.params)
+  let out = []
+  let i = 0
+  while (i < keys.length) {
+    let k = keys[i]
+    let spec = knownParamSpec(k)
+    if (!spec) {
+      spec = genericParamSpec(k, mac.params[k])
+    }
+    out.push({
+      key: k,
+      label: spec.label,
+      min: spec.min,
+      max: spec.max,
+      step: spec.step,
+      value: resolvedParamValue(mac, macroParams, k)
+    })
+    i = i + 1
+  }
+  return out
+}
+
+/// Expand a macro (name + overrides) into a fresh `patch` generatorSpec, or null if unknown.
+export fn expandMacroToSpec(macroName, macroParams, userMacros) {
+  let mac = lookupMacro(macroName, userMacros)
+  if (!mac) {
+    return null
+  }
+  return parseGenBlock("patch", expandMacroBody(mac, macroParams ? macroParams : {}))
+}
+
+/// Turn a channel into a macro voice: set name + empty overrides, become a patch, expand the graph.
+export fn assignMacroToChannel(ch, macroName, userMacros) {
+  ch.macroName = macroName
+  ch.macroParams = {}
+  ch.generatorId = "patch"
+  let spec = expandMacroToSpec(macroName, {}, userMacros)
+  if (spec) {
+    ch.generatorSpec = spec
+  }
+}
+
+/// Edit one macro param: record the override and re-expand so audio + emit reflect it immediately.
+export fn setMacroParam(ch, key, value, userMacros) {
+  if (!ch.macroParams) {
+    ch.macroParams = {}
+  }
+  ch.macroParams[key] = value
+  let spec = expandMacroToSpec(ch.macroName, ch.macroParams, userMacros)
+  if (spec) {
+    ch.generatorSpec = spec
+  }
+}
+
+/// Freeze a macro to its raw patch graph: drop the macro identity, keep the expanded spec so the
+/// generic Patch editor can hand-edit it. Emit then writes the full `gen_block patch`.
+export fn freezeMacroChannel(ch) {
+  ch.macroName = null
+  ch.macroParams = null
+}

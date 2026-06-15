@@ -24,6 +24,18 @@ body {
   color: var(--text);
   min-height: 100vh;
   font-size: 13px;
+  /* No accidental text-selection from clicking labels / dragging knobs & sliders. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* …except real editing surfaces, which stay fully selectable. */
+input,
+textarea,
+[contenteditable],
+[contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 button,
@@ -305,8 +317,6 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .matrixfm-panel-wrap {
-  max-height: min(75vh, 640px);
-  overflow: auto;
   min-width: 0;
   margin-top: 0.5rem;
   padding-right: 0.15rem;
@@ -927,9 +937,6 @@ input[type="range"]::-moz-range-thumb {
 
 /* Matrix FM — flat panel, shared tokens */
 .gen-params-matrixfm {
-  max-height: min(70vh, 520px);
-  overflow-y: auto;
-  overflow-x: hidden;
   padding-right: 0.15rem;
 }
 
@@ -1379,8 +1386,6 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .instrument-panel {
-  max-height: calc(100vh - 120px);
-  overflow-y: auto;
   position: sticky;
   top: 0.5rem;
 }
@@ -3591,45 +3596,40 @@ input[type="range"]::-moz-range-thumb {
 }
 .ie-group {
   display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 9px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
 }
 .ie-group-label {
-  width: 128px;
-  flex-shrink: 0;
-  font-size: 0.56rem;
-  letter-spacing: 0.1em;
-  color: #7a7a82;
+  font-size: 0.54rem;
+  letter-spacing: 0.07em;
+  color: var(--muted);
   text-transform: uppercase;
 }
 .ie-pills {
   display: flex;
-  gap: 6px;
+  gap: 0.25rem;
   flex-wrap: wrap;
 }
 .ie-pill {
-  padding: 5px 13px;
-  border: 1px solid #2a2a31;
-  border-radius: 7px;
-  background: #141418;
-  color: #9a9aa2;
+  padding: 0.22rem 0.5rem;
+  border: 1px solid var(--border, #2a2a31);
+  border-radius: 6px;
+  background: var(--panel, #141418);
+  color: var(--muted, #9a9aa2);
   font-family: inherit;
-  font-size: 0.64rem;
+  font-size: 0.62rem;
   font-weight: 600;
   cursor: pointer;
-  transition: border-color 90ms, color 90ms, background 90ms, box-shadow 90ms;
 }
 .ie-pill:hover {
   border-color: #44444f;
-  color: #d6d6dc;
+  color: var(--text, #d6d6dc);
 }
 .ie-pill-on {
-  background: linear-gradient(180deg, #f062c0, #d6379e);
-  border-color: #ff9ad8;
-  color: #fff;
-  box-shadow: 0 0 11px rgba(236, 72, 153, 0.5);
+  border-color: var(--accent-warm, #e8945c);
+  color: var(--accent-warm, #e8945c);
+  background: rgba(232, 148, 92, 0.12);
 }
 
 /* ---- A/B deck mixer ---- */
@@ -4396,3 +4396,147 @@ input[type="range"]::-moz-range-thumb {
 .preset-bar-save { padding: 0.24rem 0.5rem; background: var(--panel, #15151b); color: var(--fg, #e8e8ea);
   border: 1px solid var(--border, #2a2a2a); border-radius: 5px; font-size: 0.7rem; cursor: pointer; }
 .preset-bar-scope { color: var(--muted); font-size: 0.66rem; font-style: italic; }
+
+/* ---- Generic patch (gen_block patch) editor ---- */
+.patch-panel-wrap { margin-top: 0.5rem; }
+.patch-panel .patch-add-row { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
+.patch-node { padding: 0.4rem 0.45rem; }
+.patch-node-top { display: flex; align-items: center; justify-content: space-between; gap: 0.35rem;
+  margin-bottom: 0.3rem; }
+.patch-node-badge { font-size: 0.6rem; font-weight: 800; letter-spacing: 0.08em; color: var(--accent-warm);
+  background: rgba(0, 0, 0, 0.3); border-radius: 3px; padding: 0.1rem 0.35rem; }
+.patch-node-body { display: flex; flex-direction: column; gap: 0.25rem; }
+.patch-node-body .deck-wave-grid { display: flex; gap: 0.2rem; }
+.patch-node-body .gen-row select.sytrus-route-sel { max-width: 6.5rem; }
+.patch-val { font-size: 0.58rem; color: var(--muted); min-width: 3.2rem; text-align: right;
+  font-variant-numeric: tabular-nums; }
+.patch-env-grid { display: flex; flex-direction: column; gap: 0.4rem; }
+.patch-env { padding: 0.4rem 0.45rem; }
+.patch-env-top { display: flex; align-items: center; justify-content: space-between; gap: 0.35rem;
+  margin-bottom: 0.3rem; }
+.patch-env-target { display: inline-flex; align-items: center; gap: 0.15rem; }
+.patch-dot { color: var(--accent-warm); font-weight: 800; }
+.patch-seg-head { display: grid; grid-template-columns: 3rem 1fr 1fr 1.4rem; gap: 0.25rem;
+  font-size: 0.52rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
+  margin-bottom: 0.2rem; }
+.patch-seg-row { display: grid; grid-template-columns: 3rem 1fr 1fr 1.4rem; gap: 0.25rem;
+  align-items: center; margin-bottom: 0.2rem; }
+.patch-seg-row .sytrus-route-sel { max-width: none; }
+.patch-expr { font-family: inherit; font-size: 0.58rem; background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 3px; padding: 0.12rem 0.25rem; min-width: 0; width: 100%; }
+
+/* ---- Kick / Bass macro designers ---- */
+.designer-pick-row { display: flex; align-items: center; gap: 0.4rem; margin: 0.35rem 0 0.1rem; }
+.designer-pick-label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted); }
+.macro-panel-wrap { margin-top: 0.5rem; }
+.macro-rows { display: flex; flex-direction: column; gap: 0.3rem; }
+.macro-row { display: grid; grid-template-columns: 7rem 1fr 3.4rem; align-items: center; gap: 0.4rem; }
+.macro-row-label { font-size: 0.62rem; color: var(--text); }
+.macro-row input[type="range"] { width: 100%; }
+
+/* Dim a generator sub-card whose layer is inactive (e.g. drum noise amount = 0). */
+.gen-sub-dim { opacity: 0.5; }
+
+/* ---- Unified voice picker (one selector: engines + macro designers) ---- */
+.voice-picker-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem;
+  margin-bottom: 0.5rem; }
+.voice-picker-head h2 { margin: 0; }
+.voice-picker-sub { font-size: 0.6rem; color: var(--muted); letter-spacing: 0.04em; }
+.voice-picker-groups { display: flex; flex-direction: column; gap: 0.5rem; }
+.voice-group { display: grid; grid-template-columns: 5.5rem 1fr; align-items: center; gap: 0.5rem; }
+.voice-group-label { font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--muted); text-align: right; }
+.voice-tiles { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.voice-tile { font-family: inherit; font-size: 0.66rem; font-weight: 600; padding: 0.32rem 0.6rem;
+  border-radius: 5px; border: 1px solid var(--border, #2a2a2a); background: var(--panel, #15151b);
+  color: var(--text, #e8e8ea); cursor: pointer; }
+.voice-tile:hover { border-color: #444; }
+.voice-tile-active { border-color: var(--accent-warm, #e8945c); color: var(--accent-warm, #e8945c);
+  background: rgba(232, 148, 92, 0.12); }
+
+/* ---- Modular instrument stack (hardware-style module cards in a signal chain) ---- */
+.instr-stack-head { margin-bottom: 0.6rem; }
+.instr-stack-head h2 { margin: 0; }
+.instr-stack-sub { font-size: 0.6rem; color: var(--muted); letter-spacing: 0.04em; }
+/* Horizontal rack: instrument modules sit side by side as small boxes and wrap. */
+.instr-modules-row { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: stretch; }
+.instr-module { border: 1px solid var(--border, #2a2a2a); border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18); display: flex; flex-direction: column;
+  flex: 1 1 18rem; min-width: 16rem; max-width: 30rem; }
+.instr-module .instr-module-body { flex: 1 1 auto; }
+/* Modular designers (Matrix FM / Patch / macros) get a full-width box. */
+.instr-module-wide { flex: 100 1 36rem; max-width: 100%; }
+.instr-module-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--border, #2a2a2a);
+  border-left: 3px solid var(--accent-warm, #e8945c); border-radius: 8px 8px 0 0;
+  background: rgba(232, 148, 92, 0.06); }
+.instr-module-title { font-size: 0.66rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--text, #e8e8ea); }
+.instr-module-tpl { font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.6rem;
+  color: var(--accent-warm, #e8945c); letter-spacing: 0.04em; }
+.instr-module-body { padding: 0.55rem 0.6rem; }
+/* Designer ⇄ Raw segmented toggle in each module header */
+.instr-module-toggle { display: inline-flex; border: 1px solid var(--border, #2a2a2a); border-radius: 4px;
+  overflow: hidden; margin-left: auto; margin-right: 0.5rem; }
+.imt-btn { font-family: inherit; font-size: 0.56rem; font-weight: 600; padding: 0.12rem 0.4rem; border: none;
+  background: transparent; color: var(--muted); cursor: pointer; }
+.imt-btn.imt-on { background: rgba(232, 148, 92, 0.18); color: var(--accent-warm, #e8945c); }
+.instr-module-raw { width: 100%; min-height: 8rem; box-sizing: border-box;
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.66rem; line-height: 1.5;
+  background: var(--bg, #0e0e12); color: var(--text, #e8e8ea); border: 1px solid var(--border, #2a2a2a);
+  border-radius: 5px; padding: 0.45rem 0.55rem; resize: vertical; white-space: pre; }
+
+/* ---- Instrument kit: rotary knobs, wave-icon pickers, envelope display, reskinned cards ---- */
+.ik-knob { display: inline-flex; flex-direction: column; align-items: center; gap: 0.1rem; width: 4rem; }
+.ik-knob-dial { width: 2.9rem; height: 2.9rem; cursor: ns-resize; touch-action: none; user-select: none; }
+.ik-knob-track { stroke: rgba(255, 255, 255, 0.12); stroke-width: 3.4; stroke-linecap: round; }
+.ik-knob-val { stroke-width: 3.4; stroke-linecap: round; }
+.ik-knob-label { font-size: 0.54rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);
+  white-space: nowrap; }
+.ik-knob-value { font-size: 0.62rem; font-variant-numeric: tabular-nums; color: var(--text, #e8e8ea); }
+.ik-knob-grid { display: flex; flex-wrap: wrap; gap: 0.5rem 0.35rem; align-items: flex-start; }
+
+/* Compact knob (dense panels) */
+.ik-knob-sm { width: 3rem; }
+.ik-knob-sm .ik-knob-dial { width: 2.1rem; height: 2.1rem; }
+.ik-knob-sm .ik-knob-label { font-size: 0.48rem; }
+.ik-knob-sm .ik-knob-value { font-size: 0.56rem; }
+
+/* Mini knob (dense cells with their own text label) */
+.ik-knob-xs { width: 2.1rem; }
+.ik-knob-xs .ik-knob-dial { width: 1.6rem; height: 1.6rem; }
+.ik-knob-xs .ik-knob-label { display: none; }
+.ik-knob-xs .ik-knob-value { font-size: 0.5rem; }
+
+.ik-wave-row { display: inline-flex; gap: 0.25rem; flex-wrap: wrap; }
+.ik-wave-btn { width: 2rem; height: 2rem; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border, #2a2a2a); border-radius: 7px; background: rgba(0, 0, 0, 0.25);
+  cursor: pointer; padding: 0; }
+.ik-wave-btn:hover { border-color: #555; }
+.ik-wave-img { width: 1.15rem; height: 1.15rem; display: block; pointer-events: none; }
+
+.ik-env { width: 100%; height: 3.2rem; display: block; }
+
+.ik-card { border: 1px solid var(--border, #2a2a2a); border-radius: 10px; background: rgba(0, 0, 0, 0.2);
+  padding: 0.6rem 0.7rem; }
+.ik-card-h { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  font-size: 0.56rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted);
+  margin-bottom: 0.5rem; }
+.ik-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0.55rem; }
+@media (max-width: 720px) { .ik-cols { grid-template-columns: 1fr; } }
+.ik-wave-pair { display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.4rem; }
+.ik-wave-lbl { font-size: 0.56rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);
+  min-width: 3rem; }
+.gen-params.ik-cols { border: none; padding: 0; }
+
+/* ---- Euclidean fill, rehomed into the channel rack header ---- */
+.sg-euclid { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin: 0.1rem 0 0.5rem; }
+.sg-euclid-label { font-size: 0.58rem; font-weight: 700; letter-spacing: 0.08em; color: var(--muted); }
+.sg-euclid-target { font-size: 0.62rem; color: var(--accent-warm, #e8945c); font-weight: 600; }
+.sg-euclid-pills { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
+.sg-euclid-pill { font-family: inherit; font-size: 0.62rem; padding: 0.18rem 0.45rem; border-radius: 4px;
+  border: 1px solid var(--border, #2a2a2a); background: var(--panel, #15151b); color: var(--text, #e8e8ea);
+  cursor: pointer; }
+.sg-euclid-pill.sg-euclid-on { border-color: var(--accent-warm, #e8945c); color: var(--accent-warm, #e8945c);
+  background: rgba(232, 148, 92, 0.12); }

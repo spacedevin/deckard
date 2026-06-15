@@ -18,8 +18,7 @@ import { createTransport } from '../audio/Transport.tish'
 import { tplLoopResetAll } from '../tpl/LoopState.tish'
 import { TransportBar } from './Transport.tish'
 import { collectActorLanes, channelActorLane, ensureActorMixerEntries } from '../model/MixerRouting.tish'
-import { InstrumentPanel } from './InstrumentPanel.tish'
-import { InstrumentEditor } from './InstrumentEditor.tish'
+import { InstrumentStack } from './InstrumentStack.tish'
 import { CoDjPanel } from './CoDjPanel.tish'
 import { launchSceneDirective, transportDirective } from '../codj/Launch.tish'
 import { coDjClockPayload, coDjShouldFollow, coDjClockAlign } from '../codj/Transport.tish'
@@ -91,7 +90,6 @@ export fn App() {
   // The live transport's source — "sequence" (FL rack as the live song) or "song" (the session clips).
   // Sequence and Session share ONE clock; toggling between them while playing never restarts it.
   let [playMode, setPlayMode] = useState("song")
-  let [workspaceTab, setWorkspaceTab] = useState("sequencer")
   let [sessionUiGen, setSessionUiGen] = useState(0)
   let [seqPromoteUi, setSeqPromoteUi] = useState(0)
   let [gridGen, setGridGen] = useState(0)
@@ -1155,39 +1153,25 @@ export fn App() {
     viewBar: rt.gridViewBar != null ? Math.floor(Number(rt.gridViewBar)) : 0
   }
 
-  let mainWorkspace = null
-  if (workspaceTab === "sequencer") {
-    // Sequencer (edit bench) and the session panel side by side. (Patterns side nav hidden for now —
-    // its LOAD/SAVE/LAUNCH live on the session scene headers.)
-    let seqChName = project.channels[selectedCh] ? project.channels[selectedCh].name : ""
-    mainWorkspace = (
-      <div class="seq-session-split">
-        <div class="seq-split-main">
-          <div class="preset-bars-row">
-            {PresetBar("Sequence", levelPresetList(project, "sequence"), (n) => loadPreset("sequence", n), () => savePreset("sequence"), seqChName)}
-            {PresetBar("Rack", levelPresetList(project, "rack"), (n) => loadPreset("rack", n), () => savePreset("rack"), "")}
-          </div>
-          {StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt)}
+  // One view — no tab. Sequencer + session on top, then the selected channel's instrument rack boxes.
+  let seqChName = project.channels[selectedCh] ? project.channels[selectedCh].name : ""
+  let seqSession = (
+    <div class="seq-session-split">
+      <div class="seq-split-main">
+        <div class="preset-bars-row">
+          {PresetBar("Sequence", levelPresetList(project, "sequence"), (n) => loadPreset("sequence", n), () => savePreset("sequence"), seqChName)}
+          {PresetBar("Rack", levelPresetList(project, "rack"), (n) => loadPreset("rack", n), () => savePreset("rack"), "")}
         </div>
-        <div class="seq-split-session" key={"sv-" + String(sessionUiGen) + "-" + String(seqPromoteUi)}>
-          <div class="preset-bars-row">
-            {PresetBar("Session", levelPresetList(project, "session"), (n) => loadPreset("session", n), () => savePreset("session"), "")}
-          </div>
-          {SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, patternBank)}
-        </div>
+        {StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt)}
       </div>
-    )
-  } else {
-    mainWorkspace = (
-      <Fragment>
-        {InstrumentEditor(project, selectedCh, setProjectFromUI, tplMirrorFlush, rt)}
-        {InstrumentPanel(project, selectedCh, setProjectFromUI, tplMirrorFlush)}
-      </Fragment>
-    )
-  }
-
-  let tabSeq = workspaceTab === "sequencer" ? "deck-tab deck-tab-active" : "deck-tab"
-  let tabInstr = workspaceTab === "instrument" ? "deck-tab deck-tab-active" : "deck-tab"
+      <div class="seq-split-session" key={"sv-" + String(sessionUiGen) + "-" + String(seqPromoteUi)}>
+        <div class="preset-bars-row">
+          {PresetBar("Session", levelPresetList(project, "session"), (n) => loadPreset("session", n), () => savePreset("session"), "")}
+        </div>
+        {SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, patternBank)}
+      </div>
+    </div>
+  )
 
   // Set-preset picker options (built-in Default first, then saved user sets). setListGen forces refresh.
   let setItems = setPresets.list()
@@ -1239,17 +1223,12 @@ export fn App() {
           <input type="file" accept=".tpl,.txt" style={{ display: "none" }} onchange={onImportSetFile} />
         </label>
       </div>
-      <nav class="daw-workspace-tabs">
-        <button type="button" class={tabSeq} onclick={() => setWorkspaceTab("sequencer")}>
-          {"Sequencer"}
-        </button>
-        <button type="button" class={tabInstr} onclick={() => setWorkspaceTab("instrument")}>
-          {"Instrument"}
-        </button>
-      </nav>
     </header>
     <div class="daw-body daw-body-stack">
-      <div class="daw-main-stack">{mainWorkspace}</div>
+      <div class="daw-main-stack">
+        {seqSession}
+        {InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush, rt)}
+      </div>
       {DeckMixer(project, setProjectFromUI, touchMixer, rt)}
       <div class="daw-bottom-split">
         <div class="daw-bottom-col daw-bottom-codj">{CoDjPanel(project, setProject, tplMirrorFlush, rt)}</div>

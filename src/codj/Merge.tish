@@ -9,6 +9,7 @@ import {
   applySessionGrid
 } from '../tpl/Apply.tish'
 import { ensureProjectSession, normalizeSongEntries, normalizeFollow } from '../model/Session.tish'
+import { lookupMacro, expandMacroBody } from '../tpl/Macros.tish'
 import { tplLoopResetChannel } from '../tpl/LoopState.tish'
 import { findChannelById } from '../tpl/Apply.tish'
 import { ensureCoDjMeta, setTrackOwner, setTrackTouched } from './CoDjMeta.tish'
@@ -86,6 +87,7 @@ export fn applyCoDjTplSource(project, source, actorId, authorId, currentPerfStep
       project.swing = sw < 0 ? 0 : (sw > 1 ? 1 : sw)
     }
   }
+  let userMacros = parsed.macros ? parsed.macros : {}
   let ti = 0
   while (ti < parsed.tracks.length) {
     let tb = parsed.tracks[ti]
@@ -95,19 +97,34 @@ export fn applyCoDjTplSource(project, source, actorId, authorId, currentPerfStep
       ti = ti + 1
       continue
     }
+    // Macro reference (`gen <name> [overrides]`): expand into a patch gen_block before building,
+    // exactly as the full apply does — otherwise an incremental edit on a macro channel would set
+    // generatorId to the macro token (an unknown generator) and drop the spec, so the next note
+    // falls through to the default oscillator (the "edit chord/cutoff → bass goes silent/wrong,
+    // re-pick the designer to fix" bug). See applyParsed in Apply.tish.
+    let macroName = null
+    let mac = lookupMacro(tb.rawGenId, userMacros)
+    if (mac) {
+      let body = expandMacroBody(mac, tb.genParams)
+      tb.genBlocks.push({ generatorId: "patch", lines: body })
+      tb.generatorId = "patch"
+      macroName = tb.rawGenId
+    }
     if (!ch) {
       ch = makeChannel(tb.id, tb.name, 36, tb.generatorId)
       project.channels.push(ch)
       setTrackOwner(project, tb.id, actorId, authorId)
     } else {
       ch.name = tb.name
-      if (ch.generatorId !== tb.generatorId) {
-        ch.generatorId = tb.generatorId
-        ch.generatorParams = defaultParamsForGeneratorId(tb.generatorId)
-      }
       if (canMaster) {
         setTrackOwner(project, tb.id, actorId, authorId)
       }
+    }
+    ch.macroName = macroName
+    ch.macroParams = mac ? tb.genParams : null
+    if (ch.generatorId !== tb.generatorId) {
+      ch.generatorId = tb.generatorId
+      ch.generatorParams = defaultParamsForGeneratorId(tb.generatorId)
     }
     setTrackTouched(project, tb.id, perfStep)
     let hdrLoop = tb.loopBars

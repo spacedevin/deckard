@@ -229,3 +229,43 @@ export fn retargetTpl(tpl, ch) {
 export fn levelList() {
   return ["set", "session", "rack", "deck", "channel", "instrument", "sequence"]
 }
+
+// Per-module slices of one channel's instrument — the "break it down to standard patch/TPL" view behind
+// each module's Designer⇄Raw toggle. Each is a strict subset of the instrument slice, by TPL keyword:
+//   gen  → the generator: gen/adsr/osc/fm/noise + the whole gen_block (osc/conn/env/filter/shaper/gain)
+//   voice→ the `voice` line (octave/arp/chord)        fx → the `fx` line (cutoff/res/drive/lfo/reverb)
+let MODULE_GEN_KEYS = {}
+MODULE_GEN_KEYS["gen"] = true
+MODULE_GEN_KEYS["adsr"] = true
+MODULE_GEN_KEYS["noise"] = true
+MODULE_GEN_KEYS["fm"] = true
+MODULE_GEN_KEYS["osc"] = true
+MODULE_GEN_KEYS["gen_block"] = true
+MODULE_GEN_KEYS["conn"] = true
+MODULE_GEN_KEYS["env"] = true
+MODULE_GEN_KEYS["filter"] = true
+MODULE_GEN_KEYS["shaper"] = true
+MODULE_GEN_KEYS["gain"] = true
+MODULE_GEN_KEYS["end"] = true
+
+let MODULE_VOICE_KEYS = {}
+MODULE_VOICE_KEYS["voice"] = true
+
+let MODULE_FX_KEYS = {}
+MODULE_FX_KEYS["fx"] = true
+
+export fn emitInstrumentModuleTpl(project, channelId, module) {
+  let blk = trackBlock(project, channelId)
+  if (!blk) {
+    return wrap("")
+  }
+  let keep = MODULE_GEN_KEYS
+  if (module === "voice") {
+    keep = MODULE_VOICE_KEYS
+  } else {
+    if (module === "fx") {
+      keep = MODULE_FX_KEYS
+    }
+  }
+  return wrap(blk.header + "\n" + filterBody(blk.body, keep).join("\n") + "\n")
+}

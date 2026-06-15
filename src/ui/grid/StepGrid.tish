@@ -8,6 +8,7 @@ import { toggleStep, clearStep, setChannelMute, setChannelSolo, promoteChannelTo
 import { syncMainClipFromChannel } from '../../model/Session.tish'
 import { generatorLabelById } from '../../generators/Registry.tish'
 import { tplLoopSkipsChannel } from '../../tpl/LoopState.tish'
+import { applyStepsEuclid } from '../../tpl/Apply.tish'
 import { setRackBars } from '../../model/RackBars.tish'
 import { channelDeck, channelDeckColor } from '../../model/DeckRouting.tish'
 import { ensureCoDjMeta, setMasterLock } from '../../codj/CoDjMeta.tish'
@@ -494,12 +495,62 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
       applyGridPlayhead(st, rt.playing === true, gridBars, viewBar)
     }, 0)
   }
+  // Euclidean fill for the selected channel — moved here from the instrument (it edits `steps`,
+  // which is the rack's pattern, not the sound).
+  let selCh = (selectedCh >= 0 && selectedCh < project.channels.length) ? project.channels[selectedCh] : null
+  let euclidRow = null
+  if (selCh) {
+    let pills = []
+    pills.push(
+      <button
+        type="button"
+        class={(!selCh.euclid || selCh.euclid === 0) ? "sg-euclid-pill sg-euclid-on" : "sg-euclid-pill"}
+        onclick={() => {
+          let si = 0
+          while (si < 16) {
+            selCh.steps[si].on = false
+            si = si + 1
+          }
+          selCh.euclid = 0
+          setProjectFromUI(project)
+        }}
+      >
+        {"Off"}
+      </button>
+    )
+    let ek = 1
+    while (ek <= 8) {
+      let hits = ek
+      pills.push(
+        <button
+          type="button"
+          class={selCh.euclid === ek ? "sg-euclid-pill sg-euclid-on" : "sg-euclid-pill"}
+          onclick={() => {
+            applyStepsEuclid(selCh, hits, 16)
+            selCh.euclid = hits
+            setProjectFromUI(project)
+          }}
+        >
+          {String(ek)}
+        </button>
+      )
+      ek = ek + 1
+    }
+    euclidRow = (
+      <div class="sg-euclid">
+        <span class="sg-euclid-label">{"EUCLID"}</span>
+        <span class="sg-euclid-target">{selCh.name}</span>
+        <div class="sg-euclid-pills">{pills}</div>
+      </div>
+    )
+  }
   return (
     <section class="panel sg-panel">
       <div class="sg-head">
         <h2>{"SEQUENCER // CHANNEL RACK"}</h2>
         <span class="sg-head-hint">{"Left: toggle · Right: clear · ▸ expand any track into its piano roll"}</span>
       </div>
+      {euclidRow}
       <div class="sg-barpager" title="Shift + scroll to page through bars" onwheel={(e) => handleBarWheel(e, rt, gridBars)}>
         <span class="sg-barpager-label">{"BARS"}</span>
         <button

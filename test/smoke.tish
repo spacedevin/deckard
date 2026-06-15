@@ -20,6 +20,14 @@ import { secondsPerStep, stepsToScheduleInWindow, underrunsInBatch } from '../sr
 import { createSignals } from '../src/core/Signals.tish'
 import { createIngest } from '../src/core/Ingest.tish'
 import { fragmentForEdit, createEditor } from '../src/core/Edit.tish'
+import { parsePatchGraph, parseGenBlock, defaultMatrixFmRawLines } from '../src/tpl/TplExtension.tish'
+import { patchGraphToLines, syncPatchSpecFromGraph, defaultPatchRawLines, addPatchNode, removePatchNode, addPatchConn, removePatchConnAt, addPatchEnv, addPatchEnvSeg, removePatchEnvSegAt } from '../src/tpl/PatchGraph.tish'
+import { macroCatalog, macroKind, macroParamControls, expandMacroToSpec, assignMacroToChannel, setMacroParam, freezeMacroChannel } from '../src/model/MacroVoice.tish'
+import { defaultParamsForGeneratorId } from '../src/generators/Registry.tish'
+import { emitInstrumentModuleTpl } from '../src/core/Levels.tish'
+import { addInstrumentPreset, applyInstrumentPresetToChannel, ensureInstrumentPresets } from '../src/model/InstrumentPresets.tish'
+import { expandTriggerNotes, chordStrumDelta } from '../src/audio/NoteExpand.tish'
+import { compileGeneratorToPatchLines, canCompileToPatch } from '../src/model/PatchCompile.tish'
 
 let pass = 0
 let fail = 0
@@ -140,6 +148,63 @@ applyTplSource(patchProj2, patchEmit)
 let pk2 = findChannelById(patchProj2, "pk")
 check("patch: re-parse preserves node count", pk2 !== null && pk2.generatorSpec.graph.nodes.length === 2)
 
+// 5b-i. PatchGraph serializer ↔ parser round-trip (the data path the generic editor relies on)
+let defG = parsePatchGraph(defaultPatchRawLines())
+check("patchgraph: default starter has 3 nodes", defG.nodes.length === 3)
+check("patchgraph: default starter has 3 conns", defG.conns.length === 3)
+check("patchgraph: default starter has 1 env", defG.envs.length === 1)
+// A non-trivial graph exercises every node kind + a param-routed conn + multi-seg expr envelope.
+let richLines = [
+  "osc o1 sawtooth note ratio 2 detune -7",
+  "osc o2 sine 55",
+  "noise n1",
+  "filter f1 lowpass q 6.5 freq 1400",
+  "shaper s1 amount 120",
+  "gain a1 0",
+  "conn o1 f1 1",
+  "conn n1 f1 0.4",
+  "conn f1 a1 1",
+  "conn o2 a1.gain 0.5",
+  "conn a1 out 0.8",
+  "conn a1 reverb 0.2",
+  "env a1.gain set 0 0 lin 0.01 0.9 exp dur 0.001",
+  "env f1.freq set 0 200 exp dur-0.05 4000",
+  "dur 0.6"
+]
+let rg = parsePatchGraph(richLines)
+let rg2 = parsePatchGraph(patchGraphToLines(rg))
+check("patchgraph: node count survives serialize→parse", rg2.nodes.length === 6)
+check("patchgraph: conn count survives serialize→parse", rg2.conns.length === 6)
+check("patchgraph: osc ratio+detune survive", rg2.nodes[0].ratio === 2 && rg2.nodes[0].detune === -7)
+check("patchgraph: osc fixed Hz survives", rg2.nodes[1].freqMode === "fixed" && rg2.nodes[1].fixedHz === 55)
+check("patchgraph: filter q+freq survive", rg2.nodes[3].q === 6.5 && rg2.nodes[3].freq === 1400)
+check("patchgraph: shaper amount survives", rg2.nodes[4].amount === 120)
+check("patchgraph: param-routed conn keeps dstParam", rg2.conns[3].dst === "a1" && rg2.conns[3].dstParam === "gain")
+check("patchgraph: reverb send conn survives", rg2.conns[5].dst === "reverb")
+check("patchgraph: env exprs survive (dur-0.05)", rg2.envs[1].segs[1].tExpr === "dur-0.05" && rg2.envs[1].segs[1].vExpr === "4000")
+check("patchgraph: fixed dur survives", rg2.dur === 0.6)
+// Mutators (the editor's add/remove buttons) keep the graph coherent.
+let mg = parsePatchGraph(defaultPatchRawLines())
+let newId = addPatchNode(mg, "filter")
+check("patchgraph: addNode appends a uniquely-id'd filter", mg.nodes.length === 4 && newId === "f2")
+addPatchConn(mg)
+check("patchgraph: addConn appends a conn to out", mg.conns.length === 4 && mg.conns[3].dst === "out")
+removePatchConnAt(mg, 3)
+check("patchgraph: removeConnAt drops it", mg.conns.length === 3)
+removePatchNode(mg, "f1")
+check("patchgraph: removeNode also drops conns referencing it", mg.nodes.length === 3 && mg.conns.every(c => c.src !== "f1" && c.dst !== "f1"))
+addPatchEnv(mg)
+let envCount = mg.envs.length
+addPatchEnvSeg(mg, envCount - 1)
+check("patchgraph: addEnv + addSeg grow the envelope", mg.envs[envCount - 1].segs.length === 4)
+removePatchEnvSegAt(mg, envCount - 1, 0)
+check("patchgraph: removeSeg shrinks it", mg.envs[envCount - 1].segs.length === 3)
+// syncPatchSpecFromGraph refreshes raw without replacing graph (handler closures stay valid).
+let specForSync = { kind: "patch", graph: parsePatchGraph(defaultPatchRawLines()), raw: [] }
+let graphRef = specForSync.graph
+syncPatchSpecFromGraph(specForSync)
+check("patchgraph: sync refreshes raw", specForSync.raw.length > 0 && specForSync.graph === graphRef)
+
 // 5c. Bar selectors: per-bar note expansion + per-bar step_pitch + multi-bar round-trip
 let barSrc = "tpl 1\ntrack Ch id ch gen patch * 4\n  gen_block patch\n    osc o sine\n    gain a\n    conn o a\n    conn a out\n    env a.gain set 0 0.3 exp 0.4 0.01\n    dur 0.4\n  end gen_block\n  note 48 0 4 v 90 bar 0\n  note 43 0 4 v 90 bar 1,3\n  note 44 0 4 v 90 bar 2\ntrack Bs id bs gen patch * 4\n  gen_block patch\n    osc o sawtooth note\n    gain a\n    conn o a\n    conn a out\n    env a.gain set 0 0.3 exp 0.3 0.01\n    dur 0.3\n  end gen_block\n  step_pitch 36 bar 0\n  step_pitch 31 bar 1\n  step_pitch 34 bar 2,3\n  steps x . x . x . x . x . x . x . x ."
 let barProj = loadDefaultDeckardProject().project
@@ -172,6 +237,172 @@ check("macro: emit is concise (gen kick_edm, no gen_block for it)", macEmit.inde
 let macProj2 = loadDefaultDeckardProject().project
 let macRT = applyTplSource(macProj2, macEmit)
 check("macro: round-trip re-parses clean and keeps the macro ref", macRT.errors.length === 0 && findChannelById(macProj2, "mk").macroName === "kick_edm")
+
+// 5d-i. MacroVoice (Kick/Bass designer model): catalog, controls, assign/set/freeze + emit round-trip
+check("macrovoice: catalog has 8 designer voices", macroCatalog().length === 8)
+check("macrovoice: macroKind classifies kick + bass", macroKind("kick_edm") === "kick" && macroKind("bass_acid") === "bass" && macroKind("nope") === null)
+let kCtrls = macroParamControls("kick_edm", {}, null)
+check("macrovoice: kick_edm exposes pitch + decay with defaults", kCtrls.length === 2 && kCtrls[0].key === "pitch" && kCtrls[0].value === 150 && kCtrls[1].value === 0.5)
+check("macrovoice: known param gets a labeled range", kCtrls[0].label === "Punch (Hz)" && kCtrls[0].min === 40 && kCtrls[0].max === 400)
+check("macrovoice: override shows through in controls", macroParamControls("kick_edm", { pitch: 90 }, null)[0].value === 90)
+check("macrovoice: param-less voice yields no controls", macroParamControls("bass_reese_sc", {}, null).length === 0)
+let expSpec = expandMacroToSpec("kick_edm", { pitch: 90 }, null)
+check("macrovoice: expand substitutes override into the graph", expSpec !== null && expSpec.kind === "patch" && expSpec.graph.envs[0].segs[0].vExpr === "90")
+let mvProj = loadDefaultDeckardProject().project
+let mvCh = mvProj.channels[0]
+assignMacroToChannel(mvCh, "kick_edm", null)
+check("macrovoice: assign makes it a patch-backed macro voice", mvCh.macroName === "kick_edm" && mvCh.generatorId === "patch" && mvCh.generatorSpec.graph.nodes.length === 2)
+setMacroParam(mvCh, "pitch", 100, null)
+check("macrovoice: setMacroParam records override + re-expands", mvCh.macroParams.pitch === 100 && mvCh.generatorSpec.graph.envs[0].segs[0].vExpr === "100")
+let mvEmit = emitProject(mvProj)
+check("macrovoice: emit writes the concise macro line", mvEmit.indexOf("gen kick_edm pitch 100") >= 0)
+let mvProj2 = loadDefaultDeckardProject().project
+applyTplSource(mvProj2, mvEmit)
+let mvCh2 = findChannelById(mvProj2, mvCh.id)
+check("macrovoice: edit survives emit→re-parse", mvCh2 !== null && mvCh2.macroName === "kick_edm" && mvCh2.macroParams.pitch === 100)
+freezeMacroChannel(mvCh)
+let mvFrozen = emitProject(mvProj)
+check("macrovoice: freeze drops the macro and emits a raw patch block", mvCh.macroName === null && mvFrozen.indexOf("gen_block patch") >= 0)
+
+// 5d-ii. Fixed-param designer round-trips (pad / bell / drumSynth) — the gen <k> <v> path the new arms emit
+check("registry: drumSynth default now includes noiseHp", defaultParamsForGeneratorId("drumSynth").noiseHp === 1500)
+let gpSrc = "tpl 1\ntrack Pad id gp gen pad\n  gen wave1 sawtooth wave2 square detune 14 cutoff 1400 attack 0.05 decay 0.3 sustain 0.5 release 0.9\n  steps x . . . x . . . x . . . x . . .\ntrack Bell id gb gen bell\n  gen partial 3.01 highpass 1200 decay 2.5\n  steps x . . . x . . . x . . . x . . .\ntrack Drum id gd gen drumSynth\n  gen tone triangle pitch_env 40 pitch_decay 0.05 decay 0.4 noise 0.6 noise_decay 0.2 noise_hp 2200 drive 0.3\n  steps x . . . x . . . x . . . x . . ."
+let gpProj = loadDefaultDeckardProject().project
+applyTplSource(gpProj, gpSrc)
+let gpPad = findChannelById(gpProj, "gp")
+check("pad designer: gen params parse (wave1/cutoff/sustain)", gpPad !== null && gpPad.generatorParams.wave1 === "sawtooth" && gpPad.generatorParams.cutoff === 1400 && gpPad.generatorParams.sustain === 0.5)
+let gpDrum = findChannelById(gpProj, "gd")
+check("drum designer: noise_hp maps to noiseHp camel", gpDrum !== null && gpDrum.generatorParams.noiseHp === 2200 && gpDrum.generatorParams.pitchEnv === 40)
+let gpEmit = emitProject(gpProj)
+check("designer round-trip: pad cutoff survives emit", gpEmit.indexOf("cutoff 1400") >= 0)
+check("designer round-trip: bell partial survives emit", gpEmit.indexOf("partial 3.01") >= 0)
+check("designer round-trip: drum noise_hp survives emit", gpEmit.indexOf("noise_hp 2200") >= 0)
+let gpProj2 = loadDefaultDeckardProject().project
+applyTplSource(gpProj2, gpEmit)
+let gpDrum2 = findChannelById(gpProj2, "gd")
+check("designer round-trip: drum noiseHp re-parses", gpDrum2 !== null && gpDrum2.generatorParams.noiseHp === 2200)
+
+// 5d-iii. Per-module instrument slices (the Designer⇄Raw "break it down to TPL" view)
+let modSrc = "tpl 1\ntrack Lead id tl gen pad\n  mix gain 0.8 pan 0 eq_lo 0 eq_mid 0 eq_hi 0\n  fx reverb_send 0.3 drive 0.2 cutoff 4000 res 2\n  voice octave 1 arp up chord maj7\n  gen wave1 sawtooth wave2 square detune 12 cutoff 3000 attack 0.05 decay 0.3 sustain 0.5 release 0.8\n  steps x . . . x . . . x . . . x . . ."
+let modProj = loadDefaultDeckardProject().project
+applyTplSource(modProj, modSrc)
+let genSlice = emitInstrumentModuleTpl(modProj, "tl", "gen")
+check("module slice: gen slice has the gen line", genSlice.indexOf("gen wave1 sawtooth") >= 0)
+check("module slice: gen slice excludes voice + fx + mix", genSlice.indexOf("voice octave") < 0 && genSlice.indexOf("fx reverb") < 0 && genSlice.indexOf("mix gain") < 0)
+check("module slice: gen slice excludes the pattern (steps)", genSlice.indexOf("steps ") < 0)
+let voiceSlice = emitInstrumentModuleTpl(modProj, "tl", "voice")
+check("module slice: voice slice has only the voice line", voiceSlice.indexOf("voice octave 1 arp up chord maj7") >= 0 && voiceSlice.indexOf("gen wave1") < 0 && voiceSlice.indexOf("fx reverb") < 0)
+let fxSlice = emitInstrumentModuleTpl(modProj, "tl", "fx")
+check("module slice: fx slice has only the fx line", fxSlice.indexOf("fx reverb_send 0.3") >= 0 && fxSlice.indexOf("voice octave") < 0 && fxSlice.indexOf("gen wave1") < 0)
+// Editing a module's raw and re-applying merges just that module (others untouched).
+let modProj2 = loadDefaultDeckardProject().project
+applyTplSource(modProj2, modSrc)
+applyTplSource(modProj2, voiceSlice.split("arp up").join("arp down"))
+let tl2 = findChannelById(modProj2, "tl")
+check("module slice: applying edited voice slice merges (arp down) without wiping gen/fx", tl2 !== null && tl2.arp === "down" && tl2.generatorParams.wave1 === "sawtooth" && tl2.reverbSend === 0.3)
+let genBlockSrc = "tpl 1\ntrack Pat id tp gen patch\n  fx reverb_send 0.1\n  voice octave 0\n  gen_block patch\n    osc o1 sawtooth note\n    gain a1 0\n    conn o1 a1 1\n    conn a1 out 1\n    env a1.gain set 0 0.9 lin dur 0\n  end gen_block\n  steps x . . . x . . . x . . . x . . ."
+let gbProj = loadDefaultDeckardProject().project
+applyTplSource(gbProj, genBlockSrc)
+let gbGen = emitInstrumentModuleTpl(gbProj, "tp", "gen")
+check("module slice: gen slice carries the whole gen_block (patch graph reduction)", gbGen.indexOf("gen_block patch") >= 0 && gbGen.indexOf("osc o1 sawtooth note") >= 0 && gbGen.indexOf("end gen_block") >= 0 && gbGen.indexOf("fx reverb") < 0)
+
+// 5d-iv. Generator → patch compile (switch-to-Patch is a sound-preserving reduction, not a reset)
+check("compile: fixed generators + matrixFm are compilable; matrixFm needs its spec", canCompileToPatch("basicOsc") && canCompileToPatch("drumSynth") && canCompileToPatch("matrixFm") && !canCompileToPatch("plugin") && compileGeneratorToPatchLines("matrixFm", {}, null) === null)
+let cbOsc = parsePatchGraph(compileGeneratorToPatchLines("basicOsc", { waveform: "square", attack: 0.01, decay: 0.1, sustain: 0.5, release: 0.2 }))
+check("compile basicOsc: osc keeps the waveform + note pitch", cbOsc.nodes.some(n => n.kind === "osc" && n.wave === "square" && n.freqMode === "note"))
+check("compile basicOsc: output conn compensates velocity (100/127 ≈ 0.7874)", cbOsc.conns.some(c => c.dst === "out" && Math.abs(c.vol - 0.7874) < 0.001))
+check("compile basicOsc: amp env has the ADSR breakpoints", cbOsc.envs.some(e => e.node === "a1" && e.param === "gain" && e.segs.length >= 4))
+let cbFm = parsePatchGraph(compileGeneratorToPatchLines("fmTone", { ratio: 3, modIndex: 5, carrierWave: "sine", modWave: "triangle" }))
+check("compile fmTone: modulator routes to carrier frequency (FM)", cbFm.conns.some(c => c.dst === "c1" && c.dstParam === "freq"))
+check("compile fmTone: mod depth is note-relative (note*0.6 for index 5)", cbFm.envs.some(e => e.node === "md" && e.segs.some(s => s.vExpr === "note*0.6")))
+check("compile fmTone: modulator uses its ratio", cbFm.nodes.some(n => n.id === "m1" && n.ratio === 3))
+let cbDrum = parsePatchGraph(compileGeneratorToPatchLines("drumSynth", { tone: "sine", pitchEnv: 36, pitchDecay: 0.05, decay: 0.4, noise: 0.5, noiseDecay: 0.2, noiseHp: 2000, drive: 0 }))
+check("compile drumSynth: pitch drop is note-relative (pitchEnv 36 → note*8)", cbDrum.envs.some(e => e.node === "o1" && e.param === "freq" && e.segs.some(s => s.vExpr === "note*8")))
+check("compile drumSynth: noise layer present when noise > 0", cbDrum.nodes.some(n => n.kind === "noise"))
+let cbPad = parsePatchGraph(compileGeneratorToPatchLines("pad", { wave1: "sawtooth", wave2: "square", detune: 12, cutoff: 1800, attack: 0.1, decay: 0.3, sustain: 0.6, release: 0.8 }))
+check("compile pad: three oscillators through a lowpass", cbPad.nodes.filter(n => n.kind === "osc").length === 3 && cbPad.nodes.some(n => n.kind === "filter" && n.ftype === "lowpass"))
+// guitar (Karplus-Strong) generator: catalog + default params + gen key/val round-trip
+check("guitar: registered with default string params", defaultParamsForGeneratorId("guitar").decay === 0.6 && defaultParamsForGeneratorId("guitar").mute === 0 && defaultParamsForGeneratorId("guitar").body === 3500)
+let gtrSrc = "tpl 1\ntrack Lead id gt gen guitar\n  gen tone 0.7 decay 0.8 damping 0.3 drive 0.5 body 2800 mute 0.4\n  note 52 0 0.5 v 100"
+let gtrProj = loadDefaultDeckardProject().project
+applyTplSource(gtrProj, gtrSrc)
+let gtrCh = findChannelById(gtrProj, "gt")
+check("guitar: gen params parse", gtrCh !== null && gtrCh.generatorId === "guitar" && gtrCh.generatorParams.drive === 0.5 && gtrCh.generatorParams.mute === 0.4)
+let gtrEmit = emitProject(gtrProj)
+check("guitar: params survive emit→re-parse", gtrEmit.indexOf("mute 0.4") >= 0 && gtrEmit.indexOf("body 2800") >= 0)
+
+// 5d-v. Instrument preset captures + restores the WHOLE sound (every panel), not just the generator.
+let prProj = loadDefaultDeckardProject().project
+ensureInstrumentPresets(prProj)
+let prSrc = prProj.channels[0]
+prSrc.macroName = "bass_acid"
+prSrc.macroParams = { q: 14 }
+prSrc.octave = 1
+prSrc.arp = "up"
+prSrc.chord = "min7"
+prSrc.reverbSend = 0.4
+prSrc.drive = 0.3
+prSrc.filterCutoff = 2400
+prSrc.filterQ = 6
+prSrc.lfoRate = 4
+prSrc.lfoDepth = 800
+addInstrumentPreset(prProj, "Acid lead", prSrc)
+let prTarget = prProj.channels[1]
+prTarget.octave = 0
+prTarget.arp = "off"
+prTarget.reverbSend = 0
+applyInstrumentPresetToChannel(prTarget, prProj.instrumentPresets[prProj.instrumentPresets.length - 1])
+check("preset: restores macro identity (Sound box)", prTarget.macroName === "bass_acid" && prTarget.macroParams.q === 14)
+check("preset: restores voice/pitch box (octave/arp/chord)", prTarget.octave === 1 && prTarget.arp === "up" && prTarget.chord === "min7")
+check("preset: restores filter/fx box", prTarget.reverbSend === 0.4 && prTarget.drive === 0.3 && prTarget.filterCutoff === 2400 && prTarget.filterQ === 6 && prTarget.lfoRate === 4 && prTarget.lfoDepth === 800)
+// An older preset (no fx/voice captured) resets those panels to neutral rather than leaving stale values.
+let legacyPreset = { generatorId: "basicOsc", params: { waveform: "square", attack: 0.01, decay: 0.1, sustain: 0.5, release: 0.2 } }
+let prT2 = prProj.channels[2]
+prT2.arp = "down"
+prT2.reverbSend = 0.9
+applyInstrumentPresetToChannel(prT2, legacyPreset)
+check("preset: legacy preset resets voice/fx panels to neutral", prT2.arp === "off" && prT2.reverbSend === 0 && prT2.filterCutoff === 20000 && prT2.macroName === null)
+
+// 5d-v-b. A non-generator edit (fx/voice/mix) on a MACRO channel must NOT reset the macro. Edits ride
+// the INCREMENTAL ingest path (applyCoDjTplSource), the same door rt.emit uses — and that path must
+// re-expand the macro. If it doesn't, the header's `gen bass_acid` flips generatorId patch->bass_acid
+// (an unknown gen) and drops the spec, so the next note falls through to the default oscillator: the
+// "change cutoff → bass unrecognizable, no way back" + "chord on bass designer goes silent until you
+// re-pick the designer" bug. trackHeader also has to carry the macro overrides so they survive.
+let macEditProj = loadDefaultDeckardProject().project
+applyCoDjTplSource(macEditProj, "tpl 1\ntrack B id mfb gen bass_acid q 9 top 5000\n  steps x . . . x . . . x . . . x . . .", "host", "host", 0, ["host"])
+applyCoDjTplSource(macEditProj, "tpl 1\n" + fragmentForEdit(macEditProj, "track/mfb/fx/cutoff", 2000) + "\n", "host", "host", 0, ["host"])
+let mfb = findChannelById(macEditProj, "mfb")
+check("macro edit via ingest keeps patch gen + overrides (fx cutoff)", mfb.generatorId === "patch" && mfb.macroName === "bass_acid" && mfb.macroParams.q === 9 && mfb.macroParams.top === 5000 && mfb.generatorSpec.graph.nodes[1].q === 9 && mfb.filterCutoff === 2000)
+applyCoDjTplSource(macEditProj, "tpl 1\n" + fragmentForEdit(macEditProj, "track/mfb/voice/chord", "major") + "\n", "host", "host", 0, ["host"])
+let mfb2 = findChannelById(macEditProj, "mfb")
+check("macro edit via ingest keeps patch gen + spec (voice chord)", mfb2.generatorId === "patch" && mfb2.macroName === "bass_acid" && mfb2.chord === "major" && mfb2.generatorSpec !== null && mfb2.generatorSpec.graph.nodes.length >= 2)
+
+// 5d-vi. Chord realization: plain chord = block (guitar strums subtly); chord+arp = internal ripple.
+let gtrChordCh = { id: "x", generatorId: "guitar", chord: "major", arp: "off" }
+let oscChordCh = { id: "y", generatorId: "basicOsc", chord: "major", arp: "off" }
+let gtrNotes = expandTriggerNotes(gtrChordCh, 40, 0.3)
+check("guitar chord: 3-note triad, subtle 8ms strum low→high", gtrNotes.length === 3 && gtrNotes[0].pitch === 40 && gtrNotes[2].pitch === 47 && gtrNotes[0].offset === 0 && Math.abs(gtrNotes[2].offset - 0.016) < 1e-9)
+check("non-guitar chord: block chord (no strum offset)", expandTriggerNotes(oscChordCh, 40, 0.3)[2].offset === 0 && chordStrumDelta(oscChordCh) === 0)
+// arp+chord = the chord rippled within the note (the two work together)
+let arpUp = expandTriggerNotes({ id: "z", generatorId: "basicOsc", chord: "major", arp: "up" }, 40, 0.3)
+check("arp+chord: chord rippled up (40→44→47) with rising offsets + short notes", arpUp.length === 3 && arpUp[0].pitch === 40 && arpUp[1].pitch === 44 && arpUp[2].pitch === 47 && arpUp[0].offset === 0 && arpUp[1].offset > 0 && arpUp[2].offset > arpUp[1].offset && arpUp[0].dur < 0.3)
+let arpDown = expandTriggerNotes({ id: "z2", generatorId: "basicOsc", chord: "major", arp: "down" }, 40, 0.3)
+check("arp down: reversed order (47→44→40)", arpDown[0].pitch === 47 && arpDown[2].pitch === 40)
+check("arp without a chord: nothing to arpeggiate (single note)", expandTriggerNotes({ id: "z3", chord: "off", arp: "up" }, 40, 0.3).length === 1)
+// guitar → patch: a plucky subtractive approximation (KS can't be a patch graph), not a generic saw
+let gtrPatchG = parsePatchGraph(compileGeneratorToPatchLines("guitar", { tone: 0.5, decay: 0.6, drive: 0.3, body: 3000 }, null))
+check("guitar→patch: plucky saw→lowpass→amp with a pluck envelope", gtrPatchG.nodes.some(n => n.kind === "osc" && n.wave === "sawtooth") && gtrPatchG.nodes.some(n => n.kind === "filter") && gtrPatchG.envs.some(e => e.node === "a1"))
+// matrixFm → patch: the operator/matrix graph reduces to oscillators + FM-routed connections + envelopes.
+let mfmSpec = parseGenBlock("matrix_fm", defaultMatrixFmRawLines())
+let mfmLines = compileGeneratorToPatchLines("matrixFm", {}, mfmSpec)
+check("compile matrixFm: produces patch lines (not the default fallback)", mfmLines !== null && mfmLines.length > 0)
+let mfmG = parsePatchGraph(mfmLines)
+check("compile matrixFm: two operator oscillators (op1, op2)", mfmG.nodes.filter(n => n.kind === "osc" && (n.id === "op1" || n.id === "op2")).length === 2)
+check("compile matrixFm: FM modulator routes into the carrier frequency", mfmG.conns.some(c => c.dst === "op1" && c.dstParam === "freq"))
+check("compile matrixFm: per-op amp env gains + envelopes", mfmG.nodes.some(n => n.id === "eg1") && mfmG.envs.some(e => e.node === "eg1"))
+check("compile matrixFm: op env peaks at velocity (vel token)", mfmG.envs.some(e => e.node === "eg1" && e.segs.some(s => String(s.vExpr).indexOf("vel") === 0)))
+check("compile matrixFm: route op1 → out", mfmG.conns.some(c => c.src === "eg1" && c.dst === "out"))
 
 // 5e. Bar selector grammar (parse + match) — every supported form
 fn barMatch(sel, bar) {

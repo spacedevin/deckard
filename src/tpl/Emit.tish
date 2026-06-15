@@ -164,7 +164,7 @@ export fn emitProjectInner(project, skipSync) {
         formatTplFloat(p.release) +
         "\n"
     }
-    if (gid === "pad" || gid === "bell" || gid === "drumSynth") {
+    if (gid === "pad" || gid === "bell" || gid === "drumSynth" || gid === "guitar") {
       let keys = Object.keys(p)
       if (keys.length > 0) {
         o = o + "  gen"
@@ -193,10 +193,10 @@ export fn emitProjectInner(project, skipSync) {
     if (ch.lfoDepth != null && ch.lfoDepth > 0.0001) {
       fxParts = fxParts + " lfo_depth " + formatTplFloat(ch.lfoDepth)
     }
-    if (ch.filterCutoff != null && ch.filterCutoff !== 8000) {
+    if (ch.filterCutoff != null && ch.filterCutoff < 20000) {
       fxParts = fxParts + " cutoff " + formatTplFloat(ch.filterCutoff)
     }
-    if (ch.filterQ != null && ch.filterQ !== 1) {
+    if (ch.filterQ != null && Math.abs(ch.filterQ - 0.7) > 0.001) {
       fxParts = fxParts + " res " + formatTplFloat(ch.filterQ)
     }
     if (fxParts.length > 0) {

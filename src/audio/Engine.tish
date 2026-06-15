@@ -97,8 +97,10 @@ export fn buildChannelBus(ctx, ch, actorSummingGain, reverbIn) {
   g.gain.value = ch.gain != null ? ch.gain : 0.85
   let filt = ctx.createBiquadFilter()
   filt.type = "lowpass"
-  filt.frequency.value = ch.filterCutoff
-  filt.Q.value = ch.filterQ
+  // Default OPEN (20 kHz ≈ transparent): the channel filter is an opt-in effect, not an always-on dulling
+  // insert. A null/unset cutoff must never collapse the filter to silence.
+  filt.frequency.value = ch.filterCutoff != null ? ch.filterCutoff : 20000
+  filt.Q.value = ch.filterQ != null ? ch.filterQ : 0.7
   // Per-channel drive (waveshaper) feeding the filter — saturation/warmth for any generator.
   let drive = ctx.createWaveShaper()
   drive.oversample = "2x"
@@ -418,7 +420,7 @@ export fn updateMixerFromProject(project, store, atBeat) {
       b.eqMid.gain.value = midFall
       b.eqHi.gain.value = hiFall
     }
-    b.filterNode.frequency.value = ch.filterCutoff
+    b.filterNode.frequency.value = ch.filterCutoff != null ? ch.filterCutoff : 20000
     if (b.reverbSend) {
       b.reverbSend.gain.value = ch.reverbSend != null ? ch.reverbSend : 0
     }

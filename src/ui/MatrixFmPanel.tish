@@ -16,6 +16,7 @@ import {
   ensureMatrixFmFilterEnv
 } from '../tpl/MatrixFmGraph.tish'
 import { parseGenBlock, defaultMatrixFmRawLines } from '../tpl/TplExtension.tish'
+import { Knob, accentForGenerator, matrixFmSvgDataUrl, matrixFmLucideIconSvg } from './InstrumentKit.tish'
 
 fn numOr(x, def) {
   if (typeof x === "number" && x === x) {
@@ -97,13 +98,6 @@ fn matrixFmEnvelopePathD(a, d, s, r) {
   )
 }
 
-fn matrixFmSvgDataUrl(svgMarkup) {
-  if (typeof encodeURIComponent !== "undefined") {
-    return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgMarkup)
-  }
-  return ""
-}
-
 /** Data-URL SVG as CSS background: same namespace fix as img, and style updates repaint reliably. */
 fn matrixFmEnvPreviewBlock(a, d, s, r) {
   let pathD = matrixFmEnvelopePathD(a, d, s, r)
@@ -122,65 +116,6 @@ fn matrixFmEnvPreviewBlock(a, d, s, r) {
         backgroundPosition: "center"
       }}
     />
-  )
-}
-
-/** Lucide v0.469.0 geometry (ISC): Waves, Square, Zap, Triangle, AudioWaveform — vendored as strings
- *  because the Tish bundle does not import npm; inline svg/path also fails (wrong DOM namespace).
- *  Source: lucide npm package, dist/esm/icons. */
-fn matrixFmLucideIconSvg(shape, strokeHex) {
-  let st =
-    " fill=\"none\" stroke=\"" +
-    strokeHex +
-    "\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\""
-  if (shape === "sine") {
-    return (
-      "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">" +
-      "<path d=\"M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1\"" +
-      st +
-      "/>" +
-      "<path d=\"M2 12c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1\"" +
-      st +
-      "/>" +
-      "<path d=\"M2 18c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1\"" +
-      st +
-      "/></svg>"
-    )
-  }
-  if (shape === "square") {
-    return (
-      "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">" +
-      "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"" +
-      st +
-      "/></svg>"
-    )
-  }
-  if (shape === "sawtooth") {
-    return (
-      "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">" +
-      "<path d=\"M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z\"" +
-      st +
-      "/></svg>"
-    )
-  }
-  if (shape === "triangle") {
-    return (
-      "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">" +
-      "<path d=\"M13.73 4a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z\"" +
-      st +
-      "/></svg>"
-    )
-  }
-  if (shape === "noise") {
-    return (
-      "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">" +
-      "<path d=\"M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2\"" +
-      st +
-      "/></svg>"
-    )
-  }
-  return (
-    "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M3 12h18\"" + st + "/></svg>"
   )
 }
 
@@ -266,6 +201,8 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
     }
   }
 
+  let accent = accentForGenerator("matrixFm")
+
   let opIds = sortedStringKeys(g.ops)
   let filterIds = sortedStringKeys(g.filters)
 
@@ -310,31 +247,37 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
             <div class="sytrus-mod-pair">
               <label class="sytrus-mod-lbl">
                 {"FM"}
-                <input
-                  type="range"
-                  min="0"
-                  max="800"
-                  value={String(Math.round(fmV * 100))}
-                  onmousedown={(e) => e.stopPropagation()}
-                  oninput={(e) => {
-                    setModAmount(g, "fm", srcCopy, dstCopy, Number(e.target.value) / 100)
+                {Knob({
+                  label: "FM",
+                  value: Math.round(fmV * 100),
+                  min: 0,
+                  max: 800,
+                  step: 1,
+                  size: "xs",
+                  accent: accent,
+                  fmt: (v) => String(Math.round(v) / 100),
+                  onInput: (v) => {
+                    setModAmount(g, "fm", srcCopy, dstCopy, v / 100)
                     commit()
-                  }}
-                />
+                  }
+                })}
               </label>
               <label class="sytrus-mod-lbl">
                 {"RM"}
-                <input
-                  type="range"
-                  min="0"
-                  max="300"
-                  value={String(Math.round(rmV * 100))}
-                  onmousedown={(e) => e.stopPropagation()}
-                  oninput={(e) => {
-                    setModAmount(g, "rm", srcCopy, dstCopy, Number(e.target.value) / 100)
+                {Knob({
+                  label: "RM",
+                  value: Math.round(rmV * 100),
+                  min: 0,
+                  max: 300,
+                  step: 1,
+                  size: "xs",
+                  accent: accent,
+                  fmt: (v) => String(Math.round(v) / 100),
+                  onInput: (v) => {
+                    setModAmount(g, "rm", srcCopy, dstCopy, v / 100)
                     commit()
-                  }}
-                />
+                  }
+                })}
               </label>
             </div>
           </td>
@@ -370,21 +313,20 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
           <span class="sytrus-op-badge">{"OP " + oid}</span>
           <div class="sytrus-op-card-mid">
             {matrixFmOpWavePicker(wv, oidCopy, g, commit)}
-            <label class="sytrus-op-ratio">
-              {"×"}
-              <input
-                type="range"
-                min="25"
-                max="3200"
-                value={String(Math.round(ratio * 100))}
-                onmousedown={(e) => e.stopPropagation()}
-                oninput={(e) => {
-                  g.ops[oidCopy].ratio = Number(e.target.value) / 100
-                  commit()
-                }}
-              />
-              <span class="sytrus-op-ratio-val">{String(Math.round(ratio * 100) / 100)}</span>
-            </label>
+            {Knob({
+              label: "Ratio",
+              value: Math.round(ratio * 100),
+              min: 25,
+              max: 3200,
+              step: 1,
+              size: "md",
+              accent: accent,
+              fmt: (v) => String(Math.round(v) / 100) + "×",
+              onInput: (v) => {
+                g.ops[oidCopy].ratio = v / 100
+                commit()
+              }
+            })}
           </div>
           <button
             type="button"
@@ -401,62 +343,64 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
         </div>
         <div class="sytrus-op-adsr">
           <span class="sytrus-adsr-lbl">{"ADSR"}</span>
-          <label>
-            {"A"}
-            <input
-              type="range"
-              min="1"
-              max="500"
-              value={String(Math.round(a * 1000))}
-              onmousedown={(e) => e.stopPropagation()}
-              oninput={(e) => {
-                g.opEnvs[oidCopy].a = Number(e.target.value) / 1000
+          <div class="ik-knob-grid">
+            {Knob({
+              label: "A",
+              value: Math.round(a * 1000),
+              min: 1,
+              max: 500,
+              step: 1,
+              size: "md",
+              accent: accent,
+              fmt: (v) => String(Math.round(v)) + " ms",
+              onInput: (v) => {
+                g.opEnvs[oidCopy].a = v / 1000
                 commit()
-              }}
-            />
-          </label>
-          <label>
-            {"D"}
-            <input
-              type="range"
-              min="1"
-              max="800"
-              value={String(Math.round(d * 1000))}
-              onmousedown={(e) => e.stopPropagation()}
-              oninput={(e) => {
-                g.opEnvs[oidCopy].d = Number(e.target.value) / 1000
+              }
+            })}
+            {Knob({
+              label: "D",
+              value: Math.round(d * 1000),
+              min: 1,
+              max: 800,
+              step: 1,
+              size: "md",
+              accent: accent,
+              fmt: (v) => String(Math.round(v)) + " ms",
+              onInput: (v) => {
+                g.opEnvs[oidCopy].d = v / 1000
                 commit()
-              }}
-            />
-          </label>
-          <label>
-            {"S"}
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value={String(Math.round(s * 100))}
-              onmousedown={(e) => e.stopPropagation()}
-              oninput={(e) => {
-                g.opEnvs[oidCopy].s = Number(e.target.value) / 100
+              }
+            })}
+            {Knob({
+              label: "S",
+              value: Math.round(s * 100),
+              min: 0,
+              max: 100,
+              step: 1,
+              size: "md",
+              accent: accent,
+              fmt: (v) => String(Math.round(v)) + "%",
+              onInput: (v) => {
+                g.opEnvs[oidCopy].s = v / 100
                 commit()
-              }}
-            />
-          </label>
-          <label>
-            {"R"}
-            <input
-              type="range"
-              min="1"
-              max="800"
-              value={String(Math.round(rr * 1000))}
-              onmousedown={(e) => e.stopPropagation()}
-              oninput={(e) => {
-                g.opEnvs[oidCopy].r = Number(e.target.value) / 1000
+              }
+            })}
+            {Knob({
+              label: "R",
+              value: Math.round(rr * 1000),
+              min: 1,
+              max: 800,
+              step: 1,
+              size: "md",
+              accent: accent,
+              fmt: (v) => String(Math.round(v)) + " ms",
+              onInput: (v) => {
+                g.opEnvs[oidCopy].r = v / 1000
                 commit()
-              }}
-            />
-          </label>
+              }
+            })}
+          </div>
         </div>
         <div class="sytrus-op-env-wrap">{matrixFmEnvPreviewBlock(a, d, s, rr)}</div>
       </div>
@@ -513,107 +457,110 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
             {"×"}
           </button>
         </div>
-        <label class="sytrus-filter-row">
-          {"Cutoff "}
-          <input
-            type="range"
-            min="0"
-            max="1000"
-            value={String(coSlider)}
-            onmousedown={(e) => e.stopPropagation()}
-            oninput={(e) => {
-              g.filters[fidCopy].cutoff = sliderStepToFreq(Number(e.target.value))
+        <div class="ik-knob-grid">
+          {Knob({
+            label: "Cutoff",
+            value: coSlider,
+            min: 0,
+            max: 1000,
+            step: 1,
+            size: "md",
+            accent: accent,
+            fmt: (v) => String(sliderStepToFreq(v)) + " Hz",
+            onInput: (v) => {
+              g.filters[fidCopy].cutoff = sliderStepToFreq(v)
               commit()
-            }}
-          />
-          <span class="sytrus-hz-lbl">{String(Math.round(co)) + " Hz"}</span>
-        </label>
-        <label class="sytrus-filter-row">
-          {"Res "}
-          <input
-            type="range"
-            min="5"
-            max="100"
-            value={String(Math.round(rq * 100))}
-            onmousedown={(e) => e.stopPropagation()}
-            oninput={(e) => {
-              g.filters[fidCopy].res = Number(e.target.value) / 100
+            }
+          })}
+          {Knob({
+            label: "Res",
+            value: Math.round(rq * 100),
+            min: 5,
+            max: 100,
+            step: 1,
+            size: "md",
+            accent: accent,
+            fmt: (v) => String(Math.round(v) / 100),
+            onInput: (v) => {
+              g.filters[fidCopy].res = v / 100
               commit()
-            }}
-          />
-        </label>
+            }
+          })}
+        </div>
         <div class="sytrus-filter-env">
           <span class="sytrus-adsr-lbl">{"Cutoff env ±Hz"}</span>
-          <label>
-            {"Amt"}
-            <input
-              type="range"
-              min="0"
-              max="8000"
-              value={String(Math.round(famt + 4000))}
-              onmousedown={(e) => e.stopPropagation()}
-              oninput={(e) => {
-                g.filterEnvs[fidCopy].amount = Number(e.target.value) - 4000
+          <div class="ik-knob-grid">
+            {Knob({
+              label: "Amt",
+              value: Math.round(famt + 4000),
+              min: 0,
+              max: 8000,
+              step: 1,
+              size: "md",
+              accent: accent,
+              fmt: (v) => String(Math.round(v) - 4000) + " Hz",
+              onInput: (v) => {
+                g.filterEnvs[fidCopy].amount = v - 4000
                 commit()
-              }}
-            />
-          </label>
-          <label>
-            {"A"}
-            <input
-              type="range"
-              min="1"
-              max="500"
-              value={String(Math.round(fa * 1000))}
-              onmousedown={(e) => e.stopPropagation()}
-              oninput={(e) => {
-                g.filterEnvs[fidCopy].a = Number(e.target.value) / 1000
+              }
+            })}
+            {Knob({
+              label: "A",
+              value: Math.round(fa * 1000),
+              min: 1,
+              max: 500,
+              step: 1,
+              size: "md",
+              accent: accent,
+              fmt: (v) => String(Math.round(v)) + " ms",
+              onInput: (v) => {
+                g.filterEnvs[fidCopy].a = v / 1000
                 commit()
-              }}
-            />
-          </label>
-          <label>
-            {"D"}
-            <input
-              type="range"
-              min="1"
-              max="800"
-              value={String(Math.round(fdd * 1000))}
-              onmousedown={(e) => e.stopPropagation()}
-              oninput={(e) => {
-                g.filterEnvs[fidCopy].d = Number(e.target.value) / 1000
+              }
+            })}
+            {Knob({
+              label: "D",
+              value: Math.round(fdd * 1000),
+              min: 1,
+              max: 800,
+              step: 1,
+              size: "md",
+              accent: accent,
+              fmt: (v) => String(Math.round(v)) + " ms",
+              onInput: (v) => {
+                g.filterEnvs[fidCopy].d = v / 1000
                 commit()
-              }}
-            />
-          </label>
-          <label>
-            {"S"}
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value={String(Math.round(fs * 100))}
-              onmousedown={(e) => e.stopPropagation()}
-              oninput={(e) => {
-                g.filterEnvs[fidCopy].s = Number(e.target.value) / 100
+              }
+            })}
+            {Knob({
+              label: "S",
+              value: Math.round(fs * 100),
+              min: 0,
+              max: 100,
+              step: 1,
+              size: "md",
+              accent: accent,
+              fmt: (v) => String(Math.round(v)) + "%",
+              onInput: (v) => {
+                g.filterEnvs[fidCopy].s = v / 100
                 commit()
-              }}
-            />
-          </label>
-          <label>
-            {"R"}
-            <input
-              type="range"
-              min="1"
-              max="800"
-              value={String(Math.round(fr * 1000))}
-              onmousedown={(e) => e.stopPropagation()}
-              oninput={(e) => {
-                g.filterEnvs[fidCopy].r = Number(e.target.value) / 1000
+              }
+            })}
+            {Knob({
+              label: "R",
+              value: Math.round(fr * 1000),
+              min: 1,
+              max: 800,
+              step: 1,
+              size: "md",
+              accent: accent,
+              fmt: (v) => String(Math.round(v)) + " ms",
+              onInput: (v) => {
+                g.filterEnvs[fidCopy].r = v / 1000
                 commit()
-              }}
-            />
-          </label>
+              }
+            })}
+          </div>
         </div>
         <div class="sytrus-filter-env-wrap">{matrixFmEnvPreviewBlock(fa, fdd, fs, fr)}</div>
       </div>
@@ -704,17 +651,20 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
           {filterIdOptions(filterIds)}
         </select>
         <label class="sytrus-route-vol">
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={String(Math.round(numOr(rt.volume, 1) * 100))}
-            onmousedown={(e) => e.stopPropagation()}
-            oninput={(e) => {
-              g.routes[ridx].volume = Number(e.target.value) / 100
+          {Knob({
+            label: "Vol",
+            value: Math.round(numOr(rt.volume, 1) * 100),
+            min: 0,
+            max: 100,
+            step: 1,
+            size: "sm",
+            accent: accent,
+            fmt: (v) => String(Math.round(v)) + "%",
+            onInput: (v) => {
+              g.routes[ridx].volume = v / 100
               commit()
-            }}
-          />
+            }
+          })}
         </label>
         <button
           type="button"

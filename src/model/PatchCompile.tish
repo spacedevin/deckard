@@ -1,0 +1,451 @@
+// Compile a fixed generator into the EQUIVALENT patch graph, so "switch to Patch" is a lossless
+// reduction (the sound is preserved) rather than a reset to a default. This is what makes `patch` the
+// universal substrate: every voice can be expressed as osc/noise/filter/shaper/gain + breakpoint
+// envelopes. The macros already prove it; this extends the same idea to the built-in generators.
+//
+// Loudness match: the fixed engines scale velocity by vel/127, but playPatch uses vel/100 and applies
+// the output `conn` vol × that. So a compiled output `conn ... <100/127>` reproduces the same level.
+// FM depth + drum pitch-drop are note-relative, expressed with the `note*<k>` resolver tokens.
+
+import { formatTplFloat } from '../tpl/Format.tish'
+import { normalizeBasicOscWaveform } from '../generators/Registry.tish'
+import { sortedStringKeys } from '../tpl/MatrixFmGraph.tish'
+
+let VOL_COMP = 100 / 127
+
+fn f(x) {
+  return formatTplFloat(x)
+}
+
+/// Amp ADSR as normalized breakpoints (peak 1): 0 → 1 (attack) → sustain (decay) → hold to note-off → 0.
+fn adsrAmpEnv(node, a, d, s, r) {
+  let aPlusD = a + d
+  return (
+    "env " +
+    node +
+    ".gain set 0 0 lin " +
+    f(a) +
+    " 1 lin " +
+    f(aPlusD) +
+    " " +
+    f(s) +
+    " set dur " +
+    f(s) +
+    " lin dur+" +
+    f(r) +
+    " 0"
+  )
+}
+
+fn basicOscLines(p) {
+  let wave = normalizeBasicOscWaveform(p.waveform)
+  let a = p.attack > 0 ? p.attack : 0.005
+  let d = p.decay > 0 ? p.decay : 0.08
+  let s = p.sustain >= 0 && p.sustain <= 1 ? p.sustain : 0.4
+  let r = p.release > 0 ? p.release : 0.12
+  return [
+    "osc o1 " + wave + " note",
+    "gain a1 0",
+    "conn o1 a1 1",
+    "conn a1 out " + f(VOL_COMP),
+    adsrAmpEnv("a1", a, d, s, r)
+  ]
+}
+
+fn fmToneLines(p) {
+  let ratio = p.ratio > 0 && p.ratio < 64 ? p.ratio : 2
+  let modIndex = p.modIndex >= 0 && p.modIndex <= 48 ? p.modIndex : 4
+  let carW = normalizeBasicOscWaveform(p.carrierWave ? p.carrierWave : "sine")
+  let modW = normalizeBasicOscWaveform(p.modWave ? p.modWave : "sine")
+  let a = p.attack > 0 ? p.attack : 0.005
+  let d = p.decay > 0 ? p.decay : 0.08
+  let s = p.sustain >= 0 && p.sustain <= 1 ? p.sustain : 0.4
+  let r = p.release > 0 ? p.release : 0.12
+  return [
+    "osc m1 " + modW + " note ratio " + f(ratio),
+    "gain md 1",
+    "osc c1 " + carW + " note",
+    "gain a1 0",
+    "conn m1 md 1",
+    "conn md c1.freq 1",
+    "conn c1 a1 1",
+    "conn a1 out " + f(VOL_COMP),
+    "env md.gain set 0 note*" + f(modIndex * 0.12),
+    adsrAmpEnv("a1", a, d, s, r)
+  ]
+}
+
+fn noiseBurstLines(p) {
+  let decay = p.decay > 0 ? p.decay : 0.08
+  let tone = p.tone >= 0 && p.tone <= 1 ? p.tone : 0.5
+  let rise = p.attack > 0 ? p.attack : 0.002
+  if (rise > 0.15) {
+    rise = 0.15
+  }
+  // Engine center = (400 + tone*7000)*(1-pitchFollow) + note*pitchFollow. The note term isn't expressible
+  // as a DC filter offset in the patch grammar, so we keep the (1-pitchFollow) scaling (the dominant term)
+  // and drop the small note-tracking residual.
+  let pf = p.pitchFollow >= 0 && p.pitchFollow <= 1 ? p.pitchFollow : 0.2
+  let center = Math.round((400 + tone * 7000) * (1 - pf))
+  let q = 0.7 + tone * 3
+  let hitDur = decay * 3 + 0.02
+  return [
+    "noise n1",
+    "filter f1 bandpass q " + f(q) + " freq " + f(center),
+    "gain a1 0",
+    "conn n1 f1 1",
+    "conn f1 a1 1",
+    "conn a1 out " + f(VOL_COMP),
+    "env a1.gain set 0 0 lin " + f(rise) + " 1 exp " + f(hitDur) + " 0.001"
+  ]
+}
+
+fn padLines(p) {
+  let w1 = normalizeBasicOscWaveform(p.wave1 ? p.wave1 : "sine")
+  let w2 = normalizeBasicOscWaveform(p.wave2 ? p.wave2 : "triangle")
+  let detune = p.detune != null ? p.detune : 9
+  let cutoff = p.cutoff != null && p.cutoff > 0 ? p.cutoff : 2200
+  let a = p.attack > 0 ? p.attack : 0.08
+  let d = p.decay > 0 ? p.decay : 0.25
+  let s = p.sustain >= 0 && p.sustain <= 1 ? p.sustain : 0.6
+  let r = p.release > 0 ? p.release : 0.7
+  return [
+    "osc o1 " + w1 + " note",
+    "osc o2 " + w2 + " note detune " + f(detune),
+    "osc o3 sine note ratio 0.5 detune " + f(-detune),
+    "filter f1 lowpass q 0.7 freq " + f(cutoff),
+    "gain a1 0",
+    "conn o1 f1 1",
+    "conn o2 f1 1",
+    "conn o3 f1 1",
+    "conn f1 a1 1",
+    "conn a1 out " + f(VOL_COMP * 0.5),
+    adsrAmpEnv("a1", a, d, s, r)
+  ]
+}
+
+fn bellLines(p) {
+  let partial = p.partial > 0 ? p.partial : 2.01
+  let hp = p.highpass > 0 ? p.highpass : 800
+  let decay = p.decay > 0 ? p.decay : 1.0
+  return [
+    "osc o1 sine note",
+    "osc o2 sine note ratio " + f(partial),
+    "filter f1 highpass q 0.7 freq " + f(hp),
+    "gain a1 0",
+    "conn o1 f1 1",
+    "conn o2 f1 1",
+    "conn f1 a1 1",
+    "conn a1 out " + f(VOL_COMP * 0.4),
+    "env a1.gain set 0 0 lin 0.006 1 exp " + f(decay) + " 0.0008"
+  ]
+}
+
+fn drumSynthLines(p) {
+  let tone = normalizeBasicOscWaveform(p.tone ? p.tone : "sine")
+  let pitchEnv = p.pitchEnv != null ? p.pitchEnv : 36
+  let pitchDecay = p.pitchDecay > 0 ? p.pitchDecay : 0.06
+  let decay = p.decay > 0 ? p.decay : 0.35
+  let noise = p.noise != null ? p.noise : 0
+  let noiseDecay = p.noiseDecay > 0 ? p.noiseDecay : 0.12
+  let noiseHp = p.noiseHp > 0 ? p.noiseHp : 1500
+  let drive = p.drive != null ? p.drive : 0
+  let pitchMul = Math.pow(2, pitchEnv / 12)
+  let lines = ["osc o1 " + tone + " note", "gain a1 0"]
+  if (drive > 0) {
+    lines.push("shaper sh1 amount " + f(drive * 120))
+    lines.push("conn o1 sh1 1")
+    lines.push("conn sh1 a1 1")
+  } else {
+    lines.push("conn o1 a1 1")
+  }
+  lines.push("conn a1 out " + f(VOL_COMP))
+  lines.push("env o1.freq set 0 note*" + f(pitchMul) + " exp " + f(pitchDecay) + " note")
+  lines.push("env a1.gain set 0 1 exp " + f(decay) + " 0.0008")
+  if (noise > 0.001) {
+    lines.push("noise n1")
+    lines.push("filter nf highpass q 0.7 freq " + f(noiseHp))
+    lines.push("gain ng 0")
+    lines.push("conn n1 nf 1")
+    lines.push("conn nf ng 1")
+    lines.push("conn ng out " + f(VOL_COMP * noise))
+    lines.push("env ng.gain set 0 1 exp " + f(noiseDecay) + " 0.0008")
+  }
+  return lines
+}
+
+fn clampHz(h) {
+  if (h < 20) {
+    return 20
+  }
+  if (h > 20000) {
+    return 20000
+  }
+  return h
+}
+
+/// Op amplitude env, peaked at vel/127 (resolveExpr `vel` = vel/100, so `vel*0.7874` = vel/127) — matches
+/// the Matrix FM engine's per-operator ADSR. The route's output conn supplies the second velocity factor.
+fn opVelEnv(node, a, d, s, r) {
+  let pk = "vel*" + f(VOL_COMP)
+  let su = "vel*" + f(VOL_COMP * s)
+  return (
+    "env " + node + ".gain set 0 0 lin " + f(a) + " " + pk + " lin " + f(a + d) + " " + su +
+    " set dur " + su + " lin dur+" + f(r) + " 0"
+  )
+}
+
+fn cutoffEnvLine(node, c0, amount, a, d, s, r) {
+  let peakF = clampHz(c0 + amount)
+  let susF = clampHz(c0 + amount * s)
+  let baseF = clampHz(c0)
+  return (
+    "env " + node + ".freq set 0 " + f(baseF) + " lin " + f(a) + " " + f(peakF) +
+    " lin " + f(a + d) + " " + f(susF) + " set dur " + f(susF) + " lin dur+" + f(r) + " " + f(baseF)
+  )
+}
+
+fn patchFilterType(t) {
+  let s = String(t).toLowerCase()
+  if (s.indexOf("hp") >= 0) {
+    return "highpass"
+  }
+  return "lowpass"
+}
+
+/// Compile the Matrix FM operator/matrix/filter/route graph into an equivalent patch graph.
+fn matrixFmLines(graph) {
+  if (!graph || !graph.ops) {
+    return null
+  }
+  let ops = graph.ops
+  let opKeys = sortedStringKeys(ops)
+  if (opKeys.length === 0) {
+    return null
+  }
+  let opEnvs = graph.opEnvs ? graph.opEnvs : {}
+  let mods = graph.mods ? graph.mods : []
+  let filters = graph.filters ? graph.filters : {}
+  let filterEnvs = graph.filterEnvs ? graph.filterEnvs : {}
+  let routes = graph.routes ? graph.routes : []
+  let lines = []
+  let tail = {}
+
+  // 1) operator source nodes (osc note*ratio, or noise)
+  let i = 0
+  while (i < opKeys.length) {
+    let oid = opKeys[i]
+    let od = ops[oid]
+    let wave = od.wave ? od.wave : "sine"
+    let ratio = od.ratio != null && od.ratio > 0 ? od.ratio : 1
+    if (wave === "noise") {
+      lines.push("noise op" + oid)
+    } else {
+      lines.push("osc op" + oid + " " + normalizeBasicOscWaveform(wave) + " note ratio " + f(ratio))
+    }
+    tail[oid] = "op" + oid
+    i = i + 1
+  }
+
+  // 2) ring modulation: dst tail → rmG, src tail → rmG.gain (scaled). RM retargets the dst's tail.
+  let rmIdx = 0
+  let mi = 0
+  while (mi < mods.length) {
+    let md = mods[mi]
+    if (md.type === "rm" && md.src !== md.dst && tail[md.dst] && tail[md.src]) {
+      let rmId = "rm" + String(rmIdx)
+      let amt = md.amount === md.amount ? md.amount : 1
+      lines.push("gain " + rmId + " 0")
+      lines.push("conn " + tail[md.dst] + " " + rmId + " 1")
+      lines.push("conn " + tail[md.src] + " " + rmId + ".gain " + f(amt * 0.4))
+      tail[md.dst] = rmId
+      rmIdx = rmIdx + 1
+    }
+    mi = mi + 1
+  }
+
+  // 3) per-operator amp envelope gains
+  let ei = 0
+  while (ei < opKeys.length) {
+    let oid = opKeys[ei]
+    let e = opEnvs[oid]
+    let a = e && e.a != null ? e.a : 0.005
+    let d = e && e.d != null ? e.d : 0.1
+    let s = e && e.s != null ? e.s : 0.35
+    let r = e && e.r != null ? e.r : 0.12
+    lines.push("gain eg" + oid + " 0")
+    lines.push("conn " + tail[oid] + " eg" + oid + " 1")
+    lines.push(opVelEnv("eg" + oid, a, d, s, r))
+    ei = ei + 1
+  }
+
+  // 4) FM: modulator tail → depth gain (note-relative) → carrier osc frequency
+  let fmIdx = 0
+  let fi = 0
+  while (fi < mods.length) {
+    let md = mods[fi]
+    if (md.type === "fm" && md.dst && ops[md.dst] && ops[md.dst].wave !== "noise" && tail[md.src]) {
+      let ratioD = ops[md.dst].ratio != null && ops[md.dst].ratio > 0 ? ops[md.dst].ratio : 1
+      let amt = md.amount === md.amount ? md.amount : 1
+      let depthK = ratioD * amt * 0.12
+      let fmgId = "fmg" + String(fmIdx)
+      lines.push("gain " + fmgId + " 1")
+      lines.push("conn " + tail[md.src] + " " + fmgId + " 1")
+      lines.push("env " + fmgId + ".gain set 0 note*" + f(depthK))
+      lines.push("conn " + fmgId + " op" + md.dst + ".freq 1")
+      fmIdx = fmIdx + 1
+    }
+    fi = fi + 1
+  }
+
+  // 5) filters (24dB = two cascaded biquads) + cutoff envelope
+  let filterFirst = {}
+  let filterLast = {}
+  let fkeys = sortedStringKeys(filters)
+  let fk = 0
+  while (fk < fkeys.length) {
+    let fid = fkeys[fk]
+    let fd = filters[fid]
+    let ptype = patchFilterType(fd.type)
+    let c0 = clampHz(fd.cutoff != null ? fd.cutoff : 8000)
+    let qv = fd.res != null ? fd.res : 0.7
+    let q = qv * 8
+    if (q > 40) {
+      q = 40
+    }
+    if (q < 0.0001) {
+      q = 0.0001
+    }
+    let two = String(fd.type).toLowerCase().indexOf("24") >= 0
+    let fe = filterEnvs[fid]
+    let amt = fe && fe.amount != null ? fe.amount : 0
+    let fa = fe && fe.a != null ? fe.a : 0.1
+    let fdd = fe && fe.d != null ? fe.d : 0.2
+    let fs = fe && fe.s != null ? fe.s : 0.3
+    let fr = fe && fe.r != null ? fe.r : 0.15
+    if (two) {
+      lines.push("filter f" + fid + "a " + ptype + " q " + f(q) + " freq " + f(c0))
+      lines.push("filter f" + fid + "b " + ptype + " q " + f(q) + " freq " + f(c0))
+      lines.push("conn f" + fid + "a f" + fid + "b 1")
+      filterFirst[fid] = "f" + fid + "a"
+      filterLast[fid] = "f" + fid + "b"
+      if (amt !== 0) {
+        lines.push(cutoffEnvLine("f" + fid + "a", c0, amt, fa, fdd, fs, fr))
+        lines.push(cutoffEnvLine("f" + fid + "b", c0, amt, fa, fdd, fs, fr))
+      }
+    } else {
+      lines.push("filter f" + fid + " " + ptype + " q " + f(q) + " freq " + f(c0))
+      filterFirst[fid] = "f" + fid
+      filterLast[fid] = "f" + fid
+      if (amt !== 0) {
+        lines.push(cutoffEnvLine("f" + fid, c0, amt, fa, fdd, fs, fr))
+      }
+    }
+    fk = fk + 1
+  }
+
+  // 6) routes: op/filter → filter/out. Output conn carries the second velocity factor (× 100/127).
+  let routed = false
+  let ri = 0
+  while (ri < routes.length) {
+    let rt = routes[ri]
+    let vol = rt.volume === rt.volume ? rt.volume : 1
+    let srcN = null
+    if (rt.srcKind === "op") {
+      srcN = "eg" + rt.srcId
+    } else {
+      if (rt.srcKind === "filter" && filterLast[rt.srcId]) {
+        srcN = filterLast[rt.srcId]
+      }
+    }
+    if (srcN) {
+      if (rt.dstKind === "filter" && filterFirst[rt.dstId]) {
+        lines.push("conn " + srcN + " " + filterFirst[rt.dstId] + " " + f(vol))
+        routed = true
+      } else {
+        if (rt.dstKind === "out") {
+          lines.push("conn " + srcN + " out " + f(vol * VOL_COMP))
+          routed = true
+        }
+      }
+    }
+    ri = ri + 1
+  }
+  if (!routed) {
+    lines.push("conn eg" + opKeys[0] + " out " + f(VOL_COMP))
+  }
+  return lines
+}
+
+// Guitar is a Karplus-Strong physical model — a delay-line feedback that the patch node set CAN'T
+// express. This is a plucky subtractive APPROXIMATION (saw → driven lowpass with a fast pluck envelope),
+// so switching guitar→patch lands on something guitar-ish rather than a generic sustained saw.
+fn guitarLines(p) {
+  let tone = p.tone >= 0 && p.tone <= 1 ? p.tone : 0.5
+  let decayP = p.decay >= 0 && p.decay <= 1 ? p.decay : 0.6
+  let drive = p.drive != null ? p.drive : 0.25
+  let body = p.body != null && p.body > 0 ? p.body : 3500
+  let ampDecay = 0.15 + decayP * 1.3
+  let fHi = body * (2 + tone * 3)
+  if (fHi > 18000) {
+    fHi = 18000
+  }
+  let lines = ["osc o1 sawtooth note", "filter f1 lowpass q 3 freq " + f(body), "gain a1 0"]
+  if (drive > 0) {
+    lines.push("shaper sh1 amount " + f(drive * 120))
+    lines.push("conn o1 sh1 1")
+    lines.push("conn sh1 f1 1")
+  } else {
+    lines.push("conn o1 f1 1")
+  }
+  lines.push("conn f1 a1 1")
+  lines.push("conn a1 out " + f(VOL_COMP))
+  lines.push("env a1.gain set 0 0 lin 0.003 1 exp " + f(ampDecay) + " 0.001")
+  lines.push("env f1.freq set 0 " + f(fHi) + " exp 0.12 " + f(body))
+  return lines
+}
+
+/// True when this generator can be reduced to an equivalent patch graph (sound-preserving switch).
+export fn canCompileToPatch(generatorId) {
+  return (
+    generatorId === "basicOsc" ||
+    generatorId === "fmTone" ||
+    generatorId === "noiseBurst" ||
+    generatorId === "pad" ||
+    generatorId === "bell" ||
+    generatorId === "drumSynth" ||
+    generatorId === "matrixFm" ||
+    generatorId === "guitar"
+  )
+}
+
+/// Compile the current generator + params (+ spec, for graph voices) into patch gen_block lines,
+/// or null if not compilable.
+export fn compileGeneratorToPatchLines(generatorId, params, spec) {
+  let p = params ? params : {}
+  if (generatorId === "basicOsc") {
+    return basicOscLines(p)
+  }
+  if (generatorId === "fmTone") {
+    return fmToneLines(p)
+  }
+  if (generatorId === "noiseBurst") {
+    return noiseBurstLines(p)
+  }
+  if (generatorId === "pad") {
+    return padLines(p)
+  }
+  if (generatorId === "bell") {
+    return bellLines(p)
+  }
+  if (generatorId === "drumSynth") {
+    return drumSynthLines(p)
+  }
+  if (generatorId === "guitar") {
+    return guitarLines(p)
+  }
+  if (generatorId === "matrixFm") {
+    return spec && spec.graph ? matrixFmLines(spec.graph) : null
+  }
+  return null
+}
