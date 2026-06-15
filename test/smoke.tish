@@ -768,6 +768,16 @@ check("edit-loop: xfade X folded", Math.abs(projE.transportCrossfade - 0.2) < 1e
 check("edit-loop: xfade Y folded", Math.abs(projE.transportCrossfadeY - 0.8) < 1e-6)
 editor.directive("@ throw 1")
 check("edit-loop: directive routes through ingest", true)
+// gen_type (changes generator + resets params) and adsr (object value) — the instrument-editor paths.
+let chId0 = projE.channels[0].id
+editor.emit("track/" + chId0 + "/gen_type", "basicOsc")
+check("edit-loop: gen_type switches generator", findChannelById(projE, chId0).generatorId === "basicOsc")
+editor.emit("track/" + chId0 + "/gen/waveform", "square")
+check("edit-loop: gen/waveform param folds", findChannelById(projE, chId0).generatorParams.waveform === "square")
+editor.emit("track/" + chId0 + "/adsr", { a: 0.02, d: 0.6, s: 0.3, r: 0.9 })
+let gp0 = findChannelById(projE, chId0).generatorParams
+check("edit-loop: adsr folds attack", gp0.attack != null && Math.abs(gp0.attack - 0.02) < 1e-6)
+check("edit-loop: adsr folds release", gp0.release != null && Math.abs(gp0.release - 0.9) < 1e-6)
 
 // 7. Lookahead scheduler helpers: self-correcting step advance, no accumulated drift.
 check("secondsPerStep: 120bpm = 0.125s per 16th", Math.abs(secondsPerStep(120) - 0.125) < 1e-9)
@@ -808,3 +818,6 @@ check("window: maxBatch caps a runaway catch-up", rb.items.length === 8)
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))
+if (typeof process !== "undefined" && process.exit && fail > 0) {
+  process.exit(1)
+}

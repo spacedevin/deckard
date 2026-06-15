@@ -88,7 +88,7 @@ fn applyDeckEq(project, deck) {
   }
 }
 
-fn StemFader(entry, setProjectFromUI, touchMixer, project) {
+fn StemFader(entry, setProjectFromUI, touchMixer, project, rt) {
   let ch = entry.ch
   let pct = Math.round((ch.gain != null ? ch.gain : 0.85) * 100)
   return (
@@ -105,11 +105,10 @@ fn StemFader(entry, setProjectFromUI, touchMixer, project) {
         value={String(pct)}
         onmousedown={(e) => e.stopPropagation()}
         oninput={(e) => {
-          setChannelGain(ch, Number(e.target.value) / 100)
-          if (touchMixer) {
-            touchMixer()
+          // Stem gain — emit one `mix` statement for this channel through the write door.
+          if (rt && rt.emit) {
+            rt.emit("track/" + ch.id + "/mix/gain", Number(e.target.value) / 100)
           }
-          setProjectFromUI(project)
         }}
       />
       <div class="dk-fader-pct">{String(pct) + "%"}</div>
@@ -165,7 +164,7 @@ fn DeckSlot(project, deck, setProjectFromUI, touchMixer, rt) {
   let faders = []
   let i = 0
   while (i < entries.length) {
-    faders.push(StemFader(entries[i], setProjectFromUI, touchMixer, project))
+    faders.push(StemFader(entries[i], setProjectFromUI, touchMixer, project, rt))
     i = i + 1
   }
   let empty = faders.length === 0
@@ -276,12 +275,10 @@ export fn DeckMixer(project, setProjectFromUI, touchMixer, rt) {
     if (py > 1) {
       py = 1
     }
-    project.transportCrossfade = px
-    project.transportCrossfadeY = py
-    if (touchMixer) {
-      touchMixer()
+    // Crossfader is a global — emit one `xfade` statement through the write door.
+    if (rt && rt.emit) {
+      rt.emit("xfade", [px, py])
     }
-    setProjectFromUI(project)
   }
   return (
     <section class="panel dk-panel">

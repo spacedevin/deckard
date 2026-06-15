@@ -1,0 +1,101 @@
+// Level-snapshot tests — store/restore at every level (instrument, sequence, rack, deck, session, set).
+// Proves the "debug without clicking 9000 times" promise: snapshot a level → mutate → restore from the
+// snapshot → exact state returns. Each snapshot is plain TPL, so it also doubles as a test fixture.
+// Run: tish build --target js test/levels.tish -o /tmp/lv.js && node /tmp/lv.js
+
+import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
+import { emptyProjectShell } from '../src/model/Project.tish'
+import { emitProject } from '../src/tpl/Emit.tish'
+import { applyTplSource, findChannelById } from '../src/tpl/Apply.tish'
+import { emitLevel, retargetTpl, splitTplBlocks, levelList } from '../src/core/Levels.tish'
+
+let pass = 0
+let fail = 0
+fn check(name, cond) {
+  if (cond) {
+    pass = pass + 1
+    console.log("  ok   " + name)
+  } else {
+    fail = fail + 1
+    console.log("  FAIL " + name)
+  }
+}
+
+console.log("=== Level snapshots ===")
+
+let p = loadDefaultDeckardProject().project
+let ch0 = p.channels[0]
+let T = ch0.id
+let T2 = p.channels[1].id
+let nameT2 = findChannelById(p, T2).name
+
+// Give T a distinctive sound + pattern so we can see the slices.
+applyTplSource(p, "tpl 1\ntrack " + ch0.name + " id " + T + " gen basic_osc\n  fx cutoff 1234 drive 0.6\n  mix gain 0.33 pan 0 mute 0 solo 0 eq_lo 0 eq_mid 0 eq_hi 0\n  steps x . . . x . . . x . . . x . . .\n")
+
+// ---- sound vs pattern split ----
+let inst = emitLevel(p, "instrument", T)
+let seq = emitLevel(p, "sequence", T)
+check("instrument slice has the SOUND (cutoff)", inst.indexOf("cutoff 1234") >= 0)
+check("instrument slice has the mix", inst.indexOf("mix gain 0.33") >= 0)
+check("instrument slice has NO pattern (steps)", inst.indexOf("steps") < 0 && inst.indexOf("note ") < 0)
+check("sequence slice has the PATTERN (steps)", seq.indexOf("steps x") >= 0)
+check("sequence slice has NO sound (cutoff/mix/fx)", seq.indexOf("cutoff") < 0 && seq.indexOf("mix ") < 0 && seq.indexOf("fx ") < 0)
+check("instrument + sequence both standalone-applicable (tpl header)", inst.indexOf("tpl 1") === 0 && seq.indexOf("tpl 1") === 0)
+
+// ---- the debug-restore invariant: snapshot → mutate → restore ----
+let instSnap = emitLevel(p, "instrument", T)
+applyTplSource(p, "tpl 1\ntrack " + ch0.name + " id " + T + " gen basic_osc\n  fx cutoff 8000\n")
+check("sound mutated away", Math.abs(findChannelById(p, T).filterCutoff - 8000) < 1e-6)
+applyTplSource(p, instSnap)
+check("instrument RESTORE brings the sound back", Math.abs(findChannelById(p, T).filterCutoff - 1234) < 1e-6)
+
+let seqSnap = emitLevel(p, "sequence", T)
+applyTplSource(p, "tpl 1\ntrack " + ch0.name + " id " + T + " gen basic_osc\n  steps . . . . . . . . . . . . . . . .\n")
+check("pattern mutated away (step 0 off)", findChannelById(p, T).steps[0].on === false)
+applyTplSource(p, seqSnap)
+check("sequence RESTORE brings the pattern back (step 0 on)", findChannelById(p, T).steps[0].on === true)
+
+// ---- retarget: load T's instrument onto a DIFFERENT channel, keeping that channel's identity ----
+let retargeted = retargetTpl(emitLevel(p, "instrument", T), findChannelById(p, T2))
+applyTplSource(p, retargeted)
+check("retarget: T2 adopts T's sound (cutoff)", Math.abs(findChannelById(p, T2).filterCutoff - 1234) < 1e-6)
+check("retarget: T2 keeps its own name", findChannelById(p, T2).name === nameT2)
+check("retarget: T2 keeps its own id", findChannelById(p, T2).id === T2)
+
+// ---- rack: every channel's block; reload onto an empty project ----
+let rackSnap = emitLevel(p, "rack", null)
+let freshRack = emptyProjectShell()
+applyTplSource(freshRack, rackSnap)
+check("rack snapshot recreates every channel", freshRack.channels.length === p.channels.length)
+check("rack snapshot carries sound (cutoff) for T", findChannelById(freshRack, T) != null && Math.abs(findChannelById(freshRack, T).filterCutoff - 1234) < 1e-6)
+
+// ---- deck: only the channels routed to that deck ----
+applyTplSource(p, "tpl 1\ntrack " + nameT2 + " id " + T2 + " gen basic_osc\n  deck B slot 0\n")
+let deckB = emitLevel(p, "deck", "B")
+check("deck B snapshot includes the B-routed channel", deckB.indexOf("id " + T2) >= 0)
+check("deck B snapshot excludes a non-B channel", deckB.indexOf("id " + T) < 0)
+
+// ---- session + set ----
+let sess = emitLevel(p, "session", null)
+check("session slice has session_scenes", sess.indexOf("session_scenes") >= 0)
+check("session slice has NO track blocks", sess.indexOf("track ") < 0)
+check("set level === full emitProject", emitLevel(p, "set", null) === emitProject(p))
+
+// ---- block splitter sanity ----
+let blocks = splitTplBlocks(emitProject(p))
+let trackBlocks = 0
+let bi = 0
+while (bi < blocks.length) {
+  if (blocks[bi].head === "track") {
+    trackBlocks = trackBlocks + 1
+  }
+  bi = bi + 1
+}
+check("splitter finds one track block per channel", trackBlocks === p.channels.length)
+check("levelList has all 7 levels", levelList().length === 7)
+
+console.log("")
+console.log("PASS=" + String(pass) + " FAIL=" + String(fail))
+if (typeof process !== "undefined" && process.exit && fail > 0) {
+  process.exit(1)
+}

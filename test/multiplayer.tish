@@ -1,0 +1,239 @@
+// MULTIPLAYER CONVERGENCE TESTS — the architecture's central invariant.
+//
+// "Anything changed in the UI of a host or guest must be viewable AND playable by every client via TPL,
+//  so all peers see and hear EXACTLY the same thing."
+//
+// Why this is fully testable headlessly: the UI is a pure TPL client. Every edit becomes a TPL fragment
+// that flows through ONE gated ingest into the fold (project). Audio + visuals are pure projections of
+// that fold. So if two peers' folds are byte-identical (emitProject equal), they necessarily render the
+// same screen and schedule the same notes. We assert fold-identity after replaying each peer's broadcast
+// into the others — exactly what the real network does.
+//
+// Run: tish build --target js test/multiplayer.tish -o /tmp/mp.js && node /tmp/mp.js
+
+import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
+import { emitProject } from '../src/tpl/Emit.tish'
+import { findChannelById } from '../src/tpl/Apply.tish'
+import { collectActorLanes } from '../src/model/MixerRouting.tish'
+import { createIngest } from '../src/core/Ingest.tish'
+import { createEditor } from '../src/core/Edit.tish'
+import { isPrivateDirective, launchSceneDirective, transportPlayDirective, transportPreviewDirective, cueDirective, throwDirective } from '../src/codj/Launch.tish'
+import { setTrackOwner } from '../src/codj/CoDjMeta.tish'
+import { ensureProjectSession } from '../src/model/Session.tish'
+
+let pass = 0
+let fail = 0
+fn check(name, cond) {
+  if (cond) {
+    pass = pass + 1
+    console.log("  ok   " + name)
+  } else {
+    fail = fail + 1
+    console.log("  FAIL " + name)
+  }
+}
+
+// ---- a simulated peer (its own fold + ingest + editor + outbound wire) ----
+fn makePeer(actorId, skills) {
+  let project = loadDefaultDeckardProject().project
+  ensureProjectSession(project)
+  let store = { project: project, runtime: {} }
+  let ing = createIngest(store)
+  let wire = []
+  ing.onOut((frag, kind) => {
+    wire.push({ frag: frag, kind: kind })
+  })
+  let ctx = { actorId: actorId, skillIds: skills, perfStep: 0 }
+  let editor = createEditor(store, ing.ingest, () => ctx)
+  return { project: project, store: store, ingest: ing, editor: editor, wire: wire, ctx: ctx, sent: 0 }
+}
+
+// Deliver `author`'s new broadcast fragments to every other peer (the hub fan-out). Then mark all peers
+// caught up so received-and-echoed fragments are never re-broadcast (peers don't echo what they receive).
+fn deliver(net, author) {
+  while (author.sent < author.wire.length) {
+    let frag = author.wire[author.sent].frag
+    let pj = 0
+    while (pj < net.length) {
+      if (net[pj] !== author) {
+        net[pj].ingest.ingest(frag, author.ctx)
+      }
+      pj = pj + 1
+    }
+    author.sent = author.sent + 1
+  }
+  let k = 0
+  while (k < net.length) {
+    net[k].sent = net[k].wire.length
+    k = k + 1
+  }
+}
+
+// All peers' folds byte-identical?  (emitProject is the canonical serialization → same TPL = same render
+// = same audio.)
+fn allConverged(net) {
+  let base = emitProject(net[0].project)
+  let i = 1
+  while (i < net.length) {
+    if (emitProject(net[i].project) !== base) {
+      return false
+    }
+    i = i + 1
+  }
+  return true
+}
+
+// Emit a document edit on `author`, fan it out, and assert every peer converged.
+fn doc(net, author, addr, val, name) {
+  author.editor.emit(addr, val)
+  deliver(net, author)
+  check("[doc] " + name + " → all peers identical", allConverged(net))
+}
+
+console.log("=== Multiplayer convergence ===")
+
+// A 3-peer session: host (master, owns the default tracks) + two guests.
+let host = makePeer("human", ["master_mixer"])
+let g1 = makePeer("human", ["master_mixer"])  // receives host's stream as authored by "human"
+let g2 = makePeer("human", ["master_mixer"])
+let net = [host, g1, g2]
+
+check("[init] all 3 peers start identical", allConverged(net))
+
+let T = host.project.channels[0].id
+let T2 = host.project.channels[1].id
+let lane = collectActorLanes(host.project)[0]
+
+// ---- 1. Every GLOBAL control propagates ----
+doc(net, host, "bpm", 137, "bpm")
+doc(net, host, "launch_quant", 8, "launch_quant")
+doc(net, host, "swing", 0.3, "swing")
+doc(net, host, "xfade", [0.2, 0.8], "xfade")
+doc(net, host, "main_deck", "local", "main_deck")
+check("[doc] global bpm landed on guest", g1.project.bpm === 137)
+check("[doc] global xfade landed on guest", Math.abs(g2.project.transportCrossfade - 0.2) < 1e-6 && Math.abs(g2.project.transportCrossfadeY - 0.8) < 1e-6)
+check("[doc] global swing landed on guest", Math.abs(g1.project.swing - 0.3) < 1e-6)
+check("[doc] global main_deck landed on guest", g2.project.transportMainDeck === "local")
+
+// ---- 2. Master + actor mixer ----
+doc(net, host, "master/eq_lo", 3, "master eq_lo")
+doc(net, host, "master/eq_mid", -2, "master eq_mid")
+doc(net, host, "master/eq_hi", 1.5, "master eq_hi")
+doc(net, host, "actor/" + lane + "/gain", 0.6, "actor gain")
+doc(net, host, "actor/" + lane + "/eq_lo", 2, "actor eq_lo")
+doc(net, host, "actor/" + lane + "/mute", true, "actor mute")
+doc(net, host, "actor/" + lane + "/solo", true, "actor solo")
+
+// ---- 3. Per-track mixer ----
+doc(net, host, "track/" + T + "/mix/gain", 0.42, "track gain")
+doc(net, host, "track/" + T + "/mix/pan", -0.3, "track pan")
+doc(net, host, "track/" + T + "/mix/eq_lo", 2, "track eq_lo")
+doc(net, host, "track/" + T + "/mix/eq_mid", -1, "track eq_mid")
+doc(net, host, "track/" + T + "/mix/eq_hi", 1, "track eq_hi")
+doc(net, host, "track/" + T + "/mix/mute", true, "track mute")
+doc(net, host, "track/" + T + "/mix/solo", true, "track solo")
+check("[doc] track gain landed on guest", Math.abs(findChannelById(g1.project, T).gain - 0.42) < 1e-6)
+check("[doc] track pan landed on guest", Math.abs(findChannelById(g2.project, T).pan - (-0.3)) < 1e-6)
+
+// ---- 4. Per-track FX ----
+doc(net, host, "track/" + T + "/fx/reverb", 0.5, "fx reverb")
+doc(net, host, "track/" + T + "/fx/drive", 0.4, "fx drive")
+doc(net, host, "track/" + T + "/fx/cutoff", 3000, "fx cutoff")
+doc(net, host, "track/" + T + "/fx/res", 4, "fx res")
+doc(net, host, "track/" + T + "/fx/lfo_rate", 8, "fx lfo_rate")
+doc(net, host, "track/" + T + "/fx/lfo_depth", 1200, "fx lfo_depth")
+check("[doc] fx cutoff landed on guest", Math.abs(findChannelById(g1.project, T).filterCutoff - 3000) < 1e-6)
+
+// ---- 5. Voice / generator / envelope ----
+doc(net, host, "track/" + T + "/voice/octave", 1, "voice octave")
+doc(net, host, "track/" + T + "/voice/arp", "up", "voice arp")
+doc(net, host, "track/" + T + "/voice/chord", "minor", "voice chord")
+doc(net, host, "track/" + T + "/gen_type", "basicOsc", "gen_type")
+doc(net, host, "track/" + T + "/gen/waveform", "square", "gen waveform")
+doc(net, host, "track/" + T + "/adsr", { a: 0.02, d: 0.5, s: 0.6, r: 0.8 }, "adsr")
+check("[doc] gen_type landed on guest", findChannelById(g1.project, T).generatorId === "basicOsc")
+check("[doc] gen waveform landed on guest", findChannelById(g2.project, T).generatorParams.waveform === "square")
+check("[doc] adsr landed on guest", Math.abs(findChannelById(g1.project, T).generatorParams.attack - 0.02) < 1e-6)
+
+// ---- 6. Deck routing + step pattern ----
+doc(net, host, "track/" + T + "/deck", { deck: "B", slot: 1 }, "deck routing")
+let pat = []
+let si = 0
+while (si < 16) {
+  pat.push(si % 4 === 0)
+  si = si + 1
+}
+doc(net, host, "track/" + T + "/steps", pat, "steps pattern")
+check("[doc] deck routing landed on guest", findChannelById(g1.project, T).deck === "B")
+check("[doc] steps pattern landed on guest", findChannelById(g2.project, T).steps[0].on === true && findChannelById(g2.project, T).steps[1].on === false)
+
+// ---- 7. A GUEST edits a track IT owns → host + other guest converge (bidirectional) ----
+setTrackOwner(host.project, T2, "guest2", "guest2")
+setTrackOwner(g1.project, T2, "guest2", "guest2")
+setTrackOwner(g2.project, T2, "guest2", "guest2")
+// g2 now acts as guest2. Mutate the ctx object IN PLACE (the editor closure holds this same object).
+g2.ctx.actorId = "guest2"
+g2.ctx.skillIds = []
+doc(net, g2, "track/" + T2 + "/mix/gain", 0.77, "guest edits own track")
+check("[doc] guest's edit reached host", Math.abs(findChannelById(host.project, T2).gain - 0.77) < 1e-6)
+check("[doc] guest's edit reached other guest", Math.abs(findChannelById(g1.project, T2).gain - 0.77) < 1e-6)
+
+console.log("=== Authority (gating is identical for everyone) ===")
+
+// A non-master guest cannot change a GLOBAL — denied locally and identically on receipt, so no divergence.
+// non-master guest emits bpm against its own fold:
+let gp = makePeer("guest2", [])
+let gpBpm = gp.project.bpm
+gp.editor.emit("bpm", 200)
+check("[auth] non-master guest cannot change bpm (own fold unchanged)", gp.project.bpm === gpBpm)
+// non-owner guest cannot edit a track it does not own:
+let gOther = makePeer("guest9", [])
+let gGain = findChannelById(gOther.project, T).gain
+gOther.editor.emit("track/" + T + "/mix/gain", 0.01, "blocked")
+check("[auth] non-owner guest cannot edit another's track", Math.abs(findChannelById(gOther.project, T).gain - gGain) < 1e-6)
+
+console.log("=== Privacy (cue / preview never leave the originating peer) ===")
+
+let priv = makePeer("human", ["master_mixer"])
+let wireLenBefore = priv.wire.length
+priv.editor.directive(cueDirective(0))
+check("[priv] @ cue is NOT broadcast", priv.wire.length === wireLenBefore)
+priv.editor.directive(transportPreviewDirective())
+check("[priv] @ transport preview is NOT broadcast", priv.wire.length === wireLenBefore)
+check("[priv] isPrivateDirective classifies cue", isPrivateDirective(cueDirective(0)) === true)
+check("[priv] isPrivateDirective classifies preview", isPrivateDirective(transportPreviewDirective()) === true)
+// ...but a non-private directive DOES broadcast:
+priv.editor.directive(throwDirective(0))
+check("[priv] @ throw IS broadcast", priv.wire.length === wireLenBefore + 1)
+
+console.log("=== Control directives propagate arming to all peers ===")
+
+let h2 = makePeer("human", ["master_mixer"])
+let c1 = makePeer("human", ["master_mixer"])
+let cnet = [h2, c1]
+let sc = Math.floor(Number(h2.project.session.sceneCount))
+if (sc >= 1) {
+  h2.editor.directive(launchSceneDirective(0))
+  deliver(cnet, h2)
+  check("[ctrl] launch scene → host arms scene 0", h2.store.runtime.songScene === 0)
+  check("[ctrl] launch scene → guest arms the SAME scene", c1.store.runtime.songScene === 0)
+  check("[ctrl] launch scene → armed clips converge", JSON.stringify(h2.store.runtime.sessionArmedClipIds) === JSON.stringify(c1.store.runtime.sessionArmedClipIds))
+} else {
+  check("[ctrl] (skipped — no scenes in default project)", true)
+}
+
+// Full round-trip integrity: a heavily-edited host re-serializes to TPL that a fresh peer can replay back
+// to the identical fold (viewable + playable from scratch — the "join mid-session" path).
+let joinSrc = emitProject(host.project)
+let joiner = loadDefaultDeckardProject().project
+ensureProjectSession(joiner)
+let jStore = { project: joiner, runtime: {} }
+let jIng = createIngest(jStore)
+jIng.ingest(joinSrc, { actorId: "human", skillIds: ["master_mixer"], perfStep: 0 })
+check("[join] a fresh peer replaying the host's TPL reaches the identical fold", emitProject(joiner) === emitProject(host.project))
+
+console.log("")
+console.log("PASS=" + String(pass) + " FAIL=" + String(fail))
+if (typeof process !== "undefined" && process.exit && fail > 0) {
+  process.exit(1)
+}

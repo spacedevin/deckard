@@ -9,11 +9,11 @@ import { transportTick } from '../audio/Playback.tish'
 import { secondsPerStep } from '../audio/Scheduler.tish'
 import { createIngest } from '../core/Ingest.tish'
 import { createEditor } from '../core/Edit.tish'
+import { createSignals } from '../core/Signals.tish'
+import { createTransport } from '../audio/Transport.tish'
 import { tplLoopResetAll } from '../tpl/LoopState.tish'
 import { TransportBar } from './Transport.tish'
-import { MasterMixerStrip, ActorMixerStrip, TrackMixerStrip } from './Mixer.tish'
 import { collectActorLanes, channelActorLane, ensureActorMixerEntries } from '../model/MixerRouting.tish'
-import { ChannelRow } from './ChannelRack.tish'
 import { InstrumentPanel } from './InstrumentPanel.tish'
 import { InstrumentEditor } from './InstrumentEditor.tish'
 import { PatchBayPanel } from './PatchBayPanel.tish'
@@ -73,15 +73,7 @@ if (initialDeckardBoot.errors.length > 0 && typeof console !== "undefined" && co
 }
 
 let audioStore = {}
-let playbackTimer = null
-let globalTick = 0
-// Lookahead scheduler ("two clocks"): notes are scheduled ahead on the audio clock so timer jitter
-// can't drift the audio. nextStepSec = audio-clock time of the step at globalTick; drawQueue feeds the
-// rAF visual loop so the playhead lands when the audio actually sounds.
-let nextStepSec = 0
-let drawQueue = []
-let schedRafId = 0
-let LOOKAHEAD_SEC = 0.1
+// The lookahead scheduler + clock + draw loop now live in the Transport projection (src/audio/Transport.tish).
 // Preview runs on its OWN clock, fully independent of the live (Sequence/Session) transport.
 let previewTimer = null
 let previewTick = 0
@@ -180,6 +172,43 @@ export fn App() {
   }
   rt.emit = (addr, val) => editorRef.current.emit(addr, val)
   rt.directive = (line) => editorRef.current.directive(line)
+
+  // ---- Transport/Clock projection + signal bus (rearch step 4). The scheduler publishes step position
+  // and health on `signals`; the playhead / grid / BPM readout SUBSCRIBE here (decoupled from timing). ----
+  let signalsRef = useRef(null)
+  if (!signalsRef.current) {
+    signalsRef.current = createSignals()
+  }
+  let signals = signalsRef.current
+  let transportRef = useRef(null)
+  if (!transportRef.current) {
+    transportRef.current = createTransport(audioStore, signals)
+    signals.subscribe("transport.position", (step) => {
+      let r = rtRef.current
+      if (step < 0) {
+        if (r.setPlaybackHighlight) {
+          r.setPlaybackHighlight(0, false)
+        }
+        if (r.updateGridPlayhead) {
+          r.updateGridPlayhead(0, false)
+        }
+        return
+      }
+      if (r.setPlaybackHighlight) {
+        r.setPlaybackHighlight(step % 16, true)
+      }
+      if (r.updateGridPlayhead) {
+        r.updateGridPlayhead(step, true)
+      }
+    })
+    signals.subscribe("transport.health", (hh) => {
+      let r = rtRef.current
+      if (r.setBpmReadout) {
+        r.setBpmReadout(hh.target, hh.trueBpm, hh.marginMs, hh.underruns)
+      }
+    })
+  }
+  let transport = transportRef.current
 
   fn setLaunchQuant(q) {
     let v = Math.floor(Number(q))
@@ -445,19 +474,13 @@ export fn App() {
     ensureAudio(project, audioStore)
     updateMixerFromProject(project, audioStore)
     let ctx = audioStore.ctx
-    if (playbackTimer) {
-      clearTimeout(playbackTimer)
-    }
     // A follower joining a song mid-flight starts at the host's playhead so it lands on the same bar.
-    globalTick = startTick != null && Math.floor(Number(startTick)) >= 0 ? Math.floor(Number(startTick)) : 0
+    let st = startTick != null && Math.floor(Number(startTick)) >= 0 ? Math.floor(Number(startTick)) : 0
     tplLoopResetAll()
     if (pm === "song") {
       // A song starts at the head of the explicit arrangement (or the first saved pattern when none is
-      // set) and auto-advances through it (see playbackTick). Per-track clip overrides are honoured on
-      // top of each scene. songStart seeds the song cursor (rt.songPos) for repeat-aware advancing.
+      // set) and auto-advances through it. Per-track clip overrides are honoured on top of each scene.
       rt.songStopRequested = false
-      // Launching a specific scene (LAUNCH / clip click) goes live on THAT scene; a plain Play Song
-      // starts at the head of the arrangement. Either way the song cursor resets.
       let scn = songStart(project, rt)
       if (songScene != null && Math.floor(Number(songScene)) >= 0) {
         scn = Math.floor(Number(songScene))
@@ -467,27 +490,19 @@ export fn App() {
       }
       armSceneWithOverrides(project, rt, scn)
       rt.songScene = scn
-      rt.songSceneEndTick = globalTick + sceneBarLength(project, scn) * coDjStepsPerBar()
-      // Tell collaborators which pattern this deck starts on, and align the shared song position.
-      coDjPushLive(project, rt, globalTick)
+      rt.songSceneEndTick = st + sceneBarLength(project, scn) * coDjStepsPerBar()
+      coDjPushLive(project, rt, st)
       coDjPushControl([transportDirective("song", scn)], 0)
     } else {
       rt.songScene = null
       rt.songSceneEndTick = null
     }
     rt.playing = true
-    rt.transportNextTick = globalTick
-    // Seed the lookahead cursor a hair ahead of the audio clock; reset perf + visual state.
-    nextStepSec = ctx.currentTime + 0.06
-    drawQueue = []
-    rt.trueBpm = null
-    rt.lastPlayedSec = null
-    rt.schedUnderruns = 0
-    rt.schedMarginMs = LOOKAHEAD_SEC * 1000
+    rt.transportNextTick = st
 
     // All the non-audio per-step bookkeeping (session/song advance, co-DJ flush, prune), for ONE step.
-    // Pure of timing: `when` is the exact audio-clock time the step sounds; visuals are deferred to the
-    // draw loop so they land with the audio, not ~lookahead early.
+    // Pure of timing: `when` is the exact audio-clock time the step sounds; visuals are published by the
+    // Transport's draw loop so they land with the audio, not ~lookahead early.
     fn scheduleStep(p, r, step, when) {
       let barSteps = coDjStepsPerBar()
       let qSteps = typeof r.launchQuantSteps === "number" && r.launchQuantSteps >= 1
@@ -571,121 +586,32 @@ export fn App() {
       }
     }
 
-    // The scheduler: on each clock pump, schedule every step whose audio-time is within the lookahead
-    // window. nextStepSec advances by secondsPerStep on the AUDIO clock → self-correcting, no drift.
-    fn runScheduler() {
-      let r = rtRef.current
-      if (!r.playing) {
-        return
-      }
-      let ctx2 = audioStore.ctx
-      if (!ctx2) {
-        return
-      }
-      let p = r.project
-      let now = ctx2.currentTime
-      let horizon = now + LOOKAHEAD_SEC
-      let safety = 0
-      while (nextStepSec < horizon && safety < 256) {
-        if (nextStepSec < now) {
-          r.schedUnderruns = (r.schedUnderruns != null ? r.schedUnderruns : 0) + 1
-        }
-        scheduleStep(p, r, globalTick, nextStepSec)
-        drawQueue.push({ step: globalTick, when: nextStepSec })
-        globalTick = globalTick + 1
-        r.transportNextTick = globalTick
-        nextStepSec = nextStepSec + secondsPerStep(p && typeof p.bpm === "number" ? p.bpm : 120)
-        safety = safety + 1
+    // Hand the timing to the Transport projection: it runs the lookahead scheduler + clock pump + draw
+    // loop, calling scheduleStep for each step and publishing position/health on the signal bus.
+    transport.start({
+      startTick: st,
+      secPerStep: () => {
+        let p2 = rtRef.current.project
+        return secondsPerStep(p2 && typeof p2.bpm === "number" ? p2.bpm : 120)
+      },
+      targetBpm: () => {
+        let p2 = rtRef.current.project
+        return p2 && typeof p2.bpm === "number" ? p2.bpm : 120
+      },
+      onStep: (step, when) => {
+        let r = rtRef.current
+        scheduleStep(r.project, r, step, when)
+        r.transportNextTick = step + 1
         if (r.songStopRequested) {
           r.songStopRequested = false
-          onStop()
-          return
+          return true
         }
+        return false
+      },
+      onStopReached: () => {
+        onStop()
       }
-      r.schedMarginMs = (nextStepSec - now) * 1000
-      // setTimeout fallback pump only while the worklet clock isn't driving us.
-      if (!audioStore.clockNode) {
-        if (playbackTimer) {
-          clearTimeout(playbackTimer)
-        }
-        playbackTimer = setTimeout(runScheduler, 25)
-      }
-    }
-
-    // Visual draw loop (rAF): fire playhead/grid highlights + the perf readout when the audio clock
-    // reaches each scheduled step, so visuals track the sound rather than the ~lookahead-early schedule.
-    fn drawLoop() {
-      let r = rtRef.current
-      if (!r.playing) {
-        schedRafId = 0
-        return
-      }
-      let ctx2 = audioStore.ctx
-      if (ctx2) {
-        let now = ctx2.currentTime
-        let lastFired = -1
-        let keep = []
-        let i = 0
-        while (i < drawQueue.length) {
-          let item = drawQueue[i]
-          if (item.when <= now) {
-            lastFired = item.step
-            if (r.lastPlayedSec != null) {
-              let dt = item.when - r.lastPlayedSec
-              if (dt > 0.0001) {
-                let inst = 60 / (dt * 4)
-                r.trueBpm = r.trueBpm != null ? (r.trueBpm * 0.85 + inst * 0.15) : inst
-              }
-            }
-            r.lastPlayedSec = item.when
-          } else {
-            keep.push(item)
-          }
-          i = i + 1
-        }
-        drawQueue = keep
-        if (lastFired >= 0) {
-          if (r.setPlaybackHighlight) {
-            r.setPlaybackHighlight(lastFired % 16, true)
-          }
-          if (r.updateGridPlayhead) {
-            r.updateGridPlayhead(lastFired, true)
-          }
-        }
-        r.drawFrame = (r.drawFrame != null ? r.drawFrame : 0) + 1
-        if (r.setBpmReadout && r.drawFrame % 10 === 0) {
-          let tgt = r.project && typeof r.project.bpm === "number" ? r.project.bpm : 120
-          r.setBpmReadout(tgt, r.trueBpm, r.schedMarginMs, r.schedUnderruns)
-        }
-      }
-      schedRafId = requestAnimationFrame(drawLoop)
-    }
-
-    // Pump source: the audio-thread worklet clock if available, else a 25ms setTimeout. The worklet may
-    // finish loading mid-play — onClockReady re-binds the pump to it then.
-    fn startPump() {
-      if (audioStore.clockNode && audioStore.clockNode.port) {
-        audioStore.clockNode.port.onmessage = () => {
-          runScheduler()
-        }
-      } else {
-        if (playbackTimer) {
-          clearTimeout(playbackTimer)
-        }
-        playbackTimer = setTimeout(runScheduler, 25)
-      }
-    }
-    audioStore.onClockReady = () => {
-      if (rtRef.current && rtRef.current.playing) {
-        startPump()
-      }
-    }
-    runScheduler()
-    startPump()
-    if (schedRafId) {
-      cancelAnimationFrame(schedRafId)
-    }
-    schedRafId = requestAnimationFrame(drawLoop)
+    })
     setPlaying(true)
     if (rt.coDjNotifyPlaying) {
       rt.coDjNotifyPlaying(true)
@@ -765,12 +691,12 @@ export fn App() {
   rt.setTransportTick = (n) => {
     let v = Math.floor(Number(n))
     if (v >= 0 && v === v) {
-      globalTick = v
+      transport.setTick(v)
       rt.transportNextTick = v
     }
   }
   rt.getTransportTick = () => {
-    return globalTick
+    return transport.getTick()
   }
   // Start following the host's song at `hostStep`: if stopped, begin playback there; if already playing,
   // just realign the tick. Audio may stay silent until the user interacts (browser gesture policy), but
@@ -786,7 +712,7 @@ export fn App() {
     if (!rt.playing) {
       onPlay("song", step)
     } else {
-      globalTick = step
+      transport.setTick(step)
       rt.transportNextTick = step
     }
   }
@@ -800,8 +726,9 @@ export fn App() {
     if (!coDjShouldFollow(rt) || !rt.playing) {
       return
     }
-    globalTick = coDjClockAlign(globalTick, hostStep, 1)
-    rt.transportNextTick = globalTick
+    let aligned = coDjClockAlign(transport.getTick(), hostStep, 1)
+    transport.setTick(aligned)
+    rt.transportNextTick = aligned
   }
 
   fn curViewBar() {
@@ -883,27 +810,11 @@ export fn App() {
     }
     // A master stopping the transport stops the shared session for followers too (apply on receipt).
     coDjPushControl([transportDirective("stop", 0)], 0)
-    if (playbackTimer) {
-      clearTimeout(playbackTimer)
-      playbackTimer = null
-    }
-    // Tear down the lookahead scheduler's pump + draw loop.
-    if (schedRafId) {
-      cancelAnimationFrame(schedRafId)
-      schedRafId = 0
-    }
-    if (audioStore.clockNode && audioStore.clockNode.port) {
-      audioStore.clockNode.port.onmessage = null
-    }
-    drawQueue = []
+    // Tear down the Transport projection (scheduler + pump + draw loop); it publishes position -1 so the
+    // playhead/grid subscribers clear themselves.
+    transport.stop()
     rt.playing = false
     rt.transportNextTick = null
-    if (rt.setPlaybackHighlight) {
-      rt.setPlaybackHighlight(0, false)
-    }
-    if (rt.updateGridPlayhead) {
-      rt.updateGridPlayhead(0, false)
-    }
     setPlaying(false)
   }
   rt.stopPlayback = onStop
@@ -959,8 +870,8 @@ export fn App() {
       let scn = songStart(project, rt)
       armSceneWithOverrides(project, rt, scn)
       rt.songScene = scn
-      rt.songSceneEndTick = globalTick + sceneBarLength(project, scn) * coDjStepsPerBar()
-      coDjPushLive(project, rt, globalTick + coDjStepsPerBar())
+      rt.songSceneEndTick = transport.getTick() + sceneBarLength(project, scn) * coDjStepsPerBar()
+      coDjPushLive(project, rt, transport.getTick() + coDjStepsPerBar())
       coDjPushControl([transportDirective("song", scn)], 0)
     } else {
       rt.songScene = null
@@ -1156,7 +1067,7 @@ export fn App() {
   } else {
     mainWorkspace = (
       <Fragment>
-        {InstrumentEditor(project, selectedCh, setProjectFromUI, tplMirrorFlush)}
+        {InstrumentEditor(project, selectedCh, setProjectFromUI, tplMirrorFlush, rt)}
         {InstrumentPanel(project, selectedCh, setProjectFromUI, tplMirrorFlush)}
       </Fragment>
     )

@@ -1,0 +1,184 @@
+// The Transport / Clock projection (rearch step 4). Owns the lookahead scheduler + the AudioWorklet (or
+// setTimeout fallback) pump + the rAF draw loop — i.e. ALL the timing machinery lifted out of App.tish.
+// It is pure timing: the per-step musical bookkeeping is supplied by the caller as `onStep(step, when)`
+// (return true to stop), and visuals are DECOUPLED via the signal bus — it publishes:
+//   "transport.position"  -> the step index whose audio just sounded (-1 = stopped)
+//   "transport.health"    -> { target, trueBpm, marginMs, underruns }
+// App subscribes to those to drive the playhead / grid / BPM readout. See [[transport-clock-architecture]].
+
+export fn createTransport(audioStore, signals) {
+  let LOOKAHEAD_SEC = 0.1
+  let globalTick = 0
+  let nextStepSec = 0
+  let drawQueue = []
+  let playbackTimer = null
+  let schedRafId = 0
+  let active = false
+  let cfg = null
+  let trueBpm = null
+  let lastPlayedSec = null
+  let underruns = 0
+  let marginMs = LOOKAHEAD_SEC * 1000
+  let drawFrame = 0
+
+  fn teardown() {
+    active = false
+    if (playbackTimer) {
+      clearTimeout(playbackTimer)
+      playbackTimer = null
+    }
+    if (schedRafId) {
+      cancelAnimationFrame(schedRafId)
+      schedRafId = 0
+    }
+    if (audioStore.clockNode && audioStore.clockNode.port) {
+      audioStore.clockNode.port.onmessage = null
+    }
+    drawQueue = []
+  }
+
+  // Schedule every step whose audio-time is within the lookahead window. nextStepSec advances by the
+  // per-step duration on the AUDIO clock → self-correcting, zero accumulated drift.
+  fn runScheduler() {
+    if (!active) {
+      return
+    }
+    let ctx = audioStore.ctx
+    if (!ctx) {
+      return
+    }
+    let now = ctx.currentTime
+    let horizon = now + LOOKAHEAD_SEC
+    let safety = 0
+    while (nextStepSec < horizon && safety < 256) {
+      if (nextStepSec < now) {
+        underruns = underruns + 1
+      }
+      let stop = cfg.onStep(globalTick, nextStepSec)
+      drawQueue.push({ step: globalTick, when: nextStepSec })
+      globalTick = globalTick + 1
+      nextStepSec = nextStepSec + cfg.secPerStep()
+      safety = safety + 1
+      if (stop === true) {
+        teardown()
+        if (cfg.onStopReached) {
+          cfg.onStopReached()
+        }
+        return
+      }
+    }
+    marginMs = (nextStepSec - now) * 1000
+    // setTimeout fallback pump only while the worklet clock isn't driving us.
+    if (!audioStore.clockNode) {
+      if (playbackTimer) {
+        clearTimeout(playbackTimer)
+      }
+      playbackTimer = setTimeout(runScheduler, 25)
+    }
+  }
+
+  // rAF: when the audio clock reaches each scheduled step, publish its position + (throttled) health so
+  // visuals track the SOUND, not the ~lookahead-early schedule.
+  fn drawLoop() {
+    if (!active) {
+      schedRafId = 0
+      return
+    }
+    let ctx = audioStore.ctx
+    if (ctx) {
+      let now = ctx.currentTime
+      let lastFired = -1
+      let keep = []
+      let i = 0
+      while (i < drawQueue.length) {
+        let item = drawQueue[i]
+        if (item.when <= now) {
+          lastFired = item.step
+          if (lastPlayedSec != null) {
+            let dt = item.when - lastPlayedSec
+            if (dt > 0.0001) {
+              let inst = 60 / (dt * 4)
+              trueBpm = trueBpm != null ? (trueBpm * 0.85 + inst * 0.15) : inst
+            }
+          }
+          lastPlayedSec = item.when
+        } else {
+          keep.push(item)
+        }
+        i = i + 1
+      }
+      drawQueue = keep
+      if (lastFired >= 0) {
+        signals.publish("transport.position", lastFired)
+      }
+      drawFrame = drawFrame + 1
+      if (drawFrame % 10 === 0) {
+        signals.publish("transport.health", { target: cfg.targetBpm(), trueBpm: trueBpm, marginMs: marginMs, underruns: underruns })
+      }
+    }
+    schedRafId = requestAnimationFrame(drawLoop)
+  }
+
+  fn startPump() {
+    if (audioStore.clockNode && audioStore.clockNode.port) {
+      audioStore.clockNode.port.onmessage = () => {
+        runScheduler()
+      }
+    } else {
+      if (playbackTimer) {
+        clearTimeout(playbackTimer)
+      }
+      playbackTimer = setTimeout(runScheduler, 25)
+    }
+  }
+
+  // opts: { startTick, secPerStep:()->num, targetBpm:()->num, onStep:(step,when)->bool, onStopReached:()->void }
+  fn start(opts) {
+    cfg = opts
+    let ctx = audioStore.ctx
+    globalTick = opts.startTick != null && Math.floor(Number(opts.startTick)) >= 0 ? Math.floor(Number(opts.startTick)) : 0
+    nextStepSec = (ctx ? ctx.currentTime : 0) + 0.06
+    drawQueue = []
+    trueBpm = null
+    lastPlayedSec = null
+    underruns = 0
+    marginMs = LOOKAHEAD_SEC * 1000
+    drawFrame = 0
+    active = true
+    // The worklet may finish loading mid-play — re-bind the pump to it then.
+    audioStore.onClockReady = () => {
+      if (active) {
+        startPump()
+      }
+    }
+    runScheduler()
+    startPump()
+    if (schedRafId) {
+      cancelAnimationFrame(schedRafId)
+    }
+    schedRafId = requestAnimationFrame(drawLoop)
+  }
+
+  fn stop() {
+    teardown()
+    signals.publish("transport.position", -1)
+  }
+
+  fn setTick(v) {
+    globalTick = Math.floor(Number(v))
+  }
+  fn getTick() {
+    return globalTick
+  }
+
+  return {
+    start: start,
+    stop: stop,
+    setTick: setTick,
+    getTick: getTick,
+    isActive: () => active,
+    marginMs: () => marginMs,
+    underruns: () => underruns,
+    trueBpm: () => trueBpm
+  }
+}

@@ -273,8 +273,9 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
             title="Mute"
             onclick={(e) => {
               e.stopPropagation()
-              setChannelMute(ch, !ch.mute)
-              setProjectFromUI(project)
+              if (rt && rt.emit) {
+                rt.emit("track/" + ch.id + "/mix/mute", !ch.mute)
+              }
             }}
           >
             {"M"}
@@ -285,8 +286,9 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
             title="Solo"
             onclick={(e) => {
               e.stopPropagation()
-              setChannelSolo(ch, !ch.solo)
-              setProjectFromUI(project)
+              if (rt && rt.emit) {
+                rt.emit("track/" + ch.id + "/mix/solo", !ch.solo)
+              }
             }}
           >
             {"S"}

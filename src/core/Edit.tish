@@ -173,6 +173,18 @@ export fn fragmentForEdit(project, address, value) {
     if (section === "gen" && param != null) {
       return hdr + "\n" + "  gen " + param + " " + (typeof value === "number" ? f(value) : String(value))
     }
+    // Generator TYPE change (resets params on apply): re-emit the track header with the new gen token.
+    if (section === "gen_type") {
+      return "track " + ch.name + " id " + ch.id + " gen " + generatorIdToTpl(String(value))
+    }
+    // ADSR envelope as one statement (value = {a,d,s,r}).
+    if (section === "adsr") {
+      let a = value && value.a != null ? value.a : 0.01
+      let d = value && value.d != null ? value.d : 0.1
+      let s = value && value.s != null ? value.s : 0.7
+      let r = value && value.r != null ? value.r : 0.2
+      return hdr + "\n" + "  adsr a " + f(a) + " d " + f(d) + " s " + f(s) + " r " + f(r)
+    }
     if (section === "deck") {
       let dl = value && value.deck ? value.deck : "live"
       let line = hdr + "\n" + "  deck " + String(dl)

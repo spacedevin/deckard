@@ -79,6 +79,35 @@ fn approxEq(a, b) {
   return d < 0.012
 }
 
+// Map a channel field name to its TPL emit address (so the generic pill builders stay declarative).
+fn fieldAddress(field) {
+  if (field === "arp") {
+    return "voice/arp"
+  }
+  if (field === "chord") {
+    return "voice/chord"
+  }
+  if (field === "reverbSend") {
+    return "fx/reverb"
+  }
+  if (field === "drive") {
+    return "fx/drive"
+  }
+  if (field === "filterCutoff") {
+    return "fx/cutoff"
+  }
+  if (field === "filterQ") {
+    return "fx/res"
+  }
+  if (field === "lfoRate") {
+    return "fx/lfo_rate"
+  }
+  if (field === "lfoDepth") {
+    return "fx/lfo_depth"
+  }
+  return "gen/" + field
+}
+
 /** label + a row of pill buttons; opts = [{ text, on, click }]. */
 fn PillGroup(label, opts) {
   let pills = []
@@ -121,8 +150,16 @@ fn voiceOpts(ch, commit) {
       text: d.text,
       on: cur === d.v,
       click: () => {
-        setVoice(ch, d.v)
-        commit()
+        let v = d.v
+        if (rt && rt.emit) {
+          if (v === "sine" || v === "square" || v === "triangle" || v === "saw") {
+            rt.emit("track/" + ch.id + "/gen_type", "basicOsc")
+            rt.emit("track/" + ch.id + "/gen/waveform", v === "saw" ? "sawtooth" : v)
+          } else {
+            let gid = v === "noise" ? "noiseBurst" : (v === "fm" ? "fmTone" : (v === "drum" ? "drumSynth" : v))
+            rt.emit("track/" + ch.id + "/gen_type", gid)
+          }
+        }
       }
     })
     i = i + 1
@@ -130,26 +167,23 @@ fn voiceOpts(ch, commit) {
   return out
 }
 
-fn decayOpts(ch, commit) {
+fn decayOpts(ch, rt) {
   let names = ["Pluck", "Short", "Medium", "Long", "Pad"]
+  let gp = ch.generatorParams ? ch.generatorParams : {}
   let out = []
   let i = 0
   while (i < names.length) {
     let nm = names[i]
+    let d = DECAY_PRESETS[nm]
+    // Highlight is DERIVED from the actual ADSR (no `decayPreset` UI-cache field needed).
+    let active = approxEq(gp.attack, d.attack) && approxEq(gp.decay, d.decay) && approxEq(gp.sustain, d.sustain) && approxEq(gp.release, d.release)
     out.push({
       text: nm,
-      on: ch.decayPreset === nm,
+      on: active,
       click: () => {
-        let d = DECAY_PRESETS[nm]
-        if (!ch.generatorParams) {
-          ch.generatorParams = {}
+        if (rt && rt.emit) {
+          rt.emit("track/" + ch.id + "/adsr", { a: d.attack, d: d.decay, s: d.sustain, r: d.release })
         }
-        ch.generatorParams.attack = d.attack
-        ch.generatorParams.decay = d.decay
-        ch.generatorParams.sustain = d.sustain
-        ch.generatorParams.release = d.release
-        ch.decayPreset = nm
-        commit()
       }
     })
     i = i + 1
@@ -157,7 +191,7 @@ fn decayOpts(ch, commit) {
   return out
 }
 
-fn octaveOpts(ch, commit) {
+fn octaveOpts(ch, rt) {
   let vals = [-2, -1, 0, 1, 2]
   let cur = ch.octave != null ? ch.octave : 0
   let out = []
@@ -168,8 +202,9 @@ fn octaveOpts(ch, commit) {
       text: n > 0 ? "+" + String(n) : String(n),
       on: cur === n,
       click: () => {
-        ch.octave = n
-        commit()
+        if (rt && rt.emit) {
+          rt.emit("track/" + ch.id + "/voice/octave", n)
+        }
       }
     })
     i = i + 1
@@ -177,7 +212,7 @@ fn octaveOpts(ch, commit) {
   return out
 }
 
-fn selectOpts(ch, field, defs, commit) {
+fn selectOpts(ch, field, defs, rt) {
   let cur = ch[field] != null ? ch[field] : defs[0][1]
   let out = []
   let i = 0
@@ -187,8 +222,9 @@ fn selectOpts(ch, field, defs, commit) {
       text: d[0],
       on: cur === d[1],
       click: () => {
-        ch[field] = d[1]
-        commit()
+        if (rt && rt.emit) {
+          rt.emit("track/" + ch.id + "/" + fieldAddress(field), d[1])
+        }
       }
     })
     i = i + 1
@@ -196,7 +232,7 @@ fn selectOpts(ch, field, defs, commit) {
   return out
 }
 
-fn pairOpts(ch, field, defs, commit) {
+fn pairOpts(ch, field, defs, rt) {
   let cur = ch[field]
   let out = []
   let i = 0
@@ -206,8 +242,9 @@ fn pairOpts(ch, field, defs, commit) {
       text: d[0],
       on: approxEq(cur, d[1]),
       click: () => {
-        ch[field] = d[1]
-        commit()
+        if (rt && rt.emit) {
+          rt.emit("track/" + ch.id + "/" + fieldAddress(field), d[1])
+        }
       }
     })
     i = i + 1
@@ -247,7 +284,7 @@ fn euclidOpts(ch, commit) {
   return out
 }
 
-export fn InstrumentEditor(project, selectedCh, setProjectFromUI, tplMirrorFlush) {
+export fn InstrumentEditor(project, selectedCh, setProjectFromUI, tplMirrorFlush, rt) {
   let ch = project.channels[selectedCh]
   if (!ch) {
     return (
@@ -283,27 +320,27 @@ export fn InstrumentEditor(project, selectedCh, setProjectFromUI, tplMirrorFlush
       </div>
 
       <div class="ie-section">{"VOICE"}</div>
-      {PillGroup("WAVEFORM", voiceOpts(ch, commit))}
-      {PillGroup("DECAY", decayOpts(ch, commit))}
-      {PillGroup("OCTAVE", octaveOpts(ch, commit))}
-      {PillGroup("ARPEGGIATOR", selectOpts(ch, "arp", [["Off", "off"], ["Up", "up"], ["Down", "down"], ["Up-Down", "updown"], ["Random", "random"]], commit))}
-      {PillGroup("CHORD", selectOpts(ch, "chord", [["Off", "off"], ["Major", "major"], ["Minor", "minor"], ["Dom7", "dom7"], ["Maj7", "maj7"], ["Min7", "min7"], ["Dim", "dim"], ["Aug", "aug"], ["Sus4", "sus4"], ["Add9", "add9"]], commit))}
+      {PillGroup("WAVEFORM", voiceOpts(ch, rt))}
+      {PillGroup("DECAY", decayOpts(ch, rt))}
+      {PillGroup("OCTAVE", octaveOpts(ch, rt))}
+      {PillGroup("ARPEGGIATOR", selectOpts(ch, "arp", [["Off", "off"], ["Up", "up"], ["Down", "down"], ["Up-Down", "updown"], ["Random", "random"]], rt))}
+      {PillGroup("CHORD", selectOpts(ch, "chord", [["Off", "off"], ["Major", "major"], ["Minor", "minor"], ["Dom7", "dom7"], ["Maj7", "maj7"], ["Min7", "min7"], ["Dim", "dim"], ["Aug", "aug"], ["Sus4", "sus4"], ["Add9", "add9"]], rt))}
 
       <div class="ie-section">{"FX"}</div>
-      {PillGroup("REVERB SEND", pairOpts(ch, "reverbSend", reverbDefs, commit))}
-      {PillGroup("DRIVE", pairOpts(ch, "drive", [["Off", 0], ["Soft", 0.2], ["Med", 0.45], ["Hard", 0.7], ["Max", 1.0]], commit))}
-      {PillGroup("FILTER CUTOFF", pairOpts(ch, "filterCutoff", cutoffDefs, commit))}
-      {PillGroup("FILTER RESONANCE", pairOpts(ch, "filterQ", resDefs, commit))}
-      {PillGroup("LFO RATE", pairOpts(ch, "lfoRate", [["Off", 0], ["2hz", 2], ["4hz", 4], ["8hz", 8], ["16hz", 16]], commit))}
-      {PillGroup("LFO DEPTH", pairOpts(ch, "lfoDepth", [["Off", 0], ["Sm", 400], ["Med", 1200], ["Lg", 2500]], commit))}
+      {PillGroup("REVERB SEND", pairOpts(ch, "reverbSend", reverbDefs, rt))}
+      {PillGroup("DRIVE", pairOpts(ch, "drive", [["Off", 0], ["Soft", 0.2], ["Med", 0.45], ["Hard", 0.7], ["Max", 1.0]], rt))}
+      {PillGroup("FILTER CUTOFF", pairOpts(ch, "filterCutoff", cutoffDefs, rt))}
+      {PillGroup("FILTER RESONANCE", pairOpts(ch, "filterQ", resDefs, rt))}
+      {PillGroup("LFO RATE", pairOpts(ch, "lfoRate", [["Off", 0], ["2hz", 2], ["4hz", 4], ["8hz", 8], ["16hz", 16]], rt))}
+      {PillGroup("LFO DEPTH", pairOpts(ch, "lfoDepth", [["Off", 0], ["Sm", 400], ["Med", 1200], ["Lg", 2500]], rt))}
 
       <div class="ie-section">{"SEQUENCER"}</div>
       {PillGroup("EUCLIDEAN", euclidOpts(ch, commit))}
 
       <div class="ie-section">{"UTILITIES"}</div>
       {PillGroup("MUTE / SOLO", [
-        { text: "Mute", on: ch.mute === true, click: () => { setChannelMute(ch, !ch.mute); commit() } },
-        { text: "Solo", on: ch.solo === true, click: () => { setChannelSolo(ch, !ch.solo); commit() } }
+        { text: "Mute", on: ch.mute === true, click: () => { if (rt && rt.emit) { rt.emit("track/" + ch.id + "/mix/mute", !ch.mute) } } },
+        { text: "Solo", on: ch.solo === true, click: () => { if (rt && rt.emit) { rt.emit("track/" + ch.id + "/mix/solo", !ch.solo) } } }
       ])}
     </section>
   )

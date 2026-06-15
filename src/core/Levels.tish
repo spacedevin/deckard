@@ -1,0 +1,231 @@
+// Level snapshots (expand-the-concept): the project is a tree of nested TPL-serializable LEVELS, and any
+// node can be emitted/applied on its own. A snapshot is just a named TPL fragment — so it's streamable,
+// diffable, file-able, and doubles as a test fixture. Levels (sound/pattern split):
+//
+//   set        — the whole project (emitProject)
+//   session    — scenes / clips / slots / song / follow
+//   rack       — every channel's full track block (instrument + sequence)
+//   deck       — the track blocks routed to one deck (A/B/C/D)
+//   channel    — one channel's full track block (instrument + sequence)
+//   instrument — one channel's SOUND only (gen/params, fx, voice, mix — NO steps/notes)
+//   sequence   — one channel's PATTERN only (steps/notes/step_pitch/bars — NO sound)
+//
+// Implemented by slicing the canonical emitProject() output into blocks (a top-level line + its indented
+// body), so this is purely additive — no change to the emitter. Apply goes back through the gated ingest.
+
+import { emitProject } from '../tpl/Emit.tish'
+import { tokenize } from '../tpl/Parser.tish'
+import { findChannelById } from '../tpl/Apply.tish'
+
+// Body keywords that describe the SOUND (instrument) vs the PATTERN (sequence). gen_block children
+// (conn/env/filter/shaper/gain/end) ride with the sound. `deck` routing belongs to neither slice.
+let SOUND_KEYS = {}
+SOUND_KEYS["mix"] = true
+SOUND_KEYS["fx"] = true
+SOUND_KEYS["voice"] = true
+SOUND_KEYS["gen"] = true
+SOUND_KEYS["adsr"] = true
+SOUND_KEYS["noise"] = true
+SOUND_KEYS["fm"] = true
+SOUND_KEYS["osc"] = true
+SOUND_KEYS["gen_block"] = true
+SOUND_KEYS["conn"] = true
+SOUND_KEYS["env"] = true
+SOUND_KEYS["filter"] = true
+SOUND_KEYS["shaper"] = true
+SOUND_KEYS["gain"] = true
+SOUND_KEYS["end"] = true
+
+let PATTERN_KEYS = {}
+PATTERN_KEYS["steps"] = true
+PATTERN_KEYS["note"] = true
+PATTERN_KEYS["step_pitch"] = true
+PATTERN_KEYS["transpose"] = true
+PATTERN_KEYS["loops"] = true
+
+fn firstToken(ln) {
+  let s = String(ln).trim()
+  let sp = s.indexOf(" ")
+  return sp < 0 ? s : s.substring(0, sp)
+}
+
+fn trackIdOf(headerLine) {
+  let toks = tokenize(String(headerLine).trim())
+  let i = 0
+  while (i + 1 < toks.length) {
+    if (toks[i] === "id") {
+      return toks[i + 1]
+    }
+    i = i + 1
+  }
+  return null
+}
+
+// Split a TPL document into blocks: { head, header, body[], trackId }. A block = one top-level line plus
+// the indented lines beneath it.
+export fn splitTplBlocks(tpl) {
+  let lines = String(tpl).split("\n")
+  let blocks = []
+  let cur = null
+  let i = 0
+  while (i < lines.length) {
+    let ln = lines[i]
+    if (ln.length > 0 && ln.charAt(0) !== " " && ln.charAt(0) !== "\t") {
+      let head = firstToken(ln)
+      cur = { head: head, header: ln, body: [], trackId: head === "track" ? trackIdOf(ln) : null }
+      blocks.push(cur)
+    } else if (cur != null && ln.length > 0) {
+      cur.body.push(ln)
+    }
+    i = i + 1
+  }
+  return blocks
+}
+
+fn blockText(b) {
+  if (b.body.length === 0) {
+    return b.header + "\n"
+  }
+  return b.header + "\n" + b.body.join("\n") + "\n"
+}
+
+fn wrap(body) {
+  return "tpl 1\n\n" + body
+}
+
+fn filterBody(body, keep) {
+  let out = []
+  let i = 0
+  while (i < body.length) {
+    let k = firstToken(body[i])
+    if (keep[k] === true) {
+      out.push(body[i])
+    }
+    i = i + 1
+  }
+  return out
+}
+
+fn trackBlock(project, channelId) {
+  let blocks = splitTplBlocks(emitProject(project))
+  let i = 0
+  while (i < blocks.length) {
+    if (blocks[i].head === "track" && blocks[i].trackId === channelId) {
+      return blocks[i]
+    }
+    i = i + 1
+  }
+  return null
+}
+
+/**
+ * Emit one level's TPL slice. `scope` is the channel id (instrument/sequence/channel) or deck letter
+ * (deck); ignored for set/rack/session. Always wrapped with a `tpl 1` header so it applies standalone.
+ */
+export fn emitLevel(project, level, scope) {
+  if (level === "set") {
+    return emitProject(project)
+  }
+  let blocks = splitTplBlocks(emitProject(project))
+
+  if (level === "rack") {
+    let out = ""
+    let i = 0
+    while (i < blocks.length) {
+      if (blocks[i].head === "track") {
+        out = out + blockText(blocks[i]) + "\n"
+      }
+      i = i + 1
+    }
+    return wrap(out)
+  }
+
+  if (level === "session") {
+    let out = ""
+    let i = 0
+    while (i < blocks.length) {
+      let h = blocks[i].head
+      if (h === "session_scenes" || h === "session_slot" || h === "clip" || h === "song" || h === "follow") {
+        out = out + blockText(blocks[i]) + "\n"
+      }
+      i = i + 1
+    }
+    return wrap(out)
+  }
+
+  if (level === "deck") {
+    let out = ""
+    let i = 0
+    while (i < blocks.length) {
+      if (blocks[i].head === "track") {
+        let ch = findChannelById(project, blocks[i].trackId)
+        let dk = ch && ch.deck != null ? ch.deck : "live"
+        if (ch && dk === scope) {
+          out = out + blockText(blocks[i]) + "\n"
+        }
+      }
+      i = i + 1
+    }
+    return wrap(out)
+  }
+
+  // Per-channel levels.
+  let blk = null
+  let bi = 0
+  while (bi < blocks.length) {
+    if (blocks[bi].head === "track" && blocks[bi].trackId === scope) {
+      blk = blocks[bi]
+    }
+    bi = bi + 1
+  }
+  if (!blk) {
+    return wrap("")
+  }
+  if (level === "channel") {
+    return wrap(blockText(blk))
+  }
+  if (level === "instrument") {
+    return wrap(blk.header + "\n" + filterBody(blk.body, SOUND_KEYS).join("\n") + "\n")
+  }
+  if (level === "sequence") {
+    return wrap(blk.header + "\n" + filterBody(blk.body, PATTERN_KEYS).join("\n") + "\n")
+  }
+  return wrap("")
+}
+
+/**
+ * Retarget a single-track snapshot (instrument/sequence/channel) onto channel `ch` — rewrites the track
+ * header so the snapshot's sound/pattern lands on the target while KEEPING the target's name + id (and,
+ * for sound snapshots, adopting the snapshot's generator). Multi-block snapshots are returned unchanged.
+ */
+export fn retargetTpl(tpl, ch) {
+  let lines = String(tpl).split("\n")
+  let out = []
+  let did = false
+  let i = 0
+  while (i < lines.length) {
+    let ln = lines[i]
+    if (!did && firstToken(ln) === "track") {
+      let toks = tokenize(ln.trim())
+      // find gen token (snapshot's generator) to preserve it
+      let genTok = "basic_osc"
+      let gi = 0
+      while (gi + 1 < toks.length) {
+        if (toks[gi] === "gen") {
+          genTok = toks[gi + 1]
+        }
+        gi = gi + 1
+      }
+      out.push("track " + ch.name + " id " + ch.id + " gen " + genTok)
+      did = true
+    } else {
+      out.push(ln)
+    }
+    i = i + 1
+  }
+  return out.join("\n")
+}
+
+export fn levelList() {
+  return ["set", "session", "rack", "deck", "channel", "instrument", "sequence"]
+}
