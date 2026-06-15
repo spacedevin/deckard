@@ -50,7 +50,10 @@ fn isStandaloneTopLevel(head) {
     head === "master_mix" ||
     head === "actor_mix" ||
     head === "session_scenes" ||
-    head === "session_slot"
+    head === "session_slot" ||
+    head === "xfade" ||
+    head === "main_deck" ||
+    head === "swing"
   )
 }
 

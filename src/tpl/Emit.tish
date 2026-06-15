@@ -37,6 +37,18 @@ export fn emitProjectInner(project, skipSync) {
   if (project.songSeed != null && Math.floor(Number(project.songSeed)) === Math.floor(Number(project.songSeed))) {
     o = o + "song_seed " + String(Math.floor(Number(project.songSeed))) + "\n"
   }
+  // Transport routing scalars — emitted only when off their defaults (keeps round-trip minimal & stable).
+  let cfx = project.transportCrossfade != null ? Number(project.transportCrossfade) : 0.5
+  let cfy = project.transportCrossfadeY != null ? Number(project.transportCrossfadeY) : 0.5
+  if (Math.abs(cfx - 0.5) > 0.0001 || Math.abs(cfy - 0.5) > 0.0001) {
+    o = o + "xfade " + formatTplFloat(cfx) + " " + formatTplFloat(cfy) + "\n"
+  }
+  if (project.transportMainDeck === "local") {
+    o = o + "main_deck local\n"
+  }
+  if (project.swing != null && Number(project.swing) > 0.0001) {
+    o = o + "swing " + formatTplFloat(project.swing) + "\n"
+  }
   o = o + "\n"
 
   let ci = 0
@@ -203,6 +215,15 @@ export fn emitProjectInner(project, skipSync) {
     }
     if (voiceParts.length > 0) {
       o = o + "  voice" + voiceParts + "\n"
+    }
+
+    // Deck routing — emitted only when the channel leaves the default "live" deck.
+    if (ch.deck != null && ch.deck !== "live") {
+      o = o + "  deck " + String(ch.deck)
+      if (ch.deckSlot != null && Math.floor(Number(ch.deckSlot)) === Math.floor(Number(ch.deckSlot))) {
+        o = o + " slot " + String(Math.floor(Number(ch.deckSlot)))
+      }
+      o = o + "\n"
     }
 
     let pianoNotes = ch.pianoNotes

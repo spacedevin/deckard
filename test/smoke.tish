@@ -4,7 +4,7 @@ import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
 import { emitProject, emitLivePlayback } from '../src/tpl/Emit.tish'
 import { applyTplSource, findChannelById } from '../src/tpl/Apply.tish'
 import { applyCoDjTplSource } from '../src/codj/Merge.tish'
-import { applyLaunchDirective, isLaunchDirective, launchSceneDirective, launchClipDirective, transportDirective, applyLaunchLinesFromSource } from '../src/codj/Launch.tish'
+import { applyLaunchDirective, isLaunchDirective, launchSceneDirective, launchClipDirective, transportDirective, applyLaunchLinesFromSource, transportPlayDirective, transportPreviewDirective, cueDirective, throwDirective, isPrivateDirective } from '../src/codj/Launch.tish'
 import { setTrackOwner } from '../src/codj/CoDjMeta.tish'
 import { coDjClockAlign, coDjShouldFollow, coDjClockPayload } from '../src/codj/Transport.tish'
 import { createTplLineStream, tplLineStreamPush } from '../src/tpl/Stream.tish'
@@ -17,6 +17,9 @@ import { resizeChannelBars, setRackBars, rackBars } from '../src/model/RackBars.
 import { ensureProjectSession, sessionWriteRackToSceneClip, loadSceneIntoRack, sessionArmScene, playbackClipForChannel, firstSongScene, nextSongScene, sceneHasSavedClip, sceneBarLength, armSceneWithOverrides, sceneSlotClipId, findClipOnChannel, loadSceneBarIntoRack, sessionWriteRackBarToSceneClip, sessionStopTrack, sessionTrackStopped, sessionEffectiveArmedClipId, songStart, songAdvance, hasExplicitSong, normalizeSongEntries, setSceneFollow, sceneFollow, hasFollowActions, resolveFollowAction, detRand01 } from '../src/model/Session.tish'
 import { toggleStep, clearAllSteps } from '../src/model/Edits.tish'
 import { secondsPerStep, stepsToScheduleInWindow, underrunsInBatch } from '../src/audio/Scheduler.tish'
+import { createSignals } from '../src/core/Signals.tish'
+import { createIngest } from '../src/core/Ingest.tish'
+import { fragmentForEdit, createEditor } from '../src/core/Edit.tish'
 
 let pass = 0
 let fail = 0
@@ -639,6 +642,132 @@ check("all 15 deck sets parse clean with >=5 stems", badSet === "")
 if (badSet !== "") {
   console.log("  -> offending set: " + badSet)
 }
+
+// 6b. Transport routing grammar (rearch step 1): xfade / main_deck / swing / track deck round-trip.
+let rtp = loadDefaultDeckardProject().project
+rtp.transportCrossfade = 0.3
+rtp.transportCrossfadeY = 0.7
+rtp.transportMainDeck = "local"
+rtp.swing = 0.25
+rtp.channels[0].deck = "B"
+rtp.channels[0].deckSlot = 1
+let rtpEmit = emitProject(rtp)
+check("emit: xfade line present", rtpEmit.indexOf("xfade 0.3 0.7") >= 0)
+check("emit: main_deck local present", rtpEmit.indexOf("main_deck local") >= 0)
+check("emit: swing present", rtpEmit.indexOf("swing 0.25") >= 0)
+check("emit: track deck line present", rtpEmit.indexOf("deck B slot 1") >= 0)
+let rtp2 = emptyProjectShell()
+applyTplSource(rtp2, rtpEmit)
+check("round-trip: crossfade X survives", Math.abs(rtp2.transportCrossfade - 0.3) < 1e-6)
+check("round-trip: crossfade Y survives", Math.abs(rtp2.transportCrossfadeY - 0.7) < 1e-6)
+check("round-trip: main_deck survives", rtp2.transportMainDeck === "local")
+check("round-trip: swing survives", Math.abs(rtp2.swing - 0.25) < 1e-6)
+let rtpCh0 = findChannelById(rtp2, rtp.channels[0].id)
+check("round-trip: channel deck survives", rtpCh0 != null && rtpCh0.deck === "B")
+check("round-trip: channel deckSlot survives", rtpCh0 != null && rtpCh0.deckSlot === 1)
+// Defaults must NOT emit (keeps round-trip minimal/stable).
+let rtpDef = loadDefaultDeckardProject().project
+let rtpDefEmit = emitProject(rtpDef)
+check("emit: no xfade at default 0.5/0.5", rtpDefEmit.indexOf("\nxfade ") < 0)
+check("emit: no main_deck at default live", rtpDefEmit.indexOf("main_deck") < 0)
+check("emit: no swing at 0", rtpDefEmit.indexOf("\nswing ") < 0)
+
+// 6c. New control directives (rearch step 1): builders + detection (cue/throw are PRIVATE-aware).
+check("directive: play song", transportPlayDirective("song") === "@ transport play song")
+check("directive: play seq", transportPlayDirective("sequence") === "@ transport play seq")
+check("directive: preview", transportPreviewDirective() === "@ transport preview")
+check("directive: cue scene", cueDirective(3) === "@ cue 3")
+check("directive: throw with scene", throwDirective(2) === "@ throw 2")
+check("directive: throw no scene", throwDirective(null) === "@ throw")
+check("detect: cue is a control directive", isLaunchDirective("@ cue 3") === true)
+check("detect: throw is a control directive", isLaunchDirective("@ throw") === true)
+check("detect: play is a control directive", isLaunchDirective("@ transport play song") === true)
+check("private: cue is private (never broadcast)", isPrivateDirective("@ cue 3") === true)
+check("private: preview is private", isPrivateDirective("@ transport preview") === true)
+check("private: throw is NOT private (goes to main)", isPrivateDirective("@ throw 2") === false)
+check("private: transport play is NOT private (shared)", isPrivateDirective("@ transport play song") === false)
+check("private: scene launch is NOT private", isPrivateDirective("@ launch scene 0") === false)
+
+// 6d. Signal bus (rearch step 2): publish/subscribe, last-value replay, unsubscribe.
+let sig = createSignals()
+let sgot = []
+sig.publish("transport.position", 1)
+let unsub = sig.subscribe("transport.position", (v) => { sgot.push(v) })
+check("signals: late subscriber replays last value", sgot.length === 1 && sgot[0] === 1)
+sig.publish("transport.position", 2)
+check("signals: subscriber gets new value", sgot.length === 2 && sgot[1] === 2)
+check("signals: peek returns latest", sig.peek("transport.position") === 2)
+unsub()
+sig.publish("transport.position", 3)
+check("signals: unsubscribe stops delivery", sgot.length === 2)
+
+// 6e. Ingest (rearch step 2): the ONE writer — two-actor convergence + ownership/host gate + private.
+let projA = loadDefaultDeckardProject().project
+let wire = []
+let ingA = createIngest({ project: projA, runtime: {} })
+ingA.onOut((frag, kind) => { wire.push(frag) })
+let ctxMaster = { actorId: "humanA", skillIds: ["master_mixer"] }
+ingA.ingest("bpm 128", ctxMaster)
+check("ingest: master sets global bpm", projA.bpm === 128)
+ingA.ingest("track New id tnew gen drum\n  mix gain 0.42 pan 0 mute 0 solo 0 eq_lo 0 eq_mid 0 eq_hi 0", ctxMaster)
+let tnewA = findChannelById(projA, "tnew")
+check("ingest: new track folded (gain)", tnewA != null && Math.abs(tnewA.gain - 0.42) < 1e-6)
+check("ingest: doc fragments echoed to out-stream", wire.length === 2)
+// Convergence: a second machine replays A's authored stream → identical fold.
+let projB = loadDefaultDeckardProject().project
+let ingB = createIngest({ project: projB, runtime: {} })
+let wi = 0
+while (wi < wire.length) {
+  ingB.ingest(wire[wi], ctxMaster)
+  wi = wi + 1
+}
+let tnewB = findChannelById(projB, "tnew")
+check("converge: peer B bpm matches A", projB.bpm === 128)
+check("converge: peer B track gain matches A", tnewB != null && Math.abs(tnewB.gain - 0.42) < 1e-6)
+// Gate: a non-master, non-owner actor cannot change globals or someone else's track.
+let ctxGuest = { actorId: "agentB", skillIds: [] }
+ingB.ingest("bpm 200", ctxGuest)
+check("gate: non-master cannot change bpm", projB.bpm === 128)
+let gBefore = findChannelById(projB, "tnew").gain
+ingB.ingest("track New id tnew gen drum\n  mix gain 0.99 pan 0 mute 0 solo 0 eq_lo 0 eq_mid 0 eq_hi 0", ctxGuest)
+check("gate: non-owner cannot edit another's track", Math.abs(findChannelById(projB, "tnew").gain - gBefore) < 1e-6)
+// Private: cue/preview never echo; throw does.
+let wireP = []
+ingA.onOut((frag, kind) => { wireP.push(frag) })
+ingA.ingest("@ cue 2", ctxMaster)
+check("private: @ cue not broadcast", wireP.length === 0)
+ingA.ingest("@ throw 2", ctxMaster)
+check("private: @ throw broadcast", wireP.length === 1)
+
+// 6f. emit/edit helper (rearch step 2/3): addressed edit -> minimal TPL fragment -> ingest -> fold.
+let projE = loadDefaultDeckardProject().project
+let chE = projE.channels[0].id
+// fragmentForEdit shapes
+check("frag: bpm scalar", fragmentForEdit(projE, "bpm", 132) === "bpm 132")
+check("frag: xfade pair", fragmentForEdit(projE, "xfade", [0.25, 0.75]) === "xfade 0.25 0.75")
+check("frag: main_deck", fragmentForEdit(projE, "main_deck", "local") === "main_deck local")
+check("frag: master eq line", fragmentForEdit(projE, "master/eq_lo", 2).indexOf("master_mix eq_lo 2") >= 0)
+let mixFrag = fragmentForEdit(projE, "track/" + chE + "/mix/gain", 0.5)
+check("frag: track mix re-emits full mix line", mixFrag.indexOf("mix gain 0.5 pan ") >= 0 && mixFrag.indexOf("id " + chE) >= 0)
+check("frag: unknown track is no-op", fragmentForEdit(projE, "track/nope/mix/gain", 1) === "")
+// Full loop: createEditor.emit -> ingest -> fold reflects the change (UI-as-client in miniature).
+// Local ctx: the solo user is actor "human" (which ensureCoDjMeta makes the default-project owner) with
+// master skills — so they may edit their own tracks AND globals. This is the single-player identity.
+let ctxLocal = { actorId: "human", skillIds: ["master_mixer"] }
+let edStore = { project: projE, runtime: {} }
+let edIng = createIngest(edStore)
+let editor = createEditor(edStore, edIng.ingest, () => ctxLocal)
+editor.emit("bpm", 140)
+check("edit-loop: bpm folded via emit", projE.bpm === 140)
+editor.emit("track/" + chE + "/mix/gain", 0.33)
+check("edit-loop: track gain folded via emit", Math.abs(findChannelById(projE, chE).gain - 0.33) < 1e-6)
+editor.emit("track/" + chE + "/fx/cutoff", 3000)
+check("edit-loop: track fx cutoff folded via emit", Math.abs(findChannelById(projE, chE).filterCutoff - 3000) < 1e-6)
+editor.emit("xfade", [0.2, 0.8])
+check("edit-loop: xfade X folded", Math.abs(projE.transportCrossfade - 0.2) < 1e-6)
+check("edit-loop: xfade Y folded", Math.abs(projE.transportCrossfadeY - 0.8) < 1e-6)
+editor.directive("@ throw 1")
+check("edit-loop: directive routes through ingest", true)
 
 // 7. Lookahead scheduler helpers: self-correcting step advance, no accumulated drift.
 check("secondsPerStep: 120bpm = 0.125s per 16th", Math.abs(secondsPerStep(120) - 0.125) < 1e-9)

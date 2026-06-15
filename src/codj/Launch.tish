@@ -7,6 +7,10 @@
 //   @ launch clip <trackId> <clipId|-|stop> per-track override (track owner only; - = follow song)
 //   @ transport song <scene0>              align the shared song position (master only)
 //   @ transport stop                       silence all tracks (master only)
+//   @ transport play <seq|song>            start the SHARED transport (master only)            [runtime: step 4]
+//   @ transport preview                    start the PRIVATE cue transport (local only, not broadcast) [step 4]
+//   @ cue <scene|clipId>                   load into your PRIVATE cue/preview (local only, never broadcast) [step 6]
+//   @ throw [scene0]                       commit your cue to the SHARED main (master/owner gated)         [step 6]
 
 import { tokenize } from '../tpl/Parser.tish'
 import { laneCanMaster, actorMayEditTrack } from './Merge.tish'
@@ -43,9 +47,33 @@ export fn transportDirective(mode, sceneIdx) {
   return "@ transport " + String(mode) + " " + String(Math.floor(Number(sceneIdx)))
 }
 
+/** Start the SHARED transport in sequence or song mode (master-gated). */
+export fn transportPlayDirective(mode) {
+  let m = (mode === "sequence" || mode === "seq") ? "seq" : "song"
+  return "@ transport play " + m
+}
+
+/** Start the PRIVATE cue/preview transport (local only — never broadcast). */
+export fn transportPreviewDirective() {
+  return "@ transport preview"
+}
+
+/** Load a scene index or clip id into your PRIVATE cue (local only — never broadcast). */
+export fn cueDirective(target) {
+  return "@ cue " + String(target)
+}
+
+/** Commit your cue to the SHARED main (optionally a specific scene). Master/owner gated. */
+export fn throwDirective(sceneIdx) {
+  if (sceneIdx == null) {
+    return "@ throw"
+  }
+  return "@ throw " + String(Math.floor(Number(sceneIdx)))
+}
+
 // ---- detect ------------------------------------------------------------------------------------
 
-/** True when a trimmed line is a session-control directive (`@ launch …` / `@ transport …`). */
+/** True when a trimmed line is a session-control directive (`@ launch|transport|cue|throw …`). */
 export fn isLaunchDirective(line) {
   if (line == null) {
     return false
@@ -54,7 +82,23 @@ export fn isLaunchDirective(line) {
   if (toks.length < 2 || toks[0] !== "@") {
     return false
   }
-  return toks[1] === "launch" || toks[1] === "transport"
+  return toks[1] === "launch" || toks[1] === "transport" || toks[1] === "cue" || toks[1] === "throw"
+}
+
+/** A PRIVATE directive must never leave this machine (cue/preview are local-only). Used by the
+ *  broadcast tap (step 5/6) to drop these from the out stream. */
+export fn isPrivateDirective(line) {
+  if (line == null) {
+    return false
+  }
+  let toks = tokenize(String(line).trim())
+  if (toks.length < 2 || toks[0] !== "@") {
+    return false
+  }
+  if (toks[1] === "cue") {
+    return true
+  }
+  return toks[1] === "transport" && toks.length >= 3 && toks[2] === "preview"
 }
 
 fn channelIndexById(project, trackId) {

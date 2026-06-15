@@ -1,0 +1,87 @@
+// Ingest — the ONE writer (Plan: "nothing mutates state except applying a TPL edit to the document").
+// Every speaker — local UI, remote peers, the agent — calls ingest() with a TPL fragment + a ctx
+// {actorId, skillIds, ...}. Ingest splits control directives (`@ …`) from document statements, gates
+// once (ownership/host via Merge/Skills), folds the document incrementally, echoes the fragment to the
+// out-stream (which Collab broadcasts — minus PRIVATE cue/preview), and signals "stream advanced" so
+// the UI re-renders. There is no separate local write path: a local edit and a peer edit are the same
+// gated act. This is what makes multiplayer first-class.
+
+import { isLaunchDirective, isPrivateDirective, applyLaunchDirective } from '../codj/Launch.tish'
+import { applyCoDjTplSource } from '../codj/Merge.tish'
+
+// store: { project, runtime }  — runtime holds the ephemeral control-arming state (today's `rt`).
+export fn createIngest(store) {
+  let version = 0
+  let outTaps = []        // broadcast tap(s): Collab subscribes here to mirror local edits to peers
+  let advanceSubs = []    // fold-changed subscribers: the UI/projections re-render/reconcile on advance
+
+  fn onOut(cb) {
+    outTaps.push(cb)
+  }
+  fn onAdvance(cb) {
+    advanceSubs.push(cb)
+  }
+
+  // Echo a fragment to the out-stream — but NEVER a private (cue/preview) directive, which must stay
+  // on this machine. `kind` is "doc" or "control" so a tap can route them differently.
+  fn echo(fragment, kind, ctx) {
+    if (kind === "control" && isPrivateDirective(fragment)) {
+      return
+    }
+    if (fragment == null || String(fragment).trim().length === 0) {
+      return
+    }
+    let i = 0
+    while (i < outTaps.length) {
+      outTaps[i](fragment, kind, ctx)
+      i = i + 1
+    }
+  }
+
+  fn signalAdvance() {
+    version = version + 1
+    let i = 0
+    while (i < advanceSubs.length) {
+      advanceSubs[i](version)
+      i = i + 1
+    }
+  }
+
+  // THE write door. Returns { ok, version }.
+  fn ingest(source, ctx) {
+    let c = ctx != null ? ctx : {}
+    let p = store.project
+    let actorId = c.actorId != null ? c.actorId : (p.coDjSelfActorId != null ? p.coDjSelfActorId : "self")
+    let authorId = c.authorId != null ? c.authorId : actorId
+    let skillIds = c.skillIds != null ? c.skillIds : null
+    let perfStep = c.perfStep != null ? c.perfStep : (store.runtime && store.runtime.perfStep != null ? store.runtime.perfStep : 0)
+
+    let lines = String(source == null ? "" : source).split("\n")
+    let docKept = []
+    let i = 0
+    while (i < lines.length) {
+      let ln = lines[i]
+      if (isLaunchDirective(ln)) {
+        // Control directives mutate the ephemeral arming (and route to the transport later); private
+        // cue/preview stay local, everything else echoes for broadcast.
+        applyLaunchDirective(p, store.runtime, ln, actorId, skillIds)
+        echo(String(ln).trim(), "control", c)
+      } else {
+        docKept.push(ln)
+      }
+      i = i + 1
+    }
+
+    let docSrc = docKept.join("\n")
+    if (docSrc.trim().length > 0) {
+      // The single gated fold — same path for local, remote, and agent statements.
+      applyCoDjTplSource(p, "tpl 1\n" + docSrc + "\n", actorId, authorId, perfStep, skillIds)
+      echo(docSrc, "doc", c)
+    }
+
+    signalAdvance()
+    return { ok: true, version: version }
+  }
+
+  return { ingest: ingest, onOut: onOut, onAdvance: onAdvance, version: () => version }
+}

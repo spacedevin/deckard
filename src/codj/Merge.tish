@@ -66,6 +66,26 @@ export fn applyCoDjTplSource(project, source, actorId, authorId, currentPerfStep
       project.songSeed = ss
     }
   }
+  // Transport-routing globals (master-gated, same as bpm): crossfader, main deck, swing.
+  if (canMaster && parsed.xfade !== null && parsed.xfade !== undefined) {
+    let cx = Number(parsed.xfade.x)
+    let cy = Number(parsed.xfade.y)
+    if (cx === cx) {
+      project.transportCrossfade = cx < 0 ? 0 : (cx > 1 ? 1 : cx)
+    }
+    if (cy === cy) {
+      project.transportCrossfadeY = cy < 0 ? 0 : (cy > 1 ? 1 : cy)
+    }
+  }
+  if (canMaster && parsed.mainDeck !== null && parsed.mainDeck !== undefined) {
+    project.transportMainDeck = parsed.mainDeck === "local" ? "local" : "live"
+  }
+  if (canMaster && parsed.swing !== null && parsed.swing !== undefined) {
+    let sw = Number(parsed.swing)
+    if (sw === sw) {
+      project.swing = sw < 0 ? 0 : (sw > 1 ? 1 : sw)
+    }
+  }
   let ti = 0
   while (ti < parsed.tracks.length) {
     let tb = parsed.tracks[ti]

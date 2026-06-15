@@ -132,6 +132,8 @@ export fn emptyProjectShell() {
     bpm: 120,
     transportMainDeck: "live",
     transportCrossfade: 0.5,
+    transportCrossfadeY: 0.5,
+    swing: 0,
     channels: [],
     instrumentPresets: instrumentPresets,
     automation: {

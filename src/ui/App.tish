@@ -7,6 +7,8 @@ import { migrateProjectGenerators } from '../model/Migrate.tish'
 import { ensureAudio, updateMixerFromProject, resyncAllChannelBuses } from '../audio/Engine.tish'
 import { transportTick } from '../audio/Playback.tish'
 import { secondsPerStep } from '../audio/Scheduler.tish'
+import { createIngest } from '../core/Ingest.tish'
+import { createEditor } from '../core/Edit.tish'
 import { tplLoopResetAll } from '../tpl/LoopState.tish'
 import { TransportBar } from './Transport.tish'
 import { MasterMixerStrip, ActorMixerStrip, TrackMixerStrip } from './Mixer.tish'
@@ -138,14 +140,53 @@ export fn App() {
     ? Math.floor(Number(project.launchQuant))
     : 16
   rt.launchQuantSteps = launchQuant
+
+  // ---- The ONE write door (rearch): ingest + editor. Every UI edit emits a TPL fragment through here
+  // instead of mutating `project` directly. Local, co-DJ, and agent all share this gated path. ----
+  let storeRef = useRef(null)
+  if (!storeRef.current) {
+    storeRef.current = { project: project, runtime: rt }
+  }
+  storeRef.current.project = project
+  // Local actor ctx: single-player = "human" (the default-project owner) with master rights; co-DJ
+  // overrides coDjActorId / coDjLocalSkillIds when a session assigns a narrower role.
+  fn localCtx() {
+    let r = rtRef.current
+    return {
+      actorId: r.coDjActorId ? r.coDjActorId : "human",
+      skillIds: r.coDjLocalSkillIds ? r.coDjLocalSkillIds : ["master_mixer"],
+      perfStep: r.perfStep != null ? r.perfStep : 0
+    }
+  }
+  let ingestRef = useRef(null)
+  if (!ingestRef.current) {
+    ingestRef.current = createIngest(storeRef.current)
+    // On stream-advance: reconcile audio, re-render, mirror to the TPL editor. (One trigger replaces the
+    // scattered setProjectFromUI / gen-counter calls as handlers migrate onto emit.)
+    ingestRef.current.onAdvance((v) => {
+      let r = rtRef.current
+      if (r.project) {
+        if (audioStore.ctx) {
+          updateMixerFromProject(r.project, audioStore)
+        }
+        setProject(r.project)
+        syncProjectToTplEditor(r.project)
+      }
+    })
+  }
+  let editorRef = useRef(null)
+  if (!editorRef.current) {
+    editorRef.current = createEditor(storeRef.current, ingestRef.current.ingest, localCtx)
+  }
+  rt.emit = (addr, val) => editorRef.current.emit(addr, val)
+  rt.directive = (line) => editorRef.current.directive(line)
+
   fn setLaunchQuant(q) {
     let v = Math.floor(Number(q))
     if (v < 1 || v !== v) {
       v = 16
     }
-    project.launchQuant = v
-    rt.launchQuantSteps = v
-    setProjectFromUI(project)
+    rt.emit("launch_quant", v)
   }
 
   // Transport hotkeys: Space = Play/Stop Sequence (monitor the rack), Enter = Play/Stop Song (live
@@ -653,13 +694,7 @@ export fn App() {
   }
 
   fn onDeckMain(mode) {
-    if (mode === "local") {
-      project.transportMainDeck = "local"
-    } else {
-      project.transportMainDeck = "live"
-    }
-    updateMixerFromProject(project, audioStore)
-    setProjectFromUI(project)
+    rt.emit("main_deck", mode === "local" ? "local" : "live")
   }
 
   // Broadcast what is ACTUALLY PLAYING (armed pattern + per-track overrides) to the co-DJ hub, so
@@ -999,8 +1034,8 @@ export fn App() {
   fn onBpmInput(e) {
     let v = Number(e.target.value)
     if (v >= 40 && v <= 240) {
-      project.bpm = v
-      setProjectFromUI(project)
+      // UI-as-TPL-client: emit `bpm <v>` through the one write door (no direct project mutation).
+      editorRef.current.emit("bpm", v)
     }
   }
 
@@ -1039,35 +1074,25 @@ export fn App() {
     }
   }
 
+  // Channel mixer edits — emit one `mix` statement through the write door (audio + render follow on
+  // stream-advance). No direct project mutation, no manual updateMixerFromProject.
   fn onTrim(idx, e) {
-    setChannelGain(project.channels[idx], Number(e.target.value) / 100)
-    updateMixerFromProject(project, audioStore)
-    setProjectFromUI(project)
+    rt.emit("track/" + project.channels[idx].id + "/mix/gain", Number(e.target.value) / 100)
   }
 
-  fn onTrimCommit() {
-    setProjectFromUI(project)
-  }
+  fn onTrimCommit() {}
 
   fn onEq(idx, key, e) {
-    setChannelEq(project.channels[idx], key, Number(e.target.value))
-    updateMixerFromProject(project, audioStore)
-    setProjectFromUI(project)
+    rt.emit("track/" + project.channels[idx].id + "/mix/eq_" + key, Number(e.target.value))
   }
 
-  fn onEqCommit() {
-    setProjectFromUI(project)
-  }
+  fn onEqCommit() {}
 
   fn onPan(idx, e) {
-    setChannelPan(project.channels[idx], Number(e.target.value) / 100)
-    updateMixerFromProject(project, audioStore)
-    setProjectFromUI(project)
+    rt.emit("track/" + project.channels[idx].id + "/mix/pan", Number(e.target.value) / 100)
   }
 
-  fn onPanCommit() {
-    setProjectFromUI(project)
-  }
+  fn onPanCommit() {}
 
   ensureActorMixerEntries(project)
   ensureProjectSession(project)
