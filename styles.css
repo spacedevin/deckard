@@ -971,12 +971,27 @@ input[type="range"]::-moz-range-thumb {
 
 .sytrus-panel-head {
   display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
   margin-bottom: 0.55rem;
   padding-bottom: 0.4rem;
   border-bottom: 1px solid var(--border);
 }
+.sytrus-panel-head-l { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.sytrus-patch-select {
+  margin-left: auto;
+  max-width: 14rem;
+  padding: 0.28rem 0.5rem;
+  font-size: 0.72rem;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text, #e8e8ea);
+  border: 1px solid var(--accent-blue, #5aa9e8);
+  border-radius: 5px;
+  cursor: pointer;
+}
+.sytrus-patch-select:hover { border-color: #7cc0f0; }
 
 .sytrus-panel-title {
   font-size: 0.72rem;
@@ -994,6 +1009,20 @@ input[type="range"]::-moz-range-thumb {
 .sytrus-section {
   margin-bottom: 0.55rem;
 }
+/* Two-zone plugin layout: Operators + Matrix share the top row, Filters + Routing share the bottom row —
+   so the panel uses the full width (no dead space beside the matrix) and reads as one instrument, not a
+   four-section vertical scroll. Wraps to stacked on narrow panels. */
+.sytrus-row {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin-bottom: 0.6rem;
+}
+.sytrus-row > .sytrus-section { margin-bottom: 0; min-width: 0; }
+.sytrus-row-top > .sytrus-section:first-child { flex: 1 1 28rem; }   /* operators grow to fill */
+.sytrus-row-top > .sytrus-section:last-child { flex: 0 1 auto; }     /* matrix keeps its natural width */
+.sytrus-row-bottom > .sytrus-section { flex: 1 1 22rem; }            /* filters + routing split the row */
 
 .sytrus-section:last-child {
   margin-bottom: 0;
@@ -1065,10 +1094,25 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .sytrus-op-grid {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
   gap: 0.4rem;
+  align-items: start;
 }
+/* Compact env strip inside the operator cards so 4-6 ops tile in a row or two, not a full-width wall. */
+.sytrus-op-env-wrap .sytrus-env-bg { height: 30px; }
+/* Shrink the knobs inside op/filter cards so the 4 ADSR knobs (and filter env knobs) sit on ONE row in a
+   ~14rem card instead of wrapping to two — this is what kept each card ~380px tall. */
+.sytrus-op-card .ik-knob,
+.sytrus-filter-card .ik-knob { width: 2.6rem; }
+.sytrus-op-card .ik-knob-dial,
+.sytrus-filter-card .ik-knob-dial { width: 1.9rem; height: 1.9rem; }
+.sytrus-op-card .ik-knob-label,
+.sytrus-filter-card .ik-knob-label { font-size: 0.46rem; }
+.sytrus-op-card .ik-knob-value,
+.sytrus-filter-card .ik-knob-value { font-size: 0.5rem; }
+.sytrus-op-card .ik-knob-grid,
+.sytrus-filter-card .ik-knob-grid { gap: 0.25rem 0.2rem; }
 
 .sytrus-op-card {
   background: rgba(0, 0, 0, 0.35);
@@ -1227,7 +1271,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .sytrus-matrix {
-  width: 100%;
+  width: auto;
   border-collapse: collapse;
   font-size: 0.55rem;
 }
@@ -1271,9 +1315,10 @@ input[type="range"]::-moz-range-thumb {
 
 .sytrus-mod-pair {
   display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  align-items: stretch;
+  flex-direction: row;
+  gap: 0.2rem;
+  align-items: center;
+  justify-content: center;
 }
 
 .sytrus-mod-lbl {
@@ -1291,9 +1336,10 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .sytrus-filter-grid {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
   gap: 0.45rem;
+  align-items: start;
 }
 
 .sytrus-filter-card {
@@ -1339,8 +1385,8 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .sytrus-routes {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
   gap: 0.35rem;
 }
 

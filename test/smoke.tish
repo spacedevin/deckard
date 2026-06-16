@@ -24,6 +24,7 @@ import { parsePatchGraph, parseGenBlock, defaultMatrixFmRawLines } from '../src/
 import { patchGraphToLines, syncPatchSpecFromGraph, defaultPatchRawLines, addPatchNode, removePatchNode, addPatchConn, removePatchConnAt, addPatchEnv, addPatchEnvSeg, removePatchEnvSegAt } from '../src/tpl/PatchGraph.tish'
 import { macroCatalog, macroKind, macroParamControls, expandMacroToSpec, assignMacroToChannel, setMacroParam, freezeMacroChannel } from '../src/model/MacroVoice.tish'
 import { defaultParamsForGeneratorId, generatorCatalog } from '../src/generators/Registry.tish'
+import { matrixFmPatches, matrixFmFactoryInstrumentPresets } from '../src/model/MatrixFmPresets.tish'
 import { emitInstrumentModuleTpl } from '../src/core/Levels.tish'
 import { addInstrumentPreset, applyInstrumentPresetToChannel, ensureInstrumentPresets } from '../src/model/InstrumentPresets.tish'
 import { expandTriggerNotes, chordStrumDelta } from '../src/audio/NoteExpand.tish'
@@ -483,6 +484,26 @@ check("arp without a chord: nothing to arpeggiate (single note)", expandTriggerN
 let gtrPatchG = parsePatchGraph(compileGeneratorToPatchLines("guitar", { tone: 0.5, decay: 0.6, drive: 0.3, body: 3000 }, null))
 check("guitar→patch: plucky saw→lowpass→amp with a pluck envelope", gtrPatchG.nodes.some(n => n.kind === "osc" && n.wave === "sawtooth") && gtrPatchG.nodes.some(n => n.kind === "filter") && gtrPatchG.envs.some(e => e.node === "a1"))
 // matrixFm → patch: the operator/matrix graph reduces to oscillators + FM-routed connections + envelopes.
+// Factory Matrix FM patch bank (Sytrus-style) — every patch must parse into a valid graph: >=2 operators,
+// at least one route to out, and every mod/route references an operator that exists (no dangling ids).
+let fmBank = matrixFmPatches()
+check("matrixfm bank: 25 factory patches", fmBank.length === 25)
+let fmBad = 0
+let fmbi = 0
+while (fmbi < fmBank.length) {
+  let bg = parseGenBlock("matrix_fm", fmBank[fmbi].lines).graph
+  let okOps = Object.keys(bg.ops).length >= 2
+  let okOut = bg.routes.some(r => r.dstKind === "out")
+  let okMods = bg.mods.every(m => bg.ops[m.src] != null && bg.ops[m.dst] != null)
+  let okRoutes = bg.routes.every(r => r.srcKind === "filter" || bg.ops[r.srcId] != null)
+  if (!(okOps && okOut && okMods && okRoutes)) {
+    fmBad = fmBad + 1
+  }
+  fmbi = fmbi + 1
+}
+check("matrixfm bank: every patch parses to a valid graph (ops/out/refs)", fmBad === 0)
+let fmRich = matrixFmFactoryInstrumentPresets().filter(p => p.generatorSpec && p.generatorSpec.graph && Object.keys(p.generatorSpec.graph.ops).length >= 5)
+check("matrixfm bank: has deep 5-6 operator showcase patches", fmRich.length >= 5)
 let mfmSpec = parseGenBlock("matrix_fm", defaultMatrixFmRawLines())
 let mfmLines = compileGeneratorToPatchLines("matrixFm", {}, mfmSpec)
 check("compile matrixFm: produces patch lines (not the default fallback)", mfmLines !== null && mfmLines.length > 0)
