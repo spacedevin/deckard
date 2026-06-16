@@ -796,6 +796,14 @@ export fn applyMasterMixFromTokens(project, tokens) {
         } else {
           if (k === "eq_hi") {
             m.eqHi = v
+          } else {
+            if (k === "comp") {
+              m.compEnabled = v !== 0
+            } else {
+              if (k === "reverb") {
+                m.reverbEnabled = v !== 0
+              }
+            }
           }
         }
       }

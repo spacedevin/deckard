@@ -1,0 +1,202 @@
+// Aahs — a FORMANT CHOIR / vocal ensemble. Not a pad with a "voice" preset, but the actual acoustics of
+// a sung vowel: a buzzy glottal source (a small UNISON of detuned saws — many singers, never one) driven
+// through a bank of three PEAKING FORMANT filters tuned to real vowel formant frequencies (F1/F2/F3). That
+// formant triple IS the vowel — change it and "aah" becomes "ooh" becomes "mmm". A band of breathy noise,
+// shaped by the same formants, adds the human air. A gentle ~5 Hz vibrato swells in after the soft legato
+// attack (choirs don't click), and Tone tilts the whole section from bright soprano to dark bass.
+//
+//   vowel    — the centerpiece pick: aah/eeh/ooh/ohh/mmm. Each is a distinct F1/F2/F3 formant triple, so
+//              the timbre — not the brightness — changes completely. This is the thing that makes it a CHOIR.
+//   breath   — air amount: a band of vowel-shaped noise for the breathy, human, sung quality.
+//   ensemble — unison width / number of singers: 2..7 detuned voices spread wider = a bigger, lusher choir.
+//   vibrato  — the human left-hand-of-the-voice wobble (~5 Hz pitch LFO) that swells in after the attack.
+//   tone     — section tilt: dark bass/tenor (formants & brightness down) → bright soprano (up).
+//
+// Engine: N detuned saw oscillators (the glottal buzz) summed → a brightness lowpass (tone/vowel) → three
+// parallel PEAKING formant filters (F1/F2/F3, tuned per-vowel, tilted by tone) → soft legato amp env. A
+// bandpassed noise band, gated by the same vowel's F2, rides the breath. One sine LFO swells the vibrato in.
+
+import { midiToHz } from '../schedule/Engine.tish'
+
+fn aahsClamp01(x) {
+  if (x < 0) { return 0 }
+  if (x > 1) { return 1 }
+  return x
+}
+
+// Real sung-vowel formant triples (Hz) + relative peak gains (dB) for a bass/tenor-ish neutral pitch. F1/F2
+// carry the vowel identity, F3 the "singer's formant" sheen. Tone tilts these up toward soprano later.
+//   aah (open, /a/)  — F1 high, F2 mid: the classic bright open choir vowel.
+//   eeh (close, /i/) — F1 low, F2 very high: a thin, forward "eee".
+//   ooh (round, /u/) — F1 & F2 both low & close: dark, hooty, distant.
+//   ohh (mid, /o/)   — F1 mid, F2 low-mid: warm, rounded "oh".
+//   mmm (hum, /m/)   — F1 very low, F2 low, nasal: a closed, humming choir.
+fn aahsVowelProfile(vowel) {
+  if (vowel === "eeh") { return { f1: 290, f2: 2300, f3: 3000, g1: 9, g2: 11, g3: 8, hp: 0.62 } }
+  if (vowel === "ooh") { return { f1: 320, f2: 800, f3: 2600, g1: 10, g2: 7, g3: 4, hp: 0.32 } }
+  if (vowel === "ohh") { return { f1: 480, f2: 900, f3: 2700, g1: 10, g2: 8, g3: 5, hp: 0.40 } }
+  if (vowel === "mmm") { return { f1: 250, f2: 700, f3: 2400, g1: 11, g2: 6, g3: 3, hp: 0.28 } }
+  return { f1: 730, f2: 1200, f3: 2800, g1: 10, g2: 9, g3: 6, hp: 0.5 }  // aah
+}
+
+// One peaking formant. Returns the filter so the caller wires it in parallel from the source bus.
+fn aahsFormant(ctx, freq, q, gainDb) {
+  let f = ctx.createBiquadFilter()
+  f.type = "peaking"
+  f.frequency.value = freq
+  f.Q.value = q
+  f.gain.value = gainDb
+  return f
+}
+
+export fn playAahs(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  let p = ch.generatorParams ? ch.generatorParams : {}
+  let vowel = p.vowel ? p.vowel : "aah"
+  let breath = aahsClamp01(p.breath != null ? p.breath : 0.3)
+  let ensemble = aahsClamp01(p.ensemble != null ? p.ensemble : 0.5)
+  let vibrato = aahsClamp01(p.vibrato != null ? p.vibrato : 0.4)
+  let tone = aahsClamp01(p.tone != null ? p.tone : 0.5)
+  let prof = aahsVowelProfile(vowel)
+
+  let hz = midiToHz(midi + bendSemis)
+  if (hz < 8) { hz = 8 }
+  let v = vel / 127
+  if (v < 0) { v = 0 }
+  if (v > 1) { v = 1 }
+  if (v <= 0) { return }
+
+  // Tone tilts the formants: dark bass section (0) shifts them down ~18%, bright soprano (1) up ~18%.
+  // (A soprano's whole formant signature rides higher than a bass singing the same vowel.)
+  let formantTilt = 0.82 + tone * 0.36
+  let f1 = prof.f1 * formantTilt
+  let f2 = prof.f2 * formantTilt
+  let f3 = prof.f3 * formantTilt
+
+  // Soft legato: choirs swell in and release gently, never click. Slightly longer at low tone (a bass
+  // section moves heavier than a soprano).
+  let attack = 0.14 + (1 - tone) * 0.12
+  let release = 0.34 + (1 - tone) * 0.22
+  let hold = durSec > attack + 0.06 ? durSec : attack + 0.06
+  let tEnd = t + hold + release + 0.06
+
+  // Number of singers: 2..7 voices. More ensemble = more voices AND a wider detune spread.
+  let voices = 2 + Math.floor(ensemble * 5 + 0.5)
+  if (voices < 2) { voices = 2 }
+  if (voices > 7) { voices = 7 }
+  let spreadCents = 6 + ensemble * 22   // ~6..28 cents total unison width
+
+  // Amp envelope — the shared output stage. Normalize by sqrt(voices) so a 7-singer wall doesn't peak past
+  // ~1 and slam the master glue compressor; the formant filters add peak gain so we keep the base modest.
+  let amp = ctx.createGain()
+  // Normalize by voice COUNT (not sqrt): at note onset all unison voices start in phase and sum ~linearly,
+  // and the 3 parallel resonant formants add gain on top — so divide by voices and halve the formant mix to
+  // keep a single stem peaking <= ~1 even at the eeh/tone=1/7-singer/vel127 corner (else it slams the master).
+  let level = v * 0.5 / voices
+  amp.gain.setValueAtTime(0, t)
+  amp.gain.linearRampToValueAtTime(level, t + attack)
+  amp.gain.setValueAtTime(level, t + hold)
+  amp.gain.exponentialRampToValueAtTime(0.0008, t + hold + release)
+  amp.connect(bus.input)
+
+  // Three parallel PEAKING formants (F1/F2/F3) = the vowel. They feed a common mix gain → amp.
+  let mix = ctx.createGain()
+  mix.gain.value = 0.5
+  mix.connect(amp)
+  let bp1 = aahsFormant(ctx, f1, 5.0, prof.g1)
+  let bp2 = aahsFormant(ctx, f2, 7.0, prof.g2)
+  let bp3 = aahsFormant(ctx, f3, 4.0, prof.g3)
+  bp1.connect(mix)
+  bp2.connect(mix)
+  bp3.connect(mix)
+
+  // Brightness lowpass before the formants: tone opens it (soprano sheen), vowel's hp factor darkens the
+  // closed vowels (ooh/mmm sit behind a veil). Keeps the raw saw buzz from being harsh.
+  let lp = ctx.createBiquadFilter()
+  lp.type = "lowpass"
+  let cutoff = (1400 + tone * 5200) * (0.55 + prof.hp * 0.9)
+  if (cutoff > 15000) { cutoff = 15000 }
+  lp.Q.value = 0.6
+  lp.frequency.value = cutoff
+  lp.connect(bp1)
+  lp.connect(bp2)
+  lp.connect(bp3)
+
+  // Vibrato LFO (~5 Hz sine) → all singers' detune; swells in after the attack (a held choir note blooms).
+  let lfo = ctx.createOscillator()
+  lfo.type = "sine"
+  lfo.frequency.value = 4.7 + vibrato * 1.4
+  let lfoGain = ctx.createGain()
+  let depth = vibrato * 16    // cents
+  // Clamp the swell-peak time so it never lands AFTER the hold point on short notes (Web Audio requires
+  // monotonically increasing automation times).
+  let vibPeakT = t + attack + 0.28
+  if (vibPeakT > t + hold) { vibPeakT = t + hold }
+  lfoGain.gain.setValueAtTime(depth * 0.12, t)
+  lfoGain.gain.linearRampToValueAtTime(depth, vibPeakT)
+  lfoGain.gain.setValueAtTime(depth, t + hold)
+  lfoGain.gain.linearRampToValueAtTime(0, t + hold + release)
+  lfo.connect(lfoGain)
+  lfo.start(t)
+  lfo.stop(tEnd)
+
+  // The ENSEMBLE: a unison of detuned saws (the glottal buzz). Symmetric spread around the pitch so the
+  // chorus is centered; each singer is slightly off, and the vibrato wobbles them all together.
+  let k = 0
+  while (k < voices) {
+    let osc = ctx.createOscillator()
+    osc.type = "sawtooth"
+    osc.frequency.value = hz
+    // Spread from -spreadCents/2 .. +spreadCents/2, plus a touch of per-singer randomness (no two alike).
+    let frac = voices > 1 ? k / (voices - 1) : 0.5
+    let det = (frac - 0.5) * spreadCents + (Math.random() * 2 - 1) * 2.5
+    osc.detune.value = det
+    lfoGain.connect(osc.detune)
+    osc.connect(lp)
+    osc.start(t)
+    osc.stop(tEnd)
+    k = k + 1
+  }
+
+  // BREATH: a band of airy noise, bandpassed up near the vowel's F2 so the air takes on the vowel's color,
+  // riding the same legato envelope. This is the human, sung quality — wind through the formants.
+  if (breath > 0.01) {
+    let nlen = Math.floor(ctx.sampleRate * 0.6)
+    if (nlen < 1) { nlen = 1 }
+    let nbuf = ctx.createBuffer(1, nlen, ctx.sampleRate)
+    let ndata = nbuf.getChannelData(0)
+    let i = 0
+    while (i < nlen) {
+      ndata[i] = Math.random() * 2 - 1
+      i = i + 1
+    }
+    let nsrc = ctx.createBufferSource()
+    nsrc.buffer = nbuf
+    nsrc.loop = true
+    // Bandpass centered between F2 and F3 — the breathy "hiss" region of a sung vowel.
+    let nbp = ctx.createBiquadFilter()
+    nbp.type = "bandpass"
+    let ncenter = (f2 + f3) * 0.5
+    if (ncenter > 13000) { ncenter = 13000 }
+    nbp.frequency.value = ncenter
+    nbp.Q.value = 0.7
+    // A second peaking node at F1 so the breath also carries the vowel's body, not just hiss.
+    let nf1 = aahsFormant(ctx, f1, 3.0, 8)
+    let ng = ctx.createGain()
+    let bpk = breath * 0.18 * v
+    let bsus = bpk * 0.7
+    // Clamp the attack-peak time so it never lands after the hold/settle point on short (staccato) notes —
+    // Web Audio automation times must be monotonic, otherwise the events reorder and the breath misfires.
+    let breathPeakT = t + attack + 0.05
+    if (breathPeakT > t + hold) { breathPeakT = t + hold }
+    ng.gain.setValueAtTime(0, t)
+    ng.gain.linearRampToValueAtTime(bpk > 0.0008 ? bpk : 0.0008, breathPeakT)
+    ng.gain.linearRampToValueAtTime(bsus > 0.0008 ? bsus : 0.0008, t + hold)
+    ng.gain.exponentialRampToValueAtTime(0.0008, t + hold + release)
+    nsrc.connect(nbp)
+    nbp.connect(nf1)
+    nf1.connect(ng)
+    ng.connect(amp)
+    nsrc.start(t)
+    nsrc.stop(tEnd)
+  }
+}

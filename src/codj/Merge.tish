@@ -6,7 +6,9 @@ import {
   applyTrackBody,
   applyAutos,
   applySessionClipBlocks,
-  applySessionGrid
+  applySessionGrid,
+  applyMasterMixFromTokens,
+  applyActorMixRows
 } from '../tpl/Apply.tish'
 import { ensureProjectSession, normalizeSongEntries, normalizeFollow } from '../model/Session.tish'
 import { lookupMacro, expandMacroBody } from '../tpl/Macros.tish'
@@ -146,6 +148,14 @@ export fn applyCoDjTplSource(project, source, actorId, authorId, currentPerfStep
       project.session.follow = normalizeFollow(project, parsed.follow)
     }
     applyAutos(project, parsed.autos)
+    // Master/actor mix are master-gated globals — apply them here too, mirroring the full applyParsed,
+    // so UI edits (master EQ, the compressor/reverb toggles, actor faders) actually fold through ingest.
+    if (parsed.masterMixTokens !== null && parsed.masterMixTokens !== undefined) {
+      applyMasterMixFromTokens(project, parsed.masterMixTokens)
+    }
+    if (parsed.actorMixRows && parsed.actorMixRows.length > 0) {
+      applyActorMixRows(project, parsed.actorMixRows)
+    }
   }
   return { errors: errs, applied: true }
 }

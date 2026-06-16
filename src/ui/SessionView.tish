@@ -133,7 +133,7 @@ fn clipWavePath(env) {
   return d + " Z"
 }
 
-export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, patternBank) {
+export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, patternBank, headerRight) {
   ensureProjectSession(project)
   let sc = project.session.sceneCount
   let activeScene = 0
@@ -529,9 +529,12 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
           <span class="session-dot" />
           <span class="session-title">{sessionLive ? "● LIVE" : "SESSION"}</span>
         </div>
-        <button type="button" class="btn-session-stop-all" onclick={stopAll}>
-          {"Stop all clips"}
-        </button>
+        <div class="session-head-right">
+          {headerRight}
+          <button type="button" class="btn-session-stop-all" onclick={stopAll}>
+            {"Stop all clips"}
+          </button>
+        </div>
       </div>
       <p class="session-hint">
         {

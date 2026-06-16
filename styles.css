@@ -369,6 +369,10 @@ input[type="range"]::-moz-range-thumb {
   padding: 0.5rem 0.85rem;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
+  /* Pin the transport/header to the top so it stays reachable while scrolling the rack/instruments. */
+  position: sticky;
+  top: 0;
+  z-index: 50;
 }
 
 .logo {
@@ -377,6 +381,22 @@ input[type="range"]::-moz-range-thumb {
   font-weight: 700;
   color: var(--mint);
   letter-spacing: 0.04em;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.logo-beta {
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-warm, #e8945c);
+  background: rgba(232, 148, 92, 0.14);
+  border: 1px solid rgba(232, 148, 92, 0.4);
+  border-radius: 4px;
+  padding: 0.08rem 0.32rem;
+  transform: translateY(-0.35em);
 }
 
 .transport-bar {
@@ -1452,12 +1472,16 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .instr-desc {
-  font-size: 0.72rem;
+  font-size: 0.66rem;
   color: var(--muted);
   line-height: 1.4;
-  margin: 0 0 0.65rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid var(--border);
+  /* Secondary blurb: sits BELOW the controls, divider on top, and must never widen the column —
+     it wraps (incl. long tokens) within whatever width the controls set. */
+  margin: 0.6rem 0 0;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 .instr-params-wrap {
@@ -1468,11 +1492,6 @@ input[type="range"]::-moz-range-thumb {
   border-top: none;
   margin-top: 0;
   padding-top: 0;
-}
-
-.preset-block {
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--border);
 }
 
 .preset-title {
@@ -1487,10 +1506,6 @@ input[type="range"]::-moz-range-thumb {
   font-size: 0.65rem;
   color: var(--muted);
   margin: 0 0 0.45rem;
-}
-
-.preset-row {
-  margin-bottom: 0.45rem;
 }
 
 .codj-panel {
@@ -1603,32 +1618,6 @@ input[type="range"]::-moz-range-thumb {
   width: 0;
   height: 0;
   overflow: hidden;
-}
-
-.preset-select {
-  width: 100%;
-  font-size: 0.72rem;
-  padding: 0.35rem 0.25rem;
-  background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-}
-
-.btn-preset-save {
-  width: 100%;
-  padding: 0.4rem 0.5rem;
-  font-size: 0.72rem;
-  background: #2a3142;
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.btn-preset-save:hover {
-  border-color: var(--mint);
-  color: var(--mint);
 }
 
 .rack-piano-preview {
@@ -2023,10 +2012,65 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .daw-foot {
-  padding: 0.5rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.4rem 1rem;
   font-size: 0.7rem;
   color: var(--muted);
+  background: var(--panel);
   border-top: 1px solid var(--border);
+  /* Pin the master bus bar to the bottom of the viewport, mirroring the sticky header. */
+  position: sticky;
+  bottom: 0;
+  z-index: 50;
+}
+
+.daw-foot-master {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.master-chip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 4px;
+  white-space: nowrap;
+  background: transparent;
+  color: #6a6a72;
+  cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease;
+}
+
+.master-chip-on {
+  color: var(--accent-green, #7cff7c);
+  border-color: rgba(124, 255, 124, 0.35);
+}
+
+.master-chip-off {
+  color: #6a6a72;
+  border-color: var(--border, #2a2a2a);
+  opacity: 0.75;
+}
+
+.master-chip:hover {
+  border-color: var(--accent-warm, #e8945c);
+  color: var(--accent-warm, #e8945c);
+}
+
+.master-comp-gr,
+.master-rev-state {
+  font-variant-numeric: tabular-nums;
+}
+
+.daw-foot-meta {
+  color: var(--muted);
 }
 
 .code-debug-panel {
@@ -2321,6 +2365,50 @@ input[type="range"]::-moz-range-thumb {
 .tpl-song-input-layer:focus {
   outline: none;
   box-shadow: inset 0 0 0 1px rgba(255, 107, 53, 0.45);
+}
+
+/* Dark, slim scrollbars for the TPL editor + code panels — replaces the default white OS scrollbar so
+   the editor reads as part of the dark theme (track blends into the editor bg, thumb is a subtle slug). */
+.tpl-song-input-layer,
+.tpl-song-highlight-layer,
+.code-debug-textarea,
+.code-debug-errors {
+  scrollbar-width: thin;
+  scrollbar-color: #3a4150 transparent;
+}
+.tpl-song-input-layer::-webkit-scrollbar,
+.tpl-song-highlight-layer::-webkit-scrollbar,
+.code-debug-textarea::-webkit-scrollbar,
+.code-debug-errors::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.tpl-song-input-layer::-webkit-scrollbar-track,
+.tpl-song-highlight-layer::-webkit-scrollbar-track,
+.code-debug-textarea::-webkit-scrollbar-track,
+.code-debug-errors::-webkit-scrollbar-track {
+  background: transparent;
+}
+.tpl-song-input-layer::-webkit-scrollbar-thumb,
+.tpl-song-highlight-layer::-webkit-scrollbar-thumb,
+.code-debug-textarea::-webkit-scrollbar-thumb,
+.code-debug-errors::-webkit-scrollbar-thumb {
+  background: #353b47;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.tpl-song-input-layer::-webkit-scrollbar-thumb:hover,
+.tpl-song-highlight-layer::-webkit-scrollbar-thumb:hover,
+.code-debug-textarea::-webkit-scrollbar-thumb:hover,
+.code-debug-errors::-webkit-scrollbar-thumb:hover {
+  background: #4a5161;
+}
+.tpl-song-input-layer::-webkit-scrollbar-corner,
+.tpl-song-highlight-layer::-webkit-scrollbar-corner,
+.code-debug-textarea::-webkit-scrollbar-corner,
+.code-debug-errors::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .tpl-song-plain-textarea {
@@ -3926,8 +4014,12 @@ input[type="range"]::-moz-range-thumb {
   max-height: 150px;
   border: 1px solid #2a2a31;
   border-radius: 5px;
+  /* 4-corner blend so each deck reads as its own colour: A cyan (TL), B magenta (TR), C amber (BL), D green (BR). */
   background:
-    linear-gradient(90deg, rgba(34, 211, 238, 0.10), rgba(232, 121, 249, 0.10)),
+    radial-gradient(circle at top left, rgba(34, 211, 238, 0.22), transparent 62%),
+    radial-gradient(circle at top right, rgba(232, 121, 249, 0.22), transparent 62%),
+    radial-gradient(circle at bottom left, rgba(245, 158, 11, 0.22), transparent 62%),
+    radial-gradient(circle at bottom right, rgba(74, 222, 128, 0.22), transparent 62%),
     radial-gradient(circle at center, #0b0b10, #060608);
   cursor: crosshair;
   touch-action: none;
@@ -3961,8 +4053,8 @@ input[type="range"]::-moz-range-thumb {
 }
 .dk-xy-tl { left: 5px; top: 4px; color: var(--deck-a); }
 .dk-xy-tr { right: 5px; top: 4px; color: var(--deck-b); }
-.dk-xy-bl { left: 5px; bottom: 4px; color: var(--deck-a); opacity: 0.7; }
-.dk-xy-br { right: 5px; bottom: 4px; color: var(--deck-b); opacity: 0.7; }
+.dk-xy-bl { left: 5px; bottom: 4px; color: var(--deck-c); }
+.dk-xy-br { right: 5px; bottom: 4px; color: var(--deck-d); }
 .dk-xypad-knob {
   position: absolute;
   width: 16px;
@@ -4397,6 +4489,21 @@ input[type="range"]::-moz-range-thumb {
   border: 1px solid var(--border, #2a2a2a); border-radius: 5px; font-size: 0.7rem; cursor: pointer; }
 .preset-bar-scope { color: var(--muted); font-size: 0.66rem; font-style: italic; }
 
+/* Common panel header: title/brand left, load/save (or any control) aligned right. */
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.panel-head-l { display: flex; align-items: baseline; gap: 0.55rem; flex-wrap: wrap; min-width: 0; }
+.panel-head-r { display: flex; align-items: center; gap: 0.4rem; margin-left: auto; flex-wrap: wrap; }
+.panel-head h2 { margin: 0; font-size: 0.8rem; letter-spacing: 0.14em; }
+.panel-head .sg-head-h2 { color: var(--deck-a); }
+.session-head-right { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+
 /* ---- Generic patch (gen_block patch) editor ---- */
 .patch-panel-wrap { margin-top: 0.5rem; }
 .patch-panel .patch-add-row { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
@@ -4464,7 +4571,9 @@ input[type="range"]::-moz-range-thumb {
 .instr-module { border: 1px solid var(--border, #2a2a2a); border-radius: 8px;
   background: rgba(0, 0, 0, 0.18); display: flex; flex-direction: column;
   flex: 1 1 18rem; min-width: 16rem; max-width: 30rem; }
-.instr-module .instr-module-body { flex: 1 1 auto; }
+/* min-width:0 lets the body shrink to its flex track so long content (the desc, wide designers)
+   wraps/clips instead of stretching the column and breaking the row. */
+.instr-module .instr-module-body { flex: 1 1 auto; min-width: 0; }
 /* Modular designers (Matrix FM / Patch / macros) get a full-width box. */
 .instr-module-wide { flex: 100 1 36rem; max-width: 100%; }
 .instr-module-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
@@ -4508,6 +4617,45 @@ input[type="range"]::-moz-range-thumb {
 .ik-knob-xs .ik-knob-dial { width: 1.6rem; height: 1.6rem; }
 .ik-knob-xs .ik-knob-label { display: none; }
 .ik-knob-xs .ik-knob-value { font-size: 0.5rem; }
+
+/* Generic discrete-choice pill row (e.g. the Aahs vowel picker). Active state is accent-tinted inline. */
+.gen-pick-row { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.4rem; }
+.gen-pick-pill {
+  font-family: inherit;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.22rem 0.5rem;
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.gen-pick-pill:hover { color: var(--text, #e8e8ea); }
+
+/* Arco string-family picker (violin / fiddle / viola / cello / bass) */
+.arco-voice-row { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.arco-voice-pill {
+  font-family: inherit;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.22rem 0.5rem;
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.arco-voice-pill:hover { border-color: rgba(196, 122, 78, 0.6); color: var(--text, #e8e8ea); }
+.arco-voice-pill-on {
+  background: rgba(196, 122, 78, 0.18);
+  border-color: #c47a4e;
+  color: #e3a877;
+}
 
 .ik-wave-row { display: inline-flex; gap: 0.25rem; flex-wrap: wrap; }
 .ik-wave-btn { width: 2rem; height: 2rem; display: inline-flex; align-items: center; justify-content: center;

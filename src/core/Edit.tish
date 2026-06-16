@@ -96,10 +96,14 @@ fn masterMixLine(project, param, value) {
   let lo = mm.eqLo != null ? mm.eqLo : 0
   let mid = mm.eqMid != null ? mm.eqMid : 0
   let hi = mm.eqHi != null ? mm.eqHi : 0
+  let comp = mm.compEnabled === false ? 0 : 1
+  let reverb = mm.reverbEnabled === false ? 0 : 1
   if (param === "eq_lo") { lo = Number(value) }
   else if (param === "eq_mid") { mid = Number(value) }
   else if (param === "eq_hi") { hi = Number(value) }
-  return "master_mix eq_lo " + f(lo) + " eq_mid " + f(mid) + " eq_hi " + f(hi)
+  else if (param === "comp") { comp = value ? 1 : 0 }
+  else if (param === "reverb") { reverb = value ? 1 : 0 }
+  return "master_mix eq_lo " + f(lo) + " eq_mid " + f(mid) + " eq_hi " + f(hi) + " comp " + String(comp) + " reverb " + String(reverb)
 }
 
 fn actorMixLine(project, lane, param, value) {
@@ -128,6 +132,7 @@ fn actorMixLine(project, lane, param, value) {
  *   xfade                                           ([x,y] or {x,y})
  *   main_deck                                       ("live"|"local")
  *   master/<eq_lo|eq_mid|eq_hi>                     (number)
+ *   master/<comp|reverb>                            (bool — master glue compressor / reverb send bus on/off)
  *   actor/<lane>/<gain|eq_lo|eq_mid|eq_hi|mute|solo>(number|bool)
  *   track/<id>/mix/<gain|pan|mute|solo|eq_*>        (number|bool)
  *   track/<id>/fx/<reverb|drive|cutoff|res|lfo_*>   (number)

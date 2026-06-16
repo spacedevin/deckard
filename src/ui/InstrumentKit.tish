@@ -95,6 +95,24 @@ export fn accentForGenerator(gid) {
   if (gid === "guitar") {
     return "#e0863a"
   }
+  if (gid === "clap") {
+    return "#ec6a6a"
+  }
+  if (gid === "arco") {
+    return "#c47a4e"
+  }
+  if (gid === "tine") {
+    return "#d6a24e"
+  }
+  if (gid === "aether") {
+    return "#6fd3c7"
+  }
+  if (gid === "halo") {
+    return "#86b8cc"
+  }
+  if (gid === "aahs") {
+    return "#c9a6e0"
+  }
   if (gid === "matrixFm") {
     return "#5aa9e8"
   }

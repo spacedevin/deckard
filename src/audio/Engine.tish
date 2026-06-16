@@ -451,6 +451,18 @@ export fn updateMixerFromProject(project, store, atBeat) {
       store.masterEq.hi.gain.value = m.eqHi != null ? m.eqHi : 0
     }
   }
+  // Master glue compressor toggle: ratio 1 + threshold 0 makes the DynamicsCompressor a transparent
+  // pass-through (no gain reduction), so disabling is a real audible bypass; re-enabling restores the
+  // glue settings from buildAudioGraph. The COMPRESSOR readout (comp.reduction) then reads ~0 when off.
+  if (store.masterComp && project.masterMixer) {
+    let compOn = project.masterMixer.compEnabled !== false
+    store.masterComp.ratio.value = compOn ? 3.5 : 1
+    store.masterComp.threshold.value = compOn ? -14 : 0
+  }
+  // Reverb send bus toggle: mute the bus input so no channel send reaches the convolver.
+  if (store.reverbIn && project.masterMixer) {
+    store.reverbIn.gain.value = project.masterMixer.reverbEnabled === false ? 0 : 0.85
+  }
   if (store.actorBuses && project.actorMixer) {
     let lanes = collectActorLanes(project)
     let ai = 0

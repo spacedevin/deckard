@@ -405,6 +405,154 @@ fn guitarLines(p) {
   return lines
 }
 
+// Clap reduces (one voice can't do the multi-burst cluster) to a single bandpassed noise snap + tail —
+// a plausible single clap. The cluster/hands behaviour only exists in the live generator.
+fn clapLines(p) {
+  let size = p.size >= 0 && p.size <= 1 ? p.size : 0.5
+  let tone = p.tone >= 0 && p.tone <= 1 ? p.tone : 0.5
+  let tail = p.tail >= 0 && p.tail <= 1 ? p.tail : 0.4
+  let center = Math.round(900 + size * 1400)
+  let q = 1.4 + tone * 4.5
+  let hp = Math.round(500 + tone * 900)
+  let decay = 0.02 + tail * 0.34
+  return [
+    "noise n1",
+    "filter f1 bandpass q " + f(q) + " freq " + f(center),
+    "filter f2 highpass q 0.7 freq " + f(hp),
+    "gain a1 0",
+    "conn n1 f1 1",
+    "conn f1 f2 1",
+    "conn f2 a1 1",
+    "conn a1 out " + f(VOL_COMP),
+    "env a1.gain set 0 0 lin 0.0006 1 exp " + f(decay) + " 0.001"
+  ]
+}
+
+// Arco reduces to a saw → brightness lowpass → slow-attack amp (a bowed-ish tone). The body formants
+// and bow noise only exist in the live generator; this keeps the pitch/brightness/articulation.
+fn arcoLines(p) {
+  let pressure = p.pressure >= 0 && p.pressure <= 1 ? p.pressure : 0.5
+  let bow = p.bow >= 0 && p.bow <= 1 ? p.bow : 0.4
+  let voice = p.voice ? p.voice : "violin"
+  let bright = voice === "viola" ? 0.85 : (voice === "cello" ? 0.72 : (voice === "bass" ? 0.6 : (voice === "fiddle" ? 1.22 : 1.0)))
+  let cutoff = Math.round((700 + pressure * 5200) * bright)
+  if (cutoff > 16000) {
+    cutoff = 16000
+  }
+  let attack = 0.01 + bow * 0.22
+  return [
+    "osc o1 sawtooth note",
+    "filter f1 lowpass q 0.9 freq " + f(cutoff),
+    "gain a1 0",
+    "conn o1 f1 1",
+    "conn f1 a1 1",
+    "conn a1 out " + f(VOL_COMP),
+    "env a1.gain set 0 0 lin " + f(attack) + " 1 exp 2 0.001"
+  ]
+}
+
+// The premium voices reduce to FAITHFUL, param-driven patch graphs (the patch engine supports FM via
+// conn→.freq, ratio/detune oscillators, and note/dur envelope expressions) so switching to Patch keeps the
+// instrument's character AND the user's current knob settings. What can't survive: the patch grammar has no
+// per-partial decay or formant GAIN (filters have freq/Q but no boost), so the layered shimmer/breath/
+// tremolo of the live engine is approximated, not reproduced — but the core voice carries over.
+
+// Tine → real 1:1 FM: a sine modulator drives the carrier's frequency; `bark` scales the FM-index envelope
+// (bright metallic attack settling to a near-sine bell), `decay` the body length.
+fn tineLines(p) {
+  let bark = p.bark >= 0 && p.bark <= 1 ? p.bark : 0.55
+  let decay = p.decay >= 0 && p.decay <= 1 ? p.decay : 0.5
+  let idxStart = 0.4 + bark * 2.4
+  let bodyDecay = 0.4 + decay * 3.6
+  return [
+    "osc m1 sine note",
+    "gain md 1",
+    "osc c1 sine note",
+    "gain a1 0",
+    "conn m1 md 1",
+    "conn md c1.freq 1",
+    "conn c1 a1 1",
+    "conn a1 out " + f(VOL_COMP),
+    "env md.gain set 0 note*" + f(idxStart) + " exp 0.4 note*0.15",
+    "env a1.gain set 0 0 lin 0.004 1 exp " + f(bodyDecay) + " 0.001"
+  ]
+}
+
+// Aether → a single sine with the theremin PORTAMENTO: the freq envelope swoops up into pitch from a few
+// semitones below (`glide`), through a tone-tilted lowpass, with a transient-free `swell` attack.
+fn aetherLines(p) {
+  let glide = p.glide >= 0 && p.glide <= 1 ? p.glide : 0.4
+  let tone = p.tone >= 0 && p.tone <= 1 ? p.tone : 0.3
+  let swell = p.swell >= 0 && p.swell <= 1 ? p.swell : 0.45
+  let startFactor = Math.pow(2, (0 - (1.5 + glide * 4)) / 12)
+  let glideTime = 0.02 + glide * 0.5
+  let cutoff = Math.round(1400 + tone * 4200)
+  let attack = 0.05 + swell * 0.45
+  return [
+    "osc o1 sine note",
+    "filter f1 lowpass q 0.4 freq " + f(cutoff),
+    "gain a1 0",
+    "conn o1 f1 1",
+    "conn f1 a1 1",
+    "conn a1 out " + f(VOL_COMP),
+    "env o1.freq set 0 note*" + f(startFactor) + " exp " + f(glideTime) + " note",
+    "env a1.gain set 0 0 lin " + f(attack) + " 1 exp 2.5 0.001"
+  ]
+}
+
+// Halo → the handpan partial triad: fundamental + octave (2×) + compound fifth (3×), `temper` detunes the
+// upper partials via fractional ratios so they shimmer, `ring` sets the long decay. Upper partials sit lower.
+fn haloLines(p) {
+  let ring = p.ring >= 0 && p.ring <= 1 ? p.ring : 0.55
+  let temper = p.temper >= 0 && p.temper <= 1 ? p.temper : 0.4
+  let dec = 1.2 + ring * 7
+  let r2 = 2 + temper * 0.012
+  let r3 = 3 - temper * 0.02
+  return [
+    "osc o1 sine note",
+    "osc o2 sine note ratio " + f(r2),
+    "osc o3 sine note ratio " + f(r3),
+    "filter f1 highpass q 0.5 freq 110",
+    "gain a1 0",
+    "conn o1 f1 1",
+    "conn o2 f1 0.6",
+    "conn o3 f1 0.4",
+    "conn f1 a1 1",
+    "conn a1 out " + f(VOL_COMP),
+    "env a1.gain set 0 0 lin 0.006 1 exp " + f(dec) + " 0.001"
+  ]
+}
+
+// Aahs → three detuned-unison saws (the choir ensemble, width from `ensemble`) through a tone lowpass and a
+// vowel-tuned bandpass (the formant band; the grammar can't boost multiple peaks, so one band stands in).
+fn aahsLines(p) {
+  let vowel = p.vowel ? p.vowel : "aah"
+  let ensemble = p.ensemble >= 0 && p.ensemble <= 1 ? p.ensemble : 0.5
+  let tone = p.tone >= 0 && p.tone <= 1 ? p.tone : 0.5
+  let fc = 1100
+  if (vowel === "eeh") { fc = 2200 }
+  else if (vowel === "ooh") { fc = 700 }
+  else if (vowel === "ohh") { fc = 900 }
+  else if (vowel === "mmm") { fc = 600 }
+  let det = Math.round(8 + ensemble * 20)
+  let cutoff = Math.round(2500 + tone * 4000)
+  return [
+    "osc o1 sawtooth note",
+    "osc o2 sawtooth note detune " + String(det),
+    "osc o3 sawtooth note detune " + String(0 - det),
+    "filter f1 lowpass q 0.6 freq " + f(cutoff),
+    "filter f2 bandpass q 2.5 freq " + f(fc),
+    "gain a1 0",
+    "conn o1 f1 1",
+    "conn o2 f1 1",
+    "conn o3 f1 1",
+    "conn f1 f2 1",
+    "conn f2 a1 1",
+    "conn a1 out " + f(VOL_COMP),
+    "env a1.gain set 0 0 lin 0.16 1 exp 2 0.001"
+  ]
+}
+
 /// True when this generator can be reduced to an equivalent patch graph (sound-preserving switch).
 export fn canCompileToPatch(generatorId) {
   return (
@@ -415,7 +563,13 @@ export fn canCompileToPatch(generatorId) {
     generatorId === "bell" ||
     generatorId === "drumSynth" ||
     generatorId === "matrixFm" ||
-    generatorId === "guitar"
+    generatorId === "guitar" ||
+    generatorId === "clap" ||
+    generatorId === "arco" ||
+    generatorId === "tine" ||
+    generatorId === "aether" ||
+    generatorId === "halo" ||
+    generatorId === "aahs"
   )
 }
 
@@ -443,6 +597,24 @@ export fn compileGeneratorToPatchLines(generatorId, params, spec) {
   }
   if (generatorId === "guitar") {
     return guitarLines(p)
+  }
+  if (generatorId === "clap") {
+    return clapLines(p)
+  }
+  if (generatorId === "arco") {
+    return arcoLines(p)
+  }
+  if (generatorId === "tine") {
+    return tineLines(p)
+  }
+  if (generatorId === "aether") {
+    return aetherLines(p)
+  }
+  if (generatorId === "halo") {
+    return haloLines(p)
+  }
+  if (generatorId === "aahs") {
+    return aahsLines(p)
   }
   if (generatorId === "matrixFm") {
     return spec && spec.graph ? matrixFmLines(spec.graph) : null

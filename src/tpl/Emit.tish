@@ -164,7 +164,7 @@ export fn emitProjectInner(project, skipSync) {
         formatTplFloat(p.release) +
         "\n"
     }
-    if (gid === "pad" || gid === "bell" || gid === "drumSynth" || gid === "guitar") {
+    if (gid === "pad" || gid === "bell" || gid === "drumSynth" || gid === "guitar" || gid === "clap" || gid === "arco" || gid === "tine" || gid === "aether" || gid === "halo" || gid === "aahs") {
       let keys = Object.keys(p)
       if (keys.length > 0) {
         o = o + "  gen"
@@ -424,6 +424,10 @@ export fn emitProjectInner(project, skipSync) {
       formatTplFloat(mm.eqMid != null ? mm.eqMid : 0) +
       " eq_hi " +
       formatTplFloat(mm.eqHi != null ? mm.eqHi : 0) +
+      " comp " +
+      (mm.compEnabled === false ? "0" : "1") +
+      " reverb " +
+      (mm.reverbEnabled === false ? "0" : "1") +
       "\n\n"
   }
   let mixLanes = collectActorLanes(project)

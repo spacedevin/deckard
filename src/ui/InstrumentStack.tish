@@ -7,7 +7,7 @@
 // every pill is a ch.* edit or rt.emit that re-folds to TPL — the UI stays a pure TPL client.
 
 import { h, Fragment } from '@tishlang/lattish'
-import { defaultParamsForGeneratorId, generatorDescriptionById, generatorLabelById } from '../generators/Registry.tish'
+import { defaultParamsForGeneratorId, generatorDescriptionById } from '../generators/Registry.tish'
 import {
   deepCloneParams,
   addInstrumentPreset,
@@ -15,6 +15,7 @@ import {
   ensureInstrumentPresets
 } from '../model/InstrumentPresets.tish'
 import { parseGenBlock, defaultMatrixFmRawLines } from '../tpl/TplExtension.tish'
+import { PanelHeader, PresetBar } from './PresetBar.tish'
 import { defaultPatchRawLines } from '../tpl/PatchGraph.tish'
 import { macroCatalog, assignMacroToChannel } from '../model/MacroVoice.tish'
 import { compileGeneratorToPatchLines } from '../model/PatchCompile.tish'
@@ -28,8 +29,12 @@ import { MacroDesignerPanel } from './MacroDesignerPanel.tish'
 let VOICE_GROUPS = [
   { title: "Oscillators", voices: [["basicOsc", "Osc"], ["fmTone", "FM"]] },
   { title: "Texture", voices: [["noiseBurst", "Noise"], ["pad", "Pad"], ["bell", "Bell"]] },
-  { title: "Strings", voices: [["guitar", "Guitar"]] },
-  { title: "Percussion", voices: [["drumSynth", "Drum"]] },
+  { title: "Strings", voices: [["guitar", "Guitar"], ["arco", "Arco"]] },
+  { title: "Keys", voices: [["tine", "Tine EP"]] },
+  { title: "Mallets", voices: [["halo", "Halo"]] },
+  { title: "Vox", voices: [["aahs", "Aahs"]] },
+  { title: "Lead", voices: [["aether", "Aether"]] },
+  { title: "Percussion", voices: [["drumSynth", "Drum"], ["clap", "Clap"]] },
   { title: "Modular", voices: [["matrixFm", "Matrix FM"], ["patch", "Patch"]] },
   { title: "Kick designer", voices: [["kick_edm", "EDM"], ["kick_deep", "Deep"], ["kick_distorted", "Distort"]] },
   {
@@ -383,53 +388,32 @@ fn voiceDesigner(project, ch, gid, setProject, tplMirrorFlush, rt) {
   )
 }
 
-fn presetBlock(project, ch, setProject, tplMirrorFlush) {
-  let presetOpts = []
-  presetOpts.push(<option value="-1">{"— Load preset —"}</option>)
-  let pi = 0
-  while (pi < project.instrumentPresets.length) {
-    let pr = project.instrumentPresets[pi]
-    presetOpts.push(<option value={String(pi)}>{pr.name + " (" + generatorLabelById(pr.generatorId) + ")"}</option>)
-    pi = pi + 1
+// Instrument preset load/save — the SAME shared PresetBar the sequence/session/rack headers use, so it
+// looks and behaves identically. Loads by name (instrumentPresets carry the full sound) and saves a named
+// snapshot of the current channel.
+fn instrumentPresetBar(project, ch, setProject, tplMirrorFlush) {
+  fn onLoad(name) {
+    let pi = 0
+    while (pi < project.instrumentPresets.length) {
+      if (project.instrumentPresets[pi].name === name) {
+        applyInstrumentPresetToChannel(ch, project.instrumentPresets[pi])
+        setProject(project)
+        if (tplMirrorFlush) {
+          tplMirrorFlush()
+        }
+        return
+      }
+      pi = pi + 1
+    }
   }
-  return (
-    <div class="preset-block">
-      <div class="preset-row">
-        <select
-          class="preset-select"
-          value="-1"
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={(e) => e.stopPropagation()}
-          onchange={(e) => {
-            let idx = Number(e.target.value)
-            e.target.value = "-1"
-            if (idx >= 0 && idx < project.instrumentPresets.length) {
-              applyInstrumentPresetToChannel(ch, project.instrumentPresets[idx])
-              setProject(project)
-              if (tplMirrorFlush) {
-                tplMirrorFlush()
-              }
-            }
-          }}
-        >
-          {presetOpts}
-        </select>
-        <button
-          type="button"
-          class="btn-preset-save"
-          onclick={() => {
-            let nm = prompt("Preset name", ch.name + " sound")
-            if (nm && nm.length > 0) {
-              addInstrumentPreset(project, nm, ch)
-              setProject(project)
-            }
-          }}
-        >
-          {"Save preset"}
-        </button>
-      </div>
-    </div>
-  )
+  fn onSave() {
+    let nm = prompt("Preset name", ch.name + " sound")
+    if (nm && nm.length > 0) {
+      addInstrumentPreset(project, nm, ch)
+      setProject(project)
+    }
+  }
+  return PresetBar("Preset", project.instrumentPresets, onLoad, onSave, "")
 }
 
 fn VoiceModule(ctx) {
@@ -445,15 +429,11 @@ fn SoundModule(ctx, gid) {
     "gen",
     ctx,
     <Fragment>
-      <p class="instr-desc">{generatorDescriptionById(gid)}</p>
       {voiceDesigner(ctx.project, ctx.ch, gid, ctx.setProject, ctx.tplMirrorFlush, ctx.rt)}
+      <p class="instr-desc">{generatorDescriptionById(gid)}</p>
     </Fragment>,
     wide
   )
-}
-
-fn PresetModule(ctx) {
-  return ModuleCard("Preset", "", "", ctx, presetBlock(ctx.project, ctx.ch, ctx.setProject, ctx.tplMirrorFlush))
 }
 
 fn PitchModule(ctx) {
@@ -490,15 +470,17 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
   let ctx = { project: project, ch: ch, rt: rt, setProject: setProjectFromUI, tplMirrorFlush: tplMirrorFlush, accent: accentForGenerator(gid) }
   return (
     <section class="panel instr-stack-panel">
-      <div class="instr-stack-head">
-        <h2>{"INSTRUMENT // " + ch.name}</h2>
-        <span class="instr-stack-sub">{"rack boxes · pick a track in the sequencer · flip any box to Raw"}</span>
-      </div>
+      {PanelHeader(
+        <Fragment>
+          <h2>{"INSTRUMENT // " + ch.name}</h2>
+          <span class="instr-stack-sub">{"rack boxes · pick a track · flip any box to Raw"}</span>
+        </Fragment>,
+        instrumentPresetBar(project, ch, setProjectFromUI, tplMirrorFlush)
+      )}
       <div class="instr-modules-row">
         {VoiceModule(ctx)}
         {SoundModule(ctx, gid)}
         {PitchModule(ctx)}
-        {PresetModule(ctx)}
       </div>
     </section>
   )

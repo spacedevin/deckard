@@ -7,7 +7,7 @@
 import { h } from '@tishlang/lattish'
 import { normalizeBasicOscWaveform } from '../generators/Registry.tish'
 import { parseGenBlock } from '../tpl/TplExtension.tish'
-import { Knob, accentForGenerator } from './InstrumentKit.tish'
+import { Knob, accentForGenerator, WaveIconPicker } from './InstrumentKit.tish'
 import {
   syncPatchSpecFromGraph,
   defaultPatchRawLines,
@@ -94,32 +94,14 @@ fn paramOptions(keyPrefix, includeBlank) {
   return opts
 }
 
-fn patchWaveTiles(nd, commit) {
+// Oscillator wave shape — the same vendored Lucide wave-shape icons the Matrix FM designer uses
+// (via the shared WaveIconPicker), so the modular patch editor speaks one visual language.
+fn patchWaveTiles(nd, commit, accent) {
   let cur = normalizeBasicOscWaveform(nd.wave)
-  let waves = [["sine", "Sin"], ["square", "Sqr"], ["sawtooth", "Saw"], ["triangle", "Tri"]]
-  let tiles = []
-  let i = 0
-  while (i < waves.length) {
-    let wid = waves[i][0]
-    let active = cur === wid ? " deck-wave-tile-active" : ""
-    let widCopy = wid
-    tiles.push(
-      <button
-        type="button"
-        class={"deck-wave-tile" + active}
-        key={"pw" + nd.id + wid}
-        onmousedown={(e) => e.stopPropagation()}
-        onclick={() => {
-          nd.wave = widCopy
-          commit()
-        }}
-      >
-        {waves[i][1]}
-      </button>
-    )
-    i = i + 1
-  }
-  return <div class="deck-wave-grid">{tiles}</div>
+  return WaveIconPicker(cur, (w) => {
+    nd.wave = w
+    commit()
+  }, { accent: accent })
 }
 
 fn oscCard(nd, commit, accent) {
@@ -159,7 +141,7 @@ fn oscCard(nd, commit, accent) {
   }
   return (
     <div class="patch-node-body">
-      {patchWaveTiles(nd, commit)}
+      {patchWaveTiles(nd, commit, accent)}
       <label class="gen-row">
         {"Pitch "}
         <select

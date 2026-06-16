@@ -185,10 +185,9 @@ fn DeckSlot(project, deck, setProjectFromUI, touchMixer, rt) {
   return (
     <div class={cls}>
       <div class="dk-player-head">
-        <span class={"dk-player-tag " + acc}>{"DECK " + deck}</span>
-        <span class="dk-player-meta">{empty ? "—" : String(entries.length) + " stems"}</span>
+        <span class={"dk-player-tag " + acc}>{"DECK " + deck + (empty ? "" : " · " + String(entries.length))}</span>
+        {DeckSetPicker(project, deck, setProjectFromUI, touchMixer, rt)}
       </div>
-      {DeckSetPicker(project, deck, setProjectFromUI, touchMixer, rt)}
       <div class="dk-fader-row">{faders}</div>
       <div class="dk-eq-row">
         {EqSlider("HI", de.hi, (v) => setEq("hi", v), acc)}
@@ -285,8 +284,6 @@ export fn DeckMixer(project, setProjectFromUI, touchMixer, rt) {
       <div class="dk-master-strip">
         <div class="dk-master-info">
           <p class="dk-master-title">{"MASTER_OUT"}</p>
-          <p>{"COMPRESSOR: ACTIVE"}</p>
-          <p>{"REVERB_BUS: ACTIVE"}</p>
           <p>{"XFADE X: " + String(Math.round(x * 100)) + "% Y: " + String(Math.round(y * 100)) + "%"}</p>
         </div>
         <div class="dk-master-scope">

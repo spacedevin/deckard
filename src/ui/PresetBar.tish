@@ -4,6 +4,17 @@
 
 import { h } from '@tishlang/lattish'
 
+// The common panel header: a title/brand on the LEFT, load/save (or any control) aligned to the RIGHT.
+// Used by the sequence, session, instrument and deck panels so load/save lives consistently in each head.
+export fn PanelHeader(left, right) {
+  return (
+    <div class="panel-head">
+      <div class="panel-head-l">{left}</div>
+      <div class="panel-head-r">{right}</div>
+    </div>
+  )
+}
+
 export fn PresetBar(label, items, onLoad, onSave, scopeNote) {
   let opts = [<option value="">{"— load —"}</option>]
   let i = 0

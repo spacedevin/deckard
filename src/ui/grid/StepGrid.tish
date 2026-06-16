@@ -13,6 +13,7 @@ import { setRackBars } from '../../model/RackBars.tish'
 import { channelDeck, channelDeckColor } from '../../model/DeckRouting.tish'
 import { ensureCoDjMeta, setMasterLock } from '../../codj/CoDjMeta.tish'
 import { pianoRowsForChannel } from './PianoGrid.tish'
+import { PanelHeader } from '../PresetBar.tish'
 
 fn stepHasNote(ch, i) {
   let pn = ch.pianoNotes
@@ -415,7 +416,7 @@ fn handleBarWheel(e, rt, gridBars) {
   }
 }
 
-export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt) {
+export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt, headerRight) {
   let gridBars = gridBarsForProject(project)
   let viewBar = 0
   if (rt != null && rt.gridViewBar != null) {
@@ -546,10 +547,13 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
   }
   return (
     <section class="panel sg-panel">
-      <div class="sg-head">
-        <h2>{"SEQUENCER // CHANNEL RACK"}</h2>
-        <span class="sg-head-hint">{"Left: toggle · Right: clear · ▸ expand any track into its piano roll"}</span>
-      </div>
+      {PanelHeader(
+        <Fragment>
+          <h2 class="sg-head-h2">{"SEQUENCER // CHANNEL RACK"}</h2>
+          <span class="sg-head-hint">{"Left: toggle · Right: clear · ▸ expand a track"}</span>
+        </Fragment>,
+        headerRight
+      )}
       {euclidRow}
       <div class="sg-barpager" title="Shift + scroll to page through bars" onwheel={(e) => handleBarWheel(e, rt, gridBars)}>
         <span class="sg-barpager-label">{"BARS"}</span>

@@ -6,6 +6,12 @@ import { playPad } from './Pad.tish'
 import { playBell } from './Bell.tish'
 import { playDrum } from './DrumSynth.tish'
 import { playGuitar } from './Guitar.tish'
+import { playClap } from './Clap.tish'
+import { playArco } from './Arco.tish'
+import { playTine } from './Tine.tish'
+import { playAether } from './Aether.tish'
+import { playHalo } from './Halo.tish'
+import { playAahs } from './Aahs.tish'
 import { playPatch } from './Patch.tish'
 
 export fn dispatchPlayNote(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
@@ -45,6 +51,30 @@ export fn dispatchPlayNote(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   }
   if (id === "guitar") {
     playGuitar(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+  if (id === "clap") {
+    playClap(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+  if (id === "arco") {
+    playArco(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+  if (id === "tine") {
+    playTine(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+  if (id === "aether") {
+    playAether(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+  if (id === "halo") {
+    playHalo(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+  if (id === "aahs") {
+    playAahs(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
     return
   }
   if (id === "patch") {

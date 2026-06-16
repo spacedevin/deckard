@@ -459,6 +459,22 @@ export fn App() {
           drawSpectrumCanvas(spec, audioStore.analyser, "#f97316")
         }
       }
+      // Bottom-bar COMPRESSOR readout: live gain reduction (dB). ratio<=1 means the toggle bypassed it.
+      if (audioStore.masterComp) {
+        let cg = document.querySelector(".master-comp-gr")
+        if (cg) {
+          let bypassed = audioStore.masterComp.ratio && audioStore.masterComp.ratio.value <= 1.01
+          if (bypassed) {
+            cg.textContent = "BYPASS"
+          } else {
+            let red = audioStore.masterComp.reduction
+            if (red != null && red.value !== undefined) {
+              red = red.value
+            }
+            cg.textContent = String(Math.round(Number(red) * 10) / 10) + "dB"
+          }
+        }
+      }
       if (audioStore.buses) {
         let wi = 0
         while (wi < audioStore.buses.length) {
@@ -1155,20 +1171,19 @@ export fn App() {
 
   // One view — no tab. Sequencer + session on top, then the selected channel's instrument rack boxes.
   let seqChName = project.channels[selectedCh] ? project.channels[selectedCh].name : ""
+  // Load/save now lives in each panel's header (the common PanelHeader), right-aligned — no extra strip.
+  let seqHeaderRight = [
+    PresetBar("Sequence", levelPresetList(project, "sequence"), (n) => loadPreset("sequence", n), () => savePreset("sequence"), seqChName),
+    PresetBar("Rack", levelPresetList(project, "rack"), (n) => loadPreset("rack", n), () => savePreset("rack"), "")
+  ]
+  let sessionHeaderRight = PresetBar("Session", levelPresetList(project, "session"), (n) => loadPreset("session", n), () => savePreset("session"), "")
   let seqSession = (
     <div class="seq-session-split">
       <div class="seq-split-main">
-        <div class="preset-bars-row">
-          {PresetBar("Sequence", levelPresetList(project, "sequence"), (n) => loadPreset("sequence", n), () => savePreset("sequence"), seqChName)}
-          {PresetBar("Rack", levelPresetList(project, "rack"), (n) => loadPreset("rack", n), () => savePreset("rack"), "")}
-        </div>
-        {StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt)}
+        {StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt, seqHeaderRight)}
       </div>
       <div class="seq-split-session" key={"sv-" + String(sessionUiGen) + "-" + String(seqPromoteUi)}>
-        <div class="preset-bars-row">
-          {PresetBar("Session", levelPresetList(project, "session"), (n) => loadPreset("session", n), () => savePreset("session"), "")}
-        </div>
-        {SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, patternBank)}
+        {SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, patternBank, sessionHeaderRight)}
       </div>
     </div>
   )
@@ -1184,9 +1199,22 @@ export fn App() {
   }
   let setListGenKey = setListGen
 
+  // Master bus state for the bottom bar's COMPRESSOR / REVERB_BUS chips (toggles + live readout).
+  let mmx = project.masterMixer ? project.masterMixer : { compEnabled: true, reverbEnabled: true }
+  let compOn = mmx.compEnabled !== false
+  let reverbOn = mmx.reverbEnabled !== false
+  let revSends = 0
+  let rci = 0
+  while (rci < project.channels.length) {
+    if (project.channels[rci].reverbSend != null && project.channels[rci].reverbSend > 0) {
+      revSends = revSends + 1
+    }
+    rci = rci + 1
+  }
+
   return <div class="daw-root">
     <header class="daw-header">
-      <h1 class="logo">{"Deckard"}</h1>
+      <h1 class="logo">{"Deckard"}<span class="logo-beta" title="beata">{"beata"}</span></h1>
       {TransportBar(
         project.bpm,
         playing,
@@ -1235,6 +1263,30 @@ export fn App() {
         <div class="daw-bottom-col daw-tpl-dock">{CodeDebugView(project, setProject, tplText, setTplText, rt, true)}</div>
       </div>
     </div>
-    <footer class="daw-foot">{"TPL: docs/TPL_GRAMMAR.md · ARCH: docs/ARCHITECTURE.md · DEV_NODE: AETHER_LABS"}</footer>
+    <footer class="daw-foot">
+      <div class="daw-foot-master">
+        <button
+          type="button"
+          class={compOn ? "master-chip master-chip-on" : "master-chip master-chip-off"}
+          title={"Master glue compressor — click to bypass. Readout = live gain reduction (dB)."}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={() => { if (rt && rt.emit) { rt.emit("master/comp", !compOn) } }}
+        >
+          {"COMPRESSOR · "}
+          <span class="master-comp-gr">{compOn ? "0.0dB" : "BYPASS"}</span>
+        </button>
+        <button
+          type="button"
+          class={reverbOn ? "master-chip master-chip-on" : "master-chip master-chip-off"}
+          title={"Shared reverb send bus — click to mute. Readout = channels currently sending."}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={() => { if (rt && rt.emit) { rt.emit("master/reverb", !reverbOn) } }}
+        >
+          {"REVERB_BUS · "}
+          <span class="master-rev-state">{reverbOn ? ("ON · " + String(revSends) + " send" + (revSends === 1 ? "" : "s")) : "OFF"}</span>
+        </button>
+      </div>
+      <span class="daw-foot-meta">{"TPL: docs/TPL_GRAMMAR.md · ARCH: docs/ARCHITECTURE.md · DEV_NODE: AETHER_LABS"}</span>
+    </footer>
   </div>
 }

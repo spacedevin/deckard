@@ -23,7 +23,7 @@ import { fragmentForEdit, createEditor } from '../src/core/Edit.tish'
 import { parsePatchGraph, parseGenBlock, defaultMatrixFmRawLines } from '../src/tpl/TplExtension.tish'
 import { patchGraphToLines, syncPatchSpecFromGraph, defaultPatchRawLines, addPatchNode, removePatchNode, addPatchConn, removePatchConnAt, addPatchEnv, addPatchEnvSeg, removePatchEnvSegAt } from '../src/tpl/PatchGraph.tish'
 import { macroCatalog, macroKind, macroParamControls, expandMacroToSpec, assignMacroToChannel, setMacroParam, freezeMacroChannel } from '../src/model/MacroVoice.tish'
-import { defaultParamsForGeneratorId } from '../src/generators/Registry.tish'
+import { defaultParamsForGeneratorId, generatorCatalog } from '../src/generators/Registry.tish'
 import { emitInstrumentModuleTpl } from '../src/core/Levels.tish'
 import { addInstrumentPreset, applyInstrumentPresetToChannel, ensureInstrumentPresets } from '../src/model/InstrumentPresets.tish'
 import { expandTriggerNotes, chordStrumDelta } from '../src/audio/NoteExpand.tish'
@@ -330,6 +330,95 @@ let gtrCh = findChannelById(gtrProj, "gt")
 check("guitar: gen params parse", gtrCh !== null && gtrCh.generatorId === "guitar" && gtrCh.generatorParams.drive === 0.5 && gtrCh.generatorParams.mute === 0.4)
 let gtrEmit = emitProject(gtrProj)
 check("guitar: params survive emit→re-parse", gtrEmit.indexOf("mute 0.4") >= 0 && gtrEmit.indexOf("body 2800") >= 0)
+
+// The Clap (handclap engine): catalog + default params + gen key/val round-trip + patch reduction
+check("clap: registered in catalog", generatorCatalog().some(g => g.id === "clap" && g.label === "Clap"))
+let clapDef = defaultParamsForGeneratorId("clap")
+check("clap: default params (hands/spread/size/claps/tail/body)", clapDef.hands === 3 && clapDef.spread === 0.4 && clapDef.size === 0.5 && clapDef.claps === 1 && clapDef.tail === 0.4 && clapDef.body === 0.2)
+let clapSrc = "tpl 1\ntrack Clap id cp gen clap\n  gen hands 8 spread 0.7 size 0.3 tone 0.6 claps 2 gap 0.4 tail 0.5 body 0.25\n  steps x . . . x . . . x . . . x . . ."
+let clapProj = loadDefaultDeckardProject().project
+applyTplSource(clapProj, clapSrc)
+let clapCh = findChannelById(clapProj, "cp")
+check("clap: gen params parse (many hands + double clap)", clapCh !== null && clapCh.generatorId === "clap" && clapCh.generatorParams.hands === 8 && clapCh.generatorParams.claps === 2)
+let clapEmit = emitProject(clapProj)
+check("clap: params survive emit→re-parse", clapEmit.indexOf("hands 8") >= 0 && clapEmit.indexOf("claps 2") >= 0 && clapEmit.indexOf("spread 0.7") >= 0)
+check("clap: compilable to a patch graph", canCompileToPatch("clap"))
+let clapPatchG = parsePatchGraph(compileGeneratorToPatchLines("clap", { size: 0.3, tone: 0.6, tail: 0.5 }, null))
+check("clap→patch: bandpassed noise snap with an amp env", clapPatchG.nodes.some(n => n.kind === "noise") && clapPatchG.nodes.some(n => n.kind === "filter" && n.ftype === "bandpass") && clapPatchG.envs.some(e => e.node === "a1"))
+// Clap edit through the INCREMENTAL ingest door (rt.emit) keeps generatorId + params (no silent reset).
+let clapIng = loadDefaultDeckardProject().project
+applyCoDjTplSource(clapIng, clapSrc, "host", "host", 0, ["master_mixer"])
+applyCoDjTplSource(clapIng, "tpl 1\n" + fragmentForEdit(clapIng, "track/cp/gen/hands", 10) + "\n", "host", "host", 0, ["master_mixer"])
+let clapIngCh = findChannelById(clapIng, "cp")
+check("clap: gen edit folds through ingest (genId + hands)", clapIngCh.generatorId === "clap" && clapIngCh.generatorParams.hands === 10)
+
+// Arco (bowed strings: violin/viola/cello/bass/fiddle) — catalog, defaults, string-family voice param,
+// round-trip incl. the STRING `voice` value, and patch reduction.
+check("arco: registered in catalog", generatorCatalog().some(g => g.id === "arco" && g.label === "Arco"))
+let arcoDef = defaultParamsForGeneratorId("arco")
+check("arco: defaults (voice=violin + bow controls)", arcoDef.voice === "violin" && arcoDef.pressure === 0.5 && arcoDef.bow === 0.4 && arcoDef.vibrato === 0.35 && arcoDef.rosin === 0.3 && arcoDef.body === 0.6)
+let arcoSrc = "tpl 1\ntrack Strings id ar gen arco\n  gen voice cello pressure 0.7 bow 0.6 vibrato 0.5 rosin 0.4 body 0.8\n  note 48 0 1 v 100"
+let arcoProj = loadDefaultDeckardProject().project
+applyTplSource(arcoProj, arcoSrc)
+let arcoCh = findChannelById(arcoProj, "ar")
+check("arco: gen params parse incl. string voice", arcoCh !== null && arcoCh.generatorId === "arco" && arcoCh.generatorParams.voice === "cello" && arcoCh.generatorParams.pressure === 0.7)
+let arcoEmit = emitProject(arcoProj)
+check("arco: params survive emit→re-parse (voice token + knobs)", arcoEmit.indexOf("voice cello") >= 0 && arcoEmit.indexOf("vibrato 0.5") >= 0 && arcoEmit.indexOf("body 0.8") >= 0)
+check("arco: compilable to a patch graph", canCompileToPatch("arco"))
+let arcoPatchG = parsePatchGraph(compileGeneratorToPatchLines("arco", { voice: "cello", pressure: 0.7, bow: 0.6 }, null))
+check("arco→patch: saw → lowpass → slow-attack amp", arcoPatchG.nodes.some(n => n.kind === "osc" && n.wave === "sawtooth") && arcoPatchG.nodes.some(n => n.kind === "filter" && n.ftype === "lowpass") && arcoPatchG.envs.some(e => e.node === "a1"))
+// Arco edit through the INCREMENTAL ingest door keeps generatorId + the string voice param.
+let arcoIng = loadDefaultDeckardProject().project
+applyCoDjTplSource(arcoIng, arcoSrc, "host", "host", 0, ["master_mixer"])
+applyCoDjTplSource(arcoIng, "tpl 1\n" + fragmentForEdit(arcoIng, "track/ar/gen/voice", "bass") + "\n", "host", "host", 0, ["master_mixer"])
+let arcoIngCh = findChannelById(arcoIng, "ar")
+check("arco: voice change folds through ingest (genId + voice)", arcoIngCh.generatorId === "arco" && arcoIngCh.generatorParams.voice === "bass")
+
+// Premium instrument pack — Tine (EP), Aether (theremin), Halo (handpan), Aahs (choir). Each: catalog +
+// defaults + gen round-trip + patch reduction. Aahs additionally exercises a STRING `vowel` param.
+let packDefs = [
+  { id: "tine", keys: ["bark", "tine", "tremolo", "decay", "drive"], some: "bark", someVal: 0.55 },
+  { id: "aether", keys: ["glide", "waver", "tone", "swell", "air"], some: "glide", someVal: 0.4 },
+  { id: "halo", keys: ["temper", "ring", "mallet", "bloom", "lows"], some: "temper", someVal: 0.4 }
+]
+let pdi = 0
+while (pdi < packDefs.length) {
+  let pd = packDefs[pdi]
+  check("pack: " + pd.id + " in catalog + compilable", generatorCatalog().some(g => g.id === pd.id) && canCompileToPatch(pd.id))
+  let dd = defaultParamsForGeneratorId(pd.id)
+  check("pack: " + pd.id + " default param present", dd[pd.some] === pd.someVal && Object.keys(dd).length === pd.keys.length)
+  let pg = parsePatchGraph(compileGeneratorToPatchLines(pd.id, dd, null))
+  check("pack: " + pd.id + " reduces to a patch graph", pg.nodes.length >= 2 && pg.envs.some(e => e.node === "a1"))
+  pdi = pdi + 1
+}
+// Switch-to-Patch must keep each instrument's CHARACTER, not collapse to a generic saw (the "switching to
+// patch completely changes the sound" complaint). Assert the signature element survives the reduction.
+let tinePg = parsePatchGraph(compileGeneratorToPatchLines("tine", defaultParamsForGeneratorId("tine"), null))
+check("tine→patch keeps real FM (modulator → carrier.freq)", tinePg.conns.some(c => c.dstParam === "freq"))
+let aetherPg = parsePatchGraph(compileGeneratorToPatchLines("aether", defaultParamsForGeneratorId("aether"), null))
+check("aether→patch keeps the portamento (a freq glide envelope)", aetherPg.envs.some(e => e.param === "freq"))
+let haloPg = parsePatchGraph(compileGeneratorToPatchLines("halo", defaultParamsForGeneratorId("halo"), null))
+let haloOscs = haloPg.nodes.filter(n => n.kind === "osc")
+check("halo→patch keeps the partial triad (3 oscillators, octave+fifth)", haloOscs.length === 3 && haloOscs.some(o => o.ratio > 1.9 && o.ratio < 2.1) && haloOscs.some(o => o.ratio > 2.9))
+let aahsPg = parsePatchGraph(compileGeneratorToPatchLines("aahs", defaultParamsForGeneratorId("aahs"), null))
+let aahsOscs = aahsPg.nodes.filter(n => n.kind === "osc")
+check("aahs→patch keeps the detuned ensemble (3 saws, detuned)", aahsOscs.length === 3 && aahsOscs.some(o => o.detune > 0) && aahsOscs.some(o => o.detune < 0))
+// Tine round-trip through emit + ingest.
+let tineProj = loadDefaultDeckardProject().project
+applyTplSource(tineProj, "tpl 1\ntrack EP id ep gen tine\n  gen bark 0.8 tine 0.4 tremolo 0.6 decay 0.7 drive 0.3\n  note 60 0 1 v 110")
+let tineCh = findChannelById(tineProj, "ep")
+check("tine: gen params parse", tineCh.generatorId === "tine" && tineCh.generatorParams.bark === 0.8 && tineCh.generatorParams.tremolo === 0.6)
+check("tine: survives emit→re-parse", emitProject(tineProj).indexOf("bark 0.8") >= 0 && emitProject(tineProj).indexOf("tremolo 0.6") >= 0)
+// Aahs: the STRING vowel param round-trips + folds through the ingest door.
+let aahsProj = loadDefaultDeckardProject().project
+applyTplSource(aahsProj, "tpl 1\ntrack Choir id ch2 gen aahs\n  gen vowel ooh breath 0.5 ensemble 0.8 vibrato 0.6 tone 0.4\n  note 60 0 2 v 90")
+let aahsCh = findChannelById(aahsProj, "ch2")
+check("aahs: string vowel + knobs parse", aahsCh.generatorId === "aahs" && aahsCh.generatorParams.vowel === "ooh" && aahsCh.generatorParams.ensemble === 0.8)
+check("aahs: survives emit→re-parse (vowel token)", emitProject(aahsProj).indexOf("vowel ooh") >= 0)
+let aahsIng = loadDefaultDeckardProject().project
+applyCoDjTplSource(aahsIng, "tpl 1\ntrack Choir id ch2 gen aahs\n  steps x . . .", "host", "host", 0, ["master_mixer"])
+applyCoDjTplSource(aahsIng, "tpl 1\n" + fragmentForEdit(aahsIng, "track/ch2/gen/vowel", "mmm") + "\n", "host", "host", 0, ["master_mixer"])
+check("aahs: vowel change folds through ingest", findChannelById(aahsIng, "ch2").generatorParams.vowel === "mmm")
 
 // 5d-v. Instrument preset captures + restores the WHOLE sound (every panel), not just the generator.
 let prProj = loadDefaultDeckardProject().project
@@ -981,6 +1070,31 @@ check("frag: bpm scalar", fragmentForEdit(projE, "bpm", 132) === "bpm 132")
 check("frag: xfade pair", fragmentForEdit(projE, "xfade", [0.25, 0.75]) === "xfade 0.25 0.75")
 check("frag: main_deck", fragmentForEdit(projE, "main_deck", "local") === "main_deck local")
 check("frag: master eq line", fragmentForEdit(projE, "master/eq_lo", 2).indexOf("master_mix eq_lo 2") >= 0)
+// Master glue compressor + reverb-send bus toggles (bottom-bar chips): fragment carries comp/reverb,
+// applies, emits, and round-trips. Default is both ON (compEnabled / reverbEnabled true).
+check("master: defaults compEnabled+reverbEnabled true", projE.masterMixer.compEnabled === true && projE.masterMixer.reverbEnabled === true)
+let compFrag = fragmentForEdit(projE, "master/comp", false)
+check("frag: master comp re-emits full line with comp 0", compFrag.indexOf("master_mix eq_lo ") >= 0 && compFrag.indexOf(" comp 0") >= 0 && compFrag.indexOf(" reverb 1") >= 0)
+applyTplSource(projE, compFrag)
+check("master: comp toggle off applies", projE.masterMixer.compEnabled === false)
+applyTplSource(projE, fragmentForEdit(projE, "master/reverb", false))
+check("master: reverb toggle off applies", projE.masterMixer.reverbEnabled === false)
+let mtRT = loadDefaultDeckardProject().project
+mtRT.masterMixer.compEnabled = false
+mtRT.masterMixer.reverbEnabled = false
+let mtEmit = emitProject(mtRT)
+check("master: emit carries comp 0 reverb 0", mtEmit.indexOf("comp 0 reverb 0") >= 0)
+let mtRT2 = loadDefaultDeckardProject().project
+applyTplSource(mtRT2, mtEmit)
+check("master: comp/reverb survive emit -> re-parse", mtRT2.masterMixer.compEnabled === false && mtRT2.masterMixer.reverbEnabled === false)
+// Regression: master_mix MUST apply through the INCREMENTAL ingest path (applyCoDjTplSource) too — the
+// real door rt.emit uses. (It previously only applied via full applyParsed, so UI master EQ + the
+// compressor/reverb toggles silently no-op'd through ingest.) Master-gated, so use a master skillId.
+let mtIng = loadDefaultDeckardProject().project
+applyCoDjTplSource(mtIng, "tpl 1\n" + fragmentForEdit(mtIng, "master/comp", false) + "\n", "host", "host", 0, ["master_mixer"])
+check("master: comp toggle folds through INGEST path", mtIng.masterMixer.compEnabled === false && mtIng.masterMixer.reverbEnabled === true)
+applyCoDjTplSource(mtIng, "tpl 1\n" + fragmentForEdit(mtIng, "master/reverb", false) + "\n", "host", "host", 0, ["master_mixer"])
+check("master: reverb toggle folds through INGEST path", mtIng.masterMixer.reverbEnabled === false)
 let mixFrag = fragmentForEdit(projE, "track/" + chE + "/mix/gain", 0.5)
 check("frag: track mix re-emits full mix line", mixFrag.indexOf("mix gain 0.5 pan ") >= 0 && mixFrag.indexOf("id " + chE) >= 0)
 check("frag: unknown track is no-op", fragmentForEdit(projE, "track/nope/mix/gain", 1) === "")
