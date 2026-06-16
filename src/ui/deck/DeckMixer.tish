@@ -8,6 +8,7 @@ import { channelDeck, channelDeckRow, crossfadeValue, crossfadeValueY } from '..
 import { ensureMasterMixer, channelActorLane } from '../../model/MixerRouting.tish'
 import { setChannelGain } from '../../model/Edits.tish'
 import { loadDeckSet, deckSetCatalog } from '../../model/DeckSets.tish'
+import { createSetLibrary, loadSet } from '../../core/SetLibrary.tish'
 
 fn ensureDeckEq(project) {
   if (!project.deckEq) {
@@ -118,23 +119,51 @@ fn StemFader(entry, setProjectFromUI, touchMixer, project, rt) {
 
 fn DeckSetPicker(project, deck, setProjectFromUI, touchMixer, rt) {
   let cat = deckSetCatalog()
-  let opts = [<option value="">{"— load set —"}</option>]
+  let opts = [<option value="">{"— load rack —"}</option>]
   let i = 0
   while (i < cat.length) {
     let s = cat[i]
-    opts.push(<option value={s.id}>{s.name + " (" + s.genre + ")"}</option>)
+    opts.push(<option value={"rack:" + s.id}>{s.name + " (" + s.genre + ")"}</option>)
     i = i + 1
+  }
+  // User-saved Sets load their FIRST player onto this deck (with their arrangement). Read-only view of
+  // the shared localStorage library; selecting one routes through loadSet onto this deck.
+  let lib = createSetLibrary()
+  let sets = lib.list()
+  let userSets = []
+  let si = 0
+  while (si < sets.length) {
+    if (!sets[si].factory) {
+      userSets.push(sets[si])
+    }
+    si = si + 1
+  }
+  if (userSets.length > 0) {
+    let uj = 0
+    while (uj < userSets.length) {
+      let st = userSets[uj]
+      opts.push(<option value={"set:" + st.name}>{"◆ " + st.name + " (" + String(st.players) + "p)"}</option>)
+      uj = uj + 1
+    }
   }
   return (
     <select
       class="dk-set-select"
       onmousedown={(e) => e.stopPropagation()}
       onchange={(e) => {
-        let sid = e.target.value
-        if (!sid || sid.length === 0) {
+        let val = e.target.value
+        if (!val || val.length === 0) {
           return
         }
-        loadDeckSet(project, deck, sid)
+        if (val.indexOf("set:") === 0) {
+          let st = lib.get(val.substring(4))
+          if (st) {
+            loadSet(project, st, deck)
+          }
+        } else {
+          let sid = val.indexOf("rack:") === 0 ? val.substring(5) : val
+          loadDeckSet(project, deck, sid)
+        }
         if (rt) {
           // Drop stale per-index clip arming so the new channels fall back to their own clips.
           rt.sessionArmedClipIds = []

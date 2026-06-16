@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, h, Fragment } from '@tishlang/lattish'
 import { projectToJson, projectFromJson } from '../model/Project.tish'
 import { loadDefaultDeckardProject, loadProjectFromTpl } from '../model/ProjectLoad.tish'
-import { createSetPresets } from '../core/SetPresets.tish'
+import { createStationPresets } from '../core/StationPresets.tish'
 import { emitLevel, retargetTpl } from '../core/Levels.tish'
+import { createSetLibrary, emitSet, loadSet, freeDecks } from '../core/SetLibrary.tish'
 import { levelPresetList, addLevelPreset, findLevelPreset } from '../model/LevelPresets.tish'
 import { PresetBar } from './PresetBar.tish'
 import { emitProject, emitLivePlayback } from '../tpl/Emit.tish'
@@ -64,6 +65,7 @@ import {
   mirrorClearStepToMainClip
 } from '../model/Session.tish'
 import { SessionView } from './SessionView.tish'
+import { PlaylistView } from './PlaylistView.tish'
 
 let initialDeckardBoot = loadDefaultDeckardProject()
 if (initialDeckardBoot.errors.length > 0 && typeof console !== "undefined" && console.warn) {
@@ -179,10 +181,20 @@ export fn App() {
   // replaces everything, no target). Built-in "Default" is always present (loading it resets the set).
   let setPresetsRef = useRef(null)
   if (!setPresetsRef.current) {
-    setPresetsRef.current = createSetPresets()
+    setPresetsRef.current = createStationPresets()
   }
   let setPresets = setPresetsRef.current
   let [setListGen, setSetListGen] = useState(0)
+
+  // Set library: TIME-aware, per-player bundles (the new "Set"). Loading one fills the free deck slots
+  // with its players (ghosts you can jam alongside) and restores its `song` arrangement; you can also drop
+  // one onto a single deck from the deck picker. Seeded from the deck-set catalog so it's never empty.
+  let setLibraryRef = useRef(null)
+  if (!setLibraryRef.current) {
+    setLibraryRef.current = createSetLibrary()
+  }
+  let setLibrary = setLibraryRef.current
+  let [setLibGen, setSetLibGen] = useState(0)
 
   // ---- Transport/Clock projection + signal bus (rearch step 4). The scheduler publishes step position
   // and health on `signals`; the playhead / grid / BPM readout SUBSCRIBE here (decoupled from timing). ----
@@ -1039,7 +1051,7 @@ export fn App() {
     loadFullProject(res.project)
   }
   fn onSaveSet() {
-    let nm = prompt("Save current workspace as set", "My Set")
+    let nm = prompt("Save current workspace as station", "My Station")
     if (nm && nm.length > 0) {
       setPresets.save(nm, emitProject(project))
       setSetListGen(setListGen + 1)
@@ -1059,7 +1071,7 @@ export fn App() {
     let url = URL.createObjectURL(blob)
     let a = document.createElement("a")
     a.href = url
-    a.download = "deckard-set-" + nm + ".tpl"
+    a.download = "deckard-station-" + nm + ".tpl"
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -1074,6 +1086,56 @@ export fn App() {
       setSetListGen(setListGen + 1)
       if (imp) {
         onLoadSet(imp.name)
+      }
+    }
+    reader.readAsText(f)
+  }
+
+  // ---- Sets (TIME-aware, per-player). Load into the free deck slots + restore arrangement; capture the
+  // currently-loaded decks back into a named Set.
+  fn onLoadSetLib(nm) {
+    let st = setLibrary.get(nm)
+    if (!st) {
+      return
+    }
+    let res = loadSet(project, st, null)
+    if (res.loaded === 0) {
+      return
+    }
+    loadFullProject(project)
+  }
+  fn onSaveSetLib() {
+    // Players = the decks that currently hold channels (A→D order).
+    let occupied = []
+    let free = freeDecks(project)
+    let letters = ["A", "B", "C", "D"]
+    let li = 0
+    while (li < letters.length) {
+      if (free.indexOf(letters[li]) < 0) {
+        occupied.push(letters[li])
+      }
+      li = li + 1
+    }
+    if (occupied.length === 0) {
+      return
+    }
+    let nm = prompt("Save loaded decks as a Set (" + String(occupied.length) + " player" + (occupied.length === 1 ? "" : "s") + ")", "My Set")
+    if (nm && nm.length > 0) {
+      setLibrary.save(nm, emitSet(project, occupied), occupied.length)
+      setSetLibGen(setLibGen + 1)
+    }
+  }
+  fn onImportSetLibFile(e) {
+    let f = e.target.files && e.target.files.length > 0 ? e.target.files[0] : null
+    if (!f) {
+      return
+    }
+    let reader = new FileReader()
+    reader.onload = () => {
+      let imp = setLibrary.importText(reader.result, f.name)
+      setSetLibGen(setLibGen + 1)
+      if (imp) {
+        onLoadSetLib(imp.name)
       }
     }
     reader.readAsText(f)
@@ -1178,19 +1240,24 @@ export fn App() {
   ]
   let sessionHeaderRight = PresetBar("Session", levelPresetList(project, "session"), (n) => loadPreset("session", n), () => savePreset("session"), "")
   let seqSession = (
-    <div class="seq-session-split">
-      <div class="seq-split-main">
-        {StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt, seqHeaderRight)}
+    <div class="seq-session-wrap">
+      <div class="seq-session-split">
+        <div class="seq-split-main">
+          {StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt, seqHeaderRight)}
+        </div>
+        <div class="seq-split-session" key={"sv-" + String(sessionUiGen) + "-" + String(seqPromoteUi)}>
+          {SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, patternBank, sessionHeaderRight)}
+        </div>
       </div>
-      <div class="seq-split-session" key={"sv-" + String(sessionUiGen) + "-" + String(seqPromoteUi)}>
-        {SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, patternBank, sessionHeaderRight)}
+      <div class="seq-arrange" key={"pl-" + String(sessionUiGen)}>
+        {PlaylistView(project, rt, setProjectFromUI)}
       </div>
     </div>
   )
 
   // Set-preset picker options (built-in Default first, then saved user sets). setListGen forces refresh.
   let setItems = setPresets.list()
-  let setOpts = [<option value="">{"— load set —"}</option>]
+  let setOpts = [<option value="">{"— load station —"}</option>]
   let spi = 0
   while (spi < setItems.length) {
     let it = setItems[spi]
@@ -1198,6 +1265,20 @@ export fn App() {
     spi = spi + 1
   }
   let setListGenKey = setListGen
+
+  // Set library picker (TIME-aware, per-player bundles). Loading fills the FREE deck slots with the Set's
+  // players + restores its arrangement. Disabled when no slot is free (all 4 decks occupied = listen-only).
+  let setLibItems = setLibrary.list()
+  let setLibOpts = [<option value="">{"— load set —"}</option>]
+  let sli = 0
+  while (sli < setLibItems.length) {
+    let li = setLibItems[sli]
+    let tag = li.factory ? " (rack)" : " · " + String(li.players) + "p"
+    setLibOpts.push(<option value={li.name}>{li.name + tag}</option>)
+    sli = sli + 1
+  }
+  let freeSlotCount = freeDecks(project).length
+  let setLibGenKey = setLibGen
 
   // Master bus state for the bottom bar's COMPRESSOR / REVERB_BUS chips (toggles + live readout).
   let mmx = project.masterMixer ? project.masterMixer : { compEnabled: true, reverbEnabled: true }
@@ -1232,7 +1313,7 @@ export fn App() {
         (q) => setLaunchQuant(q)
       )}
       <div class="set-presets" key={"sp-" + String(setListGenKey)}>
-        <span class="set-presets-label">{"SET"}</span>
+        <span class="set-presets-label">{"STATION"}</span>
         <select
           class="set-select"
           value=""
@@ -1246,9 +1327,30 @@ export fn App() {
         >
           {setOpts}
         </select>
-        <button type="button" class="set-btn" onclick={onSaveSet} title="Save the whole workspace as a named set">{"Save Set"}</button>
-        <label class="set-btn set-import" title="Import a .tpl set file">{"⤒"}
+        <button type="button" class="set-btn" onclick={onSaveSet} title="Save the whole workspace as a named station">{"Save Station"}</button>
+        <label class="set-btn set-import" title="Import a .tpl station file">{"⤒"}
           <input type="file" accept=".tpl,.txt" style={{ display: "none" }} onchange={onImportSetFile} />
+        </label>
+      </div>
+      <div class="set-presets set-lib" key={"sl-" + String(setLibGenKey)}>
+        <span class="set-presets-label" title={"A Set = 1–4 players + a song arrangement. Loading fills the free deck slots with its players (ghosts you can play alongside)."}>{"SET"}</span>
+        <select
+          class="set-select"
+          value=""
+          title={freeSlotCount === 0 ? "All 4 decks occupied — free a deck to load a Set (or drop one onto a deck from its picker)." : "Load a Set into the " + String(freeSlotCount) + " free deck slot" + (freeSlotCount === 1 ? "" : "s")}
+          onchange={(e) => {
+            let n = e.target.value
+            e.target.value = ""
+            if (n && n.length > 0) {
+              onLoadSetLib(n)
+            }
+          }}
+        >
+          {setLibOpts}
+        </select>
+        <button type="button" class="set-btn" onclick={onSaveSetLib} title="Capture the loaded decks (their racks, clips + arrangement) as a named Set">{"Save Set"}</button>
+        <label class="set-btn set-import" title="Import a .tpl Set file">{"⤒"}
+          <input type="file" accept=".tpl,.txt" style={{ display: "none" }} onchange={onImportSetLibFile} />
         </label>
       </div>
     </header>

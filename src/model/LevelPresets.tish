@@ -1,8 +1,8 @@
 // Contextual presets for the in-project levels: sequence (a channel's pattern), rack (all channels),
 // session (scenes/song/follow). Same idea as instrument presets (project.instrumentPresets) — saved in
 // the project, loaded WHERE you edit that thing. Each preset is a named TPL fragment (from emitLevel), so
-// loading just routes its TPL through the gated ingest. Set presets are separate (whole-workspace, can't
-// nest in the project — see SetPresets.tish). NOT a global browser — that can't know the target.
+// loading just routes its TPL through the gated ingest. Station presets are separate (whole-workspace, can't
+// nest in the project — see StationPresets.tish). NOT a global browser — that can't know the target.
 
 let LEVELS = ["sequence", "rack", "session"]
 

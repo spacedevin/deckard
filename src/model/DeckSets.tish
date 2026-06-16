@@ -531,12 +531,12 @@ export fn deckSetTplById(setId) {
   return null
 }
 
-/** Replace a deck's channels with the set's stems. deckId "A" = host (local), "B" = client. */
-export fn loadDeckSet(project, deckId, setId) {
-  let set = deckSetTplById(setId)
-  if (!set) {
-    return false
-  }
+/**
+ * Graft a plain rack TPL onto one deck, replacing whatever was there. The shared core behind both
+ * loadDeckSet (catalog rack) and loadSet (a captured Set player). deckId "A"=host (local), B/C/D=others.
+ * `keepClips` retains the rack's session clips (re-prefixed) — Set players carry clips, catalog racks don't.
+ */
+export fn graftRackOntoDeck(project, deckId, rackTpl, keepClips) {
   let idx = deckId === "B" ? 1 : deckId === "C" ? 2 : deckId === "D" ? 3 : 0
   let want = idx === 1 ? "B" : idx === 2 ? "C" : idx === 3 ? "D" : "A"
   let lane = idx === 0 ? "" : "client"
@@ -562,9 +562,9 @@ export fn loadDeckSet(project, deckId, setId) {
     j = j + 1
   }
   project.channels = kept
-  // Parse the set into a throwaway project, then graft its channels onto this deck.
+  // Parse the rack into a throwaway project, then graft its channels onto this deck.
   let tmp = emptyProjectShell()
-  applyTplSource(tmp, set.tpl)
+  applyTplSource(tmp, rackTpl)
   let k = 0
   while (k < tmp.channels.length) {
     let ch = tmp.channels[k]
@@ -572,8 +572,17 @@ export fn loadDeckSet(project, deckId, setId) {
     ch.actorLane = lane
     ch.deck = deckField
     ch.deckSlot = idx
-    // Rebuild session clips under the new (prefixed) id so the main clip id matches the channel.
-    ch.sessionClips = []
+    if (keepClips && ch.sessionClips && ch.sessionClips.length > 0) {
+      // Re-prefix clip ids so they stay unique across decks but ride with their (re-prefixed) channel.
+      let ck = 0
+      while (ck < ch.sessionClips.length) {
+        ch.sessionClips[ck].id = prefix + ch.sessionClips[ck].id
+        ck = ck + 1
+      }
+    } else {
+      // Catalog racks have no clips; rebuild empty so the main clip id matches the channel.
+      ch.sessionClips = []
+    }
     project.channels.push(ch)
     k = k + 1
   }
@@ -605,4 +614,13 @@ export fn loadDeckSet(project, deckId, setId) {
   }
   ensureProjectSession(project)
   return true
+}
+
+/** Replace a deck's channels with the catalog set's stems. deckId "A" = host (local), "B" = client. */
+export fn loadDeckSet(project, deckId, setId) {
+  let set = deckSetTplById(setId)
+  if (!set) {
+    return false
+  }
+  return graftRackOntoDeck(project, deckId, set.tpl, false)
 }

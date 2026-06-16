@@ -1,19 +1,27 @@
-// Set presets — named, saveable copies of the ENTIRE workspace. Set is the one level where a global
-// load makes sense (it has no target — it replaces everything), so this is a small global store, NOT a
-// per-level browser. A set preset can't live inside the project (a set can't contain itself), so it's
-// kept in localStorage (+ file export/import for sharing). The built-in "Default" set is always present
-// so the list is never empty and loading it resets the workspace.
+// Station presets — named, saveable copies of the ENTIRE workspace. A Station is the one level where a
+// global load makes sense (it has no target — it replaces everything), so this is a small global store,
+// NOT a per-level browser. A Station can't live inside the project (it can't contain itself), so it's kept
+// in localStorage (+ file export/import for sharing). The built-in "Default" Station is always present so
+// the list is never empty and loading it resets the workspace.
+//
+// (Formerly "Set". A "Set" is now a smaller, time-aware, per-player loadable bundle — see SetLibrary.tish.)
 
 import { defaultDeckardTplText } from '../model/DefaultDeckardTpl.tish'
 
-let KEY = "deckard.setpresets.v1"
-let TAG = "# deckard-set"
+let KEY = "deckard.stationpresets.v1"
+let OLD_KEY = "deckard.setpresets.v1"   // read-fallback so pre-rename saves survive
+let TAG = "# deckard-station"
+let OLD_TAG = "# deckard-set"
 
 fn defaultBackend() {
   if (typeof localStorage !== "undefined" && localStorage) {
     return {
       read: () => {
-        return localStorage.getItem(KEY)
+        let v = localStorage.getItem(KEY)
+        if (v == null || String(v).length === 0) {
+          v = localStorage.getItem(OLD_KEY)
+        }
+        return v
       },
       write: (s) => {
         localStorage.setItem(KEY, s)
@@ -29,11 +37,11 @@ fn defaultBackend() {
   }
 }
 
-fn factorySets() {
+fn factoryStations() {
   return [{ name: "Default", tpl: defaultDeckardTplText(), factory: true, ord: -1 }]
 }
 
-export fn createSetPresets(injected) {
+export fn createStationPresets(injected) {
   let be = injected ? injected : defaultBackend()
 
   fn readLib() {
@@ -73,7 +81,7 @@ export fn createSetPresets(injected) {
     if (lib.items[name]) {
       return lib.items[name]
     }
-    let f = factorySets()
+    let f = factoryStations()
     let i = 0
     while (i < f.length) {
       if (f[i].name === name) {
@@ -84,9 +92,9 @@ export fn createSetPresets(injected) {
     return null
   }
 
-  // Built-in factory sets first, then user sets (ord-ascending).
+  // Built-in factory Stations first, then user Stations (ord-ascending).
   fn list() {
-    let out = factorySets()
+    let out = factoryStations()
     let names = Object.keys(lib.items)
     let user = []
     let i = 0
@@ -125,7 +133,7 @@ export fn createSetPresets(injected) {
     let name = fallbackName
     let nl = body.indexOf("\n")
     let first = nl >= 0 ? body.substring(0, nl) : body
-    if (first.indexOf(TAG) === 0) {
+    if (first.indexOf(TAG) === 0 || first.indexOf(OLD_TAG) === 0) {
       let ni = first.indexOf("name=")
       if (ni >= 0) {
         let nm = first.substring(ni + 5).trim()

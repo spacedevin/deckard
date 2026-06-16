@@ -8,7 +8,10 @@ import { emptyProjectShell } from '../src/model/Project.tish'
 import { emitProject } from '../src/tpl/Emit.tish'
 import { applyTplSource, findChannelById } from '../src/tpl/Apply.tish'
 import { emitLevel, retargetTpl, splitTplBlocks, levelList } from '../src/core/Levels.tish'
-import { createSetPresets } from '../src/core/SetPresets.tish'
+import { createStationPresets } from '../src/core/StationPresets.tish'
+import { createSetLibrary, emitSet, parseSet, loadSet, freeDecks } from '../src/core/SetLibrary.tish'
+import { loadDeckSet, deckSetCatalog } from '../src/model/DeckSets.tish'
+import { channelDeck } from '../src/model/DeckRouting.tish'
 import { levelPresetList, addLevelPreset, findLevelPreset, removeLevelPreset } from '../src/model/LevelPresets.tish'
 
 let pass = 0
@@ -96,26 +99,26 @@ while (bi < blocks.length) {
 check("splitter finds one track block per channel", trackBlocks === p.channels.length)
 check("levelList has all 7 levels", levelList().length === 7)
 
-console.log("=== Set presets (whole-workspace, global) ===")
+console.log("=== Station presets (whole-workspace, global) ===")
 let setMem = { v: null }
 let setBe = { read: () => setMem.v, write: (s) => { setMem.v = s } }
-let sets = createSetPresets(setBe)
-check("[set] built-in Default present", sets.get("Default") != null && sets.get("Default").factory === true)
-check("[set] list starts with just Default", sets.list().length === 1)
+let sets = createStationPresets(setBe)
+check("[station] built-in Default present", sets.get("Default") != null && sets.get("Default").factory === true)
+check("[station] list starts with just Default", sets.list().length === 1)
 sets.save("MySet", "tpl 1\nbpm 142\n")
-check("[set] save adds a user set", sets.list().length === 2 && sets.get("MySet") != null)
-check("[set] saved set tpl intact", sets.get("MySet").tpl.indexOf("bpm 142") >= 0)
-check("[set] cannot remove the factory Default", sets.remove("Default") === false)
-check("[set] can remove a user set", sets.remove("MySet") === true && sets.list().length === 1)
+check("[station] save adds a user station", sets.list().length === 2 && sets.get("MySet") != null)
+check("[station] saved station tpl intact", sets.get("MySet").tpl.indexOf("bpm 142") >= 0)
+check("[station] cannot remove the factory Default", sets.remove("Default") === false)
+check("[station] can remove a user station", sets.remove("MySet") === true && sets.list().length === 1)
 // persistence + export/import
 sets.save("Keep", "tpl 1\nbpm 99\n")
-let sets2 = createSetPresets(setBe)
-check("[set] persists across instances", sets2.get("Keep") != null)
+let sets2 = createStationPresets(setBe)
+check("[station] persists across instances", sets2.get("Keep") != null)
 let setExp = sets.exportText("Keep")
-check("[set] export carries name tag", setExp.indexOf("# deckard-set name=Keep") === 0)
-let sets3 = createSetPresets({ read: () => null, write: (s) => {} })
+check("[station] export carries name tag", setExp.indexOf("# deckard-station name=Keep") === 0)
+let sets3 = createStationPresets({ read: () => null, write: (s) => {} })
 let setImp = sets3.importText(setExp, null)
-check("[set] import recovers the set", setImp != null && setImp.name === "Keep" && setImp.tpl.indexOf("bpm 99") >= 0)
+check("[station] import recovers the station", setImp != null && setImp.name === "Keep" && setImp.tpl.indexOf("bpm 99") >= 0)
 
 console.log("=== Contextual level presets (sequence/rack/session, in-project) ===")
 let lp = loadDefaultDeckardProject().project
@@ -128,6 +131,93 @@ addLevelPreset(lp, "rack", "r1", "tpl 1\nbpm 999\n")
 check("[lp] save with same name upserts (no dupe)", levelPresetList(lp, "rack").length === 2 && findLevelPreset(lp, "rack", "r1").tpl.indexOf("bpm 999") >= 0)
 check("[lp] levels are independent", levelPresetList(lp, "sequence").length === 0 && levelPresetList(lp, "session").length === 0)
 check("[lp] remove drops it", removeLevelPreset(lp, "rack", "r1") === true && levelPresetList(lp, "rack").length === 1)
+
+console.log("=== Set library (player-delimited, TIME-aware) ===")
+let setLib = createSetLibrary({ read: () => null, write: (s) => {} })
+let cat = deckSetCatalog()
+check("[setlib] seeded from deck-set catalog (non-empty)", cat.length > 0 && setLib.list().length === cat.length)
+let seeded = setLib.get(cat[0].id)
+check("[setlib] a seeded set is 1 player", seeded != null && seeded.players === 1)
+let seededParsed = parseSet(seeded.tpl)
+check("[setlib] seeded set parses to 1 player with tracks", seededParsed.players.length === 1 && seededParsed.players[0].indexOf("track ") >= 0)
+
+// Build a 2-player project (deck A + deck B) and capture it as a Set with an explicit arrangement (TIME).
+let sp = loadDefaultDeckardProject().project
+loadDeckSet(sp, "A", cat[0].id)
+loadDeckSet(sp, "B", cat[1].id)
+sp.session.song = [{ scene: 0, repeat: 1 }, { scene: 1, repeat: 2 }]
+let setTpl = emitSet(sp, ["A", "B"])
+let parsed = parseSet(setTpl)
+check("[setlib] capture emits 2 players", parsed.players.length === 2)
+check("[setlib] player 0 has tracks", parsed.players[0].indexOf("track ") >= 0)
+check("[setlib] player 1 has tracks", parsed.players[1].indexOf("track ") >= 0)
+check("[setlib] players are deck-agnostic (no deck line)", parsed.players[0].indexOf("deck ") < 0)
+check("[setlib] arrangement (song) survives", parsed.song.length === 2 && parsed.song[0] === "P1" && parsed.song[1] === "P2 x2")
+
+// save → reload → re-parse keeps players + arrangement
+let saved = setLib.save("MyJam", setTpl, 2)
+check("[setlib] save records player count", saved.players === 2)
+let reparsed = parseSet(setLib.get("MyJam").tpl)
+check("[setlib] saved set round-trips players + arrangement", reparsed.players.length === 2 && reparsed.song.length === 2)
+
+// export/import round-trip
+let exp = setLib.exportText("MyJam")
+check("[setlib] export carries tag + player count", exp.indexOf("# deckard-set name=MyJam players=2") === 0)
+let lib2 = createSetLibrary({ read: () => null, write: (s) => {} })
+let imp = lib2.importText(exp, null)
+check("[setlib] import recovers set with players", imp != null && imp.name === "MyJam" && imp.players === 2)
+let impParsed = parseSet(imp.tpl)
+check("[setlib] imported set keeps 2 players + arrangement", impParsed.players.length === 2 && impParsed.song.length === 2)
+
+console.log("=== loadSet (deck / free-slots / ghost) ===")
+// Default project occupies deck A only → B, C, D are free slots.
+let fp = loadDefaultDeckardProject().project
+let fd = freeDecks(fp)
+check("[loadset] default project occupies deck A only", fd.length === 3 && fd[0] === "B" && fd[1] === "C" && fd[2] === "D")
+
+// Free-slot fill: the captured 2-player MyJam fills the next free decks (B, C), leaving D + keeping A.
+let fillRes = loadSet(fp, { tpl: setTpl }, null)
+check("[loadset] free-slot fill loads 2 players onto B,C", fillRes.loaded === 2 && fillRes.decks[0] === "B" && fillRes.decks[1] === "C")
+let fdAfter = freeDecks(fp)
+check("[loadset] B,C now occupied; D still free", fdAfter.length === 1 && fdAfter[0] === "D")
+let hasB = false
+let hasC = false
+let fci = 0
+while (fci < fp.channels.length) {
+  let dk = channelDeck(fp, fp.channels[fci])
+  if (dk === "B") {
+    hasB = true
+  }
+  if (dk === "C") {
+    hasC = true
+  }
+  fci = fci + 1
+}
+check("[loadset] channels routed to decks B and C exist (ghosts)", hasB && hasC)
+check("[loadset] arrangement restored (song)", fp.session.song.length === 2 && fp.session.song[1].repeat === 2)
+
+// Target-deck load: dropping a Set onto your own deck (A) replaces deck A with the Set's first player.
+let tp = loadDefaultDeckardProject().project
+let tgtRes = loadSet(tp, { tpl: setTpl }, "A")
+check("[loadset] target-deck load reports deck A", tgtRes.loaded === 1 && tgtRes.decks[0] === "A")
+let aPrefixed = false
+let tci = 0
+while (tci < tp.channels.length) {
+  if (String(tp.channels[tci].id).indexOf("a_") === 0) {
+    aPrefixed = true
+  }
+  tci = tci + 1
+}
+check("[loadset] deck A now holds the Set's player (a_-prefixed ids)", aPrefixed && freeDecks(tp).length === 3)
+
+// All decks full → a Set can't load (listen-only).
+let full = loadDefaultDeckardProject().project
+loadDeckSet(full, "B", cat[0].id)
+loadDeckSet(full, "C", cat[0].id)
+loadDeckSet(full, "D", cat[0].id)
+check("[loadset] all four decks occupied", freeDecks(full).length === 0)
+let none = loadSet(full, { tpl: setTpl }, null)
+check("[loadset] no free slots → loaded 0 (listen-only)", none.loaded === 0)
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))
