@@ -3,7 +3,7 @@ import { projectToJson, projectFromJson } from '../model/Project.tish'
 import { loadDefaultDeckardProject, loadProjectFromTpl } from '../model/ProjectLoad.tish'
 import { createStationPresets } from '../core/StationPresets.tish'
 import { emitLevel, retargetTpl } from '../core/Levels.tish'
-import { createSetLibrary, emitSet, loadSet, freeDecks } from '../core/SetLibrary.tish'
+import { createSetLibrary, emitSet, loadSet, freeDecks, emitSetStream, parseSetStream, isStreamSet } from '../core/SetLibrary.tish'
 import { levelPresetList, addLevelPreset, findLevelPreset } from '../model/LevelPresets.tish'
 import { PresetBar } from './PresetBar.tish'
 import { emitProject, emitLivePlayback } from '../tpl/Emit.tish'
@@ -40,7 +40,8 @@ import { coDjInitWebMidi } from '../codj/MidiProfiles.tish'
 import {
   coDjFlushScheduledForStep,
   coDjStepsPerBar,
-  coDjStepsUntilBarBoundary
+  coDjStepsUntilBarBoundary,
+  coDjEnsureSchedule
 } from '../codj/Schedule.tish'
 import { pruneStaleTracks, coDjTrackExpirySequences } from '../codj/Prune.tish'
 import { createDeckardRuntime } from './DeckardRuntime.tish'
@@ -215,6 +216,9 @@ export fn App() {
         if (r.updateGridPlayhead) {
           r.updateGridPlayhead(0, false)
         }
+        if (r.updateTimelinePlayhead) {
+          r.updateTimelinePlayhead(0, false)
+        }
         return
       }
       if (r.setPlaybackHighlight) {
@@ -222,6 +226,9 @@ export fn App() {
       }
       if (r.updateGridPlayhead) {
         r.updateGridPlayhead(step, true)
+      }
+      if (r.updateTimelinePlayhead) {
+        r.updateTimelinePlayhead(step, true)
       }
     })
     signals.subscribe("transport.health", (hh) => {
@@ -516,6 +523,11 @@ export fn App() {
     // A follower joining a song mid-flight starts at the host's playhead so it lands on the same bar.
     let st = startTick != null && Math.floor(Number(startTick)) >= 0 ? Math.floor(Number(startTick)) : 0
     tplLoopResetAll()
+    // Hitting Play starts a fresh take — snapshot the sounds + zero the tape so the timeline records THIS
+    // performance. (No-op during a replay, which sets tplReplaying before calling onPlay.)
+    if (rt.beginTake) {
+      rt.beginTake(st)
+    }
     if (pm === "song") {
       // A song starts at the head of the explicit arrangement (or the first saved pattern when none is
       // set) and auto-advances through it. Per-track clip overrides are honoured on top of each scene.
@@ -617,6 +629,11 @@ export fn App() {
         }
       }
       r.perfStep = step
+      // A replay plays exactly as long as the recording; stop once its last step has sounded (+1 bar tail).
+      if (r.tplReplaying && r.tplReplayMaxStep != null && step > Math.floor(r.tplReplayMaxStep) + 16) {
+        onStop()
+        return
+      }
       coDjFlushScheduledForStep(step, r)
       // THE audio: schedule this step's notes at the EXACT audio time `when` (jitter-immune).
       transportTick(r.project, audioStore, step, r, when)
@@ -846,6 +863,10 @@ export fn App() {
   }
 
   fn onStop() {
+    // A replay ends when the transport stops; clear replay state so the next Play records a fresh take.
+    rt.tplReplaying = false
+    rt.tplReplayTriggers = null
+    bumpTimeline()
     if (rt.coDjNotifyPlaying) {
       rt.coDjNotifyPlaying(false)
     }
@@ -861,6 +882,95 @@ export fn App() {
   rt.stopPlayback = onStop
   rt.onPlaySequence = () => onPlay("sequence")
   rt.onPlaySong = () => onPlay("song")
+
+  // ---- TPL-stream playback (the Playlist tape): record the live TPL stream, save it as a Set, replay it.
+  let [timelineGen, setTimelineGen] = useState(0)
+  fn bumpTimeline() {
+    setTimelineGen((g) => g + 1)
+  }
+  // Tape one TPL fragment with its step (relative to record-start). The single recorder entry point: the
+  // ingest out-stream tap routes here, and so do the not-yet-migrated handlers (step toggles, notes,
+  // launches) that still bypass ingest — so REC captures a real performance, not just the mixer moves.
+  // Record WHAT PLAYED: transportTick hands us the note triggers it fired this step (the performance), and
+  // we tape them with the step (relative to the take's start). This — not the edit stream — is the Set.
+  rt.recordPlayedStep = (globalStep, triggers) => {
+    if (!rt.tplRecording || rt.tplReplaying || !triggers || triggers.length === 0) {
+      return
+    }
+    let step = Math.floor(globalStep) - Math.floor(rt.tplTapeStartStep != null ? rt.tplTapeStartStep : 0)
+    if (step < 0) {
+      step = 0
+    }
+    rt.tplTape.push({ step: step, triggers: triggers })
+    // Live timeline feedback, throttled to bar boundaries (cheap; the grid already re-renders per bar).
+    if (Math.floor(globalStep) % 16 === 0) {
+      bumpTimeline()
+    }
+  }
+  // A take begins when the transport starts a normal play: snapshot the sounds (the Set header) + zero the
+  // tape clock. Called from onPlay. Skipped during replay (we're re-firing, not recording).
+  rt.beginTake = (startStep) => {
+    if (!rt.tplRecording || rt.tplReplaying) {
+      return
+    }
+    rt.tplTape = []
+    rt.tplStartState = emitProject(rt.project)
+    rt.tplRecMode = rt.playMode === "sequence" ? "sequence" : "song"
+    rt.tplTapeStartStep = Math.floor(startStep != null ? startStep : (typeof rt.perfStep === "number" ? rt.perfStep : 0))
+  }
+  // "New" clears the timeline; the next Play records a fresh take.
+  fn onNewTake() {
+    rt.tplTape = []
+    rt.tplStartState = null
+    bumpTimeline()
+  }
+  // Persist the current take as a Set: the sounds header + the played-trigger timeline.
+  fn onSaveRecording() {
+    if (!rt.tplTape || rt.tplTape.length === 0) {
+      return
+    }
+    let nm = prompt("Save this take as a Set (" + String(rt.tplTape.length) + " played steps)", "My Take")
+    if (nm && nm.length > 0) {
+      let header = rt.tplStartState != null ? rt.tplStartState : emitProject(project)
+      setLibrary.save(nm, emitSetStream(header, rt.tplTape, rt.tplRecMode), 0)
+      setSetLibGen(setLibGen + 1)
+    }
+  }
+  // Replay a take: install its trigger map and run the transport from 0 — transportTick fires the recorded
+  // triggers at each step (the ghost re-plays the exact performance), instead of recomputing from patterns.
+  fn replayTriggers(tape, mode) {
+    let map = {}
+    let maxStep = 0
+    let i = 0
+    while (i < tape.length) {
+      let e = tape[i]
+      map[Math.floor(Number(e.step))] = e.triggers
+      if (e.step > maxStep) {
+        maxStep = Math.floor(Number(e.step))
+      }
+      i = i + 1
+    }
+    rt.tplReplayTriggers = map
+    rt.tplReplayStartStep = 0
+    rt.tplReplayMaxStep = maxStep
+    rt.tplReplaying = true
+    onPlay(mode === "sequence" ? "sequence" : "song", 0)
+  }
+  // Load a recorded Set: load its sounds, show the played timeline, then replay it (the ghost).
+  fn onLoadReplay(nm) {
+    let st = setLibrary.get(nm)
+    if (!st || !isStreamSet(st.tpl)) {
+      return
+    }
+    let parsed = parseSetStream(st.tpl)
+    let res = loadProjectFromTpl(parsed.header)
+    loadFullProject(res.project)
+    rt.tplTape = parsed.events
+    bumpTimeline()
+    setTimeout(() => {
+      replayTriggers(parsed.events, parsed.mode)
+    }, 30)
+  }
 
   // Perf debug readout (direct-DOM, no React churn): target vs measured BPM, the scheduler's lookahead
   // buffer margin (headroom before audio underruns), and an underrun count. Colour = health.
@@ -1239,6 +1349,25 @@ export fn App() {
     PresetBar("Rack", levelPresetList(project, "rack"), (n) => loadPreset("rack", n), () => savePreset("rack"), "")
   ]
   let sessionHeaderRight = PresetBar("Session", levelPresetList(project, "session"), (n) => loadPreset("session", n), () => savePreset("session"), "")
+  // Recordings = the stream Sets (a recorded TPL tape) — listed in the Playlist panel for replay.
+  let recordingItems = []
+  let allLibSets = setLibrary.list()
+  let rli = 0
+  while (rli < allLibSets.length) {
+    if (isStreamSet(allLibSets[rli].tpl)) {
+      recordingItems.push(allLibSets[rli])
+    }
+    rli = rli + 1
+  }
+  let playlistProps = {
+    recording: rt.tplRecording === true,
+    playing: playing,
+    recordings: recordingItems,
+    onNewTake: onNewTake,
+    onSaveRecording: onSaveRecording,
+    onLoadReplay: onLoadReplay,
+    onStop: onStop
+  }
   let seqSession = (
     <div class="seq-session-wrap">
       <div class="seq-session-split">
@@ -1249,8 +1378,8 @@ export fn App() {
           {SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, patternBank, sessionHeaderRight)}
         </div>
       </div>
-      <div class="seq-arrange" key={"pl-" + String(sessionUiGen)}>
-        {PlaylistView(project, rt, setProjectFromUI)}
+      <div class="seq-arrange" key={"pl-" + String(timelineGen) + "-" + String(setLibGen)}>
+        {PlaylistView(project, rt, playlistProps)}
       </div>
     </div>
   )
@@ -1273,8 +1402,11 @@ export fn App() {
   let sli = 0
   while (sli < setLibItems.length) {
     let li = setLibItems[sli]
-    let tag = li.factory ? " (rack)" : " · " + String(li.players) + "p"
-    setLibOpts.push(<option value={li.name}>{li.name + tag}</option>)
+    // Recorded stream Sets live in the Playlist panel (replay), not the deck-load dropdown.
+    if (!isStreamSet(li.tpl)) {
+      let tag = li.factory ? " (rack)" : " · " + String(li.players) + "p"
+      setLibOpts.push(<option value={li.name}>{li.name + tag}</option>)
+    }
     sli = sli + 1
   }
   let freeSlotCount = freeDecks(project).length

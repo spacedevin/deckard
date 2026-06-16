@@ -1,148 +1,85 @@
-// PlaylistView — the FL-Studio "Playlist" / arrangement timeline. The `song` (project.session.song =
-// [{scene, repeat}]) is the TIME axis: an ordered, gapless sequence of scene-plays, each spanning its
-// scene's bar length × repeat. We render it as a horizontal BAR timeline with one ROW per scene (P1..Pn);
-// each song entry is a block placed at its cumulative bar offset on its scene's row (an FL-style
-// staircase). Editing rebuilds the `song` and re-emits it as TPL through the one ingest door
-// (rt.applyTpl), so a playlist edit is just another streamed statement — no side-channel, multiplayer-safe.
+// PlaylistView — the Set timeline: a recording of WHAT PLAYED. While the transport runs, every step's note
+// triggers (stepTriggers' output) are taped; this view draws them as a per-channel grid of the actual
+// performance — one lane per channel, a block at every step that channel fired. Save it as a Set and it
+// replays note-for-note (the ghost). Recording is always on; hitting Play starts a fresh take.
 
 import { h, Fragment } from '@tishlang/lattish'
-import { sceneBarLength } from '../model/Session.tish'
 
 let BAR_PX = 26
+let STEPS_PER_BAR = 16
+let LABEL_W = 76
 let MIN_BARS = 16
 
-// Distinct hue per scene so blocks read at a glance (mirrors the session scene columns).
-fn sceneHue(scene) {
-  return (Math.floor(Number(scene)) * 47 + 190) % 360
+fn channelLabel(project, bus) {
+  if (project && project.channels && bus >= 0 && bus < project.channels.length) {
+    let ch = project.channels[bus]
+    return ch && ch.name ? String(ch.name) : ("ch " + String(bus))
+  }
+  return "ch " + String(bus)
 }
 
-fn repOf(e) {
-  let r = e && e.repeat != null ? Math.floor(Number(e.repeat)) : 1
-  return r < 1 ? 1 : r
+fn laneHue(idx) {
+  return (idx * 47 + 190) % 360
 }
 
-// Rebuild the `song` block as a standalone TPL fragment (P1 = scene 0). Empty list → an empty `song` block.
-fn songToTpl(entries) {
-  let body = "tpl 1\nsong\n"
-  let i = 0
-  while (i < entries.length) {
-    let e = entries[i]
-    let rep = repOf(e)
-    body = body + "  P" + String(Math.floor(Number(e.scene)) + 1) + (rep > 1 ? " x" + String(rep) : "") + "\n"
-    i = i + 1
-  }
-  return body
-}
+export fn PlaylistView(project, rt, props) {
+  let p = props ? props : {}
+  let tape = rt && Array.isArray(rt.tplTape) ? rt.tplTape : []
+  let recordings = Array.isArray(p.recordings) ? p.recordings : []
 
-fn cloneSong(song) {
-  let out = []
-  let i = 0
-  while (i < song.length) {
-    out.push({ scene: Math.floor(Number(song[i].scene)), repeat: repOf(song[i]) })
-    i = i + 1
-  }
-  return out
-}
-
-export fn PlaylistView(project, rt, setProjectFromUI) {
-  let session = project.session ? project.session : { song: [], sceneCount: 4 }
-  let song = Array.isArray(session.song) ? session.song : []
-  let sceneCount = Math.floor(Number(session.sceneCount))
-  if (sceneCount < 1 || sceneCount !== sceneCount) {
-    sceneCount = 4
-  }
-  let selIdx = rt && rt.plSelectedIdx != null ? Math.floor(Number(rt.plSelectedIdx)) : -1
-  if (selIdx >= song.length) {
-    selIdx = -1
-  }
-
-  // Commit a new arrangement through the ingest door, then clear any now-invalid selection.
-  fn commit(newSong, keepSel) {
-    if (rt) {
-      rt.plSelectedIdx = keepSel != null ? keepSel : -1
-    }
-    if (rt && rt.applyTpl) {
-      rt.applyTpl(songToTpl(newSong))
-    } else if (project.session) {
-      project.session.song = newSong
-    }
-    if (setProjectFromUI) {
-      setProjectFromUI(project)
-    }
-  }
-  fn appendScene(s) {
-    let ns = cloneSong(song)
-    ns.push({ scene: s, repeat: 1 })
-    commit(ns, ns.length - 1)
-  }
-  fn removeAt(i) {
-    let ns = cloneSong(song)
-    ns.splice(i, 1)
-    commit(ns, -1)
-  }
-  fn bumpRepeat(i, d) {
-    let ns = cloneSong(song)
-    let r = repOf(ns[i]) + d
-    if (r < 1) {
-      r = 1
-    }
-    ns[i].repeat = r
-    commit(ns, i)
-  }
-  fn moveBy(i, dir) {
-    let j = i + dir
-    if (j < 0 || j >= song.length) {
-      return
-    }
-    let ns = cloneSong(song)
-    let tmp = ns[i]
-    ns[i] = ns[j]
-    ns[j] = tmp
-    commit(ns, j)
-  }
-  fn reorderTo(from, to) {
-    if (from === to || from < 0 || to < 0 || from >= song.length || to > song.length) {
-      return
-    }
-    let ns = cloneSong(song)
-    let moved = ns.splice(from, 1)[0]
-    let dest = to > from ? to - 1 : to
-    ns.splice(dest, 0, moved)
-    commit(ns, dest)
-  }
-  fn select(i) {
-    if (rt) {
-      rt.plSelectedIdx = i
-    }
-    if (setProjectFromUI) {
-      setProjectFromUI(project)
+  // Direct-DOM playhead mover (re-asserted every rAF by the transport.position subscriber in App).
+  if (rt) {
+    rt.updateTimelinePlayhead = (step, playing) => {
+      if (typeof document === "undefined") {
+        return
+      }
+      let el = document.querySelector(".pl-playhead")
+      if (!el) {
+        return
+      }
+      if (!playing || step < 0) {
+        el.style.opacity = "0"
+        return
+      }
+      el.style.opacity = "1"
+      el.style.left = String(LABEL_W + (step / STEPS_PER_BAR) * BAR_PX) + "px"
     }
   }
 
-  // Lay out blocks: cumulative bar offset + per-entry bar span (sceneBarLength × repeat).
-  let layout = []
-  let off = 0
-  let li = 0
-  while (li < song.length) {
-    let e = song[li]
-    let rep = repOf(e)
-    let span = sceneBarLength(project, e.scene) * rep
-    if (span < 1 || span !== span) {
-      span = rep
+  // Bucket played triggers into per-channel lanes; each lane records which steps it fired on.
+  let laneOrder = []
+  let laneMap = {}
+  let maxStep = 0
+  let totalNotes = 0
+  let ti = 0
+  while (ti < tape.length) {
+    let e = tape[ti]
+    if (e.step > maxStep) {
+      maxStep = e.step
     }
-    layout.push({ idx: li, scene: Math.floor(Number(e.scene)), repeat: rep, barOffset: off, barSpan: span })
-    off = off + span
-    li = li + 1
+    let trs = e.triggers != null ? e.triggers : []
+    let k = 0
+    while (k < trs.length) {
+      let bus = Math.floor(Number(trs[k].busIndex))
+      let key = String(bus)
+      if (!laneMap[key]) {
+        laneMap[key] = { bus: bus, label: channelLabel(project, bus), steps: {} }
+        laneOrder.push(key)
+      }
+      laneMap[key].steps[e.step] = true
+      totalNotes = totalNotes + 1
+      k = k + 1
+    }
+    ti = ti + 1
   }
-  let totalBars = off
-  let gridBars = totalBars + 4 > MIN_BARS ? totalBars + 4 : MIN_BARS
+  // Stable order: by channel index.
+  laneOrder.sort((a, b) => laneMap[a].bus - laneMap[b].bus)
+
+  let gridBars = Math.ceil((maxStep + 1) / STEPS_PER_BAR) + 2
+  if (gridBars < MIN_BARS) {
+    gridBars = MIN_BARS
+  }
   let laneWidth = gridBars * BAR_PX
-
-  // playhead: the song entry currently playing (rt.songPos.idx), only while a song is live.
-  let playIdx = -1
-  if (rt && rt.playing && rt.playMode === "song" && rt.songPos != null && rt.songPos.idx != null) {
-    playIdx = Math.floor(Number(rt.songPos.idx))
-  }
 
   // ---- bar ruler ----
   let ruler = []
@@ -156,96 +93,103 @@ export fn PlaylistView(project, rt, setProjectFromUI) {
     b = b + 1
   }
 
-  // ---- scene rows (P1..Pn), each with its blocks ----
+  // ---- lanes (one per channel that played) ----
   let rows = []
-  let s = 0
-  while (s < sceneCount) {
-    let hue = sceneHue(s)
-    let rowBlocks = []
-    let k = 0
-    while (k < layout.length) {
-      let bl = layout[k]
-      if (bl.scene === s) {
-        let isSel = bl.idx === selIdx
-        let cls = "pl-block"
-        if (isSel) {
-          cls = cls + " pl-block-sel"
-        }
-        if (bl.idx === playIdx) {
-          cls = cls + " pl-block-playing"
-        }
-        let theBl = bl
-        rowBlocks.push(
-          <div
-            class={cls}
-            draggable="true"
-            title={"P" + String(s + 1) + " ×" + String(bl.repeat) + " — " + String(bl.barSpan) + " bar" + (bl.barSpan === 1 ? "" : "s") + ". Drag to reorder."}
-            style={{ left: String(bl.barOffset * BAR_PX) + "px", width: String(bl.barSpan * BAR_PX - 2) + "px", background: "hsl(" + String(hue) + ", 70%, 42%)", borderColor: "hsl(" + String(hue) + ", 80%, 62%)" }}
-            onclick={(e) => { e.stopPropagation(); select(theBl.idx) }}
-            ondragstart={(e) => { if (rt) { rt.plDragFrom = theBl.idx } }}
-            ondragover={(e) => e.preventDefault()}
-            ondrop={(e) => { e.preventDefault(); if (rt && rt.plDragFrom != null) { reorderTo(rt.plDragFrom, theBl.idx); rt.plDragFrom = null } }}
-          >
-            <span class="pl-block-name">{"P" + String(s + 1)}</span>
-            {bl.repeat > 1 ? <span class="pl-block-rep">{"×" + String(bl.repeat)}</span> : null}
-          </div>
-        )
-      }
-      k = k + 1
-    }
-    let scn = s
-    rows.push(
-      <div class="pl-row">
-        <button
-          class="pl-row-label"
-          style={{ color: "hsl(" + String(hue) + ", 75%, 68%)", borderColor: "hsl(" + String(hue) + ", 60%, 38%)" }}
-          title={"Append scene P" + String(s + 1) + " to the arrangement"}
-          onclick={() => appendScene(scn)}
-        >
-          {"P" + String(s + 1)}<span class="pl-row-add">{"＋"}</span>
-        </button>
+  let li = 0
+  while (li < laneOrder.length) {
+    let lane = laneMap[laneOrder[li]]
+    let hue = laneHue(li)
+    let blocks = []
+    let stepKeys = Object.keys(lane.steps)
+    let si = 0
+    while (si < stepKeys.length) {
+      let s = Math.floor(Number(stepKeys[si]))
+      let left = (s / STEPS_PER_BAR) * BAR_PX
+      blocks.push(
         <div
-          class="pl-row-lane"
-          style={{ width: String(laneWidth) + "px" }}
-          ondragover={(e) => e.preventDefault()}
-          ondrop={(e) => { e.preventDefault(); if (rt && rt.plDragFrom != null) { reorderTo(rt.plDragFrom, song.length); rt.plDragFrom = null } }}
-        >
-          {rowBlocks}
+          class="pl-evt"
+          style={{ left: String(left) + "px", background: "hsl(" + String(hue) + ", 68%, 50%)", borderColor: "hsl(" + String(hue) + ", 80%, 68%)" }}
+          title={lane.label + " · step " + String(s)}
+        ></div>
+      )
+      si = si + 1
+    }
+    rows.push(
+      <div class="pl-lane">
+        <div class="pl-lane-label" style={{ color: "hsl(" + String(hue) + ", 75%, 70%)" }} title={lane.label}>
+          {lane.label}
         </div>
+        <div class="pl-lane-track" style={{ width: String(laneWidth) + "px" }}>{blocks}</div>
       </div>
     )
-    s = s + 1
+    li = li + 1
   }
-
-  // ---- selected-block control bar ----
-  let ctlBar = null
-  if (selIdx >= 0 && selIdx < song.length) {
-    let se = song[selIdx]
-    ctlBar = (
-      <div class="pl-ctl">
-        <span class="pl-ctl-label">{"P" + String(Math.floor(Number(se.scene)) + 1) + " · block " + String(selIdx + 1) + "/" + String(song.length)}</span>
-        <button class="pl-ctl-btn" title="Earlier" onclick={() => moveBy(selIdx, -1)}>{"◀"}</button>
-        <button class="pl-ctl-btn" title="Later" onclick={() => moveBy(selIdx, 1)}>{"▶"}</button>
-        <span class="pl-ctl-sep">{"repeat"}</span>
-        <button class="pl-ctl-btn" title="Fewer repeats" onclick={() => bumpRepeat(selIdx, -1)}>{"−"}</button>
-        <span class="pl-ctl-rep">{"×" + String(repOf(se))}</span>
-        <button class="pl-ctl-btn" title="More repeats" onclick={() => bumpRepeat(selIdx, 1)}>{"＋"}</button>
-        <button class="pl-ctl-btn pl-ctl-del" title="Remove block" onclick={() => removeAt(selIdx)}>{"✕"}</button>
-      </div>
+  if (laneOrder.length === 0) {
+    rows.push(
+      <div class="pl-empty-hint">{"hit Play (Sequence or Session) — whatever plays is captured here, then Save it as a replayable Set"}</div>
     )
   }
 
-  let empty = song.length === 0
+  // ---- recordings dropdown ----
+  let recOpts = [<option value="">{"— replay a Set —"}</option>]
+  let ri = 0
+  while (ri < recordings.length) {
+    recOpts.push(<option value={recordings[ri].name}>{recordings[ri].name}</option>)
+    ri = ri + 1
+  }
+
+  let steps = tape.length
+  let bars = Math.ceil((maxStep + 1) / STEPS_PER_BAR)
+  let status = steps === 0
+    ? "nothing recorded yet"
+    : String(totalNotes) + " note" + (totalNotes === 1 ? "" : "s") + " · " + String(steps) + " step" + (steps === 1 ? "" : "s") + " · " + String(bars) + " bar" + (bars === 1 ? "" : "s")
+
   return (
-    <div class="pl-view">
+    <div class="pl-view pl-tpl">
       <div class="pl-head">
-        <span class="pl-title">{"ARRANGEMENT"}</span>
-        <span class="pl-sub">{empty ? "click a P-row to add a block" : String(song.length) + " block" + (song.length === 1 ? "" : "s") + " · " + String(totalBars) + " bars"}</span>
-        {ctlBar}
+        <span class="pl-title">{"SET RECORDER"}</span>
+        <span class="pl-rec pl-rec-on" title="Always recording — hit Play and whatever the sequencer fires is captured here">
+          <span class="pl-rec-dot"></span>{"REC"}
+        </span>
+        <button
+          type="button"
+          class="pl-btn"
+          title="Clear the timeline — the next Play records a fresh take"
+          onclick={() => { if (p.onNewTake) { p.onNewTake() } }}
+        >
+          {"New"}
+        </button>
+        <button
+          type="button"
+          class="pl-btn"
+          title="Save this take as a replayable Set"
+          disabled={steps === 0}
+          onclick={() => { if (p.onSaveRecording) { p.onSaveRecording() } }}
+        >
+          {"Save"}
+        </button>
+        <select
+          class="pl-replay-select"
+          value=""
+          title="Load a recorded Set and replay exactly what played (the ghost)"
+          onchange={(e) => {
+            let n = e.target.value
+            e.target.value = ""
+            if (n && n.length > 0 && p.onLoadReplay) {
+              p.onLoadReplay(n)
+            }
+          }}
+        >
+          {recOpts}
+        </select>
+        <span class="pl-status">{status}</span>
       </div>
       <div class="pl-scroll">
-        <div class="pl-ruler" style={{ width: String(laneWidth) + "px" }}>{ruler}</div>
-        <div class="pl-rows" onclick={() => select(-1)}>{rows}</div>
+        <div class="pl-grid">
+          <div class="pl-ruler" style={{ width: String(laneWidth) + "px" }}>{ruler}</div>
+          <div class="pl-rows">{rows}</div>
+          <div class="pl-playhead"></div>
+        </div>
       </div>
     </div>
   )

@@ -111,15 +111,32 @@ export fn transportTick(project, store, globalStep, rt, whenSec) {
     bend = automationAt(project.automation.pitchBend, stepInBar * 0.25)
   }
   // Selection (pure) → audio (the only difference between a real client and a headless one).
-  let triggers = stepTriggers(project, rt, globalStep)
+  // RECORD/REPLAY (the "Set" = what actually PLAYED): during a replay we FIRE the recorded triggers for
+  // this step instead of recomputing them from the project (so the ghost re-plays the exact performance);
+  // during a normal play we record stepTriggers' output — that note stream IS the performance.
+  let triggers
+  if (rt && rt.tplReplaying && rt.tplReplayTriggers) {
+    let rel = Math.floor(globalStep) - Math.floor(rt.tplReplayStartStep != null ? rt.tplReplayStartStep : 0)
+    triggers = rt.tplReplayTriggers[rel] != null ? rt.tplReplayTriggers[rel] : []
+  } else {
+    triggers = stepTriggers(project, rt, globalStep)
+    if (rt && rt.recordPlayedStep) {
+      rt.recordPlayedStep(globalStep, triggers)
+    }
+  }
   let i = 0
   while (i < triggers.length) {
     let tr = triggers[i]
+    let ch = project.channels[tr.busIndex]
     let bus = store.buses[tr.busIndex]
-    let gch = generatorChannelAtBeat(project, project.channels[tr.busIndex], tr.beat)
-    // Chord notes can be offset in time (strum) or rippled (arpeggio); offset is seconds after the step.
-    let tWhen = tr.noteOffset != null ? t + tr.noteOffset : t
-    playHitAt(ctx, bus, tWhen, tr.pitch, tr.vel, tr.durSec, gch, bend)
+    // A replayed trigger can reference a channel the current project no longer has (e.g. the recording
+    // owns more channels than the loaded header) — skip it rather than crash on a missing channel/bus.
+    if (ch != null && bus != null) {
+      let gch = generatorChannelAtBeat(project, ch, tr.beat)
+      // Chord notes can be offset in time (strum) or rippled (arpeggio); offset is seconds after the step.
+      let tWhen = tr.noteOffset != null ? t + tr.noteOffset : t
+      playHitAt(ctx, bus, tWhen, tr.pitch, tr.vel, tr.durSec, gch, bend)
+    }
     i = i + 1
   }
 }

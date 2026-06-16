@@ -9,9 +9,10 @@ import { emitProject } from '../src/tpl/Emit.tish'
 import { applyTplSource, findChannelById } from '../src/tpl/Apply.tish'
 import { emitLevel, retargetTpl, splitTplBlocks, levelList } from '../src/core/Levels.tish'
 import { createStationPresets } from '../src/core/StationPresets.tish'
-import { createSetLibrary, emitSet, parseSet, loadSet, freeDecks } from '../src/core/SetLibrary.tish'
+import { createSetLibrary, emitSet, parseSet, loadSet, freeDecks, emitSetStream, parseSetStream, isStreamSet } from '../src/core/SetLibrary.tish'
 import { loadDeckSet, deckSetCatalog } from '../src/model/DeckSets.tish'
 import { channelDeck } from '../src/model/DeckRouting.tish'
+import { stepTriggers } from '../src/audio/Playback.tish'
 import { levelPresetList, addLevelPreset, findLevelPreset, removeLevelPreset } from '../src/model/LevelPresets.tish'
 
 let pass = 0
@@ -218,6 +219,52 @@ loadDeckSet(full, "D", cat[0].id)
 check("[loadset] all four decks occupied", freeDecks(full).length === 0)
 let none = loadSet(full, { tpl: setTpl }, null)
 check("[loadset] no free slots → loaded 0 (listen-only)", none.loaded === 0)
+
+console.log("=== Recorded Set (what played — trigger tape) ===")
+let tape = [
+  { step: 0, triggers: [{ busIndex: 0, pitch: 36, vel: 100, durSec: 0.12, beat: 0, noteOffset: 0 }] },
+  { step: 4, triggers: [{ busIndex: 1, pitch: 42, vel: 90, durSec: 0.1, beat: 1, noteOffset: 0 }, { busIndex: 0, pitch: 36, vel: 100, durSec: 0.12, beat: 1, noteOffset: 0 }] },
+  { step: 8, triggers: [{ busIndex: 2, pitch: 60, vel: 80, durSec: 0.25, beat: 2, noteOffset: 0.0125 }] }
+]
+let headerTpl = emitProject(loadDefaultDeckardProject().project)
+let streamTpl = emitSetStream(headerTpl, tape, "song")
+check("[rec] isStreamSet true for a recorded Set", isStreamSet(streamTpl))
+check("[rec] isStreamSet false for a player Set", !isStreamSet(setTpl))
+let ps = parseSetStream(streamTpl)
+check("[rec] header round-trips (tpl + a track, no plays marker)", ps.header.indexOf("tpl 1") >= 0 && ps.header.indexOf("track ") >= 0 && ps.header.indexOf("# plays") < 0)
+check("[rec] play mode parsed", ps.mode === "song")
+check("[rec] all 3 played steps parsed", ps.events.length === 3 && ps.events[0].step === 0 && ps.events[1].step === 4 && ps.events[2].step === 8)
+check("[rec] chord step keeps both triggers", ps.events[1].triggers.length === 2)
+check("[rec] trigger fields round-trip", ps.events[0].triggers[0].busIndex === 0 && ps.events[0].triggers[0].pitch === 36 && Math.abs(ps.events[0].triggers[0].durSec - 0.12) < 1e-6)
+check("[rec] fractional fields (beat/offset) preserved", ps.events[2].triggers[0].busIndex === 2 && ps.events[2].triggers[0].pitch === 60 && Math.abs(ps.events[2].triggers[0].noteOffset - 0.0125) < 1e-6)
+
+// End-to-end with the REAL engine: stepTriggers (what plays) → tape → Set → parse → replay map.
+let rp = loadDefaultDeckardProject().project
+rp.transportCrossfade = 0   // favour deck A so the default kit is audible in this headless config
+rp.transportCrossfadeY = 0
+let rt0 = { playMode: "sequence" }   // Sequence mode = play the rack pattern (what Play does on the rack)
+let recTape = []
+let s = 0
+while (s < 16) {
+  let trg = stepTriggers(rp, rt0, s)
+  if (trg.length > 0) {
+    recTape.push({ step: s, triggers: trg })
+  }
+  s = s + 1
+}
+check("[rec] real engine fires notes across a bar (the default kit plays)", recTape.length > 0)
+let recSet = emitSetStream(emitProject(rp), recTape, "sequence")
+let recParsed = parseSetStream(recSet)
+check("[rec] played performance round-trips through a Set", recParsed.events.length === recTape.length)
+let rmap = {}
+let rmi = 0
+while (rmi < recParsed.events.length) {
+  rmap[recParsed.events[rmi].step] = recParsed.events[rmi].triggers
+  rmi = rmi + 1
+}
+let firstStep = recTape.length > 0 ? recTape[0].step : -1
+check("[rec] replay map returns the triggers recorded for a step", recTape.length > 0 && rmap[firstStep] != null && rmap[firstStep].length === recTape[0].triggers.length)
+check("[rec] a replayed note matches what actually played (bus + pitch)", recTape.length > 0 && rmap[firstStep][0].busIndex === recTape[0].triggers[0].busIndex && rmap[firstStep][0].pitch === recTape[0].triggers[0].pitch)
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))

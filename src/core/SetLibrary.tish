@@ -31,6 +31,8 @@ let KEY = "deckard.sets.v1"
 let TAG = "# deckard-set"
 let PLAYER_MARK = "# player"
 let SONG_MARK = "# song"
+let MODE_MARK = "# mode"
+let PLAYS_MARK = "# plays"
 let DECK_LETTERS = ["A", "B", "C", "D"]
 
 fn firstTokenLn(ln) {
@@ -302,6 +304,119 @@ export fn loadSet(project, set, targetDeck) {
   }
   restoreSong(project, parsed.song)
   return { loaded: decks.length, decks: decks }
+}
+
+// ---- Recorded Sets: WHAT PLAYED (the "Set" = a captured performance) ----------------------------------
+// A recorded Set is the project SOUND state at the take's start (the header) followed by a `# plays` tape:
+// one line per played step — `@<step> <bus>:<pitch>:<vel>:<dur>:<beat>:<offset> …` — i.e. the exact note
+// triggers the sequencer fired. Replaying loads the sounds then re-fires these triggers step-for-step (the
+// ghost re-plays the performance). This is the Set: not the edits, what actually came out.
+
+/** True if a Set carries a recorded played-trigger tape (vs the player/deck-graft format). */
+export fn isStreamSet(tpl) {
+  return String(tpl == null ? "" : tpl).indexOf(PLAYS_MARK) >= 0
+}
+
+// Compact number: up to 4 decimals, no trailing zeros.
+fn fmtNum(n) {
+  if (n == null) {
+    return "0"
+  }
+  let v = Number(n)
+  if (v !== v) {
+    return "0"
+  }
+  return String(Math.round(v * 10000) / 10000)
+}
+
+// tape = [{step, triggers:[{busIndex,pitch,vel,durSec,beat,noteOffset}]}] → the `# plays` body text.
+fn serializeTape(tape) {
+  let out = ""
+  let i = 0
+  while (i < tape.length) {
+    let e = tape[i]
+    out = out + "@" + String(Math.floor(Number(e.step)))
+    let trs = e.triggers != null ? e.triggers : []
+    let j = 0
+    while (j < trs.length) {
+      let t = trs[j]
+      out = out + " " + String(Math.floor(Number(t.busIndex))) + ":" + fmtNum(t.pitch) + ":" + fmtNum(t.vel) + ":" + fmtNum(t.durSec) + ":" + fmtNum(t.beat) + ":" + fmtNum(t.noteOffset)
+      j = j + 1
+    }
+    out = out + "\n"
+    i = i + 1
+  }
+  return out
+}
+
+fn parseTapeLines(lines) {
+  let events = []
+  let i = 0
+  while (i < lines.length) {
+    let t = String(lines[i]).trim()
+    if (t.length > 1 && t.charAt(0) === "@") {
+      let toks = wsplit(t)
+      let step = Number(toks[0].substring(1))
+      if (step === step) {
+        let triggers = []
+        let k = 1
+        while (k < toks.length) {
+          let parts = toks[k].split(":")
+          if (parts.length >= 6) {
+            triggers.push({
+              busIndex: Math.floor(Number(parts[0])),
+              pitch: Number(parts[1]),
+              vel: Number(parts[2]),
+              durSec: Number(parts[3]),
+              beat: Number(parts[4]),
+              noteOffset: Number(parts[5])
+            })
+          }
+          k = k + 1
+        }
+        events.push({ step: Math.floor(step), triggers: triggers })
+      }
+    }
+    i = i + 1
+  }
+  return events
+}
+
+/**
+ * Serialize a recorded Set: the sound-state project TPL (header) + the play mode + the played-trigger tape.
+ * `headerTpl` is emitProject(startState); `tape` is the recorder's [{step,triggers}] log.
+ */
+export fn emitSetStream(headerTpl, tape, mode) {
+  let m = mode === "sequence" ? "sequence" : "song"
+  return String(headerTpl) + "\n" + MODE_MARK + " " + m + "\n" + PLAYS_MARK + "\n" + serializeTape(tape)
+}
+
+/** Parse a recorded Set back into { header, mode, events:[{step,triggers}] }. */
+export fn parseSetStream(tpl) {
+  let lines = String(tpl == null ? "" : tpl).split("\n")
+  let header = []
+  let evLines = []
+  let mode = "song"
+  let inPlays = false
+  let i = 0
+  while (i < lines.length) {
+    let ln = lines[i]
+    let t = ln.trim()
+    if (!inPlays && t.indexOf(PLAYS_MARK) === 0) {
+      inPlays = true
+    } else if (inPlays) {
+      evLines.push(ln)
+    } else if (t.indexOf(MODE_MARK) === 0) {
+      let mv = t.substring(MODE_MARK.length).trim()
+      if (mv === "sequence" || mv === "song") {
+        mode = mv
+      }
+    } else {
+      header.push(ln)
+    }
+    i = i + 1
+  }
+  return { header: header.join("\n"), mode: mode, events: parseTapeLines(evLines) }
 }
 
 // Wrap a catalog deck-set rack as a 1-player Set body (plain rack, no clips, no arrangement → it just
