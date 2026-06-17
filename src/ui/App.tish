@@ -10,7 +10,7 @@ import { PresetBar } from './PresetBar.tish'
 import { emitProject, emitLivePlayback } from '../tpl/Emit.tish'
 import { CodeDebugView } from './CodeDebugView.tish'
 import { migrateProjectGenerators } from '../model/Migrate.tish'
-import { ensureAudio, updateMixerFromProject, resyncAllChannelBuses, applyCueRouting, applyOutputDevices, setCueLevel, setCueSyncOffset } from '../audio/Engine.tish'
+import { ensureAudio, updateMixerFromProject, resyncAllChannelBuses, applyCueRouting, applyOutputDevices, setCueLevel, setCueSyncOffset, setMainAutoSync, ensureCueOutput, suspendDrawsAround, drawsSuspended, setDrawDisabled } from '../audio/Engine.tish'
 import { createAudioDeviceSettings } from '../core/AudioDeviceSettings.tish'
 import { AudioRackPanel } from './AudioRackPanel.tish'
 import { transportTick } from '../audio/Playback.tish'
@@ -100,7 +100,7 @@ fn instrumentEq(a, b) {
 let InstrumentStackMemo = memo((p) => InstrumentStack(p.project, p.selectedCh, p.setProjectFromUI, p.tplMirrorFlush, p.rt), instrumentEq)
 
 fn deckMixerEq(a, b) {
-  return a.xfadeX === b.xfadeX && a.xfadeY === b.xfadeY && a.channelsRev === b.channelsRev
+  return a.xfadeX === b.xfadeX && a.xfadeY === b.xfadeY && a.channelsRev === b.channelsRev && a.deckMixRev === b.deckMixRev
 }
 let DeckMixerMemo = memo((p) => DeckMixer(p.project, p.setProjectFromUI, p.touchMixer, p.rt), deckMixerEq)
 
@@ -118,6 +118,10 @@ let audioStore = {}
 // Preview runs on its OWN clock, fully independent of the live (Sequence/Session) transport.
 let previewTimer = null
 let previewTick = 0
+// rAF coalescing flag for the per-deck mixer (EQ knobs / deck volume) — those mutate project.deckEq in
+// place and must NOT reconcile+re-render synchronously per mousemove (that saturates the main thread and
+// starves the audio clock). One reconcile + one DeckMixer-only re-render per frame instead.
+let deckMixPending = false
 export fn App() {
   let [project, setProject] = useState(initialDeckardBoot.project)
   migrateProjectGenerators(project)
@@ -132,6 +136,7 @@ export fn App() {
   let [sessionUiGen, setSessionUiGen] = useState(0)
   let [seqPromoteUi, setSeqPromoteUi] = useState(0)
   let [gridGen, setGridGen] = useState(0)
+  let [deckMixRev, setDeckMixRev] = useState(0)
 
   // MUST use the functional updater (like bumpSeqPromoteUi/bumpGrid below): this is called from the
   // long-lived scheduleStep closure (created once per Play press), so `sessionUiGen` captured by value
@@ -153,6 +158,22 @@ export fn App() {
   let rt = rtRef.current
   rt.bumpSeqPromoteUi = () => {
     setSeqPromoteUi((x) => x + 1)
+  }
+  // Per-deck EQ/volume reconcile, rAF-coalesced + DeckMixer-scoped (deckMixRev only — NOT bumpAllRev, so the
+  // step grid / session / instrument panels don't re-render on a deck fader move). Audio + the lever/knob
+  // visual both land once per frame, however fast the user drags.
+  rt.scheduleDeckMix = () => {
+    if (deckMixPending) {
+      return
+    }
+    deckMixPending = true
+    requestAnimationFrame(() => {
+      deckMixPending = false
+      if (audioStore.ctx) {
+        updateMixerFromProject(rtRef.current.project, audioStore)
+      }
+      setDeckMixRev((x) => x + 1)
+    })
   }
   rt.bumpGrid = () => {
     setGridGen((x) => x + 1)
@@ -305,6 +326,11 @@ export fn App() {
         if (r.updateTimelinePlayhead) {
           r.updateTimelinePlayhead(0, false)
         }
+        return
+      }
+      // Honour the draw gate (user-disabled, or an audio-source-switch quiet window): the playhead is a
+      // draw call too. The rAF/position stream keeps running, so it resumes the moment the gate clears.
+      if (drawsSuspended(audioStore)) {
         return
       }
       if (r.setPlaybackHighlight) {
@@ -531,16 +557,28 @@ export fn App() {
     }
     rt.cuedDecks[deck] = !rt.cuedDecks[deck]
     audioStore.cuedDecks = rt.cuedDecks
-    if (audioStore.ctx) {
-      applyCueRouting(project, audioStore)
-    }
+    // Button lights immediately; the actual cue (headphone) routing flips inside a draw-quiet window so the
+    // main thread isn't drawing while the audio source changes — keeps the cue in sync with the main.
     setCueGen((g) => g + 1)
+    if (audioStore.ctx) {
+      suspendDrawsAround(audioStore, () => {
+        applyCueRouting(rtRef.current.project, audioStore)
+      })
+    }
   }
   // Pin the live audio sinks to the saved speaker/headphone devices + cue level. Called right after audio
   // starts (the dual-output <audio> els exist only after ensureAudio).
   fn applyIoRack() {
     let io = audioDevices.get()
+    setDrawDisabled(audioStore, io.drawOff)
+    setMainAutoSync(audioStore, io.autoSync)
     applyOutputDevices(audioStore, io.speakers, io.headphones)
+    // Pre-warm the cue (headphone) output at audio init so the speakers + headphones sinks are both
+    // established up front — live cue toggles are then just a gain flip, never a setSinkId/path-build
+    // mid-playback (which is what glitched the sync).
+    if (audioStore.canDualOut) {
+      ensureCueOutput(audioStore)
+    }
     setCueLevel(audioStore, io.cueLevel)
     setCueSyncOffset(audioStore, io.cueOffsetMs)
     // Re-sync cue sends here (on play), not in the per-emit mixer hot path — covers decks cued while stopped.
@@ -586,7 +624,19 @@ export fn App() {
 
   if (!rt.dawScopeStarted) {
     rt.dawScopeStarted = true
+    let scopeTick = 0
     fn scopeFrame() {
+      // The scope/spectrum/meter drawing is purely visual and the heaviest per-frame main-thread work
+      // (5+ canvases, O(fftSize) each). Throttle it to ~30fps so it doesn't compete with audio scheduling
+      // + interaction — 30fps meters/waves are indistinguishable from 60. The playhead is on a separate
+      // (un-throttled) Transport draw loop, so timing visuals stay crisp.
+      scopeTick = scopeTick + 1
+      // Skip drawing when the user disabled draws OR we're inside an audio-source-switch quiet window, and
+      // throttle the rest to ~30fps. The rAF keeps spinning so it resumes the instant the gate clears.
+      if (drawsSuspended(audioStore) || scopeTick % 2 !== 0) {
+        requestAnimationFrame(scopeFrame)
+        return
+      }
       if (audioStore.analyser) {
         let spec = document.querySelector(".dk-spectrum")
         if (spec) {
@@ -1241,6 +1291,21 @@ export fn App() {
       editorRef.current.emit("bpm", v)
     }
   }
+  // The −/+ deck-style nudge buttons step by `delta`. Read the LIVE bpm from the fold (updated synchronously
+  // on emit) — NOT a render-time prop — so a fast burst of taps accumulates instead of all reading one stale
+  // value before the rAF-coalesced re-render. Clamp + emit through the one write door.
+  fn onBpmStep(delta) {
+    let p = rtRef.current.project
+    let cur = p && typeof p.bpm === "number" ? p.bpm : 120
+    let n = Math.round(cur + Number(delta))
+    if (n < 40) {
+      n = 40
+    }
+    if (n > 240) {
+      n = 240
+    }
+    editorRef.current.emit("bpm", n)
+  }
 
   fn onExport() {
     let blob = projectToJson(project)
@@ -1578,6 +1643,7 @@ export fn App() {
         onPlayStop,
         (m) => selectPlayMode(m),
         onBpmInput,
+        onBpmStep,
         onExport,
         onImport,
         project.transportMainDeck !== "local" ? "live" : "local",
@@ -1632,7 +1698,7 @@ export fn App() {
         {seqSession}
         {h(InstrumentStackMemo, { project: project, selectedCh: selectedCh, setProjectFromUI: setProjectFromUI, tplMirrorFlush: tplMirrorFlush, rt: rt, channelsRev: channelsRev })}
       </div>
-      {h(DeckMixerMemo, { project: project, setProjectFromUI: setProjectFromUI, touchMixer: touchMixer, rt: rt, xfadeX: xfadeX, xfadeY: xfadeY, channelsRev: channelsRev })}
+      {h(DeckMixerMemo, { project: project, setProjectFromUI: setProjectFromUI, touchMixer: touchMixer, rt: rt, xfadeX: xfadeX, xfadeY: xfadeY, channelsRev: channelsRev, deckMixRev: deckMixRev })}
       <div class="daw-bottom-split">
         <div class="daw-bottom-col daw-bottom-codj">{CoDjPanel(project, setProject, tplMirrorFlush, rt)}</div>
         <div class="daw-bottom-col daw-tpl-dock">{CodeDebugView(project, setProject, tplText, setTplText, rt, true)}</div>

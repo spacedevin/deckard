@@ -451,13 +451,6 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
         if (bars < 1 || bars !== bars) {
           bars = 1
         }
-        let nm = clip.name && String(clip.name).length > 0 ? String(clip.name) : clip.id
-        // The row already shows the track name, so drop the "<Track> ·" prefix from the clip label — just
-        // the scene id ("S1") remains.
-        let dotIx = nm.indexOf("·")
-        if (dotIx >= 0) {
-          nm = nm.substring(dotIx + 1)
-        }
         let dsuf = deckSuffix(project, ch)
         let cellCls = "session-cell session-cell-deck-" + dsuf
         if (isPlaying) {
@@ -475,7 +468,6 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
             onclick={() => armCell(tix, clipIdCopy)}
             title={"Launch this clip — drops on the next launch-quantize boundary (Q in the transport)"}
           >
-            <span class="session-cell-name">{nm}</span>
             <svg class="session-wave" viewBox="0 0 120 24" preserveAspectRatio="none">
               <path class={"session-wave-fill session-wave-" + dsuf} d={wavePath} />
             </svg>

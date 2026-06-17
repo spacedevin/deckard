@@ -5,7 +5,7 @@
 
 import { h, Fragment, useState, useEffect, useRef } from '@tishlang/lattish'
 import { createAudioDeviceSettings } from '../core/AudioDeviceSettings.tish'
-import { applyOutputDevices, setCueLevel, setCueSyncOffset } from '../audio/Engine.tish'
+import { applyOutputDevices, setCueLevel, setCueSyncOffset, setMainAutoSync, setDrawDisabled, suspendDrawsAround } from '../audio/Engine.tish'
 
 export fn AudioRackPanel(audioStore) {
   let storeRef = useRef(null)
@@ -64,25 +64,52 @@ export fn AudioRackPanel(audioStore) {
     }
   }, [])
 
-  fn applyAll(next) {
+  // isSwitch = this change reroutes the audio graph / sinks (device pick, auto-sync) → do it inside a
+  // draw-quiet window. Param tweaks (cue level, offset, draw toggle) apply immediately.
+  fn applyAll(next, isSwitch) {
     setSel(next)
     settings.save(next)
-    if (audioStore) {
-      applyOutputDevices(audioStore, next.speakers, next.headphones)
-      setCueLevel(audioStore, next.cueLevel)
-      setCueSyncOffset(audioStore, next.cueOffsetMs)
+    if (!audioStore) {
+      return
+    }
+    setDrawDisabled(audioStore, next.drawOff)
+    setCueLevel(audioStore, next.cueLevel)
+    setCueSyncOffset(audioStore, next.cueOffsetMs)
+    if (isSwitch) {
+      suspendDrawsAround(audioStore, () => {
+        // Reroute MAIN onto/off the matched <audio> path FIRST, so the device routing below picks the right sink.
+        setMainAutoSync(audioStore, next.autoSync)
+        applyOutputDevices(audioStore, next.speakers, next.headphones)
+      })
     }
   }
+  fn baseNext() {
+    return { speakers: sel.speakers, headphones: sel.headphones, cueLevel: sel.cueLevel, cueOffsetMs: sel.cueOffsetMs, autoSync: sel.autoSync, drawOff: sel.drawOff }
+  }
   fn onPick(role, id) {
-    let next = { speakers: sel.speakers, headphones: sel.headphones, cueLevel: sel.cueLevel, cueOffsetMs: sel.cueOffsetMs }
+    let next = baseNext()
     next[role] = id
-    applyAll(next)
+    applyAll(next, true)
   }
   fn onCue(v) {
-    applyAll({ speakers: sel.speakers, headphones: sel.headphones, cueLevel: Number(v), cueOffsetMs: sel.cueOffsetMs })
+    let next = baseNext()
+    next.cueLevel = Number(v)
+    applyAll(next, false)
   }
   fn onCueOffset(v) {
-    applyAll({ speakers: sel.speakers, headphones: sel.headphones, cueLevel: sel.cueLevel, cueOffsetMs: Number(v) })
+    let next = baseNext()
+    next.cueOffsetMs = Number(v)
+    applyAll(next, false)
+  }
+  fn onAutoSync() {
+    let next = baseNext()
+    next.autoSync = !sel.autoSync
+    applyAll(next, true)
+  }
+  fn onDrawToggle() {
+    let next = baseNext()
+    next.drawOff = !sel.drawOff
+    applyAll(next, false)
   }
 
   fn deviceOptions() {
@@ -115,10 +142,30 @@ export fn AudioRackPanel(audioStore) {
         <span class="io-slot-label">{"CUE"}</span>
         <input type="range" min="0" max="1.2" step="0.01" value={String(sel.cueLevel)} onmousedown={(e) => e.stopPropagation()} oninput={(e) => onCue(e.target.value)} />
       </label>
-      <label class="io-slot io-cue" title="Monitor offset — delay the speakers to line them up with the (buffered) headphone cue. Dial by ear until they're in time.">
-        <span class="io-slot-label">{"SYNC " + String(Math.round(Number(sel.cueOffsetMs))) + "ms"}</span>
-        <input type="range" min="0" max="500" step="1" value={String(sel.cueOffsetMs)} onmousedown={(e) => e.stopPropagation()} oninput={(e) => onCueOffset(e.target.value)} />
-      </label>
+      <button
+        type="button"
+        class={sel.autoSync ? "io-autosync io-autosync-on" : "io-autosync"}
+        title="AUTO-SYNC — route the speakers through the same buffered path as the headphones so the cue stays in time automatically (no manual offset). Adds a little latency to the main out; turn off for the lowest-latency speaker path."
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={() => onAutoSync()}
+      >
+        {sel.autoSync ? "SYNC: AUTO" : "SYNC: MANUAL"}
+      </button>
+      {sel.autoSync ? null : (
+        <label class="io-slot io-cue" title="Monitor offset — delay the speakers to line them up with the (buffered) headphone cue. Dial by ear until they're in time.">
+          <span class="io-slot-label">{"OFFSET " + String(Math.round(Number(sel.cueOffsetMs))) + "ms"}</span>
+          <input type="range" min="0" max="500" step="1" value={String(sel.cueOffsetMs)} onmousedown={(e) => e.stopPropagation()} oninput={(e) => onCueOffset(e.target.value)} />
+        </label>
+      )}
+      <button
+        type="button"
+        class={sel.drawOff ? "io-autosync io-draw-off" : "io-autosync"}
+        title="DRAW — turn OFF to suspend all scopes/meters/waveforms/playhead (max CPU headroom for audio). Draws are also auto-suspended for ~0.25s around any cue/output switch."
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={() => onDrawToggle()}
+      >
+        {sel.drawOff ? "DRAW: OFF" : "DRAW: ON"}
+      </button>
       <button type="button" class="io-refresh" title="Re-scan audio devices" onclick={() => refresh(true)}>{"⟳"}</button>
     </div>
   )

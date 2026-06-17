@@ -3,7 +3,7 @@
 // grouped by deck. The crossfader equal-power blends the decks (transportCrossfade). Per-deck EQ/filter
 // writes through to that deck's channels (a deck-wide macro until dedicated buses land).
 
-import { h, Fragment } from '@tishlang/lattish'
+import { h, Fragment, memo } from '@tishlang/lattish'
 import { channelDeck, channelDeckRow, crossfadeValue, crossfadeValueY } from '../../model/DeckRouting.tish'
 import { ensureMasterMixer, channelActorLane } from '../../model/MixerRouting.tish'
 import { setChannelGain } from '../../model/Edits.tish'
@@ -280,21 +280,28 @@ fn DeckChannelStrip(project, deck, setProjectFromUI, touchMixer, rt) {
   let accentColor = "var(--deck-" + suf + ")"
   let de = project.deckEq[deck]
   let active = deckEntries(project, deck).length > 0
+  // EQ/volume are continuous drags: mutate in place, then ask App for ONE rAF-coalesced audio-reconcile +
+  // DeckMixer-only re-render (rt.scheduleDeckMix). Do NOT call updateMixerFromProject/setProjectFromUI per
+  // mousemove — that ran the full mixer + a whole-app re-render on every pixel and starved the audio clock.
+  fn applyDeckMix() {
+    if (rt && rt.scheduleDeckMix) {
+      rt.scheduleDeckMix()
+    } else {
+      if (touchMixer) {
+        touchMixer()
+      }
+      setProjectFromUI(project)
+    }
+  }
   fn setEq(band, v) {
     de[band] = v
     applyDeckEq(project, deck)
-    if (touchMixer) {
-      touchMixer()
-    }
-    setProjectFromUI(project)
+    applyDeckMix()
   }
   fn setVol(p) {
     de.vol = p
-    // Deck volume composes with the crossfader in deckMainOutGainMultiplier — just reconcile the mixer.
-    if (touchMixer) {
-      touchMixer()
-    }
-    setProjectFromUI(project)
+    // Deck volume composes with the crossfader in deckMainOutGainMultiplier — reconciled in updateMixerFromProject.
+    applyDeckMix()
   }
   let vol = typeof de.vol === "number" ? de.vol : 1
   let cued = rt && rt.cuedDecks && rt.cuedDecks[deck] === true
@@ -328,6 +335,15 @@ fn DeckChannelStrip(project, deck, setProjectFromUI, touchMixer, rt) {
     </div>
   )
 }
+
+// Memoize each centre channel strip on its scalar state (eq/vol/cue/active) so a re-render of the deck
+// mixer (crossfade move, another deck's fader, etc.) does NOT rebuild all 16 SVG knobs — only the strip
+// whose values actually changed re-runs. Volatile props (project ref, callbacks) are ignored by the cmp.
+fn deckStripEq(a, b) {
+  return a.deck === b.deck && a.hi === b.hi && a.mid === b.mid && a.lo === b.lo && a.flt === b.flt &&
+    a.vol === b.vol && a.cued === b.cued && a.active === b.active
+}
+let DeckChannelStripMemo = memo((p) => DeckChannelStrip(p.project, p.deck, p.setProjectFromUI, p.touchMixer, p.rt), deckStripEq)
 
 // A side column = two stacked decks: left = A (top) / C (bottom), right = B (top) / D (bottom).
 fn DeckColumnSide(project, topDeck, botDeck, setProjectFromUI, touchMixer, rt) {
@@ -416,6 +432,24 @@ export fn DeckMixer(project, setProjectFromUI, touchMixer, rt) {
     document.addEventListener("mousemove", onMove)
     document.addEventListener("mouseup", onUp)
   }
+  // Build the scalar prop bag for a memoized centre strip — these deps gate whether that strip re-renders.
+  fn stripProps(deck) {
+    let de = project.deckEq[deck]
+    return {
+      project: project,
+      deck: deck,
+      setProjectFromUI: setProjectFromUI,
+      touchMixer: touchMixer,
+      rt: rt,
+      hi: de.hi,
+      mid: de.mid,
+      lo: de.lo,
+      flt: de.flt,
+      vol: typeof de.vol === "number" ? de.vol : 1,
+      cued: rt != null && rt.cuedDecks != null && rt.cuedDecks[deck] === true,
+      active: deckEntries(project, deck).length > 0
+    }
+  }
   return (
     <section class="panel dk-panel">
       <div class="dk-master-strip">
@@ -431,10 +465,10 @@ export fn DeckMixer(project, setProjectFromUI, touchMixer, rt) {
         {DeckColumnSide(project, "A", "C", setProjectFromUI, touchMixer, rt)}
         <div class="dk-center">
           <div class="dk-mixer">
-            {DeckChannelStrip(project, "C", setProjectFromUI, touchMixer, rt)}
-            {DeckChannelStrip(project, "A", setProjectFromUI, touchMixer, rt)}
-            {DeckChannelStrip(project, "B", setProjectFromUI, touchMixer, rt)}
-            {DeckChannelStrip(project, "D", setProjectFromUI, touchMixer, rt)}
+            {h(DeckChannelStripMemo, stripProps("C"))}
+            {h(DeckChannelStripMemo, stripProps("A"))}
+            {h(DeckChannelStripMemo, stripProps("B"))}
+            {h(DeckChannelStripMemo, stripProps("D"))}
           </div>
           <div class="dk-xfade">
             <div class="dk-xfade-labels">

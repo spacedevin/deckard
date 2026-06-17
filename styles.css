@@ -736,14 +736,65 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
 }
 
-.bpm-input {
-  width: 4rem;
-  background: var(--bg);
+/* DJ-deck-style BPM stepper: [BPM][ − ][ 118 ][ + ] — large always-on nudge buttons that are easy to hit. */
+.bpm-stepper {
+  display: inline-flex;
+  align-items: stretch;
+  height: 34px;
   border: 1px solid var(--border);
-  color: var(--text);
-  padding: 0.25rem 0.4rem;
-  border-radius: 3px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg);
 }
+.bpm-stepper-cap {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.03);
+  border-right: 1px solid var(--border);
+}
+.bpm-btn {
+  width: 34px;
+  flex: 0 0 auto;
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1;
+  background: #15151b;
+  color: var(--text);
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  transition: background 80ms, color 80ms;
+}
+.bpm-btn-down { border-right: 1px solid var(--border); }
+.bpm-btn-up { border-left: 1px solid var(--border); }
+.bpm-btn:hover { background: #21212b; color: var(--accent-warm, #e8945c); }
+.bpm-btn:active { background: var(--accent-warm, #e8945c); color: #0a0a0a; }
+.bpm-input {
+  width: 3.2rem;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  text-align: center;
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 0;
+  -moz-appearance: textfield;
+}
+.bpm-input::-webkit-outer-spin-button,
+.bpm-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.bpm-input:focus { outline: none; }
 
 .quant-label {
   display: inline-flex;
@@ -4932,6 +4983,12 @@ input[type="range"]::-moz-range-thumb {
   background: #14141a; border: 1px solid #26262e; border-radius: 4px; color: var(--text); cursor: pointer;
   padding: 0; font-size: 12px; }
 .io-refresh:hover { border-color: #34343e; }
+.io-autosync { height: 20px; padding: 0 9px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+  background: #14141a; border: 1px solid #26262e; border-radius: 4px; color: var(--muted); cursor: pointer; }
+.io-autosync-on { background: rgba(124, 255, 124, 0.16); border-color: var(--accent-green, #7cff7c);
+  color: var(--accent-green, #7cff7c); }
+.io-draw-off { background: rgba(232, 148, 92, 0.16); border-color: var(--accent-warm, #e8945c);
+  color: var(--accent-warm, #e8945c); }
 .dk-cue { height: 26px; padding: 6px 16px; margin: 5px 0; font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
   background: #161118; border: 1px solid #3a2a1e; border-radius: 4px; color: #8a6a4a; cursor: pointer; }
 /* Intentionally NO :hover rule — hovering must not change the colour. The button illuminates only when

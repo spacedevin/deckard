@@ -288,6 +288,17 @@ export fn ensureAudio(project, store) {
   store.cueDest = null
   store.cueEl = null
   store.cueLevel = 0.9
+  // Auto-sync (optional): when ON, the MAIN also rides a MediaStream → <audio> element (mirroring the cue),
+  // so both share the same buffering latency and stay in time WITHOUT a manual offset. OFF (default) = MAIN
+  // on the native ctx.destination (low latency, no pitch/lag risk). Built lazily on first enable.
+  store.mainDest = null
+  store.mainEl = null
+  store.autoSync = false
+  // Draw gating: `drawDisabled` = user killed all visual draws (max headroom). `drawBlocked` = a transient
+  // window (set automatically around audio-source switches) so the main thread is quiet while the graph is
+  // reconfigured — canvas/DOM draw calls competing with a reroute is what makes the cue sync flaky.
+  store.drawDisabled = false
+  store.drawBlocked = false
   store.dualOut = store.canDualOut || store.ctxCanSink
   store.masterComp = comp
   store.analyser = analyser
@@ -620,9 +631,16 @@ export fn applyOutputDevices(store, speakersId, headphonesId) {
   if (!store) {
     return
   }
-  // MAIN: reroute the whole context's hardware output (low-latency) — NOT through a MediaStream element.
-  if (store.ctx && typeof store.ctx.setSinkId === "function") {
-    let p = store.ctx.setSinkId(speakersId != null ? String(speakersId) : "")
+  let spk = speakersId != null ? String(speakersId) : ""
+  // MAIN: in AUTO-SYNC it rides the matched <audio> element (shares the cue's buffering → stays in time with
+  // the phones); otherwise it's the native ctx.destination (low-latency render thread, no MediaStream).
+  if (store.autoSync && store.mainEl && typeof store.mainEl.setSinkId === "function") {
+    let pm = store.mainEl.setSinkId(spk)
+    if (pm && pm.then) {
+      pm.then(() => {}, (e) => {})
+    }
+  } else if (store.ctx && typeof store.ctx.setSinkId === "function") {
+    let p = store.ctx.setSinkId(spk)
     if (p && p.then) {
       p.then(() => {}, (e) => {})
     }
@@ -668,6 +686,91 @@ export fn setCueSyncOffset(store, ms) {
     s = 1
   }
   store.mainDelay.delayTime.value = s
+}
+
+/** Master switch: when true, the UI suspends ALL visual draw loops (scope/meters/waveforms/playhead). */
+export fn setDrawDisabled(store, on) {
+  if (store) {
+    store.drawDisabled = on === true
+  }
+}
+
+/** True if drawing should be skipped this frame — either the user disabled it or we're mid-switch. */
+export fn drawsSuspended(store) {
+  return store != null && (store.drawDisabled === true || store.drawBlocked === true)
+}
+
+/**
+ * Run an audio-source switch (reroute / setSinkId) inside a quiet window: blank ALL draw calls for ~250ms
+ * BEFORE the switch, do the switch, then keep them blanked ~250ms AFTER — so the main thread isn't drawing
+ * while the audio graph reconfigures (that contention is what makes cue sync intermittent).
+ */
+export fn suspendDrawsAround(store, doSwitch) {
+  if (!store) {
+    if (doSwitch) {
+      doSwitch()
+    }
+    return
+  }
+  store.drawBlocked = true
+  setTimeout(() => {
+    if (doSwitch) {
+      doSwitch()
+    }
+    setTimeout(() => {
+      store.drawBlocked = false
+    }, 250)
+  }, 250)
+}
+
+/**
+ * AUTO-SYNC: route the MAIN through a MediaStream → <audio> element (matched with the cue's path) so both
+ * share the same buffering latency and stay in time automatically — no manual offset. OFF reverts MAIN to
+ * the native ctx.destination (low latency). The pitch-down-under-load risk only applies while ON, and both
+ * outputs then move together (synced) rather than drifting. Needs MediaStream + <audio>.setSinkId support.
+ */
+export fn setMainAutoSync(store, on) {
+  if (!store || !store.ctx || !store.analyser || !store.mainDelay) {
+    return
+  }
+  let want = on === true
+  if (want && !store.canDualOut) {
+    return
+  }
+  if (want === store.autoSync) {
+    return
+  }
+  if (want) {
+    if (!store.mainDest) {
+      store.mainDest = store.mkStreamDest()
+      let el = new Audio()
+      el.autoplay = true
+      el.srcObject = store.mainDest.stream
+      let p = el.play()
+      if (p && p.then) {
+        p.then(() => {}, (e) => {})
+      }
+      store.mainEl = el
+    }
+    // Move MAIN off the native ctx.destination onto the matched <audio> path.
+    store.analyser.disconnect()
+    store.analyser.connect(store.mainDest)
+    if (store.mainEl) {
+      let p2 = store.mainEl.play()
+      if (p2 && p2.then) {
+        p2.then(() => {}, (e) => {})
+      }
+    }
+    store.autoSync = true
+  } else {
+    // Back to the native low-latency path (analyser → mainDelay → ctx.destination).
+    store.analyser.disconnect()
+    store.analyser.connect(store.mainDelay)
+    if (store.mainEl && store.mainEl.pause) {
+      store.mainEl.pause()
+    }
+    store.autoSync = false
+  }
 }
 
 export fn playHitAt(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
