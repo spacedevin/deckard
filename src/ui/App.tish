@@ -34,7 +34,7 @@ import {
   rackPianoPreviewSig,
   updatePianoRollCtx
 } from './PianoRoll.tish'
-import { drawScopeCanvas, drawSpectrumCanvas, drawMiniWave } from './Scope.tish'
+import { drawScopeCanvas, drawSpectrumCanvas, drawMiniWave, busPeakLevel } from './Scope.tish'
 import { StepGridPanel } from './grid/StepGrid.tish'
 import { DeckMixer } from './deck/DeckMixer.tish'
 import { PatternBank } from './PatternBank.tish'
@@ -615,6 +615,11 @@ export fn App() {
           if (cv && bus && bus.analyser) {
             let col = cv.closest && cv.closest(".dk-deck-b") ? "#e879f9" : "#22d3ee"
             drawMiniWave(cv, bus.analyser, col)
+          }
+          // Drive the per-stem fader's segmented level meter from the same analyser (CSS var → fill height).
+          let meterEl = document.querySelector(".dk-lvl-" + String(wi))
+          if (meterEl && bus && bus.analyser) {
+            meterEl.style.setProperty("--lvl", String(busPeakLevel(bus.analyser)))
           }
           wi = wi + 1
         }

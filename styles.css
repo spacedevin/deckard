@@ -2110,9 +2110,22 @@ input[type="range"]::-moz-range-thumb {
   color: var(--accent-warm, #e8945c);
 }
 
+/* Live readouts: the compressor's gain-reduction (dB) is rewritten every scope frame and the reverb's
+   send count changes on launches — both vary in length ("0.0dB"↔"-12.3dB"↔"BYPASS", "OFF"↔"ON · 12 sends").
+   Reserve a fixed-width, left-aligned box per readout so the chip width never changes and the footer chips
+   (+ I/O rack) don't jitter during playback. inline-block so min-width takes effect inside the nowrap chip. */
 .master-comp-gr,
 .master-rev-state {
   font-variant-numeric: tabular-nums;
+  display: inline-block;
+  text-align: left;
+  vertical-align: baseline;
+}
+.master-comp-gr {
+  min-width: 8ch;
+}
+.master-rev-state {
+  min-width: 14ch;
 }
 
 .daw-foot-meta {
@@ -3903,20 +3916,76 @@ input[type="range"]::-moz-range-thumb {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* .dk-panel scope beats the global `input[type="range"]` (0,1,1) so native vertical rendering wins */
-.dk-panel .dk-fader-slider {
-  -webkit-appearance: auto;
-  appearance: auto;
-  writing-mode: vertical-lr;
-  direction: rtl;
-  width: 22px;
+/* Vertical volume lever: groove + coloured fill + rounded handle, with a segmented level meter beside it. */
+.dk-lever {
+  display: flex;
+  align-items: stretch;
+  gap: 5px;
   height: 130px;
-  accent-color: var(--dk-accent);
+}
+.dk-lever-track {
+  position: relative;
+  width: 26px;
+  border-radius: 13px;
+  background: #0a0a0e;
+  border: 1px solid #1e1e26;
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.65);
   cursor: pointer;
 }
-.dk-fader-pct {
-  font-size: 0.58rem;
-  color: #6a6a72;
+.dk-lever-fill {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  border-radius: 9px;
+  opacity: 0.72;
+  pointer-events: none;
+}
+.dk-lever-handle {
+  position: absolute;
+  left: -3px;
+  right: -3px;
+  height: 20px;
+  transform: translateY(50%);
+  border-radius: 6px;
+  background: #16161d;
+  border: 2px solid;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dk-lever-handle-line {
+  width: 12px;
+  height: 2px;
+  border-radius: 1px;
+  opacity: 0.95;
+}
+.dk-lever-meter {
+  position: relative;
+  width: 6px;
+  border-radius: 3px;
+  background: #0a0a0e;
+  border: 1px solid #18181f;
+  overflow: hidden;
+  --lvl: 0;
+}
+.dk-lever-meter-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc(var(--lvl, 0) * 100%);
+  -webkit-mask-image: repeating-linear-gradient(to top, #000 0 3px, transparent 3px 5px);
+  mask-image: repeating-linear-gradient(to top, #000 0 3px, transparent 3px 5px);
+  transition: height 0.06s linear;
+}
+.dk-fader-db {
+  font-size: 0.56rem;
+  color: #8a8a92;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
 }
 .dk-empty {
   font-size: 0.6rem;
@@ -4135,8 +4204,10 @@ input[type="range"]::-moz-range-thumb {
 .dk-deck-d.dk-deckslot { border-left-color: var(--deck-d); }
 .dk-eq-row {
   display: flex;
-  justify-content: space-around;
-  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 4px 2px;
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid #18181f;

@@ -105,11 +105,22 @@ export fn drawMiniWave(canvas, analyser, hexColor) {
   analyser.getByteTimeDomainData(buf)
   let col = hexColor ? hexColor : "#22d3ee"
   ctx2.beginPath()
+  // Sensitivity: raw playback samples rarely approach full-scale (0 dBFS), so the unscaled trace sits as a
+  // near-flat line. Amplify the deflection ~3.5x so quiet signals are clearly visible, and clamp to ±0.48h
+  // so loud transients flatten at the rails instead of flying off-canvas (and vanishing).
+  let waveGain = 3.5
+  let maxDev = h * 0.48
   let i = 0
   while (i < N) {
     let v = buf[i] / 128
     let x = (i / (N - 1)) * w
-    let y = h * 0.5 - (v - 1) * h * 0.46
+    let dev = (v - 1) * waveGain * h * 0.46
+    if (dev > maxDev) {
+      dev = maxDev
+    } else if (dev < 0 - maxDev) {
+      dev = 0 - maxDev
+    }
+    let y = h * 0.5 - dev
     if (i === 0) {
       ctx2.moveTo(x, y)
     } else {
@@ -125,6 +136,31 @@ export fn drawMiniWave(canvas, analyser, hexColor) {
   ctx2.shadowBlur = 4
   ctx2.stroke()
   ctx2.shadowBlur = 0
+}
+
+// Peak output level (0..1) for a bus's segmented fader meter. Same ~3.5x sensitivity as drawMiniWave so a
+// quiet stem still lights some segments. Reads the same byte time-domain data (cheap).
+export fn busPeakLevel(analyser) {
+  if (!analyser) {
+    return 0
+  }
+  let N = analyser.fftSize
+  let buf = new Uint8Array(N)
+  analyser.getByteTimeDomainData(buf)
+  let peak = 0
+  let i = 0
+  while (i < N) {
+    let d = Math.abs(buf[i] - 128) / 128
+    if (d > peak) {
+      peak = d
+    }
+    i = i + 1
+  }
+  let lvl = peak * 3.5
+  if (lvl > 1) {
+    lvl = 1
+  }
+  return lvl
 }
 
 export fn drawScopeCanvas(canvas, analyser) {
