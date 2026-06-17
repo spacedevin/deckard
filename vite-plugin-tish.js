@@ -7,7 +7,7 @@
 // app in ~/Projects/schlop/spider3-tish makes; this is adapted from its plugin to the --target js
 // output tish-midi uses. There is no published tish Vite plugin — this ~40-line shim is the pattern.)
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, copyFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -40,12 +40,22 @@ export default function tishPlugin() {
       compile()
     },
 
+    closeBundle() {
+      // Compile main bundle into dist
+      execFileSync(resolveTish(), ['build', '--target', 'js', ENTRY, '-o', OUT], { stdio: 'inherit' })
+      // Compile worker into dist
+      execFileSync(resolveTish(), ['build', '--target', 'js', path.join(ROOT, 'src/ScopeWorker.tish'), '-o', path.join(ROOT, 'dist/scope-worker.js')], { stdio: 'inherit' })
+      // Copy worklet into dist
+      copyFileSync(path.join(ROOT, 'clock-worklet.js'), path.join(ROOT, 'dist/clock-worklet.js'))
+    },
+
     configureServer(server) {
       server.watcher.add(path.join(ROOT, 'src/**/*.tish'))
       // Serve the freshly compiled bundle straight from disk — it's self-contained JS that needs
       // no transform, and this bypasses Vite's transform cache (which doesn't invalidate on recompile
       // since dist/ isn't a watched source), so a save always reaches the browser.
       const raw = [
+        { url: '/bundle.js', file: OUT, type: 'application/javascript; charset=utf-8' },
         { url: '/dist/bundle.js', file: OUT, type: 'application/javascript; charset=utf-8' },
         { url: '/styles.css', file: path.join(ROOT, 'styles.css'), type: 'text/css; charset=utf-8' },
       ]
