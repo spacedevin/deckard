@@ -3601,6 +3601,19 @@ input[type="range"]::-moz-range-thumb {
   min-width: 22px;
   font-weight: 700;
 }
+.sg-barbtn.sg-follow {
+  min-width: 0;
+  padding: 0 8px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.sg-barbtn.sg-follow-on {
+  border-color: var(--accent-green, #7cff7c);
+  color: #04140a;
+  background: var(--accent-green, #7cff7c);
+  box-shadow: 0 0 8px rgba(124, 255, 124, 0.45);
+}
 .sg-barbtn:disabled {
   opacity: 0.3;
   cursor: default;
@@ -3930,7 +3943,9 @@ input[type="range"]::-moz-range-thumb {
   background: #0a0a0e;
   border: 1px solid #1e1e26;
   box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.65);
-  cursor: pointer;
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
 }
 .dk-lever-fill {
   position: absolute;
@@ -3986,6 +4001,55 @@ input[type="range"]::-moz-range-thumb {
   color: #8a8a92;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
+}
+
+/* Centre DJ-mixer: per-deck channel strips (EQ knobs + CUE + volume fader) above the 4-way fader — the
+   "booth". Per-track stem faders stay in the deck slots. */
+.dk-mixer {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  align-items: stretch;
+  margin-bottom: 10px;
+}
+.dk-ch-strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 4px;
+  border: 1px solid #1c1c22;
+  border-radius: 5px;
+  background: #08080b;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.dk-ch-strip-empty {
+  opacity: 0.45;
+}
+.dk-ch-knobs {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+.dk-ch-tag {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.dk-ch-vol {
+  display: flex;
+}
+/* Deck volume faders are taller than the per-track ones (a proper DJ channel fader) and carry the same
+   segmented level meter beside them. */
+.dk-ch-vol .dk-lever {
+  height: 150px;
+}
+.dk-ch-db {
+  font-size: 0.52rem;
+  color: #8a8a92;
+  font-variant-numeric: tabular-nums;
 }
 .dk-empty {
   font-size: 0.6rem;
@@ -4868,8 +4932,9 @@ input[type="range"]::-moz-range-thumb {
   background: #14141a; border: 1px solid #26262e; border-radius: 4px; color: var(--text); cursor: pointer;
   padding: 0; font-size: 12px; }
 .io-refresh:hover { border-color: #34343e; }
-.dk-cue { height: 18px; padding: 0 7px; font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
+.dk-cue { height: 26px; padding: 6px 16px; margin: 5px 0; font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
   background: #161118; border: 1px solid #3a2a1e; border-radius: 4px; color: #8a6a4a; cursor: pointer; }
-.dk-cue:hover { border-color: #5a4226; color: #c89a64; }
+/* Intentionally NO :hover rule — hovering must not change the colour. The button illuminates only when
+   actually engaged via .dk-cue-on (which would otherwise be overridden by a .dk-cue:hover on hover). */
 .dk-cue-on { background: rgba(232, 148, 92, 0.18); border-color: #e8945c; color: #ffba78;
   box-shadow: 0 0 7px rgba(232, 148, 92, 0.5); }

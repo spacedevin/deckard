@@ -23,7 +23,7 @@ fn defaultBackend() {
 }
 
 fn defaults() {
-  return { speakers: "", headphones: "", cueLevel: 0.9 }
+  return { speakers: "", headphones: "", cueLevel: 0.9, cueOffsetMs: 0 }
 }
 
 export fn createAudioDeviceSettings(injected) {
@@ -46,7 +46,8 @@ export fn createAudioDeviceSettings(injected) {
     return {
       speakers: parsed.speakers != null ? String(parsed.speakers) : "",
       headphones: parsed.headphones != null ? String(parsed.headphones) : "",
-      cueLevel: typeof parsed.cueLevel === "number" ? parsed.cueLevel : 0.9
+      cueLevel: typeof parsed.cueLevel === "number" ? parsed.cueLevel : 0.9,
+      cueOffsetMs: typeof parsed.cueOffsetMs === "number" ? parsed.cueOffsetMs : 0
     }
   }
 
@@ -60,7 +61,8 @@ export fn createAudioDeviceSettings(injected) {
     let next = {
       speakers: obj && obj.speakers != null ? String(obj.speakers) : cur.speakers,
       headphones: obj && obj.headphones != null ? String(obj.headphones) : cur.headphones,
-      cueLevel: obj && typeof obj.cueLevel === "number" ? obj.cueLevel : cur.cueLevel
+      cueLevel: obj && typeof obj.cueLevel === "number" ? obj.cueLevel : cur.cueLevel,
+      cueOffsetMs: obj && typeof obj.cueOffsetMs === "number" ? obj.cueOffsetMs : cur.cueOffsetMs
     }
     be.write(JSON.stringify(next))
     return next

@@ -452,6 +452,12 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
           bars = 1
         }
         let nm = clip.name && String(clip.name).length > 0 ? String(clip.name) : clip.id
+        // The row already shows the track name, so drop the "<Track> ·" prefix from the clip label — just
+        // the scene id ("S1") remains.
+        let dotIx = nm.indexOf("·")
+        if (dotIx >= 0) {
+          nm = nm.substring(dotIx + 1)
+        }
         let dsuf = deckSuffix(project, ch)
         let cellCls = "session-cell session-cell-deck-" + dsuf
         if (isPlaying) {

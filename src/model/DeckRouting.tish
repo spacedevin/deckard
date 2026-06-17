@@ -128,7 +128,26 @@ export fn channelDeckRow(project, ch) {
   return channelPlayerIndex(project, ch) < 2 ? "top" : "bottom"
 }
 
-/** Equal-power gain for one of the 4 corners given the 2-axis crossfader. */
+/** Per-deck volume fader (0..1, default 1) from the centre DJ-mixer strip. Lives on project.deckEq[deck]. */
+export fn deckVolumeFor(project, ch) {
+  if (!project || !project.deckEq) {
+    return 1
+  }
+  let de = project.deckEq[channelDeck(project, ch)]
+  if (!de || typeof de.vol !== "number") {
+    return 1
+  }
+  let v = de.vol
+  if (v < 0) {
+    return 0
+  }
+  if (v > 1) {
+    return 1
+  }
+  return v
+}
+
+/** Equal-power crossfader corner gain × the per-deck volume fader — the channel's full main-out multiplier. */
 export fn deckMainOutGainMultiplier(project, ch) {
   let x = crossfadeValue(project)
   let y = crossfadeValueY(project)
@@ -139,7 +158,7 @@ export fn deckMainOutGainMultiplier(project, ch) {
   let idx = channelPlayerIndex(project, ch)
   let gx = idx % 2 === 0 ? gLeft : gRight
   let gy = idx < 2 ? gTop : gBottom
-  return gx * gy
+  return gx * gy * deckVolumeFor(project, ch)
 }
 
 /** True if this channel's player corner still has audible crossfader gain (drives note triggering). */

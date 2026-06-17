@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, h, Fragment, memo } from '@tishlang/lattish'
 import { projectToJson, projectFromJson } from '../model/Project.tish'
+import { channelDeck } from '../model/DeckRouting.tish'
 import { loadDefaultDeckardProject, loadProjectFromTpl } from '../model/ProjectLoad.tish'
 import { createStationPresets } from '../core/StationPresets.tish'
 import { emitLevel, retargetTpl } from '../core/Levels.tish'
@@ -9,7 +10,7 @@ import { PresetBar } from './PresetBar.tish'
 import { emitProject, emitLivePlayback } from '../tpl/Emit.tish'
 import { CodeDebugView } from './CodeDebugView.tish'
 import { migrateProjectGenerators } from '../model/Migrate.tish'
-import { ensureAudio, updateMixerFromProject, resyncAllChannelBuses, applyCueRouting, applyOutputDevices, setCueLevel } from '../audio/Engine.tish'
+import { ensureAudio, updateMixerFromProject, resyncAllChannelBuses, applyCueRouting, applyOutputDevices, setCueLevel, setCueSyncOffset } from '../audio/Engine.tish'
 import { createAudioDeviceSettings } from '../core/AudioDeviceSettings.tish'
 import { AudioRackPanel } from './AudioRackPanel.tish'
 import { transportTick } from '../audio/Playback.tish'
@@ -541,6 +542,7 @@ export fn App() {
     let io = audioDevices.get()
     applyOutputDevices(audioStore, io.speakers, io.headphones)
     setCueLevel(audioStore, io.cueLevel)
+    setCueSyncOffset(audioStore, io.cueOffsetMs)
     // Re-sync cue sends here (on play), not in the per-emit mixer hot path — covers decks cued while stopped.
     audioStore.cuedDecks = rt.cuedDecks
     applyCueRouting(project, audioStore)
@@ -608,20 +610,39 @@ export fn App() {
         }
       }
       if (audioStore.buses) {
+        let dpj = rt.project
+        let deckLvl = { A: 0, B: 0, C: 0, D: 0 }
         let wi = 0
         while (wi < audioStore.buses.length) {
           let cv = document.querySelector(".dk-wave-" + String(wi))
           let bus = audioStore.buses[wi]
+          let lvl = bus && bus.analyser ? busPeakLevel(bus.analyser) : 0
           if (cv && bus && bus.analyser) {
             let col = cv.closest && cv.closest(".dk-deck-b") ? "#e879f9" : "#22d3ee"
             drawMiniWave(cv, bus.analyser, col)
           }
           // Drive the per-stem fader's segmented level meter from the same analyser (CSS var → fill height).
           let meterEl = document.querySelector(".dk-lvl-" + String(wi))
-          if (meterEl && bus && bus.analyser) {
-            meterEl.style.setProperty("--lvl", String(busPeakLevel(bus.analyser)))
+          if (meterEl) {
+            meterEl.style.setProperty("--lvl", String(lvl))
+          }
+          // Accumulate the deck's level (max across its channels) for the centre per-deck volume meters.
+          if (dpj && dpj.channels && dpj.channels[wi]) {
+            let dk = channelDeck(dpj, dpj.channels[wi])
+            if (deckLvl[dk] != null && lvl > deckLvl[dk]) {
+              deckLvl[dk] = lvl
+            }
           }
           wi = wi + 1
+        }
+        let dks = ["A", "B", "C", "D"]
+        let di = 0
+        while (di < dks.length) {
+          let dm = document.querySelector(".dk-deck-lvl-" + dks[di])
+          if (dm) {
+            dm.style.setProperty("--lvl", String(deckLvl[dks[di]]))
+          }
+          di = di + 1
         }
       }
       requestAnimationFrame(scopeFrame)

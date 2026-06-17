@@ -433,6 +433,17 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
     rt.gridBars = gridBars
     rt.updateGridPlayhead = (step, playing) => {
       applyGridPlayhead(step, playing, gridBars, viewBar)
+      // FOLLOW: keep the viewed bar locked to the bar that's currently sounding, paging at each bar
+      // boundary (one re-render per bar, not per step). New render rebuilds this closure with the new bar.
+      if (playing && rt.seqFollow === true && gridBars > 1) {
+        let pb = Math.floor(Math.floor(step) / 16) % gridBars
+        if (pb !== viewBar) {
+          rt.gridViewBar = pb
+          if (rt.bumpGrid) {
+            rt.bumpGrid()
+          }
+        }
+      }
     }
   }
   let rows = []
@@ -578,6 +589,24 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
         {gridBars > 1 ? <span class="sg-barpager-sep">{"·"}</span> : null}
         {gridBars > 1 ? <span class="sg-barpager-label">{"VIEW"}</span> : null}
         {gridBars > 1 ? pager : null}
+        {gridBars > 1 ? <span class="sg-barpager-sep">{"·"}</span> : null}
+        {gridBars > 1 ? (
+          <button
+            type="button"
+            class={rt && rt.seqFollow === true ? "sg-barbtn sg-follow sg-follow-on" : "sg-barbtn sg-follow"}
+            title="Follow playback — auto-page the view to the bar that's currently playing"
+            onclick={() => {
+              if (rt) {
+                rt.seqFollow = rt.seqFollow !== true
+                if (rt.bumpGrid) {
+                  rt.bumpGrid()
+                }
+              }
+            }}
+          >
+            {"FOLLOW"}
+          </button>
+        ) : null}
       </div>
       <div class="sg-grid" onwheel={(e) => handleBarWheel(e, rt, gridBars)}>{rows}</div>
       <div class="sg-ruler">

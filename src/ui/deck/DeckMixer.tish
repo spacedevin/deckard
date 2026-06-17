@@ -20,12 +20,13 @@ fn ensureDeckEq(project) {
   while (i < ks.length) {
     let d = project.deckEq[ks[i]]
     if (!d) {
-      project.deckEq[ks[i]] = { hi: 0, mid: 0, lo: 0, flt: 0 }
+      project.deckEq[ks[i]] = { hi: 0, mid: 0, lo: 0, flt: 0, vol: 1 }
     } else {
       if (typeof d.hi !== "number") { d.hi = 0 }
       if (typeof d.mid !== "number") { d.mid = 0 }
       if (typeof d.lo !== "number") { d.lo = 0 }
       if (typeof d.flt !== "number") { d.flt = 0 }
+      if (typeof d.vol !== "number") { d.vol = 1 }
     }
     i = i + 1
   }
@@ -100,20 +101,12 @@ fn gainToDb(g) {
   return (r > 0 ? "+" : "") + String(r) + " dB"
 }
 
-fn StemFader(entry, setProjectFromUI, touchMixer, project, rt, accentColor) {
-  let ch = entry.ch
-  let g = ch.gain != null ? ch.gain : 0.85
-  if (g < 0) {
-    g = 0
-  }
-  if (g > 1) {
-    g = 1
-  }
-  let pctStr = String(Math.round(g * 1000) / 10) + "%"
-  let acc = accentColor ? accentColor : "var(--deck-a)"
-  // Custom vertical lever: absolute-position drag (click/drag anywhere on the track sets the value).
-  // Emits one `mix` statement through the write door per move — coalesced by the onAdvance rAF like the
-  // crossfader, so the fill/handle track the drag smoothly.
+// Shared vertical lever: groove + coloured fill + rounded handle. Absolute-position drag (click/drag
+// anywhere on the track sets the value); onSet(p01) fires per move (coalesced by the onAdvance rAF). Used
+// by both the per-track stem fader and the per-deck volume fader.
+fn vertLeverEl(g, acc, onSet) {
+  let gg = g < 0 ? 0 : (g > 1 ? 1 : g)
+  let pctStr = String(Math.round(gg * 1000) / 10) + "%"
   fn onLeverDown(e) {
     if (e.preventDefault) {
       e.preventDefault()
@@ -131,9 +124,7 @@ fn StemFader(entry, setProjectFromUI, touchMixer, project, rt, accentColor) {
       if (p > 1) {
         p = 1
       }
-      if (rt && rt.emit) {
-        rt.emit("track/" + ch.id + "/mix/gain", p)
-      }
+      onSet(p)
     }
     setFromY(e.clientY)
     fn onMove(ev) {
@@ -147,18 +138,32 @@ fn StemFader(entry, setProjectFromUI, touchMixer, project, rt, accentColor) {
     document.addEventListener("mouseup", onUp)
   }
   return (
+    <div class="dk-lever-track" onmousedown={onLeverDown}>
+      <div class="dk-lever-fill" style={{ height: pctStr, background: acc }} />
+      <div class="dk-lever-handle" style={{ bottom: pctStr, borderColor: acc }}>
+        <div class="dk-lever-handle-line" style={{ background: acc }} />
+      </div>
+    </div>
+  )
+}
+
+fn StemFader(entry, setProjectFromUI, touchMixer, project, rt, accentColor) {
+  let ch = entry.ch
+  let g = ch.gain != null ? ch.gain : 0.85
+  let acc = accentColor ? accentColor : "var(--deck-a)"
+  fn onSet(p) {
+    if (rt && rt.emit) {
+      rt.emit("track/" + ch.id + "/mix/gain", p)
+    }
+  }
+  return (
     <div class="dk-fader">
       <div class="dk-fader-name" title={ch.name}>{ch.name}</div>
       <div class="dk-fader-wave">
         <canvas class={"dk-stem-wave dk-wave-" + String(entry.idx)} width="64" height="34" />
       </div>
       <div class="dk-lever">
-        <div class="dk-lever-track" onmousedown={onLeverDown}>
-          <div class="dk-lever-fill" style={{ height: pctStr, background: acc }} />
-          <div class="dk-lever-handle" style={{ bottom: pctStr, borderColor: acc }}>
-            <div class="dk-lever-handle-line" style={{ background: acc }} />
-          </div>
-        </div>
+        {vertLeverEl(g, acc, onSet)}
         <div class={"dk-lever-meter dk-lvl-" + String(entry.idx)}>
           <div class="dk-lever-meter-fill" style={{ background: acc }} />
         </div>
@@ -236,7 +241,8 @@ fn DeckSetPicker(project, deck, setProjectFromUI, touchMixer, rt) {
   )
 }
 
-// One of the 4 decks (A/B/C/D): coloured header + set picker + stem faders + its own compact EQ.
+// One of the 4 decks (A/B/C/D): coloured header + set picker + the per-TRACK stem faders. The per-DECK
+// controls (EQ knobs, CUE, deck volume) live in the centre DJ-mixer strip (DeckChannelStrip), not here.
 fn DeckSlot(project, deck, setProjectFromUI, touchMixer, rt) {
   ensureDeckEq(project)
   let suf = deck === "B" ? "b" : deck === "C" ? "c" : deck === "D" ? "d" : "a"
@@ -252,7 +258,28 @@ fn DeckSlot(project, deck, setProjectFromUI, touchMixer, rt) {
   if (empty) {
     faders.push(<div class="dk-empty">{"DECK " + deck + " — open"}</div>)
   }
+  let acc = "dk-acc-" + suf
+  let cls = empty ? "dk-deckslot dk-deck-" + suf + " dk-player-empty" : "dk-deckslot dk-deck-" + suf
+  return (
+    <div class={cls}>
+      <div class="dk-player-head">
+        <span class={"dk-player-tag " + acc}>{"DECK " + deck + (empty ? "" : " · " + String(entries.length))}</span>
+        {DeckSetPicker(project, deck, setProjectFromUI, touchMixer, rt)}
+      </div>
+      <div class="dk-fader-row">{faders}</div>
+    </div>
+  )
+}
+
+// Centre DJ-mixer channel strip for one deck: per-deck EQ knobs (HI/MID/LO/FLT) + CUE + per-deck volume
+// fader. This is the "booth" — like a Pioneer DJM channel. The per-track stem faders stay in the deck slot.
+fn DeckChannelStrip(project, deck, setProjectFromUI, touchMixer, rt) {
+  ensureDeckEq(project)
+  let suf = deck === "B" ? "b" : deck === "C" ? "c" : deck === "D" ? "d" : "a"
+  let acc = "dk-acc-" + suf
+  let accentColor = "var(--deck-" + suf + ")"
   let de = project.deckEq[deck]
+  let active = deckEntries(project, deck).length > 0
   fn setEq(band, v) {
     de[band] = v
     applyDeckEq(project, deck)
@@ -261,30 +288,43 @@ fn DeckSlot(project, deck, setProjectFromUI, touchMixer, rt) {
     }
     setProjectFromUI(project)
   }
-  let acc = "dk-acc-" + suf
-  let cls = empty ? "dk-deckslot dk-deck-" + suf + " dk-player-empty" : "dk-deckslot dk-deck-" + suf
+  fn setVol(p) {
+    de.vol = p
+    // Deck volume composes with the crossfader in deckMainOutGainMultiplier — just reconcile the mixer.
+    if (touchMixer) {
+      touchMixer()
+    }
+    setProjectFromUI(project)
+  }
+  let vol = typeof de.vol === "number" ? de.vol : 1
+  let cued = rt && rt.cuedDecks && rt.cuedDecks[deck] === true
   return (
-    <div class={cls}>
-      <div class="dk-player-head">
-        <span class={"dk-player-tag " + acc}>{"DECK " + deck + (empty ? "" : " · " + String(entries.length))}</span>
-        <button
-          type="button"
-          class={rt && rt.cuedDecks && rt.cuedDecks[deck] === true ? "dk-cue dk-cue-on" : "dk-cue"}
-          title={"CUE — pre-listen this deck on your headphones (independent of the crossfader)"}
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={() => { if (rt && rt.onCueToggle) { rt.onCueToggle(deck) } }}
-        >
-          {"CUE"}
-        </button>
-        {DeckSetPicker(project, deck, setProjectFromUI, touchMixer, rt)}
-      </div>
-      <div class="dk-fader-row">{faders}</div>
-      <div class="dk-eq-row">
+    <div class={active ? "dk-ch-strip dk-deck-" + suf : "dk-ch-strip dk-deck-" + suf + " dk-ch-strip-empty"}>
+      <div class="dk-ch-knobs">
         {EqSlider("HI", de.hi, (v) => setEq("hi", v), acc)}
         {EqSlider("MID", de.mid, (v) => setEq("mid", v), acc)}
         {EqSlider("LO", de.lo, (v) => setEq("lo", v), acc)}
         {EqSlider("FLT", de.flt, (v) => setEq("flt", v), acc)}
       </div>
+      <button
+        type="button"
+        class={cued ? "dk-cue dk-cue-on" : "dk-cue"}
+        title={"CUE — pre-listen this deck on your headphones (independent of the crossfader)"}
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={() => { if (rt && rt.onCueToggle) { rt.onCueToggle(deck) } }}
+      >
+        {"CUE"}
+      </button>
+      <span class={"dk-ch-tag " + acc}>{deck}</span>
+      <div class="dk-ch-vol">
+        <div class="dk-lever">
+          {vertLeverEl(vol, accentColor, setVol)}
+          <div class={"dk-lever-meter dk-deck-lvl-" + deck}>
+            <div class="dk-lever-meter-fill" style={{ background: accentColor }} />
+          </div>
+        </div>
+      </div>
+      <div class="dk-ch-db">{gainToDb(vol)}</div>
     </div>
   )
 }
@@ -331,39 +371,15 @@ fn EqSlider(label, val, onInput, accentCls) {
   })
 }
 
-fn DeckEqColumn(project, deck, setProjectFromUI, touchMixer) {
-  ensureDeckEq(project)
-  let de = project.deckEq[deck]
-  let accent = deck === "B" ? "dk-acc-b" : "dk-acc-a"
-  fn set(band, v) {
-    de[band] = v
-    applyDeckEq(project, deck)
-    if (touchMixer) {
-      touchMixer()
-    }
-    setProjectFromUI(project)
-  }
-  return (
-    <div class="dk-eq-col">
-      <div class={"dk-eq-title " + accent}>{"CH " + deck + " EQ"}</div>
-      {EqSlider("HI", de.hi, (v) => set("hi", v), accent)}
-      {EqSlider("MID", de.mid, (v) => set("mid", v), accent)}
-      {EqSlider("LO", de.lo, (v) => set("lo", v), accent)}
-      <div class="dk-eq-div" />
-      {EqSlider("FLT", de.flt, (v) => set("flt", v), accent)}
-    </div>
-  )
-}
-
 export fn DeckMixer(project, setProjectFromUI, touchMixer, rt) {
   ensureMasterMixer(project)
   ensureDeckEq(project)
   let x = crossfadeValue(project)
   let y = crossfadeValueY(project)
-  fn updateXY(e) {
-    let r = e.currentTarget.getBoundingClientRect()
-    let px = (e.clientX - r.left) / r.width
-    let py = (e.clientY - r.top) / r.height
+  fn emitXY(pad, clientX, clientY) {
+    let r = pad.getBoundingClientRect()
+    let px = r.width > 0 ? (clientX - r.left) / r.width : 0
+    let py = r.height > 0 ? (clientY - r.top) / r.height : 0
     if (px < 0) {
       px = 0
     }
@@ -381,6 +397,25 @@ export fn DeckMixer(project, setProjectFromUI, touchMixer, rt) {
       rt.emit("xfade", [px, py])
     }
   }
+  // Drag continues on document listeners until mouseup, so leaving the pad mid-drag keeps updating (clamped)
+  // instead of stalling — no more getting stuck in the corners.
+  fn onPadDown(e) {
+    e.stopPropagation()
+    if (e.preventDefault) {
+      e.preventDefault()
+    }
+    let pad = e.currentTarget
+    emitXY(pad, e.clientX, e.clientY)
+    fn onMove(ev) {
+      emitXY(pad, ev.clientX, ev.clientY)
+    }
+    fn onUp() {
+      document.removeEventListener("mousemove", onMove)
+      document.removeEventListener("mouseup", onUp)
+    }
+    document.addEventListener("mousemove", onMove)
+    document.addEventListener("mouseup", onUp)
+  }
   return (
     <section class="panel dk-panel">
       <div class="dk-master-strip">
@@ -395,21 +430,19 @@ export fn DeckMixer(project, setProjectFromUI, touchMixer, rt) {
       <div class="dk-desk">
         {DeckColumnSide(project, "A", "C", setProjectFromUI, touchMixer, rt)}
         <div class="dk-center">
+          <div class="dk-mixer">
+            {DeckChannelStrip(project, "C", setProjectFromUI, touchMixer, rt)}
+            {DeckChannelStrip(project, "A", setProjectFromUI, touchMixer, rt)}
+            {DeckChannelStrip(project, "B", setProjectFromUI, touchMixer, rt)}
+            {DeckChannelStrip(project, "D", setProjectFromUI, touchMixer, rt)}
+          </div>
           <div class="dk-xfade">
             <div class="dk-xfade-labels">
               <span class="dk-xfade-mid">{"4-WAY FADER"}</span>
             </div>
             <div
               class="dk-xypad"
-              onmousedown={(e) => {
-                e.stopPropagation()
-                updateXY(e)
-              }}
-              onmousemove={(e) => {
-                if (e.buttons === 1) {
-                  updateXY(e)
-                }
-              }}
+              onmousedown={onPadDown}
             >
               <span class="dk-xypad-corner dk-xy-tl dk-acc-a">{"A"}</span>
               <span class="dk-xypad-corner dk-xy-tr dk-acc-b">{"B"}</span>

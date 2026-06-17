@@ -262,7 +262,14 @@ export fn ensureAudio(project, store) {
   // with AudioContext.setSinkId (Chrome/Edge). The CUE (headphones) bus is the only thing that uses the
   // MediaStreamDestination → <audio> path, and it's built LAZILY (first time a deck is cued / a headphone
   // device is picked) so the default no-cue case has ZERO extra audio overhead.
-  analyser.connect(ctx.destination)
+  // A 0-by-default DelayNode on the MAIN path. The CUE (headphones) goes through a buffered MediaStream
+  // <audio> element which is inherently a bit LATE vs this native output; the cue can't be made earlier, so
+  // the standard DJ fix is a monitor-offset that nudges MAIN later to align with the phones. 0 = unchanged.
+  let mainDelay = ctx.createDelay(1.0)
+  mainDelay.delayTime.value = 0
+  analyser.connect(mainDelay)
+  mainDelay.connect(ctx.destination)
+  store.mainDelay = mainDelay
   let mkStreamDest = null
   if (typeof ctx.createMediaStreamDestination === "function") {
     mkStreamDest = () => ctx.createMediaStreamDestination()
@@ -646,6 +653,21 @@ export fn setCueLevel(store, v) {
   if (store.cueSum) {
     store.cueSum.gain.value = lv
   }
+}
+
+/** Monitor offset (ms): delay the MAIN output to line it up with the buffered headphone cue. 0 = no delay. */
+export fn setCueSyncOffset(store, ms) {
+  if (!store || !store.mainDelay) {
+    return
+  }
+  let s = Number(ms) / 1000
+  if (!(s >= 0)) {
+    s = 0
+  }
+  if (s > 1) {
+    s = 1
+  }
+  store.mainDelay.delayTime.value = s
 }
 
 export fn playHitAt(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {

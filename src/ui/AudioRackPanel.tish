@@ -5,7 +5,7 @@
 
 import { h, Fragment, useState, useEffect, useRef } from '@tishlang/lattish'
 import { createAudioDeviceSettings } from '../core/AudioDeviceSettings.tish'
-import { applyOutputDevices, setCueLevel } from '../audio/Engine.tish'
+import { applyOutputDevices, setCueLevel, setCueSyncOffset } from '../audio/Engine.tish'
 
 export fn AudioRackPanel(audioStore) {
   let storeRef = useRef(null)
@@ -70,15 +70,19 @@ export fn AudioRackPanel(audioStore) {
     if (audioStore) {
       applyOutputDevices(audioStore, next.speakers, next.headphones)
       setCueLevel(audioStore, next.cueLevel)
+      setCueSyncOffset(audioStore, next.cueOffsetMs)
     }
   }
   fn onPick(role, id) {
-    let next = { speakers: sel.speakers, headphones: sel.headphones, cueLevel: sel.cueLevel }
+    let next = { speakers: sel.speakers, headphones: sel.headphones, cueLevel: sel.cueLevel, cueOffsetMs: sel.cueOffsetMs }
     next[role] = id
     applyAll(next)
   }
   fn onCue(v) {
-    applyAll({ speakers: sel.speakers, headphones: sel.headphones, cueLevel: Number(v) })
+    applyAll({ speakers: sel.speakers, headphones: sel.headphones, cueLevel: Number(v), cueOffsetMs: sel.cueOffsetMs })
+  }
+  fn onCueOffset(v) {
+    applyAll({ speakers: sel.speakers, headphones: sel.headphones, cueLevel: sel.cueLevel, cueOffsetMs: Number(v) })
   }
 
   fn deviceOptions() {
@@ -110,6 +114,10 @@ export fn AudioRackPanel(audioStore) {
       <label class="io-slot io-cue">
         <span class="io-slot-label">{"CUE"}</span>
         <input type="range" min="0" max="1.2" step="0.01" value={String(sel.cueLevel)} onmousedown={(e) => e.stopPropagation()} oninput={(e) => onCue(e.target.value)} />
+      </label>
+      <label class="io-slot io-cue" title="Monitor offset — delay the speakers to line them up with the (buffered) headphone cue. Dial by ear until they're in time.">
+        <span class="io-slot-label">{"SYNC " + String(Math.round(Number(sel.cueOffsetMs))) + "ms"}</span>
+        <input type="range" min="0" max="500" step="1" value={String(sel.cueOffsetMs)} onmousedown={(e) => e.stopPropagation()} oninput={(e) => onCueOffset(e.target.value)} />
       </label>
       <button type="button" class="io-refresh" title="Re-scan audio devices" onclick={() => refresh(true)}>{"⟳"}</button>
     </div>

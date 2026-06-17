@@ -4,6 +4,7 @@
 // replays note-for-note (the ghost). Recording is always on; hitting Play starts a fresh take.
 
 import { h, Fragment } from '@tishlang/lattish'
+import { channelDeck } from '../model/DeckRouting.tish'
 
 let BAR_PX = 26
 let STEPS_PER_BAR = 16
@@ -18,8 +19,28 @@ fn channelLabel(project, bus) {
   return "ch " + String(bus)
 }
 
-fn laneHue(idx) {
-  return (idx * 47 + 190) % 360
+// Lane colour = the deck/player colour the channel belongs to (matches DeckMixer + the 4-way fader corners).
+fn deckColorHex(deck) {
+  if (deck === "B") {
+    return "#e879f9"
+  }
+  if (deck === "C") {
+    return "#f59e0b"
+  }
+  if (deck === "D") {
+    return "#4ade80"
+  }
+  return "#22d3ee"
+}
+
+fn laneDeckColor(project, bus) {
+  if (project && project.channels && bus >= 0 && bus < project.channels.length) {
+    let ch = project.channels[bus]
+    if (ch) {
+      return deckColorHex(channelDeck(project, ch))
+    }
+  }
+  return "#22d3ee"
 }
 
 export fn PlaylistView(project, rt, props) {
@@ -98,7 +119,7 @@ export fn PlaylistView(project, rt, props) {
   let li = 0
   while (li < laneOrder.length) {
     let lane = laneMap[laneOrder[li]]
-    let hue = laneHue(li)
+    let col = laneDeckColor(project, lane.bus)
     let blocks = []
     let stepKeys = Object.keys(lane.steps)
     let si = 0
@@ -108,7 +129,7 @@ export fn PlaylistView(project, rt, props) {
       blocks.push(
         <div
           class="pl-evt"
-          style={{ left: String(left) + "px", background: "hsl(" + String(hue) + ", 68%, 50%)", borderColor: "hsl(" + String(hue) + ", 80%, 68%)" }}
+          style={{ left: String(left) + "px", background: col, borderColor: col }}
           title={lane.label + " · step " + String(s)}
         ></div>
       )
@@ -116,7 +137,7 @@ export fn PlaylistView(project, rt, props) {
     }
     rows.push(
       <div class="pl-lane">
-        <div class="pl-lane-label" style={{ color: "hsl(" + String(hue) + ", 75%, 70%)" }} title={lane.label}>
+        <div class="pl-lane-label" style={{ color: col }} title={lane.label}>
           {lane.label}
         </div>
         <div class="pl-lane-track" style={{ width: String(laneWidth) + "px" }}>{blocks}</div>
