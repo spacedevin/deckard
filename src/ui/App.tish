@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, h, Fragment } from '@tishlang/lattish'
+import { useState, useRef, useEffect, h, Fragment, memo } from '@tishlang/lattish'
 import { projectToJson, projectFromJson } from '../model/Project.tish'
 import { loadDefaultDeckardProject, loadProjectFromTpl } from '../model/ProjectLoad.tish'
 import { createStationPresets } from '../core/StationPresets.tish'
@@ -14,7 +14,7 @@ import { createAudioDeviceSettings } from '../core/AudioDeviceSettings.tish'
 import { AudioRackPanel } from './AudioRackPanel.tish'
 import { transportTick } from '../audio/Playback.tish'
 import { secondsPerStep } from '../audio/Scheduler.tish'
-import { createIngest } from '../core/Ingest.tish'
+import { createIngest, bumpAllRev, ensureProjectRev } from '../core/Ingest.tish'
 import { createEditor } from '../core/Edit.tish'
 import { createSignals } from '../core/Signals.tish'
 import { createTransport } from '../audio/Transport.tish'
@@ -70,6 +70,39 @@ import {
 import { SessionView } from './SessionView.tish'
 import { PlaylistView } from './PlaylistView.tish'
 
+// Memo'd channel rack (the heaviest panel). It re-renders only when the grid actually changes — gridGen
+// (bar page / expand / step bumps), the selected channel, the project's channels-rev, or the promote UI.
+// A crossfader move bumps NONE of those, so the rack memo-skips instead of re-rendering all the cells.
+// memo() is created ONCE at module scope (in-render memo() would reset its cache every render).
+fn stepGridEq(a, b) {
+  return a.gridGen === b.gridGen && a.selectedCh === b.selectedCh && a.channelsRev === b.channelsRev && a.seqPromoteUi === b.seqPromoteUi
+}
+let StepGridMemo = memo((p) => StepGridPanel(p.project, p.selectedCh, p.setProjectFromUI, p.setSelectedCh, p.rt, p.headerRight), stepGridEq)
+
+// Same scoping for the other PURE panels (no internal useState — CodeDebugView/CoDjPanel DO have internal
+// hooks, so they are NOT memo'd: Lattish memo skips on equal props regardless of internal state, which
+// would freeze their self-driven updates). areEqual compares only the scalar dep list; volatile props
+// (freshly-built header vnodes, callbacks, the project ref) are intentionally ignored.
+fn sessionEq(a, b) {
+  return a.sessionUiGen === b.sessionUiGen && a.seqPromoteUi === b.seqPromoteUi && a.sessionRev === b.sessionRev && a.channelsRev === b.channelsRev && a.playing === b.playing
+}
+let SessionViewMemo = memo((p) => SessionView(p.project, p.rt, p.setProjectFromUI, p.playing, p.bumpSessionUi, p.patternBank, p.headerRight), sessionEq)
+
+fn playlistEq(a, b) {
+  return a.timelineGen === b.timelineGen && a.setLibGen === b.setLibGen && a.channelsRev === b.channelsRev
+}
+let PlaylistMemo = memo((p) => PlaylistView(p.project, p.rt, p.props), playlistEq)
+
+fn instrumentEq(a, b) {
+  return a.selectedCh === b.selectedCh && a.channelsRev === b.channelsRev
+}
+let InstrumentStackMemo = memo((p) => InstrumentStack(p.project, p.selectedCh, p.setProjectFromUI, p.tplMirrorFlush, p.rt), instrumentEq)
+
+fn deckMixerEq(a, b) {
+  return a.xfadeX === b.xfadeX && a.xfadeY === b.xfadeY && a.channelsRev === b.channelsRev
+}
+let DeckMixerMemo = memo((p) => DeckMixer(p.project, p.setProjectFromUI, p.touchMixer, p.rt), deckMixerEq)
+
 let initialDeckardBoot = loadDefaultDeckardProject()
 if (initialDeckardBoot.errors.length > 0 && typeof console !== "undefined" && console.warn) {
   let ei = 0
@@ -99,8 +132,13 @@ export fn App() {
   let [seqPromoteUi, setSeqPromoteUi] = useState(0)
   let [gridGen, setGridGen] = useState(0)
 
+  // MUST use the functional updater (like bumpSeqPromoteUi/bumpGrid below): this is called from the
+  // long-lived scheduleStep closure (created once per Play press), so `sessionUiGen` captured by value
+  // is frozen at that render. The value form re-set the SAME number each launch commit → SessionViewMemo's
+  // sessionUiGen dep never changed → the memo skipped the queued→playing repaint and the cell stayed
+  // stuck orange/blinking instead of turning green. The functional form always increments the latest slot.
   fn bumpSessionUi() {
-    setSessionUiGen(sessionUiGen + 1)
+    setSessionUiGen((x) => x + 1)
   }
 
   fn touchMixer() {
@@ -126,6 +164,13 @@ export fn App() {
     mirrorClearStepToMainClip(ch, si)
   }
   rt.project = project
+  // Per-slice rev counters (bumped in place at the ingest boundary / by setProjectFromUI) feed the memo'd
+  // panels' areEqual so they re-render only when their slice changed.
+  let pRev = ensureProjectRev(project)
+  let channelsRev = pRev ? pRev.channels : 0
+  let sessionRev = pRev ? pRev.session : 0
+  let xfadeX = typeof project.transportCrossfade === "number" ? project.transportCrossfade : -1
+  let xfadeY = typeof project.transportCrossfadeY === "number" ? project.transportCrossfadeY : -1
   rt.setProject = setProject
   rt.setTplText = setTplText
   rt.selectedCh = selectedCh
@@ -463,6 +508,10 @@ export fn App() {
   }
 
   fn setProjectFromUI(p) {
+    // Legacy direct-mutation commit: it mutated `p` in place without declaring what changed, so bump ALL
+    // slice revs to invalidate every memo'd panel (full re-render, as before). Migrated emit-path edits get
+    // precise per-slice bumps at the ingest boundary instead.
+    bumpAllRev(p)
     setProject(p)
     setTimeout(() => {
       let r = rtRef.current
@@ -998,7 +1047,7 @@ export fn App() {
     if (nm && nm.length > 0) {
       let header = rt.tplStartState != null ? rt.tplStartState : emitProject(project)
       setLibrary.save(nm, emitSetStream(header, rt.tplTape, rt.tplRecMode), 0)
-      setSetLibGen(setLibGen + 1)
+      setSetLibGen((g) => g + 1)
     }
   }
   // Replay a take: install its trigger map and run the transport from 0 — transportTick fires the recorded
@@ -1230,12 +1279,12 @@ export fn App() {
     let nm = prompt("Save current workspace as station", "My Station")
     if (nm && nm.length > 0) {
       setPresets.save(nm, emitProject(project))
-      setSetListGen(setListGen + 1)
+      setSetListGen((g) => g + 1)
     }
   }
   fn onDeleteSet(nm) {
     if (setPresets.remove(nm)) {
-      setSetListGen(setListGen + 1)
+      setSetListGen((g) => g + 1)
     }
   }
   fn onExportSet(nm) {
@@ -1259,7 +1308,7 @@ export fn App() {
     let reader = new FileReader()
     reader.onload = () => {
       let imp = setPresets.importText(reader.result, f.name)
-      setSetListGen(setListGen + 1)
+      setSetListGen((g) => g + 1)
       if (imp) {
         onLoadSet(imp.name)
       }
@@ -1298,7 +1347,7 @@ export fn App() {
     let nm = prompt("Save loaded decks as a Set (" + String(occupied.length) + " player" + (occupied.length === 1 ? "" : "s") + ")", "My Set")
     if (nm && nm.length > 0) {
       setLibrary.save(nm, emitSet(project, occupied), occupied.length)
-      setSetLibGen(setLibGen + 1)
+      setSetLibGen((g) => g + 1)
     }
   }
   fn onImportSetLibFile(e) {
@@ -1309,7 +1358,7 @@ export fn App() {
     let reader = new FileReader()
     reader.onload = () => {
       let imp = setLibrary.importText(reader.result, f.name)
-      setSetLibGen(setLibGen + 1)
+      setSetLibGen((g) => g + 1)
       if (imp) {
         onLoadSetLib(imp.name)
       }
@@ -1438,14 +1487,14 @@ export fn App() {
     <div class="seq-session-wrap">
       <div class="seq-session-split">
         <div class="seq-split-main">
-          {StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt, seqHeaderRight)}
+          {h(StepGridMemo, { project: project, selectedCh: selectedCh, setProjectFromUI: setProjectFromUI, setSelectedCh: setSelectedCh, rt: rt, headerRight: seqHeaderRight, gridGen: gridGen, channelsRev: channelsRev, seqPromoteUi: seqPromoteUi })}
         </div>
-        <div class="seq-split-session" key={"sv-" + String(sessionUiGen) + "-" + String(seqPromoteUi)}>
-          {SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, patternBank, sessionHeaderRight)}
+        <div class="seq-split-session">
+          {h(SessionViewMemo, { project: project, rt: rt, setProjectFromUI: setProjectFromUI, playing: playing, bumpSessionUi: bumpSessionUi, patternBank: patternBank, headerRight: sessionHeaderRight, sessionUiGen: sessionUiGen, seqPromoteUi: seqPromoteUi, sessionRev: sessionRev, channelsRev: channelsRev })}
         </div>
       </div>
-      <div class="seq-arrange" key={"pl-" + String(timelineGen) + "-" + String(setLibGen)}>
-        {PlaylistView(project, rt, playlistProps)}
+      <div class="seq-arrange">
+        {h(PlaylistMemo, { project: project, rt: rt, props: playlistProps, timelineGen: timelineGen, setLibGen: setLibGen, channelsRev: channelsRev })}
       </div>
     </div>
   )
@@ -1555,9 +1604,9 @@ export fn App() {
     <div class="daw-body daw-body-stack">
       <div class="daw-main-stack">
         {seqSession}
-        {InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush, rt)}
+        {h(InstrumentStackMemo, { project: project, selectedCh: selectedCh, setProjectFromUI: setProjectFromUI, tplMirrorFlush: tplMirrorFlush, rt: rt, channelsRev: channelsRev })}
       </div>
-      {DeckMixer(project, setProjectFromUI, touchMixer, rt)}
+      {h(DeckMixerMemo, { project: project, setProjectFromUI: setProjectFromUI, touchMixer: touchMixer, rt: rt, xfadeX: xfadeX, xfadeY: xfadeY, channelsRev: channelsRev })}
       <div class="daw-bottom-split">
         <div class="daw-bottom-col daw-bottom-codj">{CoDjPanel(project, setProject, tplMirrorFlush, rt)}</div>
         <div class="daw-bottom-col daw-tpl-dock">{CodeDebugView(project, setProject, tplText, setTplText, rt, true)}</div>

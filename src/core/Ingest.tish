@@ -9,6 +9,79 @@
 import { isLaunchDirective, isPrivateDirective, applyLaunchDirective } from '../codj/Launch.tish'
 import { applyCoDjTplSource } from '../codj/Merge.tish'
 
+// ---- Render-scoping via per-slice REVISION COUNTERS (kept ON the project, bumped IN PLACE — the project
+// ref stays stable, so the codebase's pervasive closed-over project refs + in-place fold keep working).
+// Each edit bumps `project.rev.<slice>` only for the top-level slices it touched (detected from the TPL
+// line heads). memo'd panels take the relevant rev number as a prop and compare it as a scalar: a crossfade
+// ("xfade", a scalar — touches no slice) bumps no slice rev, so the channel rack / session / instrument
+// panels memo-skip; a "track …" edit bumps rev.channels so the rack re-renders. Central + automatic — no
+// hand-maintained per-handler bumps.
+
+fn ingestFirstToken(ln) {
+  let s = String(ln).trim()
+  let sp = s.indexOf(" ")
+  return sp < 0 ? s : s.substring(0, sp)
+}
+
+export fn ensureProjectRev(p) {
+  if (p && !p.rev) {
+    p.rev = { top: 0, channels: 0, session: 0, master: 0, actor: 0, automation: 0 }
+  }
+  return p ? p.rev : null
+}
+
+export fn detectTouchedSlices(source) {
+  let out = { channels: false, session: false, master: false, actor: false, automation: false }
+  let lines = String(source == null ? "" : source).split("\n")
+  let i = 0
+  while (i < lines.length) {
+    let h = ingestFirstToken(lines[i])
+    if (h === "track") {
+      out.channels = true
+    } else if (h === "master_mix") {
+      out.master = true
+    } else if (h === "actor_mix") {
+      out.actor = true
+    } else if (h === "session_scenes" || h === "session_slot" || h === "clip" || h === "song" || h === "follow") {
+      out.session = true
+    } else if (h === "auto") {
+      out.automation = true
+    }
+    i = i + 1
+  }
+  return out
+}
+
+/** Bump rev.top always + the named touched slices' revs (in place). memo deps read these scalars. */
+export fn bumpProjectRev(p, touched) {
+  let r = ensureProjectRev(p)
+  if (!r) {
+    return
+  }
+  r.top = r.top + 1
+  let t = touched != null ? touched : {}
+  if (t.channels) {
+    r.channels = r.channels + 1
+  }
+  if (t.session) {
+    r.session = r.session + 1
+  }
+  if (t.master) {
+    r.master = r.master + 1
+  }
+  if (t.actor) {
+    r.actor = r.actor + 1
+  }
+  if (t.automation) {
+    r.automation = r.automation + 1
+  }
+}
+
+/** Bump every slice rev — for legacy direct-mutation commits that do not declare what changed. */
+export fn bumpAllRev(p) {
+  bumpProjectRev(p, { channels: true, session: true, master: true, actor: true, automation: true })
+}
+
 // store: { project, runtime }  — runtime holds the ephemeral control-arming state (today's `rt`).
 export fn createIngest(store) {
   let version = 0
@@ -78,6 +151,10 @@ export fn createIngest(store) {
       applyCoDjTplSource(p, "tpl 1\n" + docSrc + "\n", actorId, authorId, perfStep, skillIds)
       echo(docSrc, "doc", c)
     }
+
+    // Bump per-slice revision counters (in place — ref stays stable) so memo'd panels re-render only the
+    // slices this edit touched. A crossfade touches none, so the rack/session/instrument panels skip.
+    bumpProjectRev(p, detectTouchedSlices(source))
 
     signalAdvance()
     return { ok: true, version: version }
