@@ -4780,3 +4780,25 @@ input[type="range"]::-moz-range-thumb {
 .pl-playhead { position: absolute; top: 0; bottom: 0; left: 76px; opacity: 0; width: 2px;
   background: var(--accent-green); box-shadow: 0 0 6px rgba(124,255,124,0.7); pointer-events: none;
   z-index: 5; }
+
+/* ---- I/O Rack (multi-output device pickers) + per-deck CUE -------------------------------------- */
+.io-rack { display: inline-flex; align-items: center; gap: 10px; margin-left: 14px; padding: 0 10px;
+  height: 26px; background: #0d0d12; border: 1px solid #20202a; border-radius: 6px; }
+.io-rack-title { font-size: 10px; letter-spacing: 0.16em; color: var(--accent-green); font-weight: 600; }
+.io-rack-off { display: inline-flex; align-items: center; margin-left: 14px; padding: 0 10px; height: 26px;
+  font-size: 10px; color: var(--muted); border: 1px dashed #2a2a32; border-radius: 6px; }
+.io-slot { display: inline-flex; align-items: center; gap: 5px; }
+.io-slot-label { font-size: 9px; letter-spacing: 0.08em; color: var(--muted); }
+.io-slot-hp { color: #e8b45c; }
+.io-select { height: 20px; max-width: 150px; background: #14141a; border: 1px solid #26262e; border-radius: 4px;
+  color: var(--text); font-size: 10px; padding: 0 4px; }
+.io-cue input[type="range"] { width: 64px; accent-color: #e8b45c; }
+.io-refresh { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;
+  background: #14141a; border: 1px solid #26262e; border-radius: 4px; color: var(--text); cursor: pointer;
+  padding: 0; font-size: 12px; }
+.io-refresh:hover { border-color: #34343e; }
+.dk-cue { height: 18px; padding: 0 7px; font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
+  background: #161118; border: 1px solid #3a2a1e; border-radius: 4px; color: #8a6a4a; cursor: pointer; }
+.dk-cue:hover { border-color: #5a4226; color: #c89a64; }
+.dk-cue-on { background: rgba(232, 148, 92, 0.18); border-color: #e8945c; color: #ffba78;
+  box-shadow: 0 0 7px rgba(232, 148, 92, 0.5); }

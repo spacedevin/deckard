@@ -215,6 +215,15 @@ fn DeckSlot(project, deck, setProjectFromUI, touchMixer, rt) {
     <div class={cls}>
       <div class="dk-player-head">
         <span class={"dk-player-tag " + acc}>{"DECK " + deck + (empty ? "" : " · " + String(entries.length))}</span>
+        <button
+          type="button"
+          class={rt && rt.cuedDecks && rt.cuedDecks[deck] === true ? "dk-cue dk-cue-on" : "dk-cue"}
+          title={"CUE — pre-listen this deck on your headphones (independent of the crossfader)"}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={() => { if (rt && rt.onCueToggle) { rt.onCueToggle(deck) } }}
+        >
+          {"CUE"}
+        </button>
         {DeckSetPicker(project, deck, setProjectFromUI, touchMixer, rt)}
       </div>
       <div class="dk-fader-row">{faders}</div>

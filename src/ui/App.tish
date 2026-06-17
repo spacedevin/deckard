@@ -9,7 +9,9 @@ import { PresetBar } from './PresetBar.tish'
 import { emitProject, emitLivePlayback } from '../tpl/Emit.tish'
 import { CodeDebugView } from './CodeDebugView.tish'
 import { migrateProjectGenerators } from '../model/Migrate.tish'
-import { ensureAudio, updateMixerFromProject, resyncAllChannelBuses } from '../audio/Engine.tish'
+import { ensureAudio, updateMixerFromProject, resyncAllChannelBuses, applyCueRouting, applyOutputDevices, setCueLevel } from '../audio/Engine.tish'
+import { createAudioDeviceSettings } from '../core/AudioDeviceSettings.tish'
+import { AudioRackPanel } from './AudioRackPanel.tish'
 import { transportTick } from '../audio/Playback.tish'
 import { secondsPerStep } from '../audio/Scheduler.tish'
 import { createIngest } from '../core/Ingest.tish'
@@ -157,17 +159,45 @@ export fn App() {
   let ingestRef = useRef(null)
   if (!ingestRef.current) {
     ingestRef.current = createIngest(storeRef.current)
-    // On stream-advance: reconcile audio, re-render, mirror to the TPL editor. (One trigger replaces the
-    // scattered setProjectFromUI / gen-counter calls as handlers migrate onto emit.)
+    // On stream-advance: reconcile audio (LIVE), re-render, mirror to the TPL editor. A continuous control
+    // (crossfader / faders) fires an emit on every mousemove pixel, so the re-render and the heavy
+    // emitProject TPL-serialize MUST be coalesced — otherwise each pixel re-renders the whole tree + rebuilds
+    // the full project TPL, which scales with channel count and lags hard once decks have content. The audio
+    // reconcile stays per-emit (you must hear the move now); the render coalesces to one per frame, and the
+    // TPL mirror trails on a debounce (it's a reflection, not needed at interaction rate).
+    let advancePending = false
+    let tplMirrorTimer = null
     ingestRef.current.onAdvance((v) => {
       let r = rtRef.current
-      if (r.project) {
-        if (audioStore.ctx) {
-          updateMixerFromProject(r.project, audioStore)
-        }
-        setProject(r.project)
-        syncProjectToTplEditor(r.project)
+      if (!r.project) {
+        return
       }
+      // Coalesce the audio reconcile + re-render to one per animation frame: a 60fps crossfade is smooth and
+      // a full-tree re-render per mousemove pixel is what lags. Per-emit work is now just scheduling.
+      if (!advancePending) {
+        advancePending = true
+        requestAnimationFrame(() => {
+          advancePending = false
+          let rr = rtRef.current
+          if (rr.project) {
+            if (audioStore.ctx) {
+              updateMixerFromProject(rr.project, audioStore)
+            }
+            setProject(rr.project)
+          }
+        })
+      }
+      // The TPL-editor mirror (heavy emitProject serialize) trails on a debounce — a reflection, not needed
+      // at interaction rate.
+      if (tplMirrorTimer) {
+        clearTimeout(tplMirrorTimer)
+      }
+      tplMirrorTimer = setTimeout(() => {
+        let rr = rtRef.current
+        if (rr.project) {
+          syncProjectToTplEditor(rr.project)
+        }
+      }, 140)
     })
   }
   let editorRef = useRef(null)
@@ -196,6 +226,16 @@ export fn App() {
   }
   let setLibrary = setLibraryRef.current
   let [setLibGen, setSetLibGen] = useState(0)
+
+  // I/O Rack: persisted speaker/headphone output device choice. Cue state (which decks → headphones) is on
+  // rt.cuedDecks; share the same object with the audio store so updateMixerFromProject can reconcile it.
+  let audioDevicesRef = useRef(null)
+  if (!audioDevicesRef.current) {
+    audioDevicesRef.current = createAudioDeviceSettings()
+  }
+  let audioDevices = audioDevicesRef.current
+  audioStore.cuedDecks = rt.cuedDecks
+  let [cueGen, setCueGen] = useState(0)
 
   // ---- Transport/Clock projection + signal bus (rearch step 4). The scheduler publishes step position
   // and health on `signals`; the playhead / grid / BPM readout SUBSCRIBE here (decoupled from timing). ----
@@ -432,6 +472,30 @@ export fn App() {
       }
     }, 0)
   }
+
+  // Per-deck CUE toggle: send a deck to the headphones bus (or stop). Pure monitor state on rt.cuedDecks
+  // (shared with audioStore); reconciles the live cue sends immediately.
+  rt.onCueToggle = (deck) => {
+    if (!rt.cuedDecks) {
+      rt.cuedDecks = { A: false, B: false, C: false, D: false }
+    }
+    rt.cuedDecks[deck] = !rt.cuedDecks[deck]
+    audioStore.cuedDecks = rt.cuedDecks
+    if (audioStore.ctx) {
+      applyCueRouting(project, audioStore)
+    }
+    setCueGen((g) => g + 1)
+  }
+  // Pin the live audio sinks to the saved speaker/headphone devices + cue level. Called right after audio
+  // starts (the dual-output <audio> els exist only after ensureAudio).
+  fn applyIoRack() {
+    let io = audioDevices.get()
+    applyOutputDevices(audioStore, io.speakers, io.headphones)
+    setCueLevel(audioStore, io.cueLevel)
+    // Re-sync cue sends here (on play), not in the per-emit mixer hot path — covers decks cued while stopped.
+    audioStore.cuedDecks = rt.cuedDecks
+    applyCueRouting(project, audioStore)
+  }
   setTimeout(() => {
     coDjInitWebMidi(project, setProject, rtRef.current)
   }, 100)
@@ -518,6 +582,7 @@ export fn App() {
     rt.playMode = pm
     setPlayMode(pm)
     ensureAudio(project, audioStore)
+    applyIoRack()
     updateMixerFromProject(project, audioStore)
     let ctx = audioStore.ctx
     // A follower joining a song mid-flight starts at the host's playhead so it lands on the same bar.
@@ -1063,6 +1128,7 @@ export fn App() {
       return
     }
     ensureAudio(project, audioStore)
+    applyIoRack()
     updateMixerFromProject(project, audioStore)
     if (previewTimer) {
       clearTimeout(previewTimer)
@@ -1519,6 +1585,7 @@ export fn App() {
           {"REVERB_BUS · "}
           <span class="master-rev-state">{reverbOn ? ("ON · " + String(revSends) + " send" + (revSends === 1 ? "" : "s")) : "OFF"}</span>
         </button>
+        {AudioRackPanel(audioStore)}
       </div>
       <span class="daw-foot-meta">{"TPL: docs/TPL_GRAMMAR.md · ARCH: docs/ARCHITECTURE.md · DEV_NODE: AETHER_LABS"}</span>
     </footer>

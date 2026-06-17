@@ -82,6 +82,8 @@ export fn createDeckardRuntime() {
     sessionActiveScene: 0,
     sessionQueuedClipIds: [],
     sessionQueuePending: false,
-    sessionQueuedScene: null
+    sessionQueuedScene: null,
+    // I/O Rack: which decks are CUED to the headphones bus (live monitor choice, transient — not in TPL).
+    cuedDecks: { A: false, B: false, C: false, D: false }
   }
 }

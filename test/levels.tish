@@ -13,6 +13,8 @@ import { createSetLibrary, emitSet, parseSet, loadSet, freeDecks, emitSetStream,
 import { loadDeckSet, deckSetCatalog } from '../src/model/DeckSets.tish'
 import { channelDeck } from '../src/model/DeckRouting.tish'
 import { stepTriggers } from '../src/audio/Playback.tish'
+import { createAudioDeviceSettings } from '../src/core/AudioDeviceSettings.tish'
+import { applyCueRouting } from '../src/audio/Engine.tish'
 import { levelPresetList, addLevelPreset, findLevelPreset, removeLevelPreset } from '../src/model/LevelPresets.tish'
 
 let pass = 0
@@ -265,6 +267,44 @@ while (rmi < recParsed.events.length) {
 let firstStep = recTape.length > 0 ? recTape[0].step : -1
 check("[rec] replay map returns the triggers recorded for a step", recTape.length > 0 && rmap[firstStep] != null && rmap[firstStep].length === recTape[0].triggers.length)
 check("[rec] a replayed note matches what actually played (bus + pitch)", recTape.length > 0 && rmap[firstStep][0].busIndex === recTape[0].triggers[0].busIndex && rmap[firstStep][0].pitch === recTape[0].triggers[0].pitch)
+
+console.log("=== I/O Rack (audio device settings + cue routing) ===")
+let devMem = { v: null }
+let devBe = { read: () => devMem.v, write: (s) => { devMem.v = s } }
+let devs = createAudioDeviceSettings(devBe)
+check("[io] defaults are empty + cueLevel 0.9", devs.get().speakers === "" && devs.get().headphones === "" && Math.abs(devs.get().cueLevel - 0.9) < 1e-9)
+devs.save({ speakers: "spk-1", headphones: "hp-2" })
+check("[io] save persists speakers + headphones", devs.get().speakers === "spk-1" && devs.get().headphones === "hp-2")
+devs.save({ cueLevel: 0.6 })
+check("[io] partial save keeps prior fields", devs.get().speakers === "spk-1" && devs.get().headphones === "hp-2" && Math.abs(devs.get().cueLevel - 0.6) < 1e-9)
+let devs2 = createAudioDeviceSettings(devBe)
+check("[io] persists across instances", devs2.get().headphones === "hp-2")
+
+// applyCueRouting: only the cued deck's channels get a non-zero cue send (pre-fader, via channelDeck).
+let cp = loadDefaultDeckardProject().project   // 4 channels on deck A
+loadDeckSet(cp, "B", deckSetCatalog()[0].id)   // + a rack on deck B
+let mockStore = { cuedDecks: { A: false, B: true, C: false, D: false }, cueLevel: 0.9, cueSum: {}, buses: [] }
+let bi2 = 0
+while (bi2 < cp.channels.length) {
+  mockStore.buses.push({ cueSend: { gain: { value: -1 } } })
+  bi2 = bi2 + 1
+}
+applyCueRouting(cp, mockStore)
+let aZero = true
+let bCued = false
+let ci3 = 0
+while (ci3 < cp.channels.length) {
+  let dk = channelDeck(cp, cp.channels[ci3])
+  let v = mockStore.buses[ci3].cueSend.gain.value
+  if (dk === "A" && v !== 0) {
+    aZero = false
+  }
+  if (dk === "B" && Math.abs(v - 0.9) < 1e-9) {
+    bCued = true
+  }
+  ci3 = ci3 + 1
+}
+check("[io] cue routes ONLY deck B to the headphones bus (deck A silent in cue)", aZero && bCued)
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))
