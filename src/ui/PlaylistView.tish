@@ -1,7 +1,7 @@
 // PlaylistView — the Set timeline: a recording of WHAT PLAYED. While the transport runs, every step's note
-// triggers (stepTriggers' output) are taped; this view draws them as a per-channel grid of the actual
-// performance — one lane per channel, a block at every step that channel fired. Save it as a Set and it
-// replays note-for-note (the ghost). Recording is always on; hitting Play starts a fresh take.
+// triggers (stepTriggers' output) are taped (the FULL set is still captured + replayable note-for-note —
+// the ghost). The DISPLAY is ONE continuous summarized waveform PER DECK (in the deck's colour): per step,
+// that deck's total trigger energy (summed velocities) drawn as a filled mirror envelope across the timeline.
 
 import { h, Fragment } from '@tishlang/lattish'
 import { channelDeck } from '../model/DeckRouting.tish'
@@ -10,16 +10,8 @@ let BAR_PX = 26
 let STEPS_PER_BAR = 16
 let LABEL_W = 76
 let MIN_BARS = 16
+let DECK_WAVE_H = 42
 
-fn channelLabel(project, bus) {
-  if (project && project.channels && bus >= 0 && bus < project.channels.length) {
-    let ch = project.channels[bus]
-    return ch && ch.name ? String(ch.name) : ("ch " + String(bus))
-  }
-  return "ch " + String(bus)
-}
-
-// Lane colour = the deck/player colour the channel belongs to (matches DeckMixer + the 4-way fader corners).
 fn deckColorHex(deck) {
   if (deck === "B") {
     return "#e879f9"
@@ -33,14 +25,35 @@ fn deckColorHex(deck) {
   return "#22d3ee"
 }
 
-fn laneDeckColor(project, bus) {
-  if (project && project.channels && bus >= 0 && bus < project.channels.length) {
-    let ch = project.channels[bus]
-    if (ch) {
-      return deckColorHex(channelDeck(project, ch))
+// One deck's per-step energy -> a CONTINUOUS filled mirror envelope (sampled at every step 0..maxStep, silent
+// steps get a thin baseline, so it reads as one always-on recording, not separated bursts). Closed path.
+fn buildWaveD(energy, maxStep, maxE, waveH) {
+  let cy = waveH / 2
+  let half = (waveH - 6) / 2
+  let topD = ""
+  let botParts = []
+  let s = 0
+  while (s <= maxStep) {
+    let e = energy[String(s)] != null ? energy[String(s)] : 0
+    let amp = e / maxE
+    let hh = amp * half
+    if (hh < 1) {
+      hh = 1
     }
+    let x = Math.round((s / STEPS_PER_BAR) * BAR_PX * 10) / 10
+    let yT = Math.round((cy - hh) * 10) / 10
+    let yB = Math.round((cy + hh) * 10) / 10
+    topD = s === 0 ? ("M" + String(x) + " " + String(yT)) : (topD + " L" + String(x) + " " + String(yT))
+    botParts.push(" L" + String(x) + " " + String(yB))
+    s = s + 1
   }
-  return "#22d3ee"
+  let d = topD
+  let bpi = botParts.length - 1
+  while (bpi >= 0) {
+    d = d + botParts[bpi]
+    bpi = bpi - 1
+  }
+  return d + " Z"
 }
 
 export fn PlaylistView(project, rt, props) {
@@ -62,16 +75,28 @@ export fn PlaylistView(project, rt, props) {
         el.style.opacity = "0"
         return
       }
+      let phX = LABEL_W + (step / STEPS_PER_BAR) * BAR_PX
       el.style.opacity = "1"
-      el.style.left = String(LABEL_W + (step / STEPS_PER_BAR) * BAR_PX) + "px"
+      el.style.left = String(phX) + "px"
+      // Auto-scroll so the playhead trails ~45% across the viewport as the take advances. The deck labels are
+      // pinned (position: sticky) so they stay put while the waveform track scrolls under them.
+      let scroller = document.querySelector(".pl-scroll")
+      if (scroller) {
+        let target = phX - scroller.clientWidth * 0.45
+        if (target < 0) {
+          target = 0
+        }
+        scroller.scrollLeft = target
+      }
     }
   }
 
-  // Bucket played triggers into per-channel lanes; each lane records which steps it fired on.
-  let laneOrder = []
-  let laneMap = {}
+  // Bucket trigger energy per DECK per step: each trigger's busIndex -> channel -> deck, summed velocity.
+  // A shared maxE across all decks keeps the four waveforms on the same scale (a busier deck reads bigger).
+  let deckEnergy = { A: {}, B: {}, C: {}, D: {} }
   let maxStep = 0
   let totalNotes = 0
+  let maxE = 1
   let ti = 0
   while (ti < tape.length) {
     let e = tape[ti]
@@ -82,19 +107,31 @@ export fn PlaylistView(project, rt, props) {
     let k = 0
     while (k < trs.length) {
       let bus = Math.floor(Number(trs[k].busIndex))
-      let key = String(bus)
-      if (!laneMap[key]) {
-        laneMap[key] = { bus: bus, label: channelLabel(project, bus), steps: {} }
-        laneOrder.push(key)
+      let dk = "A"
+      if (project && project.channels && bus >= 0 && bus < project.channels.length) {
+        let ch = project.channels[bus]
+        if (ch) {
+          dk = channelDeck(project, ch)
+        }
       }
-      laneMap[key].steps[e.step] = true
+      if (deckEnergy[dk] == null) {
+        dk = "A"
+      }
+      let vel = trs[k].vel != null ? Number(trs[k].vel) : 100
+      if (vel !== vel || vel <= 0) {
+        vel = 100
+      }
+      let cur = deckEnergy[dk][e.step] != null ? deckEnergy[dk][e.step] : 0
+      let tot = cur + vel
+      deckEnergy[dk][e.step] = tot
+      if (tot > maxE) {
+        maxE = tot
+      }
       totalNotes = totalNotes + 1
       k = k + 1
     }
     ti = ti + 1
   }
-  // Stable order: by channel index.
-  laneOrder.sort((a, b) => laneMap[a].bus - laneMap[b].bus)
 
   let gridBars = Math.ceil((maxStep + 1) / STEPS_PER_BAR) + 2
   if (gridBars < MIN_BARS) {
@@ -114,38 +151,36 @@ export fn PlaylistView(project, rt, props) {
     b = b + 1
   }
 
-  // ---- lanes (one per channel that played) ----
+  // ---- one continuous filled waveform PER DECK, in the deck colour ----
+  let cyD = DECK_WAVE_H / 2
   let rows = []
-  let li = 0
-  while (li < laneOrder.length) {
-    let lane = laneMap[laneOrder[li]]
-    let col = laneDeckColor(project, lane.bus)
-    let blocks = []
-    let stepKeys = Object.keys(lane.steps)
-    let si = 0
-    while (si < stepKeys.length) {
-      let s = Math.floor(Number(stepKeys[si]))
-      let left = (s / STEPS_PER_BAR) * BAR_PX
-      blocks.push(
-        <div
-          class="pl-evt"
-          style={{ left: String(left) + "px", background: col, borderColor: col }}
-          title={lane.label + " · step " + String(s)}
-        ></div>
-      )
-      si = si + 1
-    }
-    rows.push(
-      <div class="pl-lane">
-        <div class="pl-lane-label" style={{ color: col }} title={lane.label}>
-          {lane.label}
+  let decks = ["A", "B", "C", "D"]
+  let hasData = false
+  let di = 0
+  while (di < decks.length) {
+    let dk = decks[di]
+    let en = deckEnergy[dk]
+    if (Object.keys(en).length > 0) {
+      hasData = true
+      let col = deckColorHex(dk)
+      let waveD = buildWaveD(en, maxStep, maxE, DECK_WAVE_H)
+      rows.push(
+        <div class="pl-lane pl-wave-lane">
+          <div class="pl-lane-label pl-deck-label" style={{ color: col, borderColor: col, height: String(DECK_WAVE_H) + "px" }} title={"Deck " + dk}>
+            {"DECK " + dk}
+          </div>
+          <div class="pl-lane-track pl-wave-track" style={{ width: String(laneWidth) + "px", height: String(DECK_WAVE_H) + "px" }}>
+            <svg class="pl-wave" width={String(laneWidth)} height={String(DECK_WAVE_H)} preserveAspectRatio="none">
+              <line class="pl-wave-center" x1="0" y1={String(cyD)} x2={String(laneWidth)} y2={String(cyD)} />
+              <path class="pl-wave-path" d={waveD} style={{ fill: col + "80", stroke: col }} />
+            </svg>
+          </div>
         </div>
-        <div class="pl-lane-track" style={{ width: String(laneWidth) + "px" }}>{blocks}</div>
-      </div>
-    )
-    li = li + 1
+      )
+    }
+    di = di + 1
   }
-  if (laneOrder.length === 0) {
+  if (!hasData) {
     rows.push(
       <div class="pl-empty-hint">{"hit Play (Sequence or Session) — whatever plays is captured here, then Save it as a replayable Set"}</div>
     )

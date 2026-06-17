@@ -84,7 +84,7 @@ export fn AudioRackPanel(audioStore) {
     }
   }
   fn baseNext() {
-    return { speakers: sel.speakers, headphones: sel.headphones, cueLevel: sel.cueLevel, cueOffsetMs: sel.cueOffsetMs, autoSync: sel.autoSync, drawOff: sel.drawOff }
+    return { speakers: sel.speakers, headphones: sel.headphones, cueLevel: sel.cueLevel, cueOffsetMs: sel.cueOffsetMs, autoSync: sel.autoSync, drawOff: sel.drawOff, cuePauseDraws: sel.cuePauseDraws }
   }
   fn onPick(role, id) {
     let next = baseNext()
@@ -109,6 +109,11 @@ export fn AudioRackPanel(audioStore) {
   fn onDrawToggle() {
     let next = baseNext()
     next.drawOff = !sel.drawOff
+    applyAll(next, false)
+  }
+  fn onCuePause() {
+    let next = baseNext()
+    next.cuePauseDraws = !sel.cuePauseDraws
     applyAll(next, false)
   }
 
@@ -165,6 +170,15 @@ export fn AudioRackPanel(audioStore) {
         onclick={() => onDrawToggle()}
       >
         {sel.drawOff ? "DRAW: OFF" : "DRAW: ON"}
+      </button>
+      <button
+        type="button"
+        class={sel.cuePauseDraws ? "io-autosync io-draw-off" : "io-autosync"}
+        title="CUE PAUSE — when ON, briefly suspends all draws around a CUE press so the audio reroute happens on a quiet thread. OFF (default) since the scopes now render off-thread, so cueing no longer freezes the visuals."
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={() => onCuePause()}
+      >
+        {sel.cuePauseDraws ? "CUE PAUSE: ON" : "CUE PAUSE: OFF"}
       </button>
       <button type="button" class="io-refresh" title="Re-scan audio devices" onclick={() => refresh(true)}>{"⟳"}</button>
     </div>

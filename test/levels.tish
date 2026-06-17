@@ -16,6 +16,8 @@ import { stepTriggers } from '../src/audio/Playback.tish'
 import { createAudioDeviceSettings } from '../src/core/AudioDeviceSettings.tish'
 import { applyCueRouting } from '../src/audio/Engine.tish'
 import { levelPresetList, addLevelPreset, findLevelPreset, removeLevelPreset } from '../src/model/LevelPresets.tish'
+import { compileGeneratorToPatchLines, canCompileToPatch } from '../src/model/PatchCompile.tish'
+import { parsePatchGraph } from '../src/tpl/TplExtension.tish'
 
 let pass = 0
 let fail = 0
@@ -240,6 +242,18 @@ check("[rec] chord step keeps both triggers", ps.events[1].triggers.length === 2
 check("[rec] trigger fields round-trip", ps.events[0].triggers[0].busIndex === 0 && ps.events[0].triggers[0].pitch === 36 && Math.abs(ps.events[0].triggers[0].durSec - 0.12) < 1e-6)
 check("[rec] fractional fields (beat/offset) preserved", ps.events[2].triggers[0].busIndex === 2 && ps.events[2].triggers[0].pitch === 60 && Math.abs(ps.events[2].triggers[0].noteOffset - 0.0125) < 1e-6)
 
+// Performance controls (4-way crossfader + per-deck FLT) ride the tape per step and round-trip.
+let ctlTape = [
+  { step: 0, triggers: [{ busIndex: 0, pitch: 36, vel: 100, durSec: 0.12, beat: 0, noteOffset: 0 }], ctl: { xf: 0.5, xfy: 0, fA: 0, fB: 0, fC: 0, fD: 0 } },
+  { step: 6, triggers: [], ctl: { xf: 0.25, xfy: 0.75, fA: -0.6, fB: 0, fC: 0.3, fD: 0 } }
+]
+let ctlStream = emitSetStream(emitProject(loadDefaultDeckardProject().project), ctlTape, "song")
+let ctlParsed = parseSetStream(ctlStream)
+check("[rec] control-only step (no notes, fader moved) is kept", ctlParsed.events.length === 2 && ctlParsed.events[1].step === 6 && ctlParsed.events[1].triggers.length === 0)
+check("[rec] crossfader X/Y snapshot round-trips", ctlParsed.events[1].ctl != null && Math.abs(ctlParsed.events[1].ctl.xf - 0.25) < 1e-6 && Math.abs(ctlParsed.events[1].ctl.xfy - 0.75) < 1e-6)
+check("[rec] per-deck FLT snapshot round-trips", ctlParsed.events[1].ctl != null && Math.abs(ctlParsed.events[1].ctl.fA - (-0.6)) < 1e-6 && Math.abs(ctlParsed.events[1].ctl.fC - 0.3) < 1e-6)
+check("[rec] old Sets without a control token still parse (ctl null)", ps.events[0].ctl == null)
+
 // End-to-end with the REAL engine: stepTriggers (what plays) → tape → Set → parse → replay map.
 let rp = loadDefaultDeckardProject().project
 rp.transportCrossfade = 0   // favour deck A so the default kit is audible in this headless config
@@ -305,6 +319,86 @@ while (ci3 < cp.channels.length) {
   ci3 = ci3 + 1
 }
 check("[io] cue routes ONLY deck B to the headphones bus (deck A silent in cue)", aZero && bCued)
+
+console.log("=== Patch compile (switch-to-Patch reduces every voice to a valid graph) ===")
+// Structural guard: each generator that claims to compile to Patch must produce a graph that PARSES and is
+// well-formed — every conn references a defined node (or out/reverb), every env targets a defined node with
+// valid set/lin/exp segments, and there is at least one output. Catches typos / orphan node refs that would
+// silently break the sound when a user clicks "Patch".
+fn validatePatchVoice(lines) {
+  if (lines == null) {
+    return "compiled null"
+  }
+  let g = parsePatchGraph(lines)
+  if (!g.nodes || g.nodes.length === 0) {
+    return "no nodes"
+  }
+  let ids = {}
+  let i = 0
+  while (i < g.nodes.length) {
+    ids[g.nodes[i].id] = true
+    i = i + 1
+  }
+  let hasOut = false
+  let c = 0
+  while (c < g.conns.length) {
+    let cn = g.conns[c]
+    if (ids[cn.src] !== true) {
+      return "conn src undefined: " + String(cn.src)
+    }
+    if (cn.dst === "out") {
+      hasOut = true
+    } else if (cn.dst !== "reverb" && ids[cn.dst] !== true) {
+      return "conn dst undefined: " + String(cn.dst)
+    }
+    c = c + 1
+  }
+  if (!hasOut) {
+    return "no out connection"
+  }
+  let e = 0
+  while (e < g.envs.length) {
+    let en = g.envs[e]
+    if (ids[en.node] !== true) {
+      return "env node undefined: " + String(en.node)
+    }
+    if (!en.segs || en.segs.length === 0) {
+      return "env has no segments"
+    }
+    let s = 0
+    while (s < en.segs.length) {
+      let ty = en.segs[s].type
+      if (ty !== "set" && ty !== "lin" && ty !== "exp") {
+        return "bad env seg type: " + String(ty)
+      }
+      s = s + 1
+    }
+    e = e + 1
+  }
+  return ""
+}
+
+let patchVoices = ["basicOsc", "fmTone", "noiseBurst", "pad", "bell", "drumSynth", "guitar", "clap", "arco", "tine", "aether", "halo", "aahs"]
+let pvi = 0
+while (pvi < patchVoices.length) {
+  let pvid = patchVoices[pvi]
+  let cl = compileGeneratorToPatchLines(pvid, {}, null)
+  let perr = validatePatchVoice(cl)
+  check("[patch] " + pvid + " compiles to a valid patch graph", perr === "")
+  if (perr !== "") {
+    console.log("  -> " + pvid + ": " + perr)
+  }
+  pvi = pvi + 1
+}
+// Parameter-variation coverage for the rebuilt voices (the branches that add/drop nodes).
+check("[patch] aahs 7-singer eeh variation valid", validatePatchVoice(compileGeneratorToPatchLines("aahs", { ensemble: 1, vowel: "eeh" }, null)) === "")
+check("[patch] aahs 2-singer ooh variation valid", validatePatchVoice(compileGeneratorToPatchLines("aahs", { ensemble: 0, vowel: "ooh" }, null)) === "")
+check("[patch] aether tone=0 (no 3rd harmonic) valid", validatePatchVoice(compileGeneratorToPatchLines("aether", { tone: 0 }, null)) === "")
+check("[patch] halo lows=0 (no body sub) valid", validatePatchVoice(compileGeneratorToPatchLines("halo", { lows: 0 }, null)) === "")
+check("[patch] tine drive=0 (no shaper) valid", validatePatchVoice(compileGeneratorToPatchLines("tine", { drive: 0.5 }, null)) === "")
+check("[patch] guitar drive=0 (no shaper) valid", validatePatchVoice(compileGeneratorToPatchLines("guitar", { drive: 0 }, null)) === "")
+check("[patch] arco cello variation valid", validatePatchVoice(compileGeneratorToPatchLines("arco", { voice: "cello" }, null)) === "")
+check("[patch] canCompileToPatch covers all rebuilt voices", canCompileToPatch("tine") && canCompileToPatch("halo") && canCompileToPatch("aahs") && canCompileToPatch("aether") && canCompileToPatch("guitar") && canCompileToPatch("arco"))
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))

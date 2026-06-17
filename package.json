@@ -5,7 +5,7 @@
   "description": "Token-streamed live-coding DAW in Tish — LLM + human co-DJ over TPL",
   "scripts": {
     "dev": "vite",
-    "build": "tish build --target js src/main.tish -o dist/bundle.js",
+    "build": "tish build --target js src/main.tish -o dist/bundle.js && tish build --target js src/ScopeWorker.tish -o scope-worker.js",
     "test": "npm run test:smoke && npm run test:mp && npm run test:levels && npm run test:ratchet",
     "test:smoke": "tish build --target js test/smoke.tish -o /tmp/deckard-smoke.js && node /tmp/deckard-smoke.js",
     "test:mp": "tish build --target js test/multiplayer.tish -o /tmp/deckard-mp.js && node /tmp/deckard-mp.js",

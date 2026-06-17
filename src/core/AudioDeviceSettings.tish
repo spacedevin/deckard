@@ -23,7 +23,7 @@ fn defaultBackend() {
 }
 
 fn defaults() {
-  return { speakers: "", headphones: "", cueLevel: 0.9, cueOffsetMs: 0, autoSync: false, drawOff: false }
+  return { speakers: "", headphones: "", cueLevel: 0.9, cueOffsetMs: 0, autoSync: false, drawOff: false, cuePauseDraws: false }
 }
 
 export fn createAudioDeviceSettings(injected) {
@@ -49,7 +49,8 @@ export fn createAudioDeviceSettings(injected) {
       cueLevel: typeof parsed.cueLevel === "number" ? parsed.cueLevel : 0.9,
       cueOffsetMs: typeof parsed.cueOffsetMs === "number" ? parsed.cueOffsetMs : 0,
       autoSync: parsed.autoSync === true,
-      drawOff: parsed.drawOff === true
+      drawOff: parsed.drawOff === true,
+      cuePauseDraws: parsed.cuePauseDraws === true
     }
   }
 
@@ -66,7 +67,8 @@ export fn createAudioDeviceSettings(injected) {
       cueLevel: obj && typeof obj.cueLevel === "number" ? obj.cueLevel : cur.cueLevel,
       cueOffsetMs: obj && typeof obj.cueOffsetMs === "number" ? obj.cueOffsetMs : cur.cueOffsetMs,
       autoSync: obj && typeof obj.autoSync === "boolean" ? obj.autoSync : cur.autoSync,
-      drawOff: obj && typeof obj.drawOff === "boolean" ? obj.drawOff : cur.drawOff
+      drawOff: obj && typeof obj.drawOff === "boolean" ? obj.drawOff : cur.drawOff,
+      cuePauseDraws: obj && typeof obj.cuePauseDraws === "boolean" ? obj.cuePauseDraws : cur.cuePauseDraws
     }
     be.write(JSON.stringify(next))
     return next

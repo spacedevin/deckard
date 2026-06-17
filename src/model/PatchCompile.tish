@@ -384,13 +384,22 @@ fn guitarLines(p) {
   let tone = p.tone >= 0 && p.tone <= 1 ? p.tone : 0.5
   let decayP = p.decay >= 0 && p.decay <= 1 ? p.decay : 0.6
   let drive = p.drive != null ? p.drive : 0.25
+  let mute = p.mute >= 0 && p.mute <= 1 ? p.mute : 0
   let body = p.body != null && p.body > 0 ? p.body : 3500
-  let ampDecay = 0.15 + decayP * 1.3
-  let fHi = body * (2 + tone * 3)
-  if (fHi > 18000) {
-    fHi = 18000
+  let bodyHz = body * (1 - mute * 0.5)
+  // `tone` shapes the live string EXCITATION (not the body filter); fold it into a mild cutoff lift so it
+  // still does something. The live body filter is a gentle Q 0.9 rolloff at a CONSTANT cutoff — no sweep.
+  let cut = bodyHz * (0.8 + tone * 0.6)
+  if (cut > 16000) {
+    cut = 16000
   }
-  let lines = ["osc o1 sawtooth note", "filter f1 lowpass q 3 freq " + f(body), "gain a1 0"]
+  // The live Karplus-Strong string rings ~ringSec as a continuous decay; match that length, and the live
+  // amp peaks at v*0.7 (so the output conn is VOL_COMP * 0.7, not full VOL_COMP — it was ~1.43x too loud).
+  let ampDecay = (0.4 + decayP * 2.1) * (1 - mute * 0.8)
+  if (ampDecay < 0.12) {
+    ampDecay = 0.12
+  }
+  let lines = ["osc o1 sawtooth note", "filter f1 lowpass q 0.9 freq " + f(cut), "gain a1 0"]
   if (drive > 0) {
     lines.push("shaper sh1 amount " + f(drive * 120))
     lines.push("conn o1 sh1 1")
@@ -399,9 +408,8 @@ fn guitarLines(p) {
     lines.push("conn o1 f1 1")
   }
   lines.push("conn f1 a1 1")
-  lines.push("conn a1 out " + f(VOL_COMP))
-  lines.push("env a1.gain set 0 0 lin 0.003 1 exp " + f(ampDecay) + " 0.001")
-  lines.push("env f1.freq set 0 " + f(fHi) + " exp 0.12 " + f(body))
+  lines.push("conn a1 out " + f(VOL_COMP * 0.7))
+  lines.push("env a1.gain set 0 0 lin 0.004 1 exp " + f(ampDecay) + " 0.001")
   return lines
 }
 
@@ -428,26 +436,33 @@ fn clapLines(p) {
   ]
 }
 
-// Arco reduces to a saw → brightness lowpass → slow-attack amp (a bowed-ish tone). The body formants
-// and bow noise only exist in the live generator; this keeps the pitch/brightness/articulation.
+// Arco — a bowed string: TWO slightly-detuned saws (the bowed shimmer) → a brightness lowpass (opened by
+// pressure) → an amp that SUSTAINS while the bow holds the note then releases (it is NOT a fixed 2s decay —
+// that made it drone). Per-family detune/brightness keeps violin/viola/cello/bass/fiddle distinct. The body
+// formants + rosin noise + vibrato LFO live only in the real generator (the grammar can't boost formants).
 fn arcoLines(p) {
   let pressure = p.pressure >= 0 && p.pressure <= 1 ? p.pressure : 0.5
   let bow = p.bow >= 0 && p.bow <= 1 ? p.bow : 0.4
+  let body = p.body >= 0 && p.body <= 1 ? p.body : 0.6
   let voice = p.voice ? p.voice : "violin"
   let bright = voice === "viola" ? 0.85 : (voice === "cello" ? 0.72 : (voice === "bass" ? 0.6 : (voice === "fiddle" ? 1.22 : 1.0)))
+  let det = voice === "cello" ? 6 : (voice === "bass" ? 7 : (voice === "fiddle" ? 9 : 5))
   let cutoff = Math.round((700 + pressure * 5200) * bright)
   if (cutoff > 16000) {
     cutoff = 16000
   }
   let attack = 0.01 + bow * 0.22
+  let release = 0.1 + body * 0.18
   return [
-    "osc o1 sawtooth note",
-    "filter f1 lowpass q 0.9 freq " + f(cutoff),
+    "osc o1 sawtooth note detune " + f(0 - det),
+    "osc o2 sawtooth note detune " + f(det),
+    "filter f1 lowpass q 0.7 freq " + f(cutoff),
     "gain a1 0",
     "conn o1 f1 1",
+    "conn o2 f1 1",
     "conn f1 a1 1",
     "conn a1 out " + f(VOL_COMP),
-    "env a1.gain set 0 0 lin " + f(attack) + " 1 exp 2 0.001"
+    "env a1.gain set 0 0 lin " + f(attack) + " 1 set dur 1 exp dur+" + f(release) + " 0.0008"
   ]
 }
 
@@ -461,96 +476,205 @@ fn arcoLines(p) {
 // (bright metallic attack settling to a near-sine bell), `decay` the body length.
 fn tineLines(p) {
   let bark = p.bark >= 0 && p.bark <= 1 ? p.bark : 0.55
+  let tine = p.tine >= 0 && p.tine <= 1 ? p.tine : 0.6
   let decay = p.decay >= 0 && p.decay <= 1 ? p.decay : 0.5
-  let idxStart = 0.4 + bark * 2.4
-  let bodyDecay = 0.4 + decay * 3.6
-  return [
+  let drive = p.drive != null ? p.drive : 0.2
+  // Body decay is key-scaled on a real EP (high notes ring shorter); the note isn't known at compile time,
+  // so use the mid-keyboard ~0.78 factor. The live amp peaks at v*0.5 → output conn is VOL_COMP*0.5 (it was
+  // ~2x too loud at full VOL_COMP) and the carrier runs through a 0.85 gain before the amp (as in the live).
+  let bodyDecay = (1.1 + decay * 5.4) * 0.78
+  // FM bark: a velocity spike that settles to a floor. Velocity can't scale the FM depth here (the output
+  // conn owns the single velocity factor), so tune the spike to a medium-hard hit.
+  let idxFloor = 0.6 + bark * 1.4
+  let idxPeak = idxFloor + (1.5 + bark * 7.5) * 0.5
+  let floorVal = idxFloor * 0.425
+  let lines = [
     "osc m1 sine note",
     "gain md 1",
     "osc c1 sine note",
+    "gain c1g 0.85",
     "gain a1 0",
     "conn m1 md 1",
     "conn md c1.freq 1",
-    "conn c1 a1 1",
-    "conn a1 out " + f(VOL_COMP),
-    "env md.gain set 0 note*" + f(idxStart) + " exp 0.4 note*0.15",
-    "env a1.gain set 0 0 lin 0.004 1 exp " + f(bodyDecay) + " 0.001"
+    "conn c1 c1g 1",
+    "conn c1g a1 1"
   ]
+  // Tine PING: the inharmonic high-partial strike "tink", fast-decaying over the body. `tine` scales it.
+  let pingMul = 6.0 + tine * 8.0
+  let pingPeak = 0.06 + tine * 0.22
+  let pingDecay = 0.04 + tine * 0.18
+  lines.push("osc p1 sine note ratio " + f(pingMul))
+  lines.push("filter php highpass q 0.7 freq 1500")
+  lines.push("gain pg 0")
+  lines.push("conn p1 php 1")
+  lines.push("conn php pg 1")
+  lines.push("conn pg a1 1")
+  lines.push("env pg.gain set 0 0 lin 0.002 " + f(pingPeak) + " exp " + f(pingDecay) + " 0.0008")
+  if (drive > 0.001) {
+    lines.push("shaper sh1 amount " + f(drive * 120))
+    lines.push("conn a1 sh1 1")
+    lines.push("conn sh1 out " + f(VOL_COMP * 0.5))
+  } else {
+    lines.push("conn a1 out " + f(VOL_COMP * 0.5))
+  }
+  lines.push("env md.gain set 0 note*" + f(idxPeak) + " exp 0.12 note*" + f(floorVal))
+  lines.push("env a1.gain set 0 0 lin 0.004 1 exp 0.09 0.72 exp " + f(bodyDecay) + " 0.001")
+  return lines
 }
 
 // Aether → a single sine with the theremin PORTAMENTO: the freq envelope swoops up into pitch from a few
 // semitones below (`glide`), through a tone-tilted lowpass, with a transient-free `swell` attack.
 fn aetherLines(p) {
   let glide = p.glide >= 0 && p.glide <= 1 ? p.glide : 0.4
+  let waver = p.waver >= 0 && p.waver <= 1 ? p.waver : 0.5
   let tone = p.tone >= 0 && p.tone <= 1 ? p.tone : 0.3
   let swell = p.swell >= 0 && p.swell <= 1 ? p.swell : 0.45
   let startFactor = Math.pow(2, (0 - (1.5 + glide * 4)) / 12)
   let glideTime = 0.02 + glide * 0.5
   let cutoff = Math.round(1400 + tone * 4200)
-  let attack = 0.05 + swell * 0.45
-  return [
-    "osc o1 sine note",
+  if (cutoff > 9000) {
+    cutoff = 9000
+  }
+  // A theremin SUSTAINS while the note is held (the volume hand), then releases — it is NOT a fixed 2.5s
+  // decay (which made it drone like a pad regardless of note length). `set dur 1 … exp dur+release` holds
+  // at full until note-off then fades. Two sines a few cents apart give the heterodyne beat (its calling
+  // card); a faint 3rd harmonic adds the throaty color. Live peaks ~v*0.52 → output conn VOL_COMP*0.52.
+  let attack = 0.05 + (1 - swell) * 0.4
+  let release = 0.12 + (1 - swell) * 0.22
+  let beat = 4 + waver * 5
+  let lines = [
+    "osc o1 sine note detune " + f(0 - beat),
+    "osc o2 sine note detune " + f(beat),
     "filter f1 lowpass q 0.4 freq " + f(cutoff),
     "gain a1 0",
-    "conn o1 f1 1",
+    "conn o1 f1 0.5",
+    "conn o2 f1 0.5",
     "conn f1 a1 1",
-    "conn a1 out " + f(VOL_COMP),
+    "conn a1 out " + f(VOL_COMP * 0.52),
     "env o1.freq set 0 note*" + f(startFactor) + " exp " + f(glideTime) + " note",
-    "env a1.gain set 0 0 lin " + f(attack) + " 1 exp 2.5 0.001"
+    "env o2.freq set 0 note*" + f(startFactor) + " exp " + f(glideTime) + " note",
+    "env a1.gain set 0 0 lin " + f(attack) + " 1 set dur 1 exp dur+" + f(release) + " 0.0008"
   ]
+  if (tone > 0.01) {
+    lines.push("osc o3 sine note ratio 3")
+    lines.push("conn o3 f1 " + f(tone * 0.16))
+    lines.push("env o3.freq set 0 note*" + f(startFactor * 3) + " exp " + f(glideTime) + " note*3")
+  }
+  return lines
 }
 
 // Halo → the handpan partial triad: fundamental + octave (2×) + compound fifth (3×), `temper` detunes the
 // upper partials via fractional ratios so they shimmer, `ring` sets the long decay. Upper partials sit lower.
 fn haloLines(p) {
-  let ring = p.ring >= 0 && p.ring <= 1 ? p.ring : 0.55
   let temper = p.temper >= 0 && p.temper <= 1 ? p.temper : 0.4
-  let dec = 1.2 + ring * 7
-  let r2 = 2 + temper * 0.012
-  let r3 = 3 - temper * 0.02
-  return [
-    "osc o1 sine note",
-    "osc o2 sine note ratio " + f(r2),
-    "osc o3 sine note ratio " + f(r3),
-    "filter f1 highpass q 0.5 freq 110",
-    "gain a1 0",
-    "conn o1 f1 1",
-    "conn o2 f1 0.6",
-    "conn o3 f1 0.4",
-    "conn f1 a1 1",
-    "conn a1 out " + f(VOL_COMP),
-    "env a1.gain set 0 0 lin 0.006 1 exp " + f(dec) + " 0.001"
+  let ring = p.ring >= 0 && p.ring <= 1 ? p.ring : 0.55
+  let bloom = p.bloom >= 0 && p.bloom <= 1 ? p.bloom : 0.5
+  let lows = p.lows >= 0 && p.lows <= 1 ? p.lows : 0.45
+  // A handpan's soul is the inharmonic BEATING TRIAD: fundamental + octave + compound fifth, each a PAIR of
+  // sines detuned ±cents so they throb (a single sine per partial sits dead). Upper partials BLOOM up then
+  // decay sooner (energy moves down). `temper` spreads the beat; `ring` the tail; `lows` the warm body sub.
+  let fundDecay = 1.2 + ring * 7.8
+  let octDecay = fundDecay * 0.62
+  let fifthDecay = fundDecay * 0.42
+  let beatCents = 1.5 + temper * 8
+  let octDrift = temper * 6
+  let fifthDrift = 0 - temper * 7
+  let octStart = 0.3 * (0.35 + (1 - bloom) * 0.4)
+  let octPeak = 0.3 * (1.0 + bloom * 0.5)
+  let octBloomT = 0.04 + bloom * 0.28
+  let fiStart = 0.2 * (0.25 + (1 - bloom) * 0.45)
+  let fiPeak = 0.2 * (1.0 + bloom * 0.6)
+  let fiBloomT = 0.06 + bloom * 0.34
+  let lines = [
+    "osc f1a sine note detune " + f(0 - beatCents),
+    "osc f1b sine note detune " + f(beatCents),
+    "osc o2a sine note ratio 2 detune " + f(0 - (beatCents + octDrift)),
+    "osc o2b sine note ratio 2 detune " + f(beatCents + octDrift),
+    "osc o3a sine note ratio 3 detune " + f(0 - (beatCents + fifthDrift)),
+    "osc o3b sine note ratio 3 detune " + f(beatCents + fifthDrift),
+    "filter hp highpass q 0.5 freq 110",
+    "gain gF 0",
+    "gain gO 0",
+    "gain gFi 0",
+    "conn f1a gF 0.5",
+    "conn f1b gF 0.5",
+    "conn o2a gO 0.5",
+    "conn o2b gO 0.5",
+    "conn o3a gFi 0.5",
+    "conn o3b gFi 0.5",
+    "conn gF hp 1",
+    "conn gO hp 1",
+    "conn gFi hp 1",
+    "conn hp out " + f(VOL_COMP * 0.5),
+    "env gF.gain set 0 0 lin 0.006 0.5 exp " + f(fundDecay) + " 0.0008",
+    "env gO.gain set 0 0 lin 0.006 " + f(octStart) + " lin " + f(octBloomT) + " " + f(octPeak) + " exp " + f(octDecay) + " 0.0008",
+    "env gFi.gain set 0 0 lin 0.006 " + f(fiStart) + " lin " + f(fiBloomT) + " " + f(fiPeak) + " exp " + f(fifthDecay) + " 0.0008"
   ]
+  if (lows > 0.02) {
+    lines.push("osc ob sine note ratio 0.5")
+    lines.push("filter bl lowpass q 0.6 freq " + f(220 + lows * 180))
+    lines.push("gain gb 0")
+    lines.push("conn ob bl 1")
+    lines.push("conn bl gb 1")
+    lines.push("conn gb out " + f(VOL_COMP))
+    lines.push("env gb.gain set 0 0 lin 0.006 " + f(lows * 0.34) + " exp " + f(0.4 + ring * 1.6) + " 0.0008")
+  }
+  return lines
 }
 
-// Aahs → three detuned-unison saws (the choir ensemble, width from `ensemble`) through a tone lowpass and a
-// vowel-tuned bandpass (the formant band; the grammar can't boost multiple peaks, so one band stands in).
+// Aahs → a choir: a UNISON of detuned saws (2..7 singers, width/count from `ensemble`) through a tone
+// lowpass and the vowel's two dominant FORMANT bandpasses (F1/F2, tilted by tone). A sung note SUSTAINS
+// while held then releases gently (legato) — not a fixed 2s decay. The grammar has no per-formant dB boost
+// (X5), so bandpasses stand in for the peaking formants; vibrato/breath layers stay in the live engine.
 fn aahsLines(p) {
   let vowel = p.vowel ? p.vowel : "aah"
   let ensemble = p.ensemble >= 0 && p.ensemble <= 1 ? p.ensemble : 0.5
   let tone = p.tone >= 0 && p.tone <= 1 ? p.tone : 0.5
-  let fc = 1100
-  if (vowel === "eeh") { fc = 2200 }
-  else if (vowel === "ooh") { fc = 700 }
-  else if (vowel === "ohh") { fc = 900 }
-  else if (vowel === "mmm") { fc = 600 }
-  let det = Math.round(8 + ensemble * 20)
-  let cutoff = Math.round(2500 + tone * 4000)
-  return [
-    "osc o1 sawtooth note",
-    "osc o2 sawtooth note detune " + String(det),
-    "osc o3 sawtooth note detune " + String(0 - det),
-    "filter f1 lowpass q 0.6 freq " + f(cutoff),
-    "filter f2 bandpass q 2.5 freq " + f(fc),
-    "gain a1 0",
-    "conn o1 f1 1",
-    "conn o2 f1 1",
-    "conn o3 f1 1",
-    "conn f1 f2 1",
-    "conn f2 a1 1",
-    "conn a1 out " + f(VOL_COMP),
-    "env a1.gain set 0 0 lin 0.16 1 exp 2 0.001"
-  ]
+  // Vowel formant pair (F1/F2 carry the vowel identity) + brightness factor.
+  let f1 = 730
+  let f2 = 1200
+  let hpf = 0.5
+  if (vowel === "eeh") { f1 = 290; f2 = 2300; hpf = 0.62 }
+  else if (vowel === "ooh") { f1 = 320; f2 = 800; hpf = 0.32 }
+  else if (vowel === "ohh") { f1 = 480; f2 = 900; hpf = 0.40 }
+  else if (vowel === "mmm") { f1 = 250; f2 = 700; hpf = 0.28 }
+  let tilt = 0.82 + tone * 0.36
+  let fb1 = Math.round(f1 * tilt)
+  let fb2 = Math.round(f2 * tilt)
+  let voices = 2 + Math.floor(ensemble * 5 + 0.5)
+  if (voices > 7) { voices = 7 }
+  if (voices < 2) { voices = 2 }
+  let spread = 6 + ensemble * 22
+  let cutoff = Math.round((1400 + tone * 5200) * (0.55 + hpf * 0.9))
+  if (cutoff > 15000) { cutoff = 15000 }
+  let attack = 0.14 + (1 - tone) * 0.12
+  let release = 0.34 + (1 - tone) * 0.22
+  let lines = []
+  let k = 0
+  while (k < voices) {
+    let frac = voices > 1 ? k / (voices - 1) : 0.5
+    let det = (frac - 0.5) * spread
+    lines.push("osc o" + String(k) + " sawtooth note detune " + f(det))
+    k = k + 1
+  }
+  lines.push("filter lp lowpass q 0.6 freq " + f(cutoff))
+  lines.push("filter bp1 bandpass q 4 freq " + f(fb1))
+  lines.push("filter bp2 bandpass q 6 freq " + f(fb2))
+  lines.push("gain a1 0")
+  let j = 0
+  while (j < voices) {
+    lines.push("conn o" + String(j) + " lp 1")
+    j = j + 1
+  }
+  lines.push("conn lp bp1 1")
+  lines.push("conn lp bp2 1")
+  lines.push("conn bp1 a1 1")
+  lines.push("conn bp2 a1 0.8")
+  // Normalize by the unison width (detuned voices beat rather than sum in phase, so ~sqrt) so a 7-singer
+  // wall doesn't slam the master.
+  lines.push("conn a1 out " + f((VOL_COMP * 0.6) / Math.sqrt(voices)))
+  lines.push("env a1.gain set 0 0 lin " + f(attack) + " 1 set dur 1 exp dur+" + f(release) + " 0.0008")
+  return lines
 }
 
 /// True when this generator can be reduced to an equivalent patch graph (sound-preserving switch).

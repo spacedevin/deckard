@@ -389,7 +389,7 @@ while (pdi < packDefs.length) {
   let dd = defaultParamsForGeneratorId(pd.id)
   check("pack: " + pd.id + " default param present", dd[pd.some] === pd.someVal && Object.keys(dd).length === pd.keys.length)
   let pg = parsePatchGraph(compileGeneratorToPatchLines(pd.id, dd, null))
-  check("pack: " + pd.id + " reduces to a patch graph", pg.nodes.length >= 2 && pg.envs.some(e => e.node === "a1"))
+  check("pack: " + pd.id + " reduces to a patch graph", pg.nodes.length >= 2 && pg.envs.some(e => e.param === "gain") && pg.conns.some(c => c.dst === "out"))
   pdi = pdi + 1
 }
 // Switch-to-Patch must keep each instrument's CHARACTER, not collapse to a generic saw (the "switching to
@@ -400,10 +400,10 @@ let aetherPg = parsePatchGraph(compileGeneratorToPatchLines("aether", defaultPar
 check("aether→patch keeps the portamento (a freq glide envelope)", aetherPg.envs.some(e => e.param === "freq"))
 let haloPg = parsePatchGraph(compileGeneratorToPatchLines("halo", defaultParamsForGeneratorId("halo"), null))
 let haloOscs = haloPg.nodes.filter(n => n.kind === "osc")
-check("halo→patch keeps the partial triad (3 oscillators, octave+fifth)", haloOscs.length === 3 && haloOscs.some(o => o.ratio > 1.9 && o.ratio < 2.1) && haloOscs.some(o => o.ratio > 2.9))
+check("halo→patch keeps the beating triad (octave+fifth detuned pairs)", haloOscs.length >= 6 && haloOscs.some(o => o.ratio > 1.9 && o.ratio < 2.1) && haloOscs.some(o => o.ratio > 2.9 && o.ratio < 3.1) && haloOscs.some(o => o.detune > 0) && haloOscs.some(o => o.detune < 0))
 let aahsPg = parsePatchGraph(compileGeneratorToPatchLines("aahs", defaultParamsForGeneratorId("aahs"), null))
 let aahsOscs = aahsPg.nodes.filter(n => n.kind === "osc")
-check("aahs→patch keeps the detuned ensemble (3 saws, detuned)", aahsOscs.length === 3 && aahsOscs.some(o => o.detune > 0) && aahsOscs.some(o => o.detune < 0))
+check("aahs→patch keeps the detuned ensemble (unison saws, both directions)", aahsOscs.length >= 3 && aahsOscs.some(o => o.detune > 0) && aahsOscs.some(o => o.detune < 0))
 // Tine round-trip through emit + ingest.
 let tineProj = loadDefaultDeckardProject().project
 applyTplSource(tineProj, "tpl 1\ntrack EP id ep gen tine\n  gen bark 0.8 tine 0.4 tremolo 0.6 decay 0.7 drive 0.3\n  note 60 0 1 v 110")
@@ -1009,6 +1009,18 @@ check("round-trip: swing survives", Math.abs(rtp2.swing - 0.25) < 1e-6)
 let rtpCh0 = findChannelById(rtp2, rtp.channels[0].id)
 check("round-trip: channel deck survives", rtpCh0 != null && rtpCh0.deck === "B")
 check("round-trip: channel deckSlot survives", rtpCh0 != null && rtpCh0.deckSlot === 1)
+// REGRESSION (saved-set deck routing): graftRackOntoDeck parks B/C/D channels on ch.deck="live" with the
+// real deck living ONLY in deckSlot. Emit must still write the slot, or instruments collapse onto deck A
+// when a recorded Set is loaded. Gate on deckSlot, not just a non-"live" deck letter.
+let rtpLive = loadDefaultDeckardProject().project
+rtpLive.channels[0].deck = "live"
+rtpLive.channels[0].deckSlot = 2
+let rtpLiveEmit = emitProject(rtpLive)
+check("emit: deckSlot emitted even when ch.deck stays 'live'", rtpLiveEmit.indexOf("deck live slot 2") >= 0)
+let rtpLive2 = emptyProjectShell()
+applyTplSource(rtpLive2, rtpLiveEmit)
+let rtpLiveCh0 = findChannelById(rtpLive2, rtpLive.channels[0].id)
+check("round-trip: 'live'+slot keeps deckSlot (deck C routing survives load)", rtpLiveCh0 != null && rtpLiveCh0.deckSlot === 2)
 // Defaults must NOT emit (keeps round-trip minimal/stable).
 let rtpDef = loadDefaultDeckardProject().project
 let rtpDefEmit = emitProject(rtpDef)

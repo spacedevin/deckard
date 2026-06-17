@@ -9,7 +9,9 @@ import {
   sessionStopTrack,
   sessionTrackStopped,
   sceneFollow,
-  setSceneFollow
+  setSceneFollow,
+  addSessionProgram,
+  removeSessionProgram
 } from '../model/Session.tish'
 import { channelDeck, channelDeckColor } from '../model/DeckRouting.tish'
 import { launchClipDirective, launchClipStopDirective } from '../codj/Launch.tish'
@@ -161,7 +163,32 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
 
   // Per-track clip launch — click a clip to play just that track's clip, holding it across the song's
   // auto-advance. Click the same clip again to release that track back to following the song.
+  // Right-click a session cell to SKIP just that clip item (reddish border): it won't play when its scene/
+  // clip is launched, until it's re-enabled. Per ITEM (clip id), not per track. Toggle.
+  fn toggleClipDisabled(clipId) {
+    if (!clipId || clipId.length === 0) {
+      return
+    }
+    if (!rt.sessionDisabledClips) {
+      rt.sessionDisabledClips = {}
+    }
+    if (rt.sessionDisabledClips[clipId] === true) {
+      rt.sessionDisabledClips[clipId] = false
+    } else {
+      rt.sessionDisabledClips[clipId] = true
+    }
+    if (bumpSessionUi) {
+      bumpSessionUi()
+    }
+    bumpSeqIfPlaying()
+    setProjectFromUI(project)
+  }
+
   fn armCell(trackIdx, clipId) {
+    // Launching a clip re-enables it ("won't play unless clicked again").
+    if (clipId && clipId.length > 0 && rt.sessionDisabledClips && rt.sessionDisabledClips[clipId] === true) {
+      rt.sessionDisabledClips[clipId] = false
+    }
     if (!rt.trackOverrides) {
       rt.trackOverrides = []
     }
@@ -314,6 +341,22 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
     setProjectFromUI(project)
   }
 
+  // Add / remove a PROGRAM (a scene = a P-column). Mirrors the rack's BARS stepper.
+  fn addProgram() {
+    addSessionProgram(project)
+    if (bumpSessionUi) {
+      bumpSessionUi()
+    }
+    setProjectFromUI(project)
+  }
+  fn removeProgram() {
+    removeSessionProgram(project)
+    if (bumpSessionUi) {
+      bumpSessionUi()
+    }
+    setProjectFromUI(project)
+  }
+
   let sceneHeaders = []
   let sh = 0
   while (sh < sc) {
@@ -452,12 +495,16 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
           bars = 1
         }
         let dsuf = deckSuffix(project, ch)
+        let isDisabled = rt.sessionDisabledClips && rt.sessionDisabledClips[slotClipId] === true
         let cellCls = "session-cell session-cell-deck-" + dsuf
         if (isPlaying) {
           cellCls = cellCls + " session-cell-playing"
         }
         if (isQueued) {
           cellCls = cellCls + " session-cell-queued"
+        }
+        if (isDisabled) {
+          cellCls = cellCls + " session-cell-disabled"
         }
         let wavePath = clipWavePath(clipEnvelope(clip))
         cells.push(
@@ -466,7 +513,8 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
             class={cellCls}
             key={"c-" + String(tix) + "-" + String(sj)}
             onclick={() => armCell(tix, clipIdCopy)}
-            title={"Launch this clip — drops on the next launch-quantize boundary (Q in the transport)"}
+            oncontextmenu={(e) => { e.preventDefault(); toggleClipDisabled(clipIdCopy) }}
+            title={isDisabled ? "SKIPPED — this clip won't play. Left-click (or right-click again) to re-enable." : "Launch this clip — drops on the next launch-quantize boundary (Q in the transport). Right-click to skip just this clip."}
           >
             <svg class="session-wave" viewBox="0 0 120 24" preserveAspectRatio="none">
               <path class={"session-wave-fill session-wave-" + dsuf} d={wavePath} />
@@ -529,6 +577,16 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
         </div>
         <div class="session-head-right">
           {headerRight}
+          <div class="sg-barpager session-prog-pager" title="Programs — the P columns (scenes). Add or remove a program slot, like BARS on the rack.">
+            <span class="sg-barpager-label">{"PROGRAMS"}</span>
+            <button type="button" class="sg-barbtn sg-barbtn-mod" title="Remove the last program" disabled={sc <= 1} onclick={() => removeProgram()}>
+              {"−"}
+            </button>
+            <span class="sg-barpager-count">{String(sc)}</span>
+            <button type="button" class="sg-barbtn sg-barbtn-mod" title="Add a program (a new P column / scene)" onclick={() => addProgram()}>
+              {"+"}
+            </button>
+          </div>
           <button type="button" class="btn-session-stop-all" onclick={stopAll}>
             {"Stop all clips"}
           </button>

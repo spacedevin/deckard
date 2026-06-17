@@ -11,7 +11,7 @@ import { loadDeckSet, deckSetCatalog } from '../../model/DeckSets.tish'
 import { createSetLibrary, loadSet } from '../../core/SetLibrary.tish'
 import { Knob } from '../InstrumentKit.tish'
 
-fn ensureDeckEq(project) {
+export fn ensureDeckEq(project) {
   if (!project.deckEq) {
     project.deckEq = {}
   }
@@ -71,7 +71,7 @@ fn deckBClientLabel(project) {
   return null
 }
 
-fn applyDeckEq(project, deck) {
+export fn applyDeckEq(project, deck) {
   ensureDeckEq(project)
   let de = project.deckEq[deck]
   let cut = 8000
@@ -263,7 +263,7 @@ fn DeckSlot(project, deck, setProjectFromUI, touchMixer, rt) {
   return (
     <div class={cls}>
       <div class="dk-player-head">
-        <span class={"dk-player-tag " + acc}>{"DECK " + deck + (empty ? "" : " · " + String(entries.length))}</span>
+        <span class={"dk-player-tag " + acc}>{"DECK " + deck}</span>
         {DeckSetPicker(project, deck, setProjectFromUI, touchMixer, rt)}
       </div>
       <div class="dk-fader-row">{faders}</div>

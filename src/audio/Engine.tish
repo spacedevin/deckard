@@ -788,7 +788,7 @@ export fn anySolo(project) {
   return false
 }
 
-export fn channelAudible(project, idx) {
+export fn channelAudible(project, idx, cuedDecks) {
   let ch = project.channels[idx]
   if (!ch) {
     return false
@@ -804,7 +804,13 @@ export fn channelAudible(project, idx) {
     return ch.solo
   }
   if (!channelHeardOnMainDeck(project, ch)) {
-    return false
+    // PFL cue: a CUED deck still fires its notes so it can be pre-listened on the headphones even with the
+    // fader / crossfader / deck-volume pulled all the way down (the cue send taps pre-fader). Without this a
+    // faded-out cued deck generates no sound, so there's nothing for the cue tap to send to the headphones.
+    let dk = channelDeck(project, ch)
+    if (!(cuedDecks != null && cuedDecks[dk] === true)) {
+      return false
+    }
   }
   return true
 }

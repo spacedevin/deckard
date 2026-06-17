@@ -217,10 +217,15 @@ export fn emitProjectInner(project, skipSync) {
       o = o + "  voice" + voiceParts + "\n"
     }
 
-    // Deck routing — emitted only when the channel leaves the default "live" deck.
-    if (ch.deck != null && ch.deck !== "live") {
-      o = o + "  deck " + String(ch.deck)
-      if (ch.deckSlot != null && Math.floor(Number(ch.deckSlot)) === Math.floor(Number(ch.deckSlot))) {
+    // Deck routing — emitted when the channel carries a deck assignment: an explicit deck SLOT (the
+    // canonical, shared routing field — channelPlayerIndex reads deckSlot first) and/or a non-default deck
+    // letter. The slot MUST round-trip even when ch.deck is still "live": graftRackOntoDeck parks B/C/D
+    // channels on ch.deck="live" with the real deck living only in deckSlot, so gating on the letter alone
+    // would silently drop multi-deck routing on save/load.
+    let hasDeckSlot = ch.deckSlot != null && Math.floor(Number(ch.deckSlot)) === Math.floor(Number(ch.deckSlot))
+    if (hasDeckSlot || (ch.deck != null && ch.deck !== "live")) {
+      o = o + "  deck " + String(ch.deck != null ? ch.deck : "live")
+      if (hasDeckSlot) {
         o = o + " slot " + String(Math.floor(Number(ch.deckSlot)))
       }
       o = o + "\n"

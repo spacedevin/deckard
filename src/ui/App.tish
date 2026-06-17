@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, h, Fragment, memo } from '@tishlang/lattish'
 import { projectToJson, projectFromJson } from '../model/Project.tish'
-import { channelDeck } from '../model/DeckRouting.tish'
+import { channelDeck, crossfadeValue, crossfadeValueY } from '../model/DeckRouting.tish'
 import { loadDefaultDeckardProject, loadProjectFromTpl } from '../model/ProjectLoad.tish'
 import { createStationPresets } from '../core/StationPresets.tish'
 import { emitLevel, retargetTpl } from '../core/Levels.tish'
@@ -37,7 +37,7 @@ import {
 } from './PianoRoll.tish'
 import { drawScopeCanvas, drawSpectrumCanvas, drawMiniWave, busPeakLevel } from './Scope.tish'
 import { StepGridPanel } from './grid/StepGrid.tish'
-import { DeckMixer } from './deck/DeckMixer.tish'
+import { DeckMixer, applyDeckEq, ensureDeckEq } from './deck/DeckMixer.tish'
 import { PatternBank } from './PatternBank.tish'
 import { coDjInitWebMidi } from '../codj/MidiProfiles.tish'
 import {
@@ -122,6 +122,82 @@ let previewTick = 0
 // place and must NOT reconcile+re-render synchronously per mousemove (that saturates the main thread and
 // starves the audio clock). One reconcile + one DeckMixer-only re-render per frame instead.
 let deckMixPending = false
+
+// --- OffscreenCanvas scope worker (Tier 1): the heaviest per-frame canvas drawing (master spectrum +
+// per-stem waveforms) runs on a WORKER thread, so it never competes with the main thread (audio reconfig,
+// DOM patching, Lattish render). The main thread only reads the analyser bytes + postMessages them. The
+// meters/playhead stay on the main thread (DOM, can't go to a worker). Capability-gated; falls back to
+// drawing on the main thread when OffscreenCanvas/Worker aren't available.
+let scopeWorker = null
+let scopeWorkerTried = false
+let scopeTransferred = null
+
+fn ensureScopeWorker() {
+  if (scopeWorkerTried) {
+    return scopeWorker
+  }
+  scopeWorkerTried = true
+  if (typeof Worker === "undefined" || typeof OffscreenCanvas === "undefined" || typeof WeakSet === "undefined") {
+    return null
+  }
+  if (typeof HTMLCanvasElement === "undefined" || !HTMLCanvasElement.prototype || typeof HTMLCanvasElement.prototype.transferControlToOffscreen !== "function") {
+    return null
+  }
+  try {
+    scopeWorker = new Worker("/scope-worker.js")
+    scopeTransferred = new WeakSet()
+  } catch (e) {
+    scopeWorker = null
+  }
+  return scopeWorker
+}
+
+// Transfer a canvas's rendering to the worker ONCE (idempotent via the WeakSet). Lattish never re-applies the
+// canvas's constant width/height/class props (it skips unchanged props), so the transferred canvas is never
+// re-touched → no InvalidStateError. Returns true once the canvas is worker-owned.
+fn scopeRegister(cv, id) {
+  if (!scopeWorker || !cv) {
+    return false
+  }
+  if (scopeTransferred.has(cv)) {
+    return true
+  }
+  let dpr = (typeof window !== "undefined" && window.devicePixelRatio) ? window.devicePixelRatio : 1
+  if (dpr > 2.5) {
+    dpr = 2.5
+  }
+  let cssW = cv.offsetWidth
+  let cssH = cv.offsetHeight
+  if (cssW < 4) {
+    cssW = cv.width > 0 ? cv.width : 64
+  }
+  if (cssH < 4) {
+    cssH = cv.height > 0 ? cv.height : 34
+  }
+  let off = null
+  try {
+    off = cv.transferControlToOffscreen()
+  } catch (e) {
+    return false
+  }
+  scopeTransferred.add(cv)
+  scopeWorker.postMessage({ type: "register", id: id, cssW: cssW, cssH: cssH, dpr: dpr, canvas: off }, [off])
+  return true
+}
+// Per-stem scope colour = the channel's DECK colour (matches --deck-a/b/c/d), so a deck's waveforms read in
+// its own hue instead of all cyan.
+fn deckWaveColorHex(deck) {
+  if (deck === "B") {
+    return "#e879f9"
+  }
+  if (deck === "C") {
+    return "#f59e0b"
+  }
+  if (deck === "D") {
+    return "#4ade80"
+  }
+  return "#22d3ee"
+}
 export fn App() {
   let [project, setProject] = useState(initialDeckardBoot.project)
   migrateProjectGenerators(project)
@@ -340,7 +416,15 @@ export fn App() {
         r.updateGridPlayhead(step, true)
       }
       if (r.updateTimelinePlayhead) {
-        r.updateTimelinePlayhead(step, true)
+        // The Set Recorder is a TAKE-relative timeline (waveform x = step since the take's origin), so the
+        // playhead + auto-scroll use the same relative coordinate. tplViewOrigin = the global step at the
+        // recorder's 0 marker (the take start, or 0 during replay; re-zeroed by New).
+        let origin = r.tplViewOrigin != null ? Math.floor(r.tplViewOrigin) : 0
+        let prel = step - origin
+        if (prel < 0) {
+          prel = 0
+        }
+        r.updateTimelinePlayhead(prel, true)
       }
     })
     signals.subscribe("transport.health", (hh) => {
@@ -557,13 +641,19 @@ export fn App() {
     }
     rt.cuedDecks[deck] = !rt.cuedDecks[deck]
     audioStore.cuedDecks = rt.cuedDecks
-    // Button lights immediately; the actual cue (headphone) routing flips inside a draw-quiet window so the
-    // main thread isn't drawing while the audio source changes — keeps the cue in sync with the main.
-    setCueGen((g) => g + 1)
+    // Light the CUE button NOW: the centre strip is memoized on deckMixRev (its `cued` prop), NOT cueGen, so
+    // the toggle must bump deckMixRev or the button looks unchanged until some other edit re-renders the deck.
+    setDeckMixRev((x) => x + 1)
     if (audioStore.ctx) {
-      suspendDrawsAround(audioStore, () => {
+      // Optionally do the cue routing inside a draw-quiet window (the "CUE PAUSE" toggle). Off by default now
+      // that the scopes render off-thread (GPU/worker), so cueing no longer freezes the visuals.
+      if (audioDevices.get().cuePauseDraws === true) {
+        suspendDrawsAround(audioStore, () => {
+          applyCueRouting(rtRef.current.project, audioStore)
+        })
+      } else {
         applyCueRouting(rtRef.current.project, audioStore)
-      })
+      }
     }
   }
   // Pin the live audio sinks to the saved speaker/headphone devices + cue level. Called right after audio
@@ -637,10 +727,23 @@ export fn App() {
         requestAnimationFrame(scopeFrame)
         return
       }
+      // Worker path collects per-canvas analyser bytes into `frames` (buffers transferred in one postMessage);
+      // when unavailable, `sw` is null and we draw on the main thread as before.
+      let sw = ensureScopeWorker()
+      let frames = sw != null ? [] : null
+      let bufs = sw != null ? [] : null
       if (audioStore.analyser) {
         let spec = document.querySelector(".dk-spectrum")
         if (spec) {
-          drawSpectrumCanvas(spec, audioStore.analyser, "#f97316")
+          if (sw != null && scopeRegister(spec, "spectrum")) {
+            let n = audioStore.analyser.frequencyBinCount
+            let sb = new Uint8Array(n)
+            audioStore.analyser.getByteFrequencyData(sb)
+            frames.push({ id: "spectrum", kind: "spectrum", color: "#f97316", data: sb })
+            bufs.push(sb.buffer)
+          } else {
+            drawSpectrumCanvas(spec, audioStore.analyser, "#f97316")
+          }
         }
       }
       // Bottom-bar COMPRESSOR readout: live gain reduction (dB). ratio<=1 means the toggle bypassed it.
@@ -667,9 +770,18 @@ export fn App() {
           let cv = document.querySelector(".dk-wave-" + String(wi))
           let bus = audioStore.buses[wi]
           let lvl = bus && bus.analyser ? busPeakLevel(bus.analyser) : 0
+          let chDeck = (dpj && dpj.channels && dpj.channels[wi]) ? channelDeck(dpj, dpj.channels[wi]) : "A"
           if (cv && bus && bus.analyser) {
-            let col = cv.closest && cv.closest(".dk-deck-b") ? "#e879f9" : "#22d3ee"
-            drawMiniWave(cv, bus.analyser, col)
+            let col = deckWaveColorHex(chDeck)
+            if (sw != null && scopeRegister(cv, "wave-" + String(wi))) {
+              let N = bus.analyser.fftSize
+              let tb = new Uint8Array(N)
+              bus.analyser.getByteTimeDomainData(tb)
+              frames.push({ id: "wave-" + String(wi), kind: "wave", color: col, data: tb })
+              bufs.push(tb.buffer)
+            } else {
+              drawMiniWave(cv, bus.analyser, col)
+            }
           }
           // Drive the per-stem fader's segmented level meter from the same analyser (CSS var → fill height).
           let meterEl = document.querySelector(".dk-lvl-" + String(wi))
@@ -678,9 +790,8 @@ export fn App() {
           }
           // Accumulate the deck's level (max across its channels) for the centre per-deck volume meters.
           if (dpj && dpj.channels && dpj.channels[wi]) {
-            let dk = channelDeck(dpj, dpj.channels[wi])
-            if (deckLvl[dk] != null && lvl > deckLvl[dk]) {
-              deckLvl[dk] = lvl
+            if (deckLvl[chDeck] != null && lvl > deckLvl[chDeck]) {
+              deckLvl[chDeck] = lvl
             }
           }
           wi = wi + 1
@@ -694,6 +805,10 @@ export fn App() {
           }
           di = di + 1
         }
+      }
+      // One message per frame for ALL worker canvases; transfer the byte buffers (zero-copy).
+      if (sw != null && frames != null && frames.length > 0) {
+        scopeWorker.postMessage({ type: "frame", frames: frames }, bufs)
       }
       requestAnimationFrame(scopeFrame)
     }
@@ -1056,6 +1171,7 @@ export fn App() {
     // A replay ends when the transport stops; clear replay state so the next Play records a fresh take.
     rt.tplReplaying = false
     rt.tplReplayTriggers = null
+    rt.tplReplayControls = null
     bumpTimeline()
     if (rt.coDjNotifyPlaying) {
       rt.coDjNotifyPlaying(false)
@@ -1083,15 +1199,41 @@ export fn App() {
   // launches) that still bypass ingest — so REC captures a real performance, not just the mixer moves.
   // Record WHAT PLAYED: transportTick hands us the note triggers it fired this step (the performance), and
   // we tape them with the step (relative to the take's start). This — not the edit stream — is the Set.
+  // The performance CONTROLS that aren't notes: the 4-way crossfader (X/Y) and the per-deck FLT filter. We
+  // tape a snapshot per step so a saved Set replays the whole DJ move — the filter sweep + the fader blend —
+  // not just the note stream. Crossfade is read normalized (the value the audio actually used).
+  fn controlSnapshot(p) {
+    let de = p.deckEq ? p.deckEq : {}
+    let fa = de.A && typeof de.A.flt === "number" ? de.A.flt : 0
+    let fb = de.B && typeof de.B.flt === "number" ? de.B.flt : 0
+    let fc = de.C && typeof de.C.flt === "number" ? de.C.flt : 0
+    let fd = de.D && typeof de.D.flt === "number" ? de.D.flt : 0
+    return { xf: crossfadeValue(p), xfy: crossfadeValueY(p), fA: fa, fB: fb, fC: fc, fD: fd }
+  }
+  fn controlsDiffer(a, b) {
+    if (!b) {
+      return true
+    }
+    return a.xf !== b.xf || a.xfy !== b.xfy || a.fA !== b.fA || a.fB !== b.fB || a.fC !== b.fC || a.fD !== b.fD
+  }
   rt.recordPlayedStep = (globalStep, triggers) => {
-    if (!rt.tplRecording || rt.tplReplaying || !triggers || triggers.length === 0) {
+    if (!rt.tplRecording || rt.tplReplaying) {
+      return
+    }
+    let trs = triggers ? triggers : []
+    let ctl = controlSnapshot(rt.project)
+    let ctlChanged = controlsDiffer(ctl, rt.tplLastCtl)
+    // Record a step when notes fired OR a performance control moved — so the FLT/4-way-fader trajectory is
+    // captured across silent steps too, not only under notes (which is why the old guard dropped them).
+    if (trs.length === 0 && !ctlChanged) {
       return
     }
     let step = Math.floor(globalStep) - Math.floor(rt.tplTapeStartStep != null ? rt.tplTapeStartStep : 0)
     if (step < 0) {
       step = 0
     }
-    rt.tplTape.push({ step: step, triggers: triggers })
+    rt.tplLastCtl = ctl
+    rt.tplTape.push({ step: step, triggers: trs, ctl: ctl })
     // Live timeline feedback, throttled to bar boundaries (cheap; the grid already re-renders per bar).
     if (Math.floor(globalStep) % 16 === 0) {
       bumpTimeline()
@@ -1104,14 +1246,28 @@ export fn App() {
       return
     }
     rt.tplTape = []
+    rt.tplLastCtl = null
     rt.tplStartState = emitProject(rt.project)
     rt.tplRecMode = rt.playMode === "sequence" ? "sequence" : "song"
     rt.tplTapeStartStep = Math.floor(startStep != null ? startStep : (typeof rt.perfStep === "number" ? rt.perfStep : 0))
+    rt.tplViewOrigin = rt.tplTapeStartStep
   }
   // "New" clears the timeline; the next Play records a fresh take.
   fn onNewTake() {
     rt.tplTape = []
     rt.tplStartState = null
+    rt.tplLastCtl = null
+    // Restart the take at the 0 marker: re-zero the take clock (so whatever plays next records as step 0 and
+    // draws from the left edge) and snap the timeline scroll back to the start — even mid-playback.
+    let ps = typeof rt.perfStep === "number" ? Math.floor(rt.perfStep) : 0
+    rt.tplTapeStartStep = ps
+    rt.tplViewOrigin = ps
+    if (typeof document !== "undefined") {
+      let sc = document.querySelector(".pl-scroll")
+      if (sc) {
+        sc.scrollLeft = 0
+      }
+    }
     bumpTimeline()
   }
   // Persist the current take as a Set: the sounds header + the played-trigger timeline.
@@ -1130,21 +1286,60 @@ export fn App() {
   // triggers at each step (the ghost re-plays the exact performance), instead of recomputing from patterns.
   fn replayTriggers(tape, mode) {
     let map = {}
+    let ctlMap = {}
     let maxStep = 0
     let i = 0
     while (i < tape.length) {
       let e = tape[i]
-      map[Math.floor(Number(e.step))] = e.triggers
+      let s = Math.floor(Number(e.step))
+      map[s] = e.triggers
+      if (e.ctl != null) {
+        ctlMap[s] = e.ctl
+      }
       if (e.step > maxStep) {
-        maxStep = Math.floor(Number(e.step))
+        maxStep = s
       }
       i = i + 1
     }
     rt.tplReplayTriggers = map
+    rt.tplReplayControls = ctlMap
     rt.tplReplayStartStep = 0
     rt.tplReplayMaxStep = maxStep
     rt.tplReplaying = true
+    rt.tplViewOrigin = 0
     onPlay(mode === "sequence" ? "sequence" : "song", 0)
+  }
+  // Re-apply the recorded performance controls for a replay step: the 4-way crossfader + per-deck FLT, set
+  // exactly as taped, through the same path the live DeckMixer uses (deckEq mutate → applyDeckEq → one
+  // coalesced mix). Snapshots are sparse (only at change points), so the value persists until the next one.
+  rt.applyReplayControls = (rel) => {
+    let cm = rt.tplReplayControls
+    if (!cm) {
+      return
+    }
+    let ctl = cm[rel]
+    if (ctl == null) {
+      return
+    }
+    let p = rt.project
+    if (typeof ctl.xf === "number") {
+      p.transportCrossfade = ctl.xf
+    }
+    if (typeof ctl.xfy === "number") {
+      p.transportCrossfadeY = ctl.xfy
+    }
+    ensureDeckEq(p)
+    if (typeof ctl.fA === "number") { p.deckEq.A.flt = ctl.fA }
+    if (typeof ctl.fB === "number") { p.deckEq.B.flt = ctl.fB }
+    if (typeof ctl.fC === "number") { p.deckEq.C.flt = ctl.fC }
+    if (typeof ctl.fD === "number") { p.deckEq.D.flt = ctl.fD }
+    applyDeckEq(p, "A")
+    applyDeckEq(p, "B")
+    applyDeckEq(p, "C")
+    applyDeckEq(p, "D")
+    if (rt.scheduleDeckMix) {
+      rt.scheduleDeckMix()
+    }
   }
   // Load a recorded Set: load its sounds, show the played timeline, then replay it (the ghost).
   fn onLoadReplay(nm) {

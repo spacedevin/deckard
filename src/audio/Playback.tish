@@ -18,7 +18,7 @@ export fn stepTriggers(project, rt, globalStep) {
   let out = []
   let bi = 0
   while (bi < project.channels.length) {
-    if (!channelAudible(project, bi)) {
+    if (!channelAudible(project, bi, rt ? rt.cuedDecks : null)) {
       bi = bi + 1
       continue
     }
@@ -118,6 +118,11 @@ export fn transportTick(project, store, globalStep, rt, whenSec) {
   if (rt && rt.tplReplaying && rt.tplReplayTriggers) {
     let rel = Math.floor(globalStep) - Math.floor(rt.tplReplayStartStep != null ? rt.tplReplayStartStep : 0)
     triggers = rt.tplReplayTriggers[rel] != null ? rt.tplReplayTriggers[rel] : []
+    // Re-apply the taped performance controls for this step (4-way crossfader + per-deck FLT) — the ghost
+    // reproduces the filter sweep + fader blend, not just the notes.
+    if (rt.applyReplayControls) {
+      rt.applyReplayControls(rel)
+    }
   } else {
     triggers = stepTriggers(project, rt, globalStep)
     if (rt && rt.recordPlayedStep) {

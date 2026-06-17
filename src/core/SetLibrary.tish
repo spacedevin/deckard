@@ -343,6 +343,12 @@ fn serializeTape(tape) {
       out = out + " " + String(Math.floor(Number(t.busIndex))) + ":" + fmtNum(t.pitch) + ":" + fmtNum(t.vel) + ":" + fmtNum(t.durSec) + ":" + fmtNum(t.beat) + ":" + fmtNum(t.noteOffset)
       j = j + 1
     }
+    // Performance-control snapshot for this step: !<xfX>:<xfY>:<fltA>:<fltB>:<fltC>:<fltD> (the 4-way
+    // crossfader + per-deck filter). The `!` prefix keeps it distinct from a note trigger.
+    let c = e.ctl
+    if (c != null) {
+      out = out + " !" + fmtNum(c.xf) + ":" + fmtNum(c.xfy) + ":" + fmtNum(c.fA) + ":" + fmtNum(c.fB) + ":" + fmtNum(c.fC) + ":" + fmtNum(c.fD)
+    }
     out = out + "\n"
     i = i + 1
   }
@@ -359,22 +365,32 @@ fn parseTapeLines(lines) {
       let step = Number(toks[0].substring(1))
       if (step === step) {
         let triggers = []
+        let ctl = null
         let k = 1
         while (k < toks.length) {
-          let parts = toks[k].split(":")
-          if (parts.length >= 6) {
-            triggers.push({
-              busIndex: Math.floor(Number(parts[0])),
-              pitch: Number(parts[1]),
-              vel: Number(parts[2]),
-              durSec: Number(parts[3]),
-              beat: Number(parts[4]),
-              noteOffset: Number(parts[5])
-            })
+          let tok = toks[k]
+          if (tok.charAt(0) === "!") {
+            // Performance-control snapshot: !xf:xfy:fltA:fltB:fltC:fltD.
+            let cp = tok.substring(1).split(":")
+            if (cp.length >= 6) {
+              ctl = { xf: Number(cp[0]), xfy: Number(cp[1]), fA: Number(cp[2]), fB: Number(cp[3]), fC: Number(cp[4]), fD: Number(cp[5]) }
+            }
+          } else {
+            let parts = tok.split(":")
+            if (parts.length >= 6) {
+              triggers.push({
+                busIndex: Math.floor(Number(parts[0])),
+                pitch: Number(parts[1]),
+                vel: Number(parts[2]),
+                durSec: Number(parts[3]),
+                beat: Number(parts[4]),
+                noteOffset: Number(parts[5])
+              })
+            }
           }
           k = k + 1
         }
-        events.push({ step: Math.floor(step), triggers: triggers })
+        events.push({ step: Math.floor(step), triggers: triggers, ctl: ctl })
       }
     }
     i = i + 1

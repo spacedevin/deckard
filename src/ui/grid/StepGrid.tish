@@ -435,7 +435,9 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
       applyGridPlayhead(step, playing, gridBars, viewBar)
       // FOLLOW: keep the viewed bar locked to the bar that's currently sounding, paging at each bar
       // boundary (one re-render per bar, not per step). New render rebuilds this closure with the new bar.
-      if (playing && rt.seqFollow === true && gridBars > 1) {
+      // ONLY in Sequence mode — there the rack IS what's playing. In Session ("song") mode the launched
+      // clips play, NOT this rack, so paging the rack bars would jump the view to bars that aren't sounding.
+      if (playing && rt.seqFollow === true && gridBars > 1 && rt.playMode !== "song") {
         let pb = Math.floor(Math.floor(step) / 16) % gridBars
         if (pb !== viewBar) {
           rt.gridViewBar = pb
