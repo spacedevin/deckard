@@ -1,0 +1,303 @@
+// Serialize / mutate a modular `patch` graph ↔ TPL lines (keeps generatorSpec.raw + .graph in sync).
+// Mirror of MatrixFmGraph.tish but for the free-form patch model that Patch.tish plays and
+// TplExtension.parsePatchGraph reads: nodes (osc/noise/filter/shaper/gain), connections
+// (conn src dst[.param] vol), and breakpoint envelopes (env node.param seg...) with expression tokens.
+
+import { formatTplFloat } from './Format.tish'
+import { normalizeBasicOscWaveform } from '../generators/Registry.tish'
+
+/// Web Audio osc type word (full, the parser + player accept these verbatim).
+fn patchWaveTok(w) {
+  return normalizeBasicOscWaveform(w)
+}
+
+fn oscLine(nd) {
+  let s = "osc " + nd.id + " " + patchWaveTok(nd.wave)
+  if (nd.freqMode === "fixed") {
+    let hz = nd.fixedHz != null ? nd.fixedHz : 220
+    s = s + " " + formatTplFloat(hz)
+  } else {
+    s = s + " note"
+    let r = nd.ratio != null ? nd.ratio : 1
+    if (Math.abs(r - 1) > 0.00001) {
+      s = s + " ratio " + formatTplFloat(r)
+    }
+  }
+  if (nd.detune != null && Math.abs(nd.detune) > 0.00001) {
+    s = s + " detune " + formatTplFloat(nd.detune)
+  }
+  return s
+}
+
+fn filterLine(nd) {
+  let s = "filter " + nd.id + " " + (nd.ftype ? nd.ftype : "lowpass")
+  s = s + " q " + formatTplFloat(nd.q != null ? nd.q : 0.7)
+  if (nd.freq != null && nd.freq > 0) {
+    s = s + " freq " + formatTplFloat(nd.freq)
+  }
+  return s
+}
+
+fn nodeLine(nd) {
+  if (nd.kind === "osc") {
+    return oscLine(nd)
+  }
+  if (nd.kind === "noise") {
+    return "noise " + nd.id
+  }
+  if (nd.kind === "filter") {
+    return filterLine(nd)
+  }
+  if (nd.kind === "shaper") {
+    return "shaper " + nd.id + " amount " + formatTplFloat(nd.amount != null ? nd.amount : 50)
+  }
+  if (nd.kind === "gain") {
+    return "gain " + nd.id + " " + formatTplFloat(nd.value != null ? nd.value : 1)
+  }
+  return ""
+}
+
+fn connLine(cn) {
+  let dstTok = cn.dst
+  if (cn.dstParam) {
+    dstTok = cn.dst + "." + cn.dstParam
+  }
+  return "conn " + cn.src + " " + dstTok + " " + formatTplFloat(cn.vol != null ? cn.vol : 1)
+}
+
+fn envLine(en) {
+  let s = "env " + en.node + "." + (en.param ? en.param : "gain")
+  let i = 0
+  while (i < en.segs.length) {
+    let sg = en.segs[i]
+    s = s + " " + sg.type + " " + String(sg.tExpr) + " " + String(sg.vExpr)
+    i = i + 1
+  }
+  return s
+}
+
+export fn patchGraphToLines(graph) {
+  let lines = []
+  let i = 0
+  while (i < graph.nodes.length) {
+    let ln = nodeLine(graph.nodes[i])
+    if (ln.length > 0) {
+      lines.push(ln)
+    }
+    i = i + 1
+  }
+  let ci = 0
+  while (ci < graph.conns.length) {
+    lines.push(connLine(graph.conns[ci]))
+    ci = ci + 1
+  }
+  let ei = 0
+  while (ei < graph.envs.length) {
+    let en = graph.envs[ei]
+    if (en.segs && en.segs.length > 0) {
+      lines.push(envLine(en))
+    }
+    ei = ei + 1
+  }
+  if (graph.dur != null) {
+    lines.push("dur " + formatTplFloat(graph.dur))
+  }
+  return lines
+}
+
+export fn syncPatchSpecFromGraph(spec) {
+  if (!spec || !spec.graph) {
+    return
+  }
+  /** Refresh `raw` only (for emit / TPL mirror). Do not replace `graph`: UI handlers close over the
+   *  graph object from the last render; re-parsing would orphan live edits. Same rule as Matrix FM. */
+  spec.raw = patchGraphToLines(spec.graph)
+}
+
+/// Default starter patch: a subtractive pluck (saw → lowpass → amp gain → out) with an amp envelope.
+export fn defaultPatchRawLines() {
+  return [
+    "osc o1 sawtooth note",
+    "filter f1 lowpass q 4 freq 1800",
+    "gain a1 0",
+    "conn o1 f1 1",
+    "conn f1 a1 1",
+    "conn a1 out 1",
+    "env a1.gain set 0 0 lin 0.01 0.9 lin dur 0"
+  ]
+}
+
+fn idExists(graph, id) {
+  let i = 0
+  while (i < graph.nodes.length) {
+    if (graph.nodes[i].id === id) {
+      return true
+    }
+    i = i + 1
+  }
+  return false
+}
+
+fn nextNodeId(graph, prefix) {
+  let n = 1
+  while (n < 1000) {
+    let id = prefix + String(n)
+    if (!idExists(graph, id)) {
+      return id
+    }
+    n = n + 1
+  }
+  return prefix + "x"
+}
+
+fn defaultNodeForKind(kind, id) {
+  if (kind === "osc") {
+    return { kind: "osc", id: id, wave: "sine", freqMode: "note", fixedHz: 220, ratio: 1, detune: 0 }
+  }
+  if (kind === "noise") {
+    return { kind: "noise", id: id }
+  }
+  if (kind === "filter") {
+    return { kind: "filter", id: id, ftype: "lowpass", q: 0.7, freq: 1200 }
+  }
+  if (kind === "shaper") {
+    return { kind: "shaper", id: id, amount: 50 }
+  }
+  return { kind: "gain", id: id, value: 1 }
+}
+
+fn prefixForKind(kind) {
+  if (kind === "osc") {
+    return "o"
+  }
+  if (kind === "noise") {
+    return "n"
+  }
+  if (kind === "filter") {
+    return "f"
+  }
+  if (kind === "shaper") {
+    return "s"
+  }
+  return "g"
+}
+
+export fn addPatchNode(graph, kind) {
+  let id = nextNodeId(graph, prefixForKind(kind))
+  graph.nodes.push(defaultNodeForKind(kind, id))
+  return id
+}
+
+export fn removePatchNode(graph, id) {
+  let newNodes = []
+  let i = 0
+  while (i < graph.nodes.length) {
+    if (graph.nodes[i].id !== id) {
+      newNodes.push(graph.nodes[i])
+    }
+    i = i + 1
+  }
+  graph.nodes = newNodes
+  let newConns = []
+  let ci = 0
+  while (ci < graph.conns.length) {
+    let cn = graph.conns[ci]
+    if (cn.src !== id && cn.dst !== id) {
+      newConns.push(cn)
+    }
+    ci = ci + 1
+  }
+  graph.conns = newConns
+  let newEnvs = []
+  let ei = 0
+  while (ei < graph.envs.length) {
+    if (graph.envs[ei].node !== id) {
+      newEnvs.push(graph.envs[ei])
+    }
+    ei = ei + 1
+  }
+  graph.envs = newEnvs
+}
+
+export fn addPatchConn(graph) {
+  let src = graph.nodes.length > 0 ? graph.nodes[0].id : "o1"
+  graph.conns.push({ src: src, dst: "out", dstParam: null, vol: 1 })
+}
+
+export fn removePatchConnAt(graph, index) {
+  let idx = Math.floor(Number(index))
+  let newC = []
+  let i = 0
+  while (i < graph.conns.length) {
+    if (i !== idx) {
+      newC.push(graph.conns[i])
+    }
+    i = i + 1
+  }
+  graph.conns = newC
+}
+
+/// First node that owns a `gain` AudioParam (gain node), else first node — sensible env default.
+fn firstGainNodeId(graph) {
+  let i = 0
+  while (i < graph.nodes.length) {
+    if (graph.nodes[i].kind === "gain") {
+      return graph.nodes[i].id
+    }
+    i = i + 1
+  }
+  if (graph.nodes.length > 0) {
+    return graph.nodes[0].id
+  }
+  return "a1"
+}
+
+export fn addPatchEnv(graph) {
+  graph.envs.push({
+    node: firstGainNodeId(graph),
+    param: "gain",
+    segs: [
+      { type: "set", tExpr: "0", vExpr: "0" },
+      { type: "lin", tExpr: "0.01", vExpr: "0.9" },
+      { type: "lin", tExpr: "dur", vExpr: "0" }
+    ]
+  })
+}
+
+export fn removePatchEnvAt(graph, index) {
+  let idx = Math.floor(Number(index))
+  let newE = []
+  let i = 0
+  while (i < graph.envs.length) {
+    if (i !== idx) {
+      newE.push(graph.envs[i])
+    }
+    i = i + 1
+  }
+  graph.envs = newE
+}
+
+export fn addPatchEnvSeg(graph, envIndex) {
+  let idx = Math.floor(Number(envIndex))
+  if (idx < 0 || idx >= graph.envs.length) {
+    return
+  }
+  graph.envs[idx].segs.push({ type: "lin", tExpr: "dur", vExpr: "0" })
+}
+
+export fn removePatchEnvSegAt(graph, envIndex, segIndex) {
+  let ei = Math.floor(Number(envIndex))
+  let si = Math.floor(Number(segIndex))
+  if (ei < 0 || ei >= graph.envs.length) {
+    return
+  }
+  let newS = []
+  let i = 0
+  while (i < graph.envs[ei].segs.length) {
+    if (i !== si) {
+      newS.push(graph.envs[ei].segs[i])
+    }
+    i = i + 1
+  }
+  graph.envs[ei].segs = newS
+}

@@ -1,15 +1,104 @@
 import { sixteenthSeconds, automationAt } from '../schedule/Engine.tish'
 import { playHitAt, channelAudible, updateMixerFromProject } from './Engine.tish'
 import { generatorChannelAtBeat } from './ParamAtBeat.tish'
-import { expandTriggerPitches } from './NoteExpand.tish'
+import { expandTriggerNotes } from './NoteExpand.tish'
 import { tplLoopOnBarBoundary, tplLoopSkipsChannel } from '../tpl/LoopState.tish'
 import { playbackClipForChannel, clipPatternSpanSteps } from '../model/Session.tish'
+
+/**
+ * PURE note selection: which notes fire at `globalStep`, given ONLY the fold (project) + the performance
+ * runtime (rt: arp state, armed clips, tpl-loop state). No audio / no store. Returns a list of
+ * { busIndex, pitch, vel, durSec, beat } — the musical content of this step. This is the single source of
+ * truth for "what sounds": transportTick maps it to playHitAt, and tests compare it across peers to prove
+ * a host and guest hear EXACTLY the same thing (identical fold + step ⇒ identical triggers). It advances
+ * rt.arpState / tpl-loop state exactly like playback, so callers must invoke it once per played step.
+ */
+export fn stepTriggers(project, rt, globalStep) {
+  tplLoopOnBarBoundary(project, globalStep, rt)
+  let out = []
+  let bi = 0
+  while (bi < project.channels.length) {
+    if (!channelAudible(project, bi, rt ? rt.cuedDecks : null)) {
+      bi = bi + 1
+      continue
+    }
+    if (tplLoopSkipsChannel(project, bi, rt)) {
+      bi = bi + 1
+      continue
+    }
+    let ch = project.channels[bi]
+    let pclip = playbackClipForChannel(project, rt, bi)
+    if (pclip && pclip.silent) {
+      bi = bi + 1
+      continue
+    }
+    let useSteps = ch.steps
+    let usePiano = ch.pianoNotes
+    // Bar count of the active pattern (channel patternBars in rack mode, or the clip's). Drives the
+    // melodic span and the per-bar step pitch — NOT the step-rhythm length (see below).
+    let nbars = ch.patternBars != null && Math.floor(Number(ch.patternBars)) >= 1 ? Math.floor(Number(ch.patternBars)) : 1
+    let patSpan = nbars * 16
+    if (pclip && !pclip.silent) {
+      useSteps = pclip.steps
+      usePiano = pclip.pianoNotes
+      patSpan = clipPatternSpanSteps(pclip)
+      if (patSpan >= 16) {
+        nbars = Math.floor(patSpan / 16)
+      }
+    }
+    if (usePiano && usePiano.length > 0) {
+      // Melodic: notes are positioned by ABSOLUTE beat across all bars (bar-selected notes are expanded
+      // to absolute notes at apply time). span = full pattern length, so bars 2+ are NOT skipped.
+      let stepInSpan = globalStep % patSpan
+      let pi = 0
+      while (pi < usePiano.length) {
+        let n = usePiano[pi]
+        let noteStep = Math.floor(n.startBeat * 4 + 0.0001)
+        if (noteStep >= 0 && noteStep < patSpan && stepInSpan === noteStep) {
+          let sec = (n.durBeats * 60) / project.bpm
+          let notes = expandTriggerNotes(ch, n.pitch, sec)
+          let pk = 0
+          while (pk < notes.length) {
+            out.push({ busIndex: bi, pitch: notes[pk].pitch, vel: n.vel, durSec: notes[pk].dur, beat: n.startBeat, noteOffset: notes[pk].offset })
+            pk = pk + 1
+          }
+        }
+        pi = pi + 1
+      }
+    } else {
+      // Steps: the rhythm LOOPS over its own array length — a 16-step pattern repeats every bar (the
+      // common case, e.g. a bass groove), while a captured N*16 array plays distinct per-bar steps. The
+      // per-bar step pitch (step_pitch … bar <sel> → stepPitchByBar) is chosen by the GLOBAL bar index, so
+      // multi-bar pitch progressions actually change across bars (the old code used the wrong index and
+      // either pinned bar-1's pitch or, with the naive span fix, silenced bars 2+ entirely).
+      let rlen = (useSteps && useSteps.length >= 1) ? useSteps.length : 16
+      let stepInRhythm = globalStep % rlen
+      if (useSteps && stepInRhythm < useSteps.length && useSteps[stepInRhythm].on) {
+        let dur = sixteenthSeconds(project.bpm) * 0.85
+        let basePitch = ch.stepPitch
+        if (ch.stepPitchByBar) {
+          let barIdx = Math.floor(globalStep / 16) % nbars
+          if (barIdx >= 0 && barIdx < ch.stepPitchByBar.length) {
+            basePitch = ch.stepPitchByBar[barIdx]
+          }
+        }
+        let notes = expandTriggerNotes(ch, basePitch, dur)
+        let pk = 0
+        while (pk < notes.length) {
+          out.push({ busIndex: bi, pitch: notes[pk].pitch, vel: useSteps[stepInRhythm].vel, durSec: notes[pk].dur, beat: globalStep * 0.25, noteOffset: notes[pk].offset })
+          pk = pk + 1
+        }
+      }
+    }
+    bi = bi + 1
+  }
+  return out
+}
 
 export fn transportTick(project, store, globalStep, rt, whenSec) {
   if (!store.ctx) {
     return
   }
-  tplLoopOnBarBoundary(project, globalStep, rt)
   let beat = globalStep * 0.25
   updateMixerFromProject(project, store, beat)
   let ctx = store.ctx
@@ -21,69 +110,38 @@ export fn transportTick(project, store, globalStep, rt, whenSec) {
     let stepInBar = globalStep % 16
     bend = automationAt(project.automation.pitchBend, stepInBar * 0.25)
   }
-  let bi = 0
-  while (bi < project.channels.length) {
-    if (!channelAudible(project, bi)) {
-      bi = bi + 1
-      continue
+  // Selection (pure) → audio (the only difference between a real client and a headless one).
+  // RECORD/REPLAY (the "Set" = what actually PLAYED): during a replay we FIRE the recorded triggers for
+  // this step instead of recomputing them from the project (so the ghost re-plays the exact performance);
+  // during a normal play we record stepTriggers' output — that note stream IS the performance.
+  let triggers
+  if (rt && rt.tplReplaying && rt.tplReplayTriggers) {
+    let rel = Math.floor(globalStep) - Math.floor(rt.tplReplayStartStep != null ? rt.tplReplayStartStep : 0)
+    triggers = rt.tplReplayTriggers[rel] != null ? rt.tplReplayTriggers[rel] : []
+    // Re-apply the taped performance controls for this step (4-way crossfader + per-deck FLT) — the ghost
+    // reproduces the filter sweep + fader blend, not just the notes.
+    if (rt.applyReplayControls) {
+      rt.applyReplayControls(rel)
     }
-    if (tplLoopSkipsChannel(project, bi, rt)) {
-      bi = bi + 1
-      continue
+  } else {
+    triggers = stepTriggers(project, rt, globalStep)
+    if (rt && rt.recordPlayedStep) {
+      rt.recordPlayedStep(globalStep, triggers)
     }
-    let ch = project.channels[bi]
-    let bus = store.buses[bi]
-    let pclip = playbackClipForChannel(project, rt, bi)
-    if (pclip && pclip.silent) {
-      bi = bi + 1
-      continue
+  }
+  let i = 0
+  while (i < triggers.length) {
+    let tr = triggers[i]
+    let ch = project.channels[tr.busIndex]
+    let bus = store.buses[tr.busIndex]
+    // A replayed trigger can reference a channel the current project no longer has (e.g. the recording
+    // owns more channels than the loaded header) — skip it rather than crash on a missing channel/bus.
+    if (ch != null && bus != null) {
+      let gch = generatorChannelAtBeat(project, ch, tr.beat)
+      // Chord notes can be offset in time (strum) or rippled (arpeggio); offset is seconds after the step.
+      let tWhen = tr.noteOffset != null ? t + tr.noteOffset : t
+      playHitAt(ctx, bus, tWhen, tr.pitch, tr.vel, tr.durSec, gch, bend)
     }
-    let useSteps = ch.steps
-    let usePiano = ch.pianoNotes
-    let span = 16
-    if (pclip && !pclip.silent) {
-      useSteps = pclip.steps
-      usePiano = pclip.pianoNotes
-      span = clipPatternSpanSteps(pclip)
-    }
-    let stepInPat = globalStep % span
-    if (usePiano && usePiano.length > 0) {
-      let pi = 0
-      while (pi < usePiano.length) {
-        let n = usePiano[pi]
-        let noteStep = Math.floor(n.startBeat * 4 + 0.0001)
-        if (noteStep >= 0 && noteStep < span && stepInPat === noteStep) {
-          let sec = (n.durBeats * 60) / project.bpm
-          let gch2 = generatorChannelAtBeat(project, ch, n.startBeat)
-          let pitches = expandTriggerPitches(ch, n.pitch, rt)
-          let pk = 0
-          while (pk < pitches.length) {
-            playHitAt(ctx, bus, t, pitches[pk], n.vel, sec, gch2, bend)
-            pk = pk + 1
-          }
-        }
-        pi = pi + 1
-      }
-    } else {
-      if (useSteps && useSteps.length > stepInPat && useSteps[stepInPat].on) {
-        let dur = sixteenthSeconds(project.bpm) * 0.85
-        let gch = generatorChannelAtBeat(project, ch, beat)
-        // Per-bar step pitch (step_pitch ... bar <sel>): pick the pitch for the current loop bar.
-        let basePitch = ch.stepPitch
-        if (ch.stepPitchByBar) {
-          let barInLoop = Math.floor(stepInPat / 16)
-          if (barInLoop >= 0 && barInLoop < ch.stepPitchByBar.length) {
-            basePitch = ch.stepPitchByBar[barInLoop]
-          }
-        }
-        let pitches = expandTriggerPitches(ch, basePitch, rt)
-        let pk = 0
-        while (pk < pitches.length) {
-          playHitAt(ctx, bus, t, pitches[pk], useSteps[stepInPat].vel, dur, gch, bend)
-          pk = pk + 1
-        }
-      }
-    }
-    bi = bi + 1
+    i = i + 1
   }
 }

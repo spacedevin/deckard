@@ -1,107 +1,130 @@
 import { h } from '@tishlang/lattish'
 import { defaultParamsForGeneratorId, normalizeBasicOscWaveform } from '../generators/Registry.tish'
 import { parseGenBlock, defaultMatrixFmRawLines } from '../tpl/TplExtension.tish'
+import { defaultPatchRawLines } from '../tpl/PatchGraph.tish'
+import { Knob, WaveIconPicker, EnvDisplay, accentForGenerator } from './InstrumentKit.tish'
 
-fn adsrEnvelopePathD(a, d, s, r) {
-  let W = 100
-  let H = 44
-  let hold = 0.12
-  let T = a + d + hold + r
-  if (T < 0.0005) {
-    T = 0.0005
+// Every instrument edit routes one param through the single gated write door (rt.emit → `gen <snake> <v>`,
+// merged into generatorParams). The TPL key is snake_case so apply's snakeToCamel lands the right field;
+// the dedicated osc/fm/noise emit branches read the same camelCase keys, so the round-trip is preserved.
+fn genEmit(rt, ch, tplKey, value) {
+  if (rt && rt.emit) {
+    rt.emit("track/" + ch.id + "/gen/" + tplKey, value)
   }
-  let xA = (a / T) * W
-  let xAD = ((a + d) / T) * W
-  let xADS = ((a + d + hold) / T) * W
-  let yS = H * (1 - s)
-  return "M 0 " + String(H) + " L " + String(xA) + " 0 L " + String(xAD) + " " + String(yS) + " L " + String(xADS) + " " + String(yS) + " L " + String(W) + " " + String(H)
 }
 
-export fn AdsrAmpBlock(p, project, setProject, tplMirrorFlush) {
-  let a = p.attack > 0 ? p.attack : 0.005
-  let d = p.decay > 0 ? p.decay : 0.08
-  let s = p.sustain >= 0 && p.sustain <= 1 ? p.sustain : 0.4
-  let r = p.release > 0 ? p.release : 0.12
-  let pathD = adsrEnvelopePathD(a, d, s, r)
-  fn commitParams() {
-    setProject(project)
-    if (tplMirrorFlush) {
-      tplMirrorFlush()
-    }
+fn genFreqToSlider(hz) {
+  let lo = Math.log(20)
+  let hi = Math.log(18000)
+  let h0 = hz
+  if (h0 < 20) {
+    h0 = 20
   }
+  if (h0 > 18000) {
+    h0 = 18000
+  }
+  return Math.round(((Math.log(h0) - lo) / (hi - lo)) * 1000)
+}
+
+fn genSliderToFreq(sl) {
+  let lo = Math.log(20)
+  let hi = Math.log(18000)
+  return Math.round(Math.exp(lo + (sl / 1000) * (hi - lo)))
+}
+
+// ---- knob shorthands (all emit via genEmit) ----
+
+fn msKnob(label, sec, maxSec, rt, ch, key, accent) {
+  return Knob({
+    label: label,
+    value: sec,
+    min: 0,
+    max: maxSec,
+    step: 0.001,
+    fmt: (x) => String(Math.round(x * 1000)),
+    accent: accent,
+    onInput: (x) => genEmit(rt, ch, key, x)
+  })
+}
+
+fn pctKnob(label, frac, rt, ch, key, accent) {
+  return Knob({
+    label: label,
+    value: frac,
+    min: 0,
+    max: 1,
+    step: 0.01,
+    fmt: (x) => String(Math.round(x * 100)) + "%",
+    accent: accent,
+    onInput: (x) => genEmit(rt, ch, key, x)
+  })
+}
+
+fn numKnob(label, val, min, max, step, suffix, rt, ch, key, accent) {
+  return Knob({
+    label: label,
+    value: val,
+    min: min,
+    max: max,
+    step: step,
+    fmt: (x) => String(Math.round(x * 100) / 100) + suffix,
+    accent: accent,
+    onInput: (x) => genEmit(rt, ch, key, x)
+  })
+}
+
+fn freqKnob(label, hz, rt, ch, key, accent) {
+  return Knob({
+    label: label,
+    value: genFreqToSlider(hz),
+    min: 0,
+    max: 1000,
+    step: 1,
+    fmt: (sl) => String(genSliderToFreq(sl)) + " Hz",
+    accent: accent,
+    onInput: (sl) => genEmit(rt, ch, key, genSliderToFreq(sl))
+  })
+}
+
+fn waveCard(title, current, tplKey, rt, ch, accent, extra) {
   return (
-    <div class="deck-module">
-      <h3 class="deck-module-h">{"Envelope"}</h3>
-      <div class="deck-adsr-sliders">
-        <div class="deck-adsr-cell">
-          <label>{"A"}</label>
-          <input type="range" min="1" max="500" value={String(Math.round(a * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.attack = Number(e.target.value) / 1000 }} onchange={commitParams} />
-          <span class="deck-adsr-val">{String(Math.round(a * 1000))}</span>
-        </div>
-        <div class="deck-adsr-cell">
-          <label>{"D"}</label>
-          <input type="range" min="1" max="500" value={String(Math.round(d * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.decay = Number(e.target.value) / 1000 }} onchange={commitParams} />
-          <span class="deck-adsr-val">{String(Math.round(d * 1000))}</span>
-        </div>
-        <div class="deck-adsr-cell">
-          <label>{"S"}</label>
-          <input type="range" min="0" max="100" value={String(Math.round(s * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.sustain = Number(e.target.value) / 100 }} onchange={commitParams} />
-          <span class="deck-adsr-val">{String(Math.round(s * 100))}</span>
-        </div>
-        <div class="deck-adsr-cell">
-          <label>{"R"}</label>
-          <input type="range" min="1" max="800" value={String(Math.round(r * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.release = Number(e.target.value) / 1000 }} onchange={commitParams} />
-          <span class="deck-adsr-val">{String(Math.round(r * 1000))}</span>
-        </div>
-      </div>
-      <svg class="deck-env-svg" viewBox="0 0 100 44" preserveAspectRatio="none">
-        <path d={pathD} />
-      </svg>
+    <div class="ik-card">
+      <div class="ik-card-h">{title}</div>
+      {WaveIconPicker(current, (w) => genEmit(rt, ch, tplKey, w), { accent: accent })}
+      {extra}
     </div>
   )
 }
 
-fn waveTile(waveId, label, current, p, project, setProject, tplMirrorFlush, keyWave) {
-  let active = current === waveId ? " deck-wave-tile-active" : ""
-  return (
-    <button
-      type="button"
-      class={"deck-wave-tile" + active}
-      key={keyWave}
-      onclick={() => {
-        p.waveform = waveId
-        setProject(project)
-        if (tplMirrorFlush) {
-          tplMirrorFlush()
-        }
-      }}
-    >
-      {label}
-    </button>
-  )
+// Generic discrete-choice pill row (accent-tinted active state). For string-only pickers like the Aahs
+// vowel or any voice family — emits the chosen value through the one gated write door.
+fn pickPills(current, opts, rt, ch, key, accent) {
+  let pills = []
+  let i = 0
+  while (i < opts.length) {
+    let val = opts[i][0]
+    let lab = opts[i][1]
+    let valCopy = val
+    let on = current === val
+    let style = on ? { borderColor: accent, color: accent, background: accent + "22" } : {}
+    pills.push(
+      <button
+        type="button"
+        class={on ? "gen-pick-pill gen-pick-pill-on" : "gen-pick-pill"}
+        key={"pk" + key + val}
+        style={style}
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={() => genEmit(rt, ch, key, valCopy)}
+      >
+        {lab}
+      </button>
+    )
+    i = i + 1
+  }
+  return <div class="gen-pick-row">{pills}</div>
 }
 
-fn fmWaveTile(waveId, label, current, setter, project, setProject, tplMirrorFlush, keyWave) {
-  let active = current === waveId ? " deck-wave-tile-active" : ""
-  return (
-    <button
-      type="button"
-      class={"deck-wave-tile" + active}
-      key={keyWave}
-      onclick={() => {
-        setter(waveId)
-        setProject(project)
-        if (tplMirrorFlush) {
-          tplMirrorFlush()
-        }
-      }}
-    >
-      {label}
-    </button>
-  )
-}
-
-export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush) {
+export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
   let id = ch.generatorId
   if (!id) {
     id = "basicOsc"
@@ -110,111 +133,409 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush) {
     ch.generatorParams = defaultParamsForGeneratorId(id)
   }
   let p = ch.generatorParams
+  let accent = accentForGenerator(id)
+
   if (id === "basicOsc") {
     let w = normalizeBasicOscWaveform(p.waveform)
+    let a = p.attack > 0 ? p.attack : 0.005
+    let d = p.decay > 0 ? p.decay : 0.08
+    let s = p.sustain >= 0 && p.sustain <= 1 ? p.sustain : 0.4
+    let r = p.release > 0 ? p.release : 0.12
     return (
-      <article class="gen-params gen-params-stack">
-        <div class="deck-module">
-          <h3 class="deck-module-h">{"Osc"}</h3>
-          <div class="deck-wave-grid">
-            {waveTile("sine", "Sin", w, p, project, setProject, tplMirrorFlush, "w-sine")}
-            {waveTile("square", "Sqr", w, p, project, setProject, tplMirrorFlush, "w-square")}
-            {waveTile("sawtooth", "Saw", w, p, project, setProject, tplMirrorFlush, "w-saw")}
-            {waveTile("triangle", "Tri", w, p, project, setProject, tplMirrorFlush, "w-tri")}
+      <article class="gen-params ik-cols">
+        {waveCard("Oscillator", w, "waveform", rt, ch, accent, EnvDisplay(a, d, s, r, { accent: accent }))}
+        <div class="ik-card">
+          <div class="ik-card-h">{"Envelope"}</div>
+          <div class="ik-knob-grid">
+            {msKnob("Attack", a, 2, rt, ch, "attack", accent)}
+            {msKnob("Decay", d, 2, rt, ch, "decay", accent)}
+            {pctKnob("Sustain", s, rt, ch, "sustain", accent)}
+            {msKnob("Release", r, 4, rt, ch, "release", accent)}
           </div>
         </div>
-        {AdsrAmpBlock(p, project, setProject, tplMirrorFlush)}
       </article>
     )
   }
+
   if (id === "noiseBurst") {
     let rise = p.attack > 0 ? p.attack : 0.002
     let dec = p.decay > 0 ? p.decay : 0.07
     let tone = p.tone >= 0 && p.tone <= 1 ? p.tone : 0.45
     let pf = p.pitchFollow >= 0 && p.pitchFollow <= 1 ? p.pitchFollow : 0.25
-    fn commitNoise() {
-      setProject(project)
-      if (tplMirrorFlush) {
-        tplMirrorFlush()
-      }
-    }
     return (
-      <section class="gen-params gen-params-stack">
-        <div class="deck-module">
-          <h3 class="deck-module-h">{"Shape"}</h3>
-          <label class="gen-row">
-            {"Attack "}
-            <input type="range" min="1" max="150" value={String(Math.round(rise * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.attack = Number(e.target.value) / 1000 }} onchange={commitNoise} />
-          </label>
-          <label class="gen-row">
-            {"Decay "}
-            <input type="range" min="2" max="400" value={String(Math.round(dec * 1000))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.decay = Number(e.target.value) / 1000 }} onchange={commitNoise} />
-          </label>
+      <article class="gen-params ik-cols">
+        <div class="ik-card">
+          <div class="ik-card-h">{"Shape"}</div>
+          <div class="ik-knob-grid">
+            {msKnob("Attack", rise, 0.15, rt, ch, "attack", accent)}
+            {msKnob("Decay", dec, 0.4, rt, ch, "decay", accent)}
+          </div>
         </div>
-        <div class="deck-module">
-          <h3 class="deck-module-h">{"Tone"}</h3>
-          <label class="gen-row">
-            {"Tone "}
-            <input type="range" min="0" max="100" value={String(Math.round(tone * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.tone = Number(e.target.value) / 100 }} onchange={commitNoise} />
-          </label>
-          <label class="gen-row">
-            {"Pitch→filter "}
-            <input type="range" min="0" max="100" value={String(Math.round(pf * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.pitchFollow = Number(e.target.value) / 100 }} onchange={commitNoise} />
-          </label>
+        <div class="ik-card">
+          <div class="ik-card-h">{"Tone"}</div>
+          <div class="ik-knob-grid">
+            {pctKnob("Colour", tone, rt, ch, "tone", accent)}
+            {pctKnob("Pitch→flt", pf, rt, ch, "pitch_follow", accent)}
+          </div>
         </div>
-      </section>
+      </article>
     )
   }
+
   if (id === "fmTone") {
     let ratio = p.ratio > 0 ? p.ratio : 2
     let idx = p.modIndex >= 0 ? p.modIndex : 4
     let cw = normalizeBasicOscWaveform(p.carrierWave ? p.carrierWave : "sine")
     let mw = normalizeBasicOscWaveform(p.modWave ? p.modWave : "sine")
-    fn commitFm() {
-      setProject(project)
-      if (tplMirrorFlush) {
-        tplMirrorFlush()
-      }
-    }
-    fn setCar(v) {
-      p.carrierWave = v
-    }
-    fn setMod(v) {
-      p.modWave = v
+    let a = p.attack > 0 ? p.attack : 0.005
+    let d = p.decay > 0 ? p.decay : 0.08
+    let s = p.sustain >= 0 && p.sustain <= 1 ? p.sustain : 0.4
+    let r = p.release > 0 ? p.release : 0.12
+    return (
+      <article class="gen-params ik-cols">
+        <div class="ik-card">
+          <div class="ik-card-h">{"FM"}</div>
+          <div class="ik-knob-grid">
+            {numKnob("Ratio", ratio, 0.25, 16, 0.01, "×", rt, ch, "ratio", accent)}
+            {numKnob("Index", idx, 0, 48, 0.1, "", rt, ch, "mod_index", accent)}
+          </div>
+          <div class="ik-wave-pair">
+            <span class="ik-wave-lbl">{"Carrier"}</span>
+            {WaveIconPicker(cw, (x) => genEmit(rt, ch, "carrier_wave", x), { accent: accent })}
+          </div>
+          <div class="ik-wave-pair">
+            <span class="ik-wave-lbl">{"Mod"}</span>
+            {WaveIconPicker(mw, (x) => genEmit(rt, ch, "mod_wave", x), { accent: accent })}
+          </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"Envelope"}</div>
+          <div class="ik-knob-grid">
+            {msKnob("Attack", a, 2, rt, ch, "attack", accent)}
+            {msKnob("Decay", d, 2, rt, ch, "decay", accent)}
+            {pctKnob("Sustain", s, rt, ch, "sustain", accent)}
+            {msKnob("Release", r, 4, rt, ch, "release", accent)}
+          </div>
+          {EnvDisplay(a, d, s, r, { accent: accent })}
+        </div>
+      </article>
+    )
+  }
+
+  if (id === "pad") {
+    let w1 = normalizeBasicOscWaveform(p.wave1 ? p.wave1 : "sine")
+    let w2 = normalizeBasicOscWaveform(p.wave2 ? p.wave2 : "triangle")
+    let detune = p.detune != null ? p.detune : 9
+    let cutoff = p.cutoff != null && p.cutoff > 0 ? p.cutoff : 2200
+    let a = p.attack > 0 ? p.attack : 0.08
+    let d = p.decay > 0 ? p.decay : 0.25
+    let s = p.sustain >= 0 && p.sustain <= 1 ? p.sustain : 0.6
+    let r = p.release > 0 ? p.release : 0.7
+    return (
+      <article class="gen-params ik-cols">
+        <div class="ik-card">
+          <div class="ik-card-h">{"Oscillators"}</div>
+          <div class="ik-wave-pair">
+            <span class="ik-wave-lbl">{"Osc 1"}</span>
+            {WaveIconPicker(w1, (x) => genEmit(rt, ch, "wave1", x), { accent: accent })}
+          </div>
+          <div class="ik-wave-pair">
+            <span class="ik-wave-lbl">{"Osc 2"}</span>
+            {WaveIconPicker(w2, (x) => genEmit(rt, ch, "wave2", x), { accent: accent })}
+          </div>
+          <div class="ik-knob-grid">
+            {numKnob("Detune", detune, 0, 50, 1, "¢", rt, ch, "detune", accent)}
+            {freqKnob("Cutoff", cutoff, rt, ch, "cutoff", accent)}
+          </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"Envelope"}</div>
+          <div class="ik-knob-grid">
+            {msKnob("Attack", a, 2, rt, ch, "attack", accent)}
+            {msKnob("Decay", d, 2, rt, ch, "decay", accent)}
+            {pctKnob("Sustain", s, rt, ch, "sustain", accent)}
+            {msKnob("Release", r, 4, rt, ch, "release", accent)}
+          </div>
+          {EnvDisplay(a, d, s, r, { accent: accent })}
+        </div>
+      </article>
+    )
+  }
+
+  if (id === "bell") {
+    let partial = p.partial > 0 ? p.partial : 2.01
+    let hp = p.highpass > 0 ? p.highpass : 800
+    let dec = p.decay > 0 ? p.decay : 1.0
+    return (
+      <article class="gen-params ik-cols">
+        <div class="ik-card">
+          <div class="ik-card-h">{"Partial"}</div>
+          <div class="ik-knob-grid">
+            {numKnob("Ratio", partial, 1, 12, 0.01, "×", rt, ch, "partial", accent)}
+          </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"Tone & decay"}</div>
+          <div class="ik-knob-grid">
+            {freqKnob("Highpass", hp, rt, ch, "highpass", accent)}
+            {numKnob("Decay", dec, 0.1, 6, 0.01, "s", rt, ch, "decay", accent)}
+          </div>
+        </div>
+      </article>
+    )
+  }
+
+  if (id === "drumSynth") {
+    let tone = normalizeBasicOscWaveform(p.tone ? p.tone : "sine")
+    let pitchEnv = p.pitchEnv != null ? p.pitchEnv : 36
+    let pitchDecay = p.pitchDecay > 0 ? p.pitchDecay : 0.06
+    let dec = p.decay > 0 ? p.decay : 0.35
+    let noise = p.noise != null ? p.noise : 0
+    let noiseDecay = p.noiseDecay > 0 ? p.noiseDecay : 0.12
+    let noiseHp = p.noiseHp > 0 ? p.noiseHp : 1500
+    let drive = p.drive != null ? p.drive : 0
+    return (
+      <article class="gen-params ik-cols">
+        {waveCard(
+          "Body",
+          tone,
+          "tone",
+          rt,
+          ch,
+          accent,
+          <div class="ik-knob-grid">
+            {numKnob("Pitch", pitchEnv, 0, 60, 1, "st", rt, ch, "pitch_env", accent)}
+            {msKnob("P.decay", pitchDecay, 0.3, rt, ch, "pitch_decay", accent)}
+            {msKnob("Decay", dec, 1.5, rt, ch, "decay", accent)}
+          </div>
+        )}
+        <div class="ik-card">
+          <div class="ik-card-h">{"Noise + drive"}</div>
+          <div class="ik-knob-grid">
+            {pctKnob("Noise", noise, rt, ch, "noise", accent)}
+            {msKnob("N.decay", noiseDecay, 0.6, rt, ch, "noise_decay", accent)}
+            {freqKnob("N.HP", noiseHp, rt, ch, "noise_hp", accent)}
+            {pctKnob("Drive", drive, rt, ch, "drive", accent)}
+          </div>
+        </div>
+      </article>
+    )
+  }
+
+  if (id === "guitar") {
+    let tone = p.tone >= 0 && p.tone <= 1 ? p.tone : 0.5
+    let dec = p.decay >= 0 && p.decay <= 1 ? p.decay : 0.6
+    let damping = p.damping >= 0 && p.damping <= 1 ? p.damping : 0.4
+    let drive = p.drive != null ? p.drive : 0.25
+    let body = p.body != null && p.body > 0 ? p.body : 3500
+    let mute = p.mute >= 0 && p.mute <= 1 ? p.mute : 0
+    return (
+      <article class="gen-params ik-cols">
+        <div class="ik-card">
+          <div class="ik-card-h">{"String"}</div>
+          <div class="ik-knob-grid">
+            {pctKnob("Tone", tone, rt, ch, "tone", accent)}
+            {pctKnob("Sustain", dec, rt, ch, "decay", accent)}
+            {pctKnob("Damping", damping, rt, ch, "damping", accent)}
+          </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"Amp & body"}</div>
+          <div class="ik-knob-grid">
+            {pctKnob("Drive", drive, rt, ch, "drive", accent)}
+            {freqKnob("Body", body, rt, ch, "body", accent)}
+            {pctKnob("Palm mute", mute, rt, ch, "mute", accent)}
+          </div>
+        </div>
+      </article>
+    )
+  }
+  if (id === "clap") {
+    let hands = p.hands != null ? p.hands : 3
+    let spread = p.spread != null ? p.spread : 0.4
+    let size = p.size != null ? p.size : 0.5
+    let tone = p.tone != null ? p.tone : 0.5
+    let claps = p.claps != null ? p.claps : 1
+    let gap = p.gap != null ? p.gap : 0.35
+    let tail = p.tail != null ? p.tail : 0.4
+    let body = p.body != null ? p.body : 0.2
+    return (
+      <article class="gen-params ik-cols">
+        <div class="ik-card">
+          <div class="ik-card-h">{"Hands"}</div>
+          <div class="ik-knob-grid">
+            {numKnob("Hands", hands, 1, 12, 1, "", rt, ch, "hands", accent)}
+            {pctKnob("Spread", spread, rt, ch, "spread", accent)}
+            {pctKnob("Size", size, rt, ch, "size", accent)}
+          </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"Claps & character"}</div>
+          <div class="ik-knob-grid">
+            {numKnob("Claps", claps, 1, 4, 1, "", rt, ch, "claps", accent)}
+            {pctKnob("Gap", gap, rt, ch, "gap", accent)}
+            {pctKnob("Tone", tone, rt, ch, "tone", accent)}
+            {pctKnob("Tail", tail, rt, ch, "tail", accent)}
+            {pctKnob("Body", body, rt, ch, "body", accent)}
+          </div>
+        </div>
+      </article>
+    )
+  }
+  if (id === "tine") {
+    let bark = p.bark != null ? p.bark : 0.55
+    let tineP = p.tine != null ? p.tine : 0.6
+    let tremolo = p.tremolo != null ? p.tremolo : 0.35
+    let decay = p.decay != null ? p.decay : 0.5
+    let drive = p.drive != null ? p.drive : 0.2
+    return (
+      <article class="gen-params ik-cols">
+        <div class="ik-card">
+          <div class="ik-card-h">{"Tine & Bark"}</div>
+          <div class="ik-knob-grid">
+            {pctKnob("Bark", bark, rt, ch, "bark", accent)}
+            {pctKnob("Tine", tineP, rt, ch, "tine", accent)}
+            {pctKnob("Decay", decay, rt, ch, "decay", accent)}
+          </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"Suitcase amp"}</div>
+          <div class="ik-knob-grid">
+            {pctKnob("Tremolo", tremolo, rt, ch, "tremolo", accent)}
+            {pctKnob("Drive", drive, rt, ch, "drive", accent)}
+          </div>
+        </div>
+      </article>
+    )
+  }
+  if (id === "aether") {
+    let glide = p.glide != null ? p.glide : 0.4
+    let waver = p.waver != null ? p.waver : 0.5
+    let toneA = p.tone != null ? p.tone : 0.3
+    let swell = p.swell != null ? p.swell : 0.45
+    let air = p.air != null ? p.air : 0.25
+    return (
+      <article class="gen-params ik-cols">
+        <div class="ik-card">
+          <div class="ik-card-h">{"Hands"}</div>
+          <div class="ik-knob-grid">
+            {pctKnob("Glide", glide, rt, ch, "glide", accent)}
+            {pctKnob("Swell", swell, rt, ch, "swell", accent)}
+            {pctKnob("Waver", waver, rt, ch, "waver", accent)}
+          </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"Voice"}</div>
+          <div class="ik-knob-grid">
+            {pctKnob("Tone", toneA, rt, ch, "tone", accent)}
+            {pctKnob("Air", air, rt, ch, "air", accent)}
+          </div>
+        </div>
+      </article>
+    )
+  }
+  if (id === "halo") {
+    let temper = p.temper != null ? p.temper : 0.4
+    let ring = p.ring != null ? p.ring : 0.55
+    let mallet = p.mallet != null ? p.mallet : 0.35
+    let bloom = p.bloom != null ? p.bloom : 0.5
+    let lows = p.lows != null ? p.lows : 0.45
+    return (
+      <article class="gen-params ik-cols">
+        <div class="ik-card">
+          <div class="ik-card-h">{"Tone field"}</div>
+          <div class="ik-knob-grid">
+            {pctKnob("Temper", temper, rt, ch, "temper", accent)}
+            {pctKnob("Bloom", bloom, rt, ch, "bloom", accent)}
+            {pctKnob("Lows", lows, rt, ch, "lows", accent)}
+          </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"Strike & ring"}</div>
+          <div class="ik-knob-grid">
+            {pctKnob("Mallet", mallet, rt, ch, "mallet", accent)}
+            {pctKnob("Ring", ring, rt, ch, "ring", accent)}
+          </div>
+        </div>
+      </article>
+    )
+  }
+  if (id === "aahs") {
+    let vowel = p.vowel ? p.vowel : "aah"
+    let breath = p.breath != null ? p.breath : 0.3
+    let ensemble = p.ensemble != null ? p.ensemble : 0.5
+    let vibrato = p.vibrato != null ? p.vibrato : 0.4
+    let toneA = p.tone != null ? p.tone : 0.5
+    let vowelOpts = [["aah", "Aah"], ["eeh", "Eeh"], ["ooh", "Ooh"], ["ohh", "Ohh"], ["mmm", "Mmm"]]
+    return (
+      <article class="gen-params ik-cols">
+        <div class="ik-card">
+          <div class="ik-card-h">{"Vowel"}</div>
+          {pickPills(vowel, vowelOpts, rt, ch, "vowel", accent)}
+          <div class="ik-knob-grid">
+            {pctKnob("Tone", toneA, rt, ch, "tone", accent)}
+            {pctKnob("Breath", breath, rt, ch, "breath", accent)}
+          </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"Ensemble"}</div>
+          <div class="ik-knob-grid">
+            {pctKnob("Singers", ensemble, rt, ch, "ensemble", accent)}
+            {pctKnob("Vibrato", vibrato, rt, ch, "vibrato", accent)}
+          </div>
+        </div>
+      </article>
+    )
+  }
+  if (id === "arco") {
+    let voice = p.voice ? p.voice : "violin"
+    let pressure = p.pressure != null ? p.pressure : 0.5
+    let bow = p.bow != null ? p.bow : 0.4
+    let vibrato = p.vibrato != null ? p.vibrato : 0.35
+    let rosin = p.rosin != null ? p.rosin : 0.3
+    let bodyAmt = p.body != null ? p.body : 0.6
+    let voiceOpts = [["violin", "Violin"], ["fiddle", "Fiddle"], ["viola", "Viola"], ["cello", "Cello"], ["bass", "Bass"]]
+    let vpills = []
+    let vi = 0
+    while (vi < voiceOpts.length) {
+      let vid = voiceOpts[vi][0]
+      let vlabel = voiceOpts[vi][1]
+      let vidCopy = vid
+      vpills.push(
+        <button
+          type="button"
+          class={voice === vid ? "arco-voice-pill arco-voice-pill-on" : "arco-voice-pill"}
+          key={"av" + vid}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={() => genEmit(rt, ch, "voice", vidCopy)}
+        >
+          {vlabel}
+        </button>
+      )
+      vi = vi + 1
     }
     return (
-      <div class="gen-params gen-params-stack">
-        <div class="deck-module">
-          <h3 class="deck-module-h">{"FM"}</h3>
-          <label class="gen-row">
-            {"Ratio "}
-            <input type="range" min="1" max="1600" value={String(Math.round(ratio * 100))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.ratio = Number(e.target.value) / 100 }} onchange={commitFm} />
-          </label>
-          <label class="gen-row">
-            {"FM index "}
-            <input type="range" min="0" max="480" value={String(Math.round(idx * 10))} onmousedown={(e) => e.stopPropagation()} oninput={(e) => { p.modIndex = Number(e.target.value) / 10 }} onchange={commitFm} />
-          </label>
+      <article class="gen-params ik-cols">
+        <div class="ik-card">
+          <div class="ik-card-h">{"Instrument"}</div>
+          <div class="arco-voice-row">{vpills}</div>
         </div>
-        <div class="deck-module">
-          <h3 class="deck-module-h">{"Carrier"}</h3>
-          <div class="deck-wave-grid">
-            {fmWaveTile("sine", "Sin", cw, setCar, project, setProject, tplMirrorFlush, "c-sine")}
-            {fmWaveTile("square", "Sqr", cw, setCar, project, setProject, tplMirrorFlush, "c-square")}
-            {fmWaveTile("sawtooth", "Saw", cw, setCar, project, setProject, tplMirrorFlush, "c-saw")}
-            {fmWaveTile("triangle", "Tri", cw, setCar, project, setProject, tplMirrorFlush, "c-tri")}
+        <div class="ik-card">
+          <div class="ik-card-h">{"Bow"}</div>
+          <div class="ik-knob-grid">
+            {pctKnob("Pressure", pressure, rt, ch, "pressure", accent)}
+            {pctKnob("Articul.", bow, rt, ch, "bow", accent)}
+            {pctKnob("Rosin", rosin, rt, ch, "rosin", accent)}
           </div>
         </div>
-        <div class="deck-module">
-          <h3 class="deck-module-h">{"Modulator"}</h3>
-          <div class="deck-wave-grid">
-            {fmWaveTile("sine", "Sin", mw, setMod, project, setProject, tplMirrorFlush, "m-sine")}
-            {fmWaveTile("square", "Sqr", mw, setMod, project, setProject, tplMirrorFlush, "m-square")}
-            {fmWaveTile("sawtooth", "Saw", mw, setMod, project, setProject, tplMirrorFlush, "m-saw")}
-            {fmWaveTile("triangle", "Tri", mw, setMod, project, setProject, tplMirrorFlush, "m-tri")}
+        <div class="ik-card">
+          <div class="ik-card-h">{"Expression"}</div>
+          <div class="ik-knob-grid">
+            {pctKnob("Vibrato", vibrato, rt, ch, "vibrato", accent)}
+            {pctKnob("Body", bodyAmt, rt, ch, "body", accent)}
           </div>
         </div>
-        {AdsrAmpBlock(p, project, setProject, tplMirrorFlush)}
-      </div>
+      </article>
     )
   }
   if (id === "matrixFm") {
@@ -233,6 +554,28 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush) {
     return (
       <div class="instr-matrixfm-hint">
         <p>{"Matrix FM: operator graph, modulation matrix, filters, and routing are below."}</p>
+      </div>
+    )
+  }
+  if (id === "patch") {
+    if (ch.macroName != null) {
+      return <div class="gen-params" />
+    }
+    if (
+      !ch.generatorSpec ||
+      ch.generatorSpec.kind !== "patch" ||
+      !ch.generatorSpec.raw ||
+      ch.generatorSpec.raw.length === 0
+    ) {
+      ch.generatorSpec = parseGenBlock("patch", defaultPatchRawLines())
+      setProject(project)
+      if (tplMirrorFlush) {
+        tplMirrorFlush()
+      }
+    }
+    return (
+      <div class="instr-matrixfm-hint">
+        <p>{"Patch: modular nodes, connections, and breakpoint envelopes are below."}</p>
       </div>
     )
   }

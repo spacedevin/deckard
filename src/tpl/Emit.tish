@@ -37,6 +37,18 @@ export fn emitProjectInner(project, skipSync) {
   if (project.songSeed != null && Math.floor(Number(project.songSeed)) === Math.floor(Number(project.songSeed))) {
     o = o + "song_seed " + String(Math.floor(Number(project.songSeed))) + "\n"
   }
+  // Transport routing scalars — emitted only when off their defaults (keeps round-trip minimal & stable).
+  let cfx = project.transportCrossfade != null ? Number(project.transportCrossfade) : 0.5
+  let cfy = project.transportCrossfadeY != null ? Number(project.transportCrossfadeY) : 0.5
+  if (Math.abs(cfx - 0.5) > 0.0001 || Math.abs(cfy - 0.5) > 0.0001) {
+    o = o + "xfade " + formatTplFloat(cfx) + " " + formatTplFloat(cfy) + "\n"
+  }
+  if (project.transportMainDeck === "local") {
+    o = o + "main_deck local\n"
+  }
+  if (project.swing != null && Number(project.swing) > 0.0001) {
+    o = o + "swing " + formatTplFloat(project.swing) + "\n"
+  }
   o = o + "\n"
 
   let ci = 0
@@ -152,7 +164,7 @@ export fn emitProjectInner(project, skipSync) {
         formatTplFloat(p.release) +
         "\n"
     }
-    if (gid === "pad" || gid === "bell" || gid === "drumSynth") {
+    if (gid === "pad" || gid === "bell" || gid === "drumSynth" || gid === "guitar" || gid === "clap" || gid === "arco" || gid === "tine" || gid === "aether" || gid === "halo" || gid === "aahs") {
       let keys = Object.keys(p)
       if (keys.length > 0) {
         o = o + "  gen"
@@ -181,10 +193,10 @@ export fn emitProjectInner(project, skipSync) {
     if (ch.lfoDepth != null && ch.lfoDepth > 0.0001) {
       fxParts = fxParts + " lfo_depth " + formatTplFloat(ch.lfoDepth)
     }
-    if (ch.filterCutoff != null && ch.filterCutoff !== 8000) {
+    if (ch.filterCutoff != null && ch.filterCutoff < 20000) {
       fxParts = fxParts + " cutoff " + formatTplFloat(ch.filterCutoff)
     }
-    if (ch.filterQ != null && ch.filterQ !== 1) {
+    if (ch.filterQ != null && Math.abs(ch.filterQ - 0.7) > 0.001) {
       fxParts = fxParts + " res " + formatTplFloat(ch.filterQ)
     }
     if (fxParts.length > 0) {
@@ -203,6 +215,20 @@ export fn emitProjectInner(project, skipSync) {
     }
     if (voiceParts.length > 0) {
       o = o + "  voice" + voiceParts + "\n"
+    }
+
+    // Deck routing — emitted when the channel carries a deck assignment: an explicit deck SLOT (the
+    // canonical, shared routing field — channelPlayerIndex reads deckSlot first) and/or a non-default deck
+    // letter. The slot MUST round-trip even when ch.deck is still "live": graftRackOntoDeck parks B/C/D
+    // channels on ch.deck="live" with the real deck living only in deckSlot, so gating on the letter alone
+    // would silently drop multi-deck routing on save/load.
+    let hasDeckSlot = ch.deckSlot != null && Math.floor(Number(ch.deckSlot)) === Math.floor(Number(ch.deckSlot))
+    if (hasDeckSlot || (ch.deck != null && ch.deck !== "live")) {
+      o = o + "  deck " + String(ch.deck != null ? ch.deck : "live")
+      if (hasDeckSlot) {
+        o = o + " slot " + String(Math.floor(Number(ch.deckSlot)))
+      }
+      o = o + "\n"
     }
 
     let pianoNotes = ch.pianoNotes
@@ -403,6 +429,10 @@ export fn emitProjectInner(project, skipSync) {
       formatTplFloat(mm.eqMid != null ? mm.eqMid : 0) +
       " eq_hi " +
       formatTplFloat(mm.eqHi != null ? mm.eqHi : 0) +
+      " comp " +
+      (mm.compEnabled === false ? "0" : "1") +
+      " reverb " +
+      (mm.reverbEnabled === false ? "0" : "1") +
       "\n\n"
   }
   let mixLanes = collectActorLanes(project)

@@ -38,6 +38,41 @@ export fn generatorCatalog() {
       description: "Pitch-envelope drum synth — punchy kicks, snares, toms, 808s (+ noise + drive)."
     },
     {
+      id: "guitar",
+      label: "Guitar",
+      description: "Karplus-Strong plucked electric guitar — string model + palm mute + drive + body. Pairs with the chord voice for strums."
+    },
+    {
+      id: "clap",
+      label: "Clap",
+      description: "The Clap — handclap engine: hand count, timing spread, hand size, brightness, room tail, and clusters (single / double / many-hand crowd)."
+    },
+    {
+      id: "arco",
+      label: "Arco",
+      description: "Bowed strings — violin · viola · cello · bass · fiddle. Stick-slip saw through real body-resonance formants, with bow pressure, articulation, vibrato and rosin noise. Only string-player controls."
+    },
+    {
+      id: "tine",
+      label: "Tine",
+      description: "Rhodes-style electric piano — velocity-barked FM tine (hard = metallic bark, soft = mellow bell), a metal tine ping, EP decay, and lush suitcase tremolo."
+    },
+    {
+      id: "aether",
+      label: "Aether",
+      description: "Theremin — eerie, voice-like heterodyne tone with a portamento swoop into each note, a living two-hand pitch/amplitude waver, and a breathy volume-hand swell."
+    },
+    {
+      id: "halo",
+      label: "Halo",
+      description: "Hang drum / handpan — lush inharmonic octave + compound-fifth shimmer triad over a long ethereal ring, with a soft fingertip strike and a warm 'gu' body."
+    },
+    {
+      id: "aahs",
+      label: "Aahs",
+      description: "Formant choir — detuned-unison saws sung through real vowel formants (aah · eeh · ooh · ohh · mmm), with breath noise, a wide ensemble, and a swelling vibrato."
+    },
+    {
       id: "patch",
       label: "Patch",
       description: "Modular synth patch (gen_block patch): osc/noise/filter/shaper/gain + breakpoint envelopes — any voice, written in TPL."
@@ -150,7 +185,76 @@ export fn defaultParamsForGeneratorId(id) {
       decay: 0.35,
       noise: 0,
       noiseDecay: 0.12,
+      noiseHp: 1500,
       drive: 0
+    }
+  }
+  if (id === "guitar") {
+    return {
+      tone: 0.5,
+      decay: 0.6,
+      damping: 0.4,
+      drive: 0.25,
+      body: 3500,
+      mute: 0
+    }
+  }
+  if (id === "clap") {
+    return {
+      hands: 3,
+      spread: 0.4,
+      size: 0.5,
+      tone: 0.5,
+      claps: 1,
+      gap: 0.35,
+      tail: 0.4,
+      body: 0.2
+    }
+  }
+  if (id === "arco") {
+    return {
+      voice: "violin",
+      pressure: 0.5,
+      bow: 0.4,
+      vibrato: 0.35,
+      rosin: 0.3,
+      body: 0.6
+    }
+  }
+  if (id === "tine") {
+    return {
+      bark: 0.55,
+      tine: 0.6,
+      tremolo: 0.35,
+      decay: 0.5,
+      drive: 0.2
+    }
+  }
+  if (id === "aether") {
+    return {
+      glide: 0.4,
+      waver: 0.5,
+      tone: 0.3,
+      swell: 0.45,
+      air: 0.25
+    }
+  }
+  if (id === "halo") {
+    return {
+      temper: 0.4,
+      ring: 0.55,
+      mallet: 0.35,
+      bloom: 0.5,
+      lows: 0.45
+    }
+  }
+  if (id === "aahs") {
+    return {
+      vowel: "aah",
+      breath: 0.3,
+      ensemble: 0.5,
+      vibrato: 0.4,
+      tone: 0.5
     }
   }
   if (id === "patch") {

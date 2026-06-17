@@ -91,7 +91,7 @@ export fn ensureActorMixerEntries(project) {
 
 export fn ensureMasterMixer(project) {
   if (!project.masterMixer) {
-    project.masterMixer = { eqLo: 0, eqMid: 0, eqHi: 0 }
+    project.masterMixer = { eqLo: 0, eqMid: 0, eqHi: 0, compEnabled: true, reverbEnabled: true }
   } else {
     let m = project.masterMixer
     if (m.eqLo === undefined || m.eqLo === null) {
@@ -102,6 +102,13 @@ export fn ensureMasterMixer(project) {
     }
     if (m.eqHi === undefined || m.eqHi === null) {
       m.eqHi = 0
+    }
+    // Master glue compressor + shared reverb send bus are on by default; these toggle them.
+    if (m.compEnabled === undefined || m.compEnabled === null) {
+      m.compEnabled = true
+    }
+    if (m.reverbEnabled === undefined || m.reverbEnabled === null) {
+      m.reverbEnabled = true
     }
   }
 }

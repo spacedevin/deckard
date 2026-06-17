@@ -12,6 +12,9 @@ TOP_KEYS["auto"] = true
 TOP_KEYS["macro"] = true
 TOP_KEYS["song"] = true
 TOP_KEYS["follow"] = true
+TOP_KEYS["xfade"] = true
+TOP_KEYS["main_deck"] = true
+TOP_KEYS["swing"] = true
 
 let BODY_KEYS = {}
 BODY_KEYS["mix"] = true
@@ -28,6 +31,7 @@ BODY_KEYS["end"] = true
 BODY_KEYS["step_pitch"] = true
 BODY_KEYS["voice"] = true
 BODY_KEYS["fx"] = true
+BODY_KEYS["deck"] = true
 BODY_KEYS["gen"] = true
 // Patch (gen_block patch) node + wiring + envelope keywords.
 BODY_KEYS["conn"] = true

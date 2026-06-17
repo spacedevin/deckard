@@ -1,0 +1,197 @@
+// Halo — a HANG DRUM / HANDPAN: the dreamy meditative steel UFO drum, played with fingertips. This is not
+// a generic bell or sine pad — it models the specific acoustics that make a handpan unmistakable:
+//
+//   The SIGNATURE is the inharmonic TRIAD-RING. A struck handpan tone field rings with its fundamental
+//   PLUS a tuned OCTAVE (2×) PLUS a tuned COMPOUND FIFTH (octave-and-a-fifth, ~3×) — three coupled partials
+//   that are deliberately tuned to near-integer ratios. They are never exact: a real handpan's partials sit
+//   a few cents off, so they BEAT against each other and the note slowly shimmers/breathes. That beating
+//   triad is the whole soul of the instrument.
+//
+//   Controls (handpan-sensible, no generic ADSR/waveform):
+//     temper — partial detune / inharmonicity. 0 = the partials lock to pure 1·2·3 (still, glassy);
+//              1 = they spread a few cents and bloom apart, so the note shimmers and breathes. The signature.
+//     ring   — sustain length. A handpan rings for many seconds; this scales the whole tail (~1.2..9 s).
+//     mallet — strike softness/brightness. Low = a very soft fingertip pad (dark, almost no tick);
+//              high = a brighter nail/finger strike (a short filtered-noise click + faster partial onset).
+//     bloom  — the upper-partial SWELL. Right after the strike the octave & fifth softly swell UP before
+//              decaying — that gorgeous after-bloom of energy rising into the overtones, then settling.
+//     lows   — the warm low "gu"-like body weight under the note (the resonant air of the shell).
+//
+// Engine: three sine partials (1× fundamental, 2× octave, 3× compound fifth), each split into a beating
+// pair detuned ±cents by `temper`, so each partial is two slightly-offset sines that throb. The octave &
+// fifth get a slow BLOOM envelope (swell in, then a faster-than-fundamental decay — energy moves down). A
+// soft strike = a short lowpassed noise tick. A lowpassed sub-sine adds the "gu" body. A gentle highpass on
+// the partial bus keeps it airy. Everything is normalized so one loud strike peaks <= ~1.
+
+import { midiToHz } from '../schedule/Engine.tish'
+
+fn haloClamp01(x) {
+  if (x < 0) { return 0 }
+  if (x > 1) { return 1 }
+  return x
+}
+
+// One partial of the triad as a BEATING PAIR: two sines at ratio·hz, detuned ±cents, summed. The detune is
+// what makes a handpan throb instead of sit still. Returns the pair's shared input gain node already wired
+// to `dest`, with both oscillators started/stopped. `level` is the partial's amplitude; the env on the
+// returned gain shapes its bloom/decay.
+fn haloPartialPair(ctx, dest, hz, ratio, cents, stopAt, t) {
+  let g = ctx.createGain()
+  g.gain.value = 0
+  g.connect(dest)
+  let o1 = ctx.createOscillator()
+  o1.type = "sine"
+  o1.frequency.value = hz * ratio
+  o1.detune.value = 0 - cents
+  let o2 = ctx.createOscillator()
+  o2.type = "sine"
+  o2.frequency.value = hz * ratio
+  o2.detune.value = cents
+  o1.connect(g)
+  o2.connect(g)
+  o1.start(t)
+  o2.start(t)
+  o1.stop(stopAt)
+  o2.stop(stopAt)
+  return g
+}
+
+export fn playHalo(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  let p = ch.generatorParams ? ch.generatorParams : {}
+  let temper = haloClamp01(p.temper != null ? p.temper : 0.4)
+  let ring = haloClamp01(p.ring != null ? p.ring : 0.55)
+  let mallet = haloClamp01(p.mallet != null ? p.mallet : 0.35)
+  let bloom = haloClamp01(p.bloom != null ? p.bloom : 0.5)
+  let lows = haloClamp01(p.lows != null ? p.lows : 0.45)
+
+  let hz = midiToHz(midi + bendSemis)
+  if (hz < 20) { hz = 20 }
+  let v = vel / 127
+  if (v < 0) { v = 0 }
+  if (v > 1) { v = 1 }
+  if (v <= 0) { return }
+
+  // Sustain: a handpan rings for seconds. The fundamental sets the longest tail; upper partials decay
+  // faster (energy moves down), so the note darkens as it fades.
+  let fundDecay = 1.2 + ring * 7.8                 // ~1.2..9.0 s
+  let octDecay = fundDecay * 0.62                   // octave fades sooner
+  let fifthDecay = fundDecay * 0.42                 // compound fifth fades soonest
+  let tEnd = t + fundDecay + 0.2
+
+  // Inharmonicity: at temper 0 the partials lock to pure 1·2·3; turning it up spreads them a few cents so
+  // the triad beats and breathes. Each partial is itself a detuned pair (beatCents) for an inner throb, and
+  // the octave/fifth ratios drift slightly sharp/flat (driftCents) the way real tuned tone fields do.
+  let beatCents = 1.5 + temper * 8                  // inner beat of each partial pair
+  let octDrift = temper * 6                          // octave nudged sharp
+  let fifthDrift = 0 - temper * 7                    // fifth nudged flat (opposite sign = wider shimmer)
+  let octRatio = 2.0
+  let fifthRatio = 3.0
+
+  // Shared partial bus → gentle highpass (keeps it airy, removes mud) → master amp. Velocity scales here.
+  // The headroom factor (0.42) accounts for each partial being a detuned PAIR (two sines can momentarily
+  // align to ~2× the gain-node value) plus the three partials and the body/tick stacking — it keeps one
+  // loud strike at the brightest corner peaking <= ~1 so the master glue compressor isn't slammed.
+  let amp = ctx.createGain()
+  // 0.39 (not 0.42): at the worst corner (ring/bloom/mallet=1, vel127, high note) all 6 partial-sines plus
+  // the body align at the octave's bloom-peak; 0.39 keeps that summed strike at/under 1.0 off the master comp.
+  amp.gain.value = v * 0.39
+  amp.connect(bus.input)
+
+  let air = ctx.createBiquadFilter()
+  air.type = "highpass"
+  air.frequency.value = 110
+  air.Q.value = 0.5
+  air.connect(amp)
+
+  // Partial level balance, normalized so the summed peak of one strike stays <= ~1. Fundamental dominates;
+  // octave & fifth are progressively quieter (they're shimmer, not body).
+  let fundLvl = 0.5
+  let octLvl = 0.3
+  let fifthLvl = 0.2
+
+  // FUNDAMENTAL — the longest, deepest ring. Fast soft onset, then a long exponential tail.
+  let gF = haloPartialPair(ctx, air, hz, 1.0, beatCents, tEnd, t)
+  let fundAtk = 0.004 + (1 - mallet) * 0.02         // softer mallet = slightly slower partial onset
+  gF.gain.setValueAtTime(0, t)
+  gF.gain.linearRampToValueAtTime(fundLvl, t + fundAtk)
+  gF.gain.exponentialRampToValueAtTime(0.0008, t + fundDecay)
+
+  // OCTAVE (2×) — gets the BLOOM: it swells UP after the strike before decaying. The swell time/depth grows
+  // with `bloom`. This rising-then-settling overtone is the gorgeous handpan after-bloom.
+  let gO = haloPartialPair(ctx, air, hz, octRatio, beatCents + octDrift, tEnd, t)
+  let octBloomT = 0.04 + bloom * 0.28               // how long the octave keeps rising
+  let octStart = octLvl * (0.35 + (1 - bloom) * 0.4)  // less bloom = starts nearer its peak (less swell)
+  let octPeak = octLvl * (1.0 + bloom * 0.5)        // more bloom = swells higher
+  gO.gain.setValueAtTime(0, t)
+  gO.gain.linearRampToValueAtTime(octStart, t + fundAtk * 0.8)
+  gO.gain.linearRampToValueAtTime(octPeak, t + octBloomT)
+  gO.gain.exponentialRampToValueAtTime(0.0008, t + octDecay)
+
+  // COMPOUND FIFTH (3×) — the brightest shimmer, blooms a touch later and decays fastest. Quietest layer.
+  let gFi = haloPartialPair(ctx, air, hz, fifthRatio, beatCents + fifthDrift, tEnd, t)
+  let fiBloomT = 0.06 + bloom * 0.34
+  let fiStart = fifthLvl * (0.25 + (1 - bloom) * 0.45)
+  let fiPeak = fifthLvl * (1.0 + bloom * 0.6)
+  gFi.gain.setValueAtTime(0, t)
+  gFi.gain.linearRampToValueAtTime(fiStart, t + fundAtk)
+  gFi.gain.linearRampToValueAtTime(fiPeak, t + fiBloomT)
+  gFi.gain.exponentialRampToValueAtTime(0.0008, t + fifthDecay)
+
+  // WARM "GU" BODY — a soft lowpassed sub-sine an octave below, the resonant air of the steel shell. Short,
+  // rounded, sits under the note. Scaled by `lows`.
+  if (lows > 0.02) {
+    let body = ctx.createOscillator()
+    body.type = "sine"
+    let bodyHz = hz * 0.5
+    if (bodyHz < 20) { bodyHz = hz }              // don't drop below audible for high notes; fall back to fundamental
+    body.frequency.value = bodyHz
+    let blp = ctx.createBiquadFilter()
+    blp.type = "lowpass"
+    blp.frequency.value = 220 + lows * 180
+    blp.Q.value = 0.6
+    let bg = ctx.createGain()
+    let bodyDecay = 0.4 + ring * 1.6
+    let bodyPeak = v * lows * 0.34
+    bg.gain.setValueAtTime(0, t)
+    bg.gain.linearRampToValueAtTime(bodyPeak, t + 0.006)
+    bg.gain.exponentialRampToValueAtTime(0.0008, t + bodyDecay)
+    body.connect(blp)
+    blp.connect(bg)
+    bg.connect(bus.input)
+    body.start(t)
+    body.stop(t + bodyDecay + 0.05)
+  }
+
+  // SOFT FINGERTIP STRIKE — a very short lowpassed noise tick (the pad of a fingertip on steel, NOT a hard
+  // mallet). `mallet` brightens it and adds a touch more click; even at max it stays gentle and rounded.
+  let tickLen = Math.floor(ctx.sampleRate * 0.04)
+  if (tickLen < 1) { tickLen = 1 }
+  let nbuf = ctx.createBuffer(1, tickLen, ctx.sampleRate)
+  let nd = nbuf.getChannelData(0)
+  let i = 0
+  while (i < tickLen) {
+    nd[i] = Math.random() * 2 - 1
+    i = i + 1
+  }
+  let nsrc = ctx.createBufferSource()
+  nsrc.buffer = nbuf
+  let nlp = ctx.createBiquadFilter()
+  nlp.type = "lowpass"
+  nlp.frequency.value = 1400 + mallet * 4200       // dark fingertip → brighter nail strike
+  nlp.Q.value = 0.7
+  let nhp = ctx.createBiquadFilter()
+  nhp.type = "highpass"
+  nhp.frequency.value = 300                          // keep the tick off the body
+  let ng = ctx.createGain()
+  let tickPeak = v * (0.05 + mallet * 0.16)        // always soft; never a hard mallet
+  let tickDecay = 0.012 + mallet * 0.02
+  ng.gain.setValueAtTime(0, t)
+  ng.gain.linearRampToValueAtTime(tickPeak, t + 0.0008)
+  ng.gain.exponentialRampToValueAtTime(0.0008, t + tickDecay)
+  nsrc.connect(nlp)
+  nlp.connect(nhp)
+  nhp.connect(ng)
+  ng.connect(bus.input)
+  nsrc.start(t)
+  nsrc.stop(t + tickDecay + 0.05)
+}

@@ -1,0 +1,199 @@
+// Tine — a Rhodes-style electric piano (the "suitcase" sound: Herbie Hancock, "Riders on the Storm").
+// Not a generic FM patch, but a model of the real thing: a felt hammer strikes a metal TINE next to a
+// pickup, and the pickup's nonlinear response gives the classic FM "bark" that blooms bright on hard
+// hits and chimes mellow on soft ones. That velocity-dependent timbre is the whole magic of an EP.
+//
+// Controls (EP-sensible — the things you'd actually reach for, not generic ADSR):
+//   bark    — the FM-index FLOOR + how much harder hits open it. This is the metallic carrier↔modulator
+//             depth: high bark = aggressive, vocal, mid-'70s "dyno" growl; low bark = soft & woody.
+//   tine    — the bell-like ATTACK PING: a fast, slightly-inharmonic high partial that pings as the
+//             hammer first contacts the metal, then dies away quickly over the sustained body.
+//   tremolo — the SUITCASE amp tremolo: a gentle ~5 Hz amplitude LFO, baked musical, with the two
+//             "speakers" in anti-phase for that lush stereo-ish wobble. This control is its depth.
+//   decay   — body length: how long the note blooms and falls (still respects held-note duration).
+//   drive   — gentle tube/preamp saturation for suitcase warmth and a little harmonic grit.
+//
+// Engine: a sine CARRIER at the note pitch, phase-modulated (true FM, mod → carrier.frequency) by a sine
+// MODULATOR at 1× the pitch. The FM-depth envelope is the bark: it spikes on the attack (scaled by bark ×
+// velocity) and decays into a low sustain, so the spectrum is bright at the strike and mellows as it rings
+// — exactly how a pickup behaves. A separate fast, inharmonic TINE PING sine (~the metal's flexural mode)
+// adds the hammer "tink". The summed signal goes through an optional saturator, then a stereo tremolo
+// (two anti-phase LFO-gated paths panned L/R) into the bus. Velocity scales loudness, FM-index AND ping.
+
+import { midiToHz } from '../schedule/Engine.tish'
+
+fn tineClamp01(x) {
+  if (x < 0) { return 0 }
+  if (x > 1) { return 1 }
+  return x
+}
+
+// Soft tube/preamp saturation curve (tanh-ish), used only when drive > 0 for suitcase warmth.
+fn tineDriveCurve(amount) {
+  let k = amount * 60
+  let n = 1024
+  let curve = new Float32Array(n)
+  let i = 0
+  while (i < n) {
+    let x = (i * 2) / n - 1
+    curve[i] = ((1 + k) * x) / (1 + k * Math.abs(x))
+    i = i + 1
+  }
+  return curve
+}
+
+export fn playTine(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  let p = ch.generatorParams ? ch.generatorParams : {}
+  let bark = tineClamp01(p.bark != null ? p.bark : 0.55)
+  let tine = tineClamp01(p.tine != null ? p.tine : 0.6)
+  let tremolo = tineClamp01(p.tremolo != null ? p.tremolo : 0.35)
+  let decay = tineClamp01(p.decay != null ? p.decay : 0.5)
+  let drive = tineClamp01(p.drive != null ? p.drive : 0.2)
+
+  let hz = midiToHz(midi + bendSemis)
+  if (hz < 8) { hz = 8 }
+  let v = vel / 127
+  if (v < 0) { v = 0 }
+  if (v > 1) { v = 1 }
+  if (v <= 0) { return }
+
+  // Body decay: low notes ring longer than high notes on a real EP. ~1.1..6.5 s, shortened up the keyboard.
+  let keyScale = 1 - tineClamp01((hz - 80) / 1400) * 0.55
+  if (keyScale < 0.35) { keyScale = 0.35 }
+  let body = (1.1 + decay * 5.4) * keyScale
+  // The note rings for its natural body, or longer if held past that; on key-lift it damps with a short fall.
+  let hold = durSec > 0.05 ? durSec : 0.05
+  let sustainEnd = body
+  if (hold > sustainEnd) { sustainEnd = hold }
+  let endAt = sustainEnd + 0.4
+
+  // ---- Master amp envelope: a fast attack, a gentle EP "bloom" then exponential fall to the damp.
+  let amp = ctx.createGain()
+  let peak = v * 0.5
+  let bloomLevel = peak * 0.72
+  amp.gain.setValueAtTime(0, t)
+  amp.gain.linearRampToValueAtTime(peak, t + 0.004)
+  // Bloom: a brief settle below the initial spike is what makes EPs sing rather than beep.
+  amp.gain.exponentialRampToValueAtTime(bloomLevel, t + 0.09)
+  // Long exponential body fall; the tail keeps falling through the held duration and damps at the end.
+  amp.gain.exponentialRampToValueAtTime(0.0008, t + endAt)
+
+  // ---- Optional saturator for warmth, then into the tremolo stage.
+  let preTrem = amp
+  if (drive > 0.001) {
+    let ws = ctx.createWaveShaper()
+    ws.curve = tineDriveCurve(drive)
+    ws.oversample = "2x"
+    amp.connect(ws)
+    preTrem = ws
+    // tame the make-up gain so drive doesn't push the stem hot
+    let pad = ctx.createGain()
+    pad.gain.value = 1 / (1 + drive * 0.6)
+    ws.connect(pad)
+    preTrem = pad
+  }
+
+  // ---- Suitcase TREMOLO: two anti-phase LFO-gated paths panned hard L/R. Baked musical ~5.2 Hz; speeds up
+  // a hair with depth. depth=0 → static; depth high → deep, lush amp wobble across the stereo field.
+  let tremRate = 4.6 + tremolo * 1.6
+  let depth = tremolo * 0.42
+  let lfo = ctx.createOscillator()
+  lfo.type = "sine"
+  lfo.frequency.value = tremRate
+  let lfoGain = ctx.createGain()
+  lfoGain.gain.value = depth
+  lfo.connect(lfoGain)
+  lfo.start(t)
+  lfo.stop(t + endAt + 0.05)
+
+  let side = 0
+  while (side < 2) {
+    let pan = ctx.createStereoPanner()
+    pan.pan.value = side === 0 ? -0.6 : 0.6
+    let tremGain = ctx.createGain()
+    // baseline 1 minus depth so the LFO modulates around unity without clipping; sides anti-phase.
+    tremGain.gain.value = 1 - depth
+    if (side === 0) {
+      lfoGain.connect(tremGain.gain)
+    } else {
+      // invert for the opposite speaker: a second gain stage negates the LFO.
+      let inv = ctx.createGain()
+      inv.gain.value = -1
+      lfoGain.connect(inv)
+      inv.connect(tremGain.gain)
+    }
+    preTrem.connect(tremGain)
+    tremGain.connect(pan)
+    pan.connect(bus.input)
+    side = side + 1
+  }
+
+  // ---- FM CARRIER + MODULATOR (the bark). Modulator at 1× pitch → carrier.frequency (phase mod).
+  // The FM-index envelope spikes on the strike (scaled by bark × velocity) then decays to a soft sustain:
+  // hard hits = bright metallic bark, soft hits = a mellow woody bell. THIS is the velocity magic.
+  let car = ctx.createOscillator()
+  car.type = "sine"
+  car.frequency.value = hz
+
+  let mod = ctx.createOscillator()
+  mod.type = "sine"
+  mod.frequency.value = hz
+  let modDepth = ctx.createGain()
+  // Peak index: floor from bark, plus a velocity-scaled bright spike. In Hz of carrier deviation.
+  let idxFloor = 0.6 + bark * 1.4
+  let idxPeak = idxFloor + (1.5 + bark * 7.5) * v
+  let depthPeakHz = hz * idxPeak
+  let depthFloorHz = hz * (idxFloor * (0.25 + 0.35 * v))
+  if (depthPeakHz > 8000) { depthPeakHz = 8000 }
+  if (depthFloorHz < 0.5) { depthFloorHz = 0.5 }
+  if (depthFloorHz > depthPeakHz) { depthFloorHz = depthPeakHz }
+  let barkDecay = 0.12 + decay * 0.5
+  if (barkDecay > endAt * 0.5) { barkDecay = endAt * 0.5 }
+  // Spike on the strike, fast-decay to the floor (the bark dying into a mellow bell), hold, then fade with
+  // the body so the ring goes purer (less FM) as it falls away — just like a pickup's response decaying.
+  modDepth.gain.setValueAtTime(depthPeakHz, t)
+  modDepth.gain.exponentialRampToValueAtTime(depthFloorHz, t + barkDecay)
+  modDepth.gain.setValueAtTime(depthFloorHz, t + barkDecay)
+  modDepth.gain.exponentialRampToValueAtTime(0.5, t + endAt)
+  mod.connect(modDepth)
+  modDepth.connect(car.frequency)
+
+  // Carrier through its own gain (so we can balance against the ping), into the amp.
+  let carGain = ctx.createGain()
+  carGain.gain.value = 0.85
+  car.connect(carGain)
+  carGain.connect(amp)
+  car.start(t)
+  mod.start(t)
+  car.stop(t + endAt + 0.05)
+  mod.stop(t + endAt + 0.05)
+
+  // ---- TINE PING: a fast, slightly-inharmonic high partial (the hammer hitting the metal). Pings hard on
+  // the attack — louder with velocity — then dies away quickly over the sustained body. Scaled by `tine`.
+  if (tine > 0.01) {
+    let ping = ctx.createOscillator()
+    ping.type = "sine"
+    // ~the tine's flexural overtone: a stretched, slightly-sharp high partial.
+    let pingMul = 6.0 + tine * 8.0
+    let pingHz = hz * pingMul
+    if (pingHz > 17000) { pingHz = 17000 }
+    ping.frequency.value = pingHz
+    let pingGain = ctx.createGain()
+    // brighter/louder ping with harder hits; the strike "tink".
+    let pingPeak = v * (0.05 + tine * 0.16) * (0.5 + 0.5 * v)
+    if (pingPeak < 0.0009) { pingPeak = 0.0009 }
+    let pingDecay = 0.04 + tine * 0.18
+    pingGain.gain.setValueAtTime(0, t)
+    pingGain.gain.linearRampToValueAtTime(pingPeak, t + 0.002)
+    pingGain.gain.exponentialRampToValueAtTime(0.0008, t + pingDecay)
+    // a tiny highpass keeps it as a "tink" not a low thud
+    let pingHp = ctx.createBiquadFilter()
+    pingHp.type = "highpass"
+    pingHp.frequency.value = hz * 3 < 2000 ? hz * 3 : 2000
+    ping.connect(pingHp)
+    pingHp.connect(pingGain)
+    pingGain.connect(amp)
+    ping.start(t)
+    ping.stop(t + pingDecay + 0.1)
+  }
+}

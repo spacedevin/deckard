@@ -1,0 +1,416 @@
+// Deckard scope worker — WRITTEN IN TISH (compiled by `tish build --target js src/ScopeWorker.tish -o
+// scope-worker.js`). Runs in a Web Worker: the heavy scope drawing (master spectrum + per-stem waveforms)
+// is done on the GPU (WebGPU) on a worker thread, fully off the main thread so it can never compete with
+// audio reconfiguration / DOM / render. Falls back to Canvas2D (also here, in this worker) when WebGPU is
+// unavailable. The main thread (App.tish scopeFrame) transfers each OffscreenCanvas ONCE and postMessages
+// the analyser bytes every frame:
+//   { type:'register', id, canvas:<OffscreenCanvas>, cssW, cssH, dpr }
+//   { type:'frame', frames:[ { id, kind:'wave'|'spectrum', color, data:<Uint8Array> } ] }
+
+let canvases = {}
+let pending = []
+let gpuState = "none"          // none | init | ready | failed
+let device = null
+let format = null
+let wavePipeline = null
+let barPipeline = null
+
+// One passthrough shader for both: position (clip space) + per-vertex premultiplied colour. No bind groups.
+let SHADER =
+  "struct VOut {\n" +
+  "  @builtin(position) pos : vec4<f32>,\n" +
+  "  @location(0) col : vec4<f32>,\n" +
+  "};\n" +
+  "@vertex fn vs(@location(0) p : vec2<f32>, @location(1) c : vec4<f32>) -> VOut {\n" +
+  "  var o : VOut;\n" +
+  "  o.pos = vec4<f32>(p, 0.0, 1.0);\n" +
+  "  o.col = c;\n" +
+  "  return o;\n" +
+  "}\n" +
+  "@fragment fn fs(@location(0) c : vec4<f32>) -> @location(0) vec4<f32> {\n" +
+  "  return c;\n" +
+  "}\n"
+
+fn hexToRgb(hex) {
+  let h = hex ? String(hex) : "#22d3ee"
+  if (h.length > 0 && h.substring(0, 1) === "#") {
+    h = h.substring(1)
+  }
+  let r = parseInt(h.substring(0, 2), 16) / 255
+  let g = parseInt(h.substring(2, 4), 16) / 255
+  let b = parseInt(h.substring(4, 6), 16) / 255
+  if (r !== r) {
+    r = 0.13
+  }
+  if (g !== g) {
+    g = 0.83
+  }
+  if (b !== b) {
+    b = 0.93
+  }
+  return [r, g, b]
+}
+
+// ---------- WebGPU ----------
+
+fn buildPipelines() {
+  let mod = device.createShaderModule({ code: SHADER })
+  let vbl = {
+    arrayStride: 24,
+    attributes: [
+      { shaderLocation: 0, offset: 0, format: "float32x2" },
+      { shaderLocation: 1, offset: 8, format: "float32x4" }
+    ]
+  }
+  // Premultiplied-alpha over-compositing (colours are pre-multiplied below).
+  let blend = {
+    color: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+    alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" }
+  }
+  let tgt = { format: format, blend: blend }
+  wavePipeline = device.createRenderPipeline({
+    layout: "auto",
+    vertex: { module: mod, entryPoint: "vs", buffers: [vbl] },
+    fragment: { module: mod, entryPoint: "fs", targets: [tgt] },
+    primitive: { topology: "line-strip" }
+  })
+  barPipeline = device.createRenderPipeline({
+    layout: "auto",
+    vertex: { module: mod, entryPoint: "vs", buffers: [vbl] },
+    fragment: { module: mod, entryPoint: "fs", targets: [tgt] },
+    primitive: { topology: "triangle-list" }
+  })
+}
+
+fn flushPending() {
+  let q = pending
+  pending = []
+  let i = 0
+  while (i < q.length) {
+    let p = q[i]
+    doRegister(p.id, p.canvas, p.cssW, p.cssH, p.dpr)
+    i = i + 1
+  }
+}
+
+fn initGpu() {
+  if (gpuState !== "none") {
+    return
+  }
+  if (typeof navigator === "undefined" || !navigator.gpu) {
+    gpuState = "failed"
+    return
+  }
+  gpuState = "init"
+  navigator.gpu.requestAdapter().then((adapter) => {
+    if (!adapter) {
+      gpuState = "failed"
+      flushPending()
+      return
+    }
+    adapter.requestDevice().then((dev) => {
+      device = dev
+      format = navigator.gpu.getPreferredCanvasFormat()
+      try {
+        buildPipelines()
+        gpuState = "ready"
+      } catch (e) {
+        gpuState = "failed"
+      }
+      flushPending()
+    }, (e) => {
+      gpuState = "failed"
+      flushPending()
+    })
+  }, (e) => {
+    gpuState = "failed"
+    flushPending()
+  })
+}
+
+// Time-domain bytes -> line-strip vertices (clip space), same ~3.5x sensitivity + clamp as the 2D path.
+fn waveVerts(buf, color) {
+  let N = buf.length
+  let rgb = hexToRgb(color)
+  let out = new Float32Array(N * 6)
+  let i = 0
+  while (i < N) {
+    let v = buf[i] / 128
+    let x = (i / (N - 1)) * 2 - 1
+    let dev = (v - 1) * 3.5 * 0.46
+    if (dev > 0.48) {
+      dev = 0.48
+    } else if (dev < 0 - 0.48) {
+      dev = 0 - 0.48
+    }
+    let y = dev * 2
+    let o = i * 6
+    out[o] = x
+    out[o + 1] = y
+    out[o + 2] = rgb[0]
+    out[o + 3] = rgb[1]
+    out[o + 4] = rgb[2]
+    out[o + 5] = 1
+    i = i + 1
+  }
+  return out
+}
+
+fn pushVert(out, oi, x, y, r, g, b, a) {
+  out[oi] = x
+  out[oi + 1] = y
+  out[oi + 2] = r
+  out[oi + 3] = g
+  out[oi + 4] = b
+  out[oi + 5] = a
+  return oi + 6
+}
+
+// Frequency bytes -> bar quads (2 triangles each), premultiplied colour, alpha = magnitude.
+fn spectrumVerts(buf, color, w, h) {
+  let n = buf.length
+  let rgb = hexToRgb(color)
+  let bars = 72
+  if (bars > n) {
+    bars = n
+  }
+  let out = new Float32Array(bars * 6 * 6)
+  let gapPx = 2
+  let bwidPx = (w - (bars - 1) * gapPx) / bars
+  if (bwidPx < 1) {
+    bwidPx = 1
+  }
+  let count = 0
+  let oi = 0
+  let bi = 0
+  while (bi < bars) {
+    let src = Math.floor((bi / bars) * (n * 0.7))
+    let val = buf[src] / 255
+    let bhPx = Math.max(1, val * h)
+    let xPx = bi * (bwidPx + gapPx)
+    let x0 = (xPx / w) * 2 - 1
+    let x1 = ((xPx + bwidPx) / w) * 2 - 1
+    let yTop = 1 - 2 * ((h - bhPx) / h)
+    let yBot = 0 - 1
+    let a = 0.35 + val * 0.6
+    if (a > 1) {
+      a = 1
+    }
+    let r = rgb[0] * a
+    let g = rgb[1] * a
+    let b = rgb[2] * a
+    oi = pushVert(out, oi, x0, yBot, r, g, b, a)
+    oi = pushVert(out, oi, x1, yBot, r, g, b, a)
+    oi = pushVert(out, oi, x1, yTop, r, g, b, a)
+    oi = pushVert(out, oi, x0, yBot, r, g, b, a)
+    oi = pushVert(out, oi, x1, yTop, r, g, b, a)
+    oi = pushVert(out, oi, x0, yTop, r, g, b, a)
+    count = count + 6
+    bi = bi + 1
+  }
+  return { verts: out, count: count }
+}
+
+fn drawGpu(c, f) {
+  let isWave = f.kind === "wave"
+  let verts = null
+  let count = 0
+  if (isWave) {
+    verts = waveVerts(f.data, f.color)
+    count = f.data.length
+  } else {
+    let r = spectrumVerts(f.data, f.color, c.w, c.h)
+    verts = r.verts
+    count = r.count
+  }
+  if (count < 2) {
+    return
+  }
+  let bytes = verts.byteLength
+  if (!c.vbuf || c.vcap < bytes) {
+    if (c.vbuf) {
+      c.vbuf.destroy()
+    }
+    c.vbuf = device.createBuffer({ size: bytes, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST })
+    c.vcap = bytes
+  }
+  device.queue.writeBuffer(c.vbuf, 0, verts)
+  let tex = null
+  try {
+    tex = c.ctx.getCurrentTexture()
+  } catch (e) {
+    return
+  }
+  let enc = device.createCommandEncoder()
+  let pass = enc.beginRenderPass({
+    colorAttachments: [{ view: tex.createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: "clear", storeOp: "store" }]
+  })
+  pass.setPipeline(isWave ? wavePipeline : barPipeline)
+  pass.setVertexBuffer(0, c.vbuf)
+  pass.draw(count)
+  pass.end()
+  device.queue.submit([enc.finish()])
+}
+
+// ---------- Canvas2D fallback (ported from src/ui/Scope.tish — keep in sync) ----------
+
+fn drawWave2d(c, buf, hexColor) {
+  let ctx = c.ctx
+  let w = c.cssW
+  let h = c.cssH
+  let N = buf.length
+  if (!ctx || N < 2) {
+    return
+  }
+  ctx.setTransform(c.dpr, 0, 0, c.dpr, 0, 0)
+  ctx.clearRect(0, 0, w, h)
+  let col = hexColor ? hexColor : "#22d3ee"
+  ctx.beginPath()
+  let maxDev = h * 0.48
+  let i = 0
+  while (i < N) {
+    let v = buf[i] / 128
+    let x = (i / (N - 1)) * w
+    let dev = (v - 1) * 3.5 * h * 0.46
+    if (dev > maxDev) {
+      dev = maxDev
+    } else if (dev < 0 - maxDev) {
+      dev = 0 - maxDev
+    }
+    let y = h * 0.5 - dev
+    if (i === 0) {
+      ctx.moveTo(x, y)
+    } else {
+      ctx.lineTo(x, y)
+    }
+    i = i + 1
+  }
+  ctx.strokeStyle = col
+  ctx.lineWidth = 1.3
+  ctx.lineJoin = "round"
+  ctx.lineCap = "round"
+  ctx.shadowColor = col
+  ctx.shadowBlur = 4
+  ctx.stroke()
+  ctx.shadowBlur = 0
+}
+
+fn drawSpectrum2d(c, buf, hexColor) {
+  let ctx = c.ctx
+  let w = c.cssW
+  let h = c.cssH
+  let n = buf.length
+  if (!ctx || n < 1) {
+    return
+  }
+  ctx.setTransform(c.dpr, 0, 0, c.dpr, 0, 0)
+  ctx.clearRect(0, 0, w, h)
+  let col = hexColor ? hexColor : "#f97316"
+  let bars = 72
+  if (bars > n) {
+    bars = n
+  }
+  let gap = 2
+  let bwid = (w - (bars - 1) * gap) / bars
+  if (bwid < 1) {
+    bwid = 1
+  }
+  let bi = 0
+  while (bi < bars) {
+    let src = Math.floor((bi / bars) * (n * 0.7))
+    let v = buf[src] / 255
+    let bh2 = Math.max(1, v * h)
+    let x = bi * (bwid + gap)
+    let y = h - bh2
+    ctx.fillStyle = col
+    ctx.globalAlpha = 0.35 + v * 0.6
+    ctx.fillRect(x, y, bwid, bh2)
+    bi = bi + 1
+  }
+  ctx.globalAlpha = 1
+}
+
+// ---------- Registration + dispatch ----------
+
+fn doRegister(id, off, cssW, cssH, dpr) {
+  let pxW = Math.max(1, Math.floor(cssW * dpr))
+  let pxH = Math.max(1, Math.floor(cssH * dpr))
+  off.width = pxW
+  off.height = pxH
+  // GPU path first (device is ready).
+  if (gpuState === "ready") {
+    let cx = null
+    try {
+      cx = off.getContext("webgpu")
+    } catch (e) {
+      cx = null
+    }
+    if (cx) {
+      try {
+        cx.configure({ device: device, format: format, alphaMode: "premultiplied" })
+        canvases[id] = { kind: "gpu", ctx: cx, w: pxW, h: pxH, vbuf: null, vcap: 0 }
+        return
+      } catch (e) {
+        cx = null
+      }
+    }
+  }
+  // Canvas2D fallback.
+  let c2 = null
+  try {
+    c2 = off.getContext("2d")
+  } catch (e) {
+    c2 = null
+  }
+  if (c2) {
+    canvases[id] = { kind: "2d", ctx: c2, cssW: cssW, cssH: cssH, dpr: dpr }
+  }
+}
+
+fn onRegister(m) {
+  if (gpuState === "none") {
+    initGpu()
+  }
+  if (gpuState === "init") {
+    pending.push({ id: m.id, canvas: m.canvas, cssW: m.cssW, cssH: m.cssH, dpr: m.dpr })
+    return
+  }
+  doRegister(m.id, m.canvas, m.cssW, m.cssH, m.dpr)
+}
+
+fn onFrame(frames) {
+  let i = 0
+  while (i < frames.length) {
+    let f = frames[i]
+    let c = canvases[f.id]
+    if (c) {
+      if (c.kind === "gpu") {
+        try {
+          drawGpu(c, f)
+        } catch (e) {
+        }
+      } else {
+        if (f.kind === "wave") {
+          drawWave2d(c, f.data, f.color)
+        } else {
+          drawSpectrum2d(c, f.data, f.color)
+        }
+      }
+    }
+    i = i + 1
+  }
+}
+
+fn handle(e) {
+  let m = e.data
+  if (!m) {
+    return
+  }
+  if (m.type === "register") {
+    onRegister(m)
+  } else if (m.type === "frame") {
+    onFrame(m.frames ? m.frames : [])
+  }
+}
+
+self.onmessage = handle

@@ -44,6 +44,9 @@ export fn parseProgram(source) {
   let sessionSlots = []
   let launchQuant = null
   let songSeed = null
+  let xfade = null
+  let mainDeck = null
+  let swing = null
   let songEntries = null
   let followEntries = null
   let currentClip = null
@@ -240,6 +243,29 @@ export fn parseProgram(source) {
       }
       continue
     }
+    // Crossfader position: `xfade <x> <y>` — both 0..1 (X = deck A↔B, Y = top↔bottom corner).
+    if (head === "xfade") {
+      if (toks.length >= 3) {
+        xfade = { x: Number(toks[1]), y: Number(toks[2]) }
+      } else if (toks.length >= 2) {
+        xfade = { x: Number(toks[1]), y: 0.5 }
+      }
+      continue
+    }
+    // Which deck feeds the main output: `main_deck live|local`.
+    if (head === "main_deck") {
+      if (toks.length >= 2) {
+        mainDeck = toks[1] === "local" ? "local" : "live"
+      }
+      continue
+    }
+    // Global swing amount 0..1 (0 = straight 16ths).
+    if (head === "swing") {
+      if (toks.length >= 2) {
+        swing = Number(toks[1])
+      }
+      continue
+    }
     if (head === "macro" && toks.length >= 2) {
       currentClip = null
       currentTrack = null
@@ -411,6 +437,9 @@ export fn parseProgram(source) {
     follow: followEntries,
     launchQuant: launchQuant,
     songSeed: songSeed,
+    xfade: xfade,
+    mainDeck: mainDeck,
+    swing: swing,
     errors: errors
   }
 }

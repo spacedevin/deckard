@@ -1,0 +1,252 @@
+// PlaylistView — the Set timeline: a recording of WHAT PLAYED. While the transport runs, every step's note
+// triggers (stepTriggers' output) are taped (the FULL set is still captured + replayable note-for-note —
+// the ghost). The DISPLAY is ONE continuous summarized waveform PER DECK (in the deck's colour): per step,
+// that deck's total trigger energy (summed velocities) drawn as a filled mirror envelope across the timeline.
+
+import { h, Fragment } from '@tishlang/lattish'
+import { channelDeck } from '../model/DeckRouting.tish'
+
+let BAR_PX = 26
+let STEPS_PER_BAR = 16
+let LABEL_W = 76
+let MIN_BARS = 16
+let DECK_WAVE_H = 42
+
+fn deckColorHex(deck) {
+  if (deck === "B") {
+    return "#e879f9"
+  }
+  if (deck === "C") {
+    return "#f59e0b"
+  }
+  if (deck === "D") {
+    return "#4ade80"
+  }
+  return "#22d3ee"
+}
+
+// One deck's per-step energy -> a CONTINUOUS filled mirror envelope (sampled at every step 0..maxStep, silent
+// steps get a thin baseline, so it reads as one always-on recording, not separated bursts). Closed path.
+fn buildWaveD(energy, maxStep, maxE, waveH) {
+  let cy = waveH / 2
+  let half = (waveH - 6) / 2
+  let topD = ""
+  let botParts = []
+  let s = 0
+  while (s <= maxStep) {
+    let e = energy[String(s)] != null ? energy[String(s)] : 0
+    let amp = e / maxE
+    let hh = amp * half
+    if (hh < 1) {
+      hh = 1
+    }
+    let x = Math.round((s / STEPS_PER_BAR) * BAR_PX * 10) / 10
+    let yT = Math.round((cy - hh) * 10) / 10
+    let yB = Math.round((cy + hh) * 10) / 10
+    topD = s === 0 ? ("M" + String(x) + " " + String(yT)) : (topD + " L" + String(x) + " " + String(yT))
+    botParts.push(" L" + String(x) + " " + String(yB))
+    s = s + 1
+  }
+  let d = topD
+  let bpi = botParts.length - 1
+  while (bpi >= 0) {
+    d = d + botParts[bpi]
+    bpi = bpi - 1
+  }
+  return d + " Z"
+}
+
+export fn PlaylistView(project, rt, props) {
+  let p = props ? props : {}
+  let tape = rt && Array.isArray(rt.tplTape) ? rt.tplTape : []
+  let recordings = Array.isArray(p.recordings) ? p.recordings : []
+
+  // Direct-DOM playhead mover (re-asserted every rAF by the transport.position subscriber in App).
+  if (rt) {
+    rt.updateTimelinePlayhead = (step, playing) => {
+      if (typeof document === "undefined") {
+        return
+      }
+      let el = document.querySelector(".pl-playhead")
+      if (!el) {
+        return
+      }
+      if (!playing || step < 0) {
+        el.style.opacity = "0"
+        return
+      }
+      let phX = LABEL_W + (step / STEPS_PER_BAR) * BAR_PX
+      el.style.opacity = "1"
+      el.style.left = String(phX) + "px"
+      // Auto-scroll so the playhead trails ~45% across the viewport as the take advances. The deck labels are
+      // pinned (position: sticky) so they stay put while the waveform track scrolls under them.
+      let scroller = document.querySelector(".pl-scroll")
+      if (scroller) {
+        let target = phX - scroller.clientWidth * 0.45
+        if (target < 0) {
+          target = 0
+        }
+        scroller.scrollLeft = target
+      }
+    }
+  }
+
+  // Bucket trigger energy per DECK per step: each trigger's busIndex -> channel -> deck, summed velocity.
+  // A shared maxE across all decks keeps the four waveforms on the same scale (a busier deck reads bigger).
+  let deckEnergy = { A: {}, B: {}, C: {}, D: {} }
+  let maxStep = 0
+  let totalNotes = 0
+  let maxE = 1
+  let ti = 0
+  while (ti < tape.length) {
+    let e = tape[ti]
+    if (e.step > maxStep) {
+      maxStep = e.step
+    }
+    let trs = e.triggers != null ? e.triggers : []
+    let k = 0
+    while (k < trs.length) {
+      let bus = Math.floor(Number(trs[k].busIndex))
+      let dk = "A"
+      if (project && project.channels && bus >= 0 && bus < project.channels.length) {
+        let ch = project.channels[bus]
+        if (ch) {
+          dk = channelDeck(project, ch)
+        }
+      }
+      if (deckEnergy[dk] == null) {
+        dk = "A"
+      }
+      let vel = trs[k].vel != null ? Number(trs[k].vel) : 100
+      if (vel !== vel || vel <= 0) {
+        vel = 100
+      }
+      let cur = deckEnergy[dk][e.step] != null ? deckEnergy[dk][e.step] : 0
+      let tot = cur + vel
+      deckEnergy[dk][e.step] = tot
+      if (tot > maxE) {
+        maxE = tot
+      }
+      totalNotes = totalNotes + 1
+      k = k + 1
+    }
+    ti = ti + 1
+  }
+
+  let gridBars = Math.ceil((maxStep + 1) / STEPS_PER_BAR) + 2
+  if (gridBars < MIN_BARS) {
+    gridBars = MIN_BARS
+  }
+  let laneWidth = gridBars * BAR_PX
+
+  // ---- bar ruler ----
+  let ruler = []
+  let b = 0
+  while (b < gridBars) {
+    ruler.push(
+      <div class={(b % 4 === 0) ? "pl-tick pl-tick-major" : "pl-tick"} style={{ left: String(b * BAR_PX) + "px" }}>
+        {b % 4 === 0 ? <span class="pl-tick-num">{String(b + 1)}</span> : null}
+      </div>
+    )
+    b = b + 1
+  }
+
+  // ---- one continuous filled waveform PER DECK, in the deck colour ----
+  let cyD = DECK_WAVE_H / 2
+  let rows = []
+  let decks = ["A", "B", "C", "D"]
+  let hasData = false
+  let di = 0
+  while (di < decks.length) {
+    let dk = decks[di]
+    let en = deckEnergy[dk]
+    if (Object.keys(en).length > 0) {
+      hasData = true
+      let col = deckColorHex(dk)
+      let waveD = buildWaveD(en, maxStep, maxE, DECK_WAVE_H)
+      rows.push(
+        <div class="pl-lane pl-wave-lane">
+          <div class="pl-lane-label pl-deck-label" style={{ color: col, borderColor: col, height: String(DECK_WAVE_H) + "px" }} title={"Deck " + dk}>
+            {"DECK " + dk}
+          </div>
+          <div class="pl-lane-track pl-wave-track" style={{ width: String(laneWidth) + "px", height: String(DECK_WAVE_H) + "px" }}>
+            <svg class="pl-wave" width={String(laneWidth)} height={String(DECK_WAVE_H)} preserveAspectRatio="none">
+              <line class="pl-wave-center" x1="0" y1={String(cyD)} x2={String(laneWidth)} y2={String(cyD)} />
+              <path class="pl-wave-path" d={waveD} style={{ fill: col + "80", stroke: col }} />
+            </svg>
+          </div>
+        </div>
+      )
+    }
+    di = di + 1
+  }
+  if (!hasData) {
+    rows.push(
+      <div class="pl-empty-hint">{"hit Play (Sequence or Session) — whatever plays is captured here, then Save it as a replayable Set"}</div>
+    )
+  }
+
+  // ---- recordings dropdown ----
+  let recOpts = [<option value="">{"— replay a Set —"}</option>]
+  let ri = 0
+  while (ri < recordings.length) {
+    recOpts.push(<option value={recordings[ri].name}>{recordings[ri].name}</option>)
+    ri = ri + 1
+  }
+
+  let steps = tape.length
+  let bars = Math.ceil((maxStep + 1) / STEPS_PER_BAR)
+  let status = steps === 0
+    ? "nothing recorded yet"
+    : String(totalNotes) + " note" + (totalNotes === 1 ? "" : "s") + " · " + String(steps) + " step" + (steps === 1 ? "" : "s") + " · " + String(bars) + " bar" + (bars === 1 ? "" : "s")
+
+  return (
+    <div class="pl-view pl-tpl">
+      <div class="pl-head">
+        <span class="pl-title">{"SET RECORDER"}</span>
+        <span class="pl-rec pl-rec-on" title="Always recording — hit Play and whatever the sequencer fires is captured here">
+          <span class="pl-rec-dot"></span>{"REC"}
+        </span>
+        <button
+          type="button"
+          class="pl-btn"
+          title="Clear the timeline — the next Play records a fresh take"
+          onclick={() => { if (p.onNewTake) { p.onNewTake() } }}
+        >
+          {"New"}
+        </button>
+        <button
+          type="button"
+          class="pl-btn"
+          title="Save this take as a replayable Set"
+          disabled={steps === 0}
+          onclick={() => { if (p.onSaveRecording) { p.onSaveRecording() } }}
+        >
+          {"Save"}
+        </button>
+        <select
+          class="pl-replay-select"
+          value=""
+          title="Load a recorded Set and replay exactly what played (the ghost)"
+          onchange={(e) => {
+            let n = e.target.value
+            e.target.value = ""
+            if (n && n.length > 0 && p.onLoadReplay) {
+              p.onLoadReplay(n)
+            }
+          }}
+        >
+          {recOpts}
+        </select>
+        <span class="pl-status">{status}</span>
+      </div>
+      <div class="pl-scroll">
+        <div class="pl-grid">
+          <div class="pl-ruler" style={{ width: String(laneWidth) + "px" }}>{ruler}</div>
+          <div class="pl-rows">{rows}</div>
+          <div class="pl-playhead"></div>
+        </div>
+      </div>
+    </div>
+  )
+}

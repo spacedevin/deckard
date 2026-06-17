@@ -1,0 +1,96 @@
+// Kick / Bass designer: thin labeled-slider editors for the high-frequency macro voices. Each control
+// edits one `macroParams` override and re-expands the patch (setMacroParam), so a move is plain TPL —
+// the channel emits `gen <macro> <k> <v> ...`. "Freeze" drops the macro identity and hands the expanded
+// graph to the generic Patch editor for deep edits.
+
+import { h } from '@tishlang/lattish'
+import { Knob, accentForGenerator } from './InstrumentKit.tish'
+import {
+  macroKind,
+  macroLabel,
+  macroParamControls,
+  setMacroParam,
+  freezeMacroChannel
+} from '../model/MacroVoice.tish'
+
+fn fmtVal(v, step) {
+  if (step >= 1) {
+    return String(Math.round(v))
+  }
+  return String(Math.round(v * 100) / 100)
+}
+
+export fn MacroDesignerPanel(ch, project, setProject, tplMirrorFlush) {
+  let userMacros = project.userMacros
+  let kind = macroKind(ch.macroName)
+  let title = "MACRO"
+  if (kind === "kick") {
+    title = "KICK DESIGNER"
+  }
+  if (kind === "bass") {
+    title = "BASS DESIGNER"
+  }
+
+  fn commit() {
+    setProject(project)
+    if (tplMirrorFlush) {
+      tplMirrorFlush()
+    }
+  }
+
+  let accent = accentForGenerator(ch.generatorId)
+  let controls = macroParamControls(ch.macroName, ch.macroParams, userMacros)
+  let rows = []
+  let i = 0
+  while (i < controls.length) {
+    let ctl = controls[i]
+    let keyCopy = ctl.key
+    let stepCopy = ctl.step
+    rows.push(
+      Knob({
+        label: ctl.label,
+        value: ctl.value,
+        min: ctl.min,
+        max: ctl.max,
+        step: ctl.step,
+        accent: accent,
+        fmt: (v) => fmtVal(v, stepCopy),
+        onInput: (v) => {
+          setMacroParam(ch, keyCopy, v, userMacros)
+          commit()
+        }
+      })
+    )
+    i = i + 1
+  }
+
+  return (
+    <div class="sytrus-panel macro-panel">
+      <div class="sytrus-panel-head">
+        <span class="sytrus-panel-title">{title}</span>
+        <span class="sytrus-panel-sub">{macroLabel(ch.macroName) + " · re-expands to a patch"}</span>
+      </div>
+      <section class="sytrus-section">
+        {controls.length === 0 ? (
+          <p class="sytrus-empty">{"This voice has no adjustable parameters."}</p>
+        ) : (
+          <div class="ik-knob-grid">{rows}</div>
+        )}
+      </section>
+      <section class="sytrus-section">
+        <button
+          type="button"
+          class="sytrus-add-btn"
+          title={"Drop the macro and edit the raw node graph"}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={() => {
+            freezeMacroChannel(ch)
+            commit()
+          }}
+        >
+          {"Freeze to patch graph"}
+        </button>
+      </section>
+    </div>
+  )
+}

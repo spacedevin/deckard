@@ -53,32 +53,34 @@ export fn crossfadeValueY(project) {
 }
 
 /** Player slot 0..3 for a channel: 0=P1 (host), 1=P2, 2=P3, 3=P4 — by owner's position in the room. */
+// CANONICAL deck/player index for a channel — a deterministic function of the SHARED document, so it is
+// IDENTICAL on every client (host and all guests). The deck assignment (and therefore the colour) must
+// NEVER depend on who is viewing — the channel's order/ownership is what matters. Order: an explicit
+// deckSlot wins; else the owner's position in the shared roster (host = P1); unclaimed = the host's deck.
 export fn channelPlayerIndex(project, ch) {
   if (!ch || !project) {
     return 0
   }
+  // An explicit deck slot (loadDeckSet / manual deck handoff) is the canonical, shared assignment.
+  if (ch.deckSlot != null) {
+    let s = Math.floor(Number(ch.deckSlot))
+    if (s >= 0 && s <= 3 && s === s) {
+      return s
+    }
+  }
   let players = project.coDjPlayers
   if (!Array.isArray(players) || players.length <= 1) {
-    // Solo / single player: an explicit deck slot (set by loadDeckSet or the manual deck handoff)
-    // routes to any of the 4 decks; otherwise the local lane is Deck A (P1) vs B (P2).
-    if (ch.deckSlot != null) {
-      let s = Math.floor(Number(ch.deckSlot))
-      if (s >= 0 && s <= 3 && s === s) {
-        return s
-      }
-    }
+    // Solo / single player: local lane = Deck A (P1), anything else = Deck B (P2).
     return channelActorLane(ch, project) === "local" ? 0 : 1
   }
   ensureCoDjMeta(project)
   let meta = project.coDjMeta.tracks[ch.id]
   let owner = meta && meta.ownerActorId ? String(meta.ownerActorId) : "human"
-  if (owner === "human") {
-    // Local tracks belong to whichever player THIS client is.
-    if (project.coDjSelfActorId != null && project.coDjSelfActorId !== "") {
-      owner = String(project.coDjSelfActorId)
-    } else if (project.coDjHostActorId != null) {
-      owner = String(project.coDjHostActorId)
-    }
+  // Unclaimed / host-owned tracks live on the HOST's deck on EVERY client — NOT the local viewer's. (The
+  // old code remapped "human" → coDjSelfActorId, which made the SAME channel a different colour per client.
+  // Ownership/order is canonical; the viewer is irrelevant.)
+  if (owner === "human" && project.coDjHostActorId != null && project.coDjHostActorId !== "") {
+    owner = String(project.coDjHostActorId)
   }
   let i = 0
   while (i < players.length && i < 4) {
@@ -87,11 +89,7 @@ export fn channelPlayerIndex(project, ch) {
     }
     i = i + 1
   }
-  // Owner not in the current roster (e.g. just-joined, mid-sync): never dump it onto the host's
-  // deck (P1) — only the actual host belongs there. Park unknown contributors on P2.
-  if (project.coDjHostActorId != null && owner === String(project.coDjHostActorId)) {
-    return 0
-  }
+  // Owner not in the roster yet (just joined / mid-sync): park unknown contributors on P2, consistently.
   return 1
 }
 
@@ -130,7 +128,26 @@ export fn channelDeckRow(project, ch) {
   return channelPlayerIndex(project, ch) < 2 ? "top" : "bottom"
 }
 
-/** Equal-power gain for one of the 4 corners given the 2-axis crossfader. */
+/** Per-deck volume fader (0..1, default 1) from the centre DJ-mixer strip. Lives on project.deckEq[deck]. */
+export fn deckVolumeFor(project, ch) {
+  if (!project || !project.deckEq) {
+    return 1
+  }
+  let de = project.deckEq[channelDeck(project, ch)]
+  if (!de || typeof de.vol !== "number") {
+    return 1
+  }
+  let v = de.vol
+  if (v < 0) {
+    return 0
+  }
+  if (v > 1) {
+    return 1
+  }
+  return v
+}
+
+/** Equal-power crossfader corner gain × the per-deck volume fader — the channel's full main-out multiplier. */
 export fn deckMainOutGainMultiplier(project, ch) {
   let x = crossfadeValue(project)
   let y = crossfadeValueY(project)
@@ -141,7 +158,7 @@ export fn deckMainOutGainMultiplier(project, ch) {
   let idx = channelPlayerIndex(project, ch)
   let gx = idx % 2 === 0 ? gLeft : gRight
   let gy = idx < 2 ? gTop : gBottom
-  return gx * gy
+  return gx * gy * deckVolumeFor(project, ch)
 }
 
 /** True if this channel's player corner still has audible crossfader gain (drives note triggering). */

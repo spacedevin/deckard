@@ -1,0 +1,46 @@
+// A compact contextual preset control: a "load" dropdown + a "Save" button, shown WHERE you edit the
+// thing (so the load target is implicit). Used for sequence / rack / session presets, matching the
+// instrument-panel and deck "load set" pattern. items = [{name, tpl}]; onLoad(name); onSave().
+
+import { h } from '@tishlang/lattish'
+
+// The common panel header: a title/brand on the LEFT, load/save (or any control) aligned to the RIGHT.
+// Used by the sequence, session, instrument and deck panels so load/save lives consistently in each head.
+export fn PanelHeader(left, right) {
+  return (
+    <div class="panel-head">
+      <div class="panel-head-l">{left}</div>
+      <div class="panel-head-r">{right}</div>
+    </div>
+  )
+}
+
+export fn PresetBar(label, items, onLoad, onSave, scopeNote) {
+  let opts = [<option value="">{"— load —"}</option>]
+  let i = 0
+  while (i < items.length) {
+    opts.push(<option value={items[i].name}>{items[i].name}</option>)
+    i = i + 1
+  }
+  return (
+    <div class="preset-bar">
+      <span class="preset-bar-label">{label}</span>
+      <select
+        class="preset-bar-select"
+        value=""
+        onmousedown={(e) => e.stopPropagation()}
+        onchange={(e) => {
+          let n = e.target.value
+          e.target.value = ""
+          if (n && n.length > 0) {
+            onLoad(n)
+          }
+        }}
+      >
+        {opts}
+      </select>
+      <button type="button" class="preset-bar-save" onclick={onSave} title={"Save current " + label + " as a preset"}>{"Save"}</button>
+      {scopeNote != null && scopeNote.length > 0 ? <span class="preset-bar-scope">{scopeNote}</span> : null}
+    </div>
+  )
+}

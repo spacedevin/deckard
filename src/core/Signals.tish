@@ -1,0 +1,62 @@
+// Signal bus — the ephemeral output channel of the architecture (Plan: "two read channels, separated
+// on purpose"). The fold (document) carries persistent, streamed/saved state; THIS carries the 60fps
+// runtime ephemera — transport.position, transport.health, meter.<id> — that must never be streamed,
+// saved, or trigger a document render. Direct-DOM sinks (playhead, grid, BPM readout) subscribe here
+// instead of being poked ad-hoc through `rt.setX`. Pure, headless-testable; no DOM dependency.
+
+export fn createSignals() {
+  let channels = {}
+
+  // Push a value to every subscriber of `ch`. Last-value is retained so a late subscriber can read it.
+  fn publish(ch, value) {
+    let c = channels[ch]
+    if (!c) {
+      c = { last: null, hasLast: false, subs: [] }
+      channels[ch] = c
+    }
+    c.last = value
+    c.hasLast = true
+    let i = 0
+    while (i < c.subs.length) {
+      let cb = c.subs[i]
+      if (cb != null) {
+        cb(value)
+      }
+      i = i + 1
+    }
+  }
+
+  // Subscribe to `ch`. Immediately replays the retained last value (if any) so the subscriber starts in
+  // sync. Returns an unsubscribe function.
+  fn subscribe(ch, cb) {
+    let c = channels[ch]
+    if (!c) {
+      c = { last: null, hasLast: false, subs: [] }
+      channels[ch] = c
+    }
+    c.subs.push(cb)
+    if (c.hasLast) {
+      cb(c.last)
+    }
+    return () => {
+      let i = 0
+      while (i < c.subs.length) {
+        if (c.subs[i] === cb) {
+          c.subs[i] = null
+        }
+        i = i + 1
+      }
+    }
+  }
+
+  // Current retained value of a channel (null if never published).
+  fn peek(ch) {
+    let c = channels[ch]
+    if (c && c.hasLast) {
+      return c.last
+    }
+    return null
+  }
+
+  return { publish: publish, subscribe: subscribe, peek: peek }
+}

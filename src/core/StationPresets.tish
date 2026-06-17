@@ -1,0 +1,160 @@
+// Station presets — named, saveable copies of the ENTIRE workspace. A Station is the one level where a
+// global load makes sense (it has no target — it replaces everything), so this is a small global store,
+// NOT a per-level browser. A Station can't live inside the project (it can't contain itself), so it's kept
+// in localStorage (+ file export/import for sharing). The built-in "Default" Station is always present so
+// the list is never empty and loading it resets the workspace.
+//
+// (Formerly "Set". A "Set" is now a smaller, time-aware, per-player loadable bundle — see SetLibrary.tish.)
+
+import { defaultDeckardTplText } from '../model/DefaultDeckardTpl.tish'
+
+let KEY = "deckard.stationpresets.v1"
+let OLD_KEY = "deckard.setpresets.v1"   // read-fallback so pre-rename saves survive
+let TAG = "# deckard-station"
+let OLD_TAG = "# deckard-set"
+
+fn defaultBackend() {
+  if (typeof localStorage !== "undefined" && localStorage) {
+    return {
+      read: () => {
+        let v = localStorage.getItem(KEY)
+        if (v == null || String(v).length === 0) {
+          v = localStorage.getItem(OLD_KEY)
+        }
+        return v
+      },
+      write: (s) => {
+        localStorage.setItem(KEY, s)
+      }
+    }
+  }
+  let mem = { v: null }
+  return {
+    read: () => mem.v,
+    write: (s) => {
+      mem.v = s
+    }
+  }
+}
+
+fn factoryStations() {
+  return [{ name: "Default", tpl: defaultDeckardTplText(), factory: true, ord: -1 }]
+}
+
+export fn createStationPresets(injected) {
+  let be = injected ? injected : defaultBackend()
+
+  fn readLib() {
+    let raw = be.read()
+    if (raw == null || String(raw).length === 0) {
+      return { items: {}, ord: 0 }
+    }
+    let parsed = null
+    try {
+      parsed = JSON.parse(raw)
+    } catch (e) {
+      parsed = null
+    }
+    if (!parsed || !parsed.items) {
+      return { items: {}, ord: 0 }
+    }
+    if (typeof parsed.ord !== "number") {
+      parsed.ord = 0
+    }
+    return parsed
+  }
+
+  let lib = readLib()
+
+  fn persist() {
+    be.write(JSON.stringify(lib))
+  }
+
+  fn save(name, tpl) {
+    lib.ord = lib.ord + 1
+    lib.items[name] = { name: name, tpl: tpl, ord: lib.ord, factory: false }
+    persist()
+    return lib.items[name]
+  }
+
+  fn get(name) {
+    if (lib.items[name]) {
+      return lib.items[name]
+    }
+    let f = factoryStations()
+    let i = 0
+    while (i < f.length) {
+      if (f[i].name === name) {
+        return f[i]
+      }
+      i = i + 1
+    }
+    return null
+  }
+
+  // Built-in factory Stations first, then user Stations (ord-ascending).
+  fn list() {
+    let out = factoryStations()
+    let names = Object.keys(lib.items)
+    let user = []
+    let i = 0
+    while (i < names.length) {
+      user.push(lib.items[names[i]])
+      i = i + 1
+    }
+    user.sort((a, b) => a.ord - b.ord)
+    let j = 0
+    while (j < user.length) {
+      out.push(user[j])
+      j = j + 1
+    }
+    return out
+  }
+
+  fn remove(name) {
+    if (lib.items[name]) {
+      delete lib.items[name]
+      persist()
+      return true
+    }
+    return false
+  }
+
+  fn exportText(name) {
+    let s = get(name)
+    if (!s) {
+      return null
+    }
+    return TAG + " name=" + name + "\n" + s.tpl
+  }
+
+  fn importText(text, fallbackName) {
+    let body = String(text == null ? "" : text)
+    let name = fallbackName
+    let nl = body.indexOf("\n")
+    let first = nl >= 0 ? body.substring(0, nl) : body
+    if (first.indexOf(TAG) === 0 || first.indexOf(OLD_TAG) === 0) {
+      let ni = first.indexOf("name=")
+      if (ni >= 0) {
+        let nm = first.substring(ni + 5).trim()
+        if (nm.length > 0) {
+          name = nm
+        }
+      }
+      body = nl >= 0 ? body.substring(nl + 1) : ""
+    }
+    if (name == null || name.length === 0) {
+      return null
+    }
+    return save(name, body)
+  }
+
+  return {
+    save: save,
+    get: get,
+    list: list,
+    remove: remove,
+    exportText: exportText,
+    importText: importText
+  }
+}

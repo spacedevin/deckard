@@ -6,6 +6,15 @@ export fn createDeckardRuntime() {
     setProject: null,
     setTplText: null,
     tplSessionStream: [],
+    // TPL-stream tape: the recorder/replay state for the Playlist ("TPL playback"). tplTape is the live
+    // recording (or a loaded recording shown on the timeline); replaying re-fires it through the scheduler.
+    tplTape: [],
+    tplRecording: true,
+    tplReplaying: false,
+    tplStartState: null,
+    tplTapeStartStep: 0,
+    tplRecMode: "song",
+    updateTimelinePlayhead: null,
     selectedCh: 0,
     setSelectedCh: null,
     playing: false,
@@ -73,6 +82,11 @@ export fn createDeckardRuntime() {
     sessionActiveScene: 0,
     sessionQueuedClipIds: [],
     sessionQueuePending: false,
-    sessionQueuedScene: null
+    sessionQueuedScene: null,
+    // Per-CLIP skip: right-click a session cell to disable just that clip item (reddish border) so it stays
+    // silent when its scene/clip is launched, until it's re-enabled. Keyed by clip id (transient, not TPL).
+    sessionDisabledClips: {},
+    // I/O Rack: which decks are CUED to the headphones bus (live monitor choice, transient — not in TPL).
+    cuedDecks: { A: false, B: false, C: false, D: false }
   }
 }

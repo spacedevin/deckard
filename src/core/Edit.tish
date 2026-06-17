@@ -1,0 +1,238 @@
+// emit/edit — the UI convenience over ingest (Plan: "emit reads the owning statement's current values
+// from the fold and re-emits it with the single changed field"). TPL statements are coarse (one `mix`
+// line carries gain+pan+eq+mute+solo), so a single-field UI change re-emits that whole statement with
+// current values for the untouched fields. The result is one minimal TPL fragment fed to ingest — the
+// same door peers and the agent use. This is how "the UI is just a TPL client" becomes literal.
+
+import { formatTplFloat } from '../tpl/Format.tish'
+import { generatorIdToTpl } from '../tpl/Emit.tish'
+import { findChannelById } from '../tpl/Apply.tish'
+
+fn f(v) {
+  return formatTplFloat(Number(v))
+}
+
+fn trackHeader(ch) {
+  let gid = ch.generatorId ? ch.generatorId : "basicOsc"
+  let genTok = (ch.macroName != null) ? ch.macroName : generatorIdToTpl(gid)
+  let s = "track " + ch.name + " id " + ch.id + " gen " + genTok
+  // CRITICAL: a macro re-expands from this header on apply, so the overrides MUST ride along — otherwise
+  // any fx/voice/mix edit re-emits a bare `gen <macro>` and resets the macro to its defaults (the
+  // "change cutoff → bass becomes unrecognizable, no way back" bug).
+  if (ch.macroName != null && ch.macroParams) {
+    let mk = Object.keys(ch.macroParams)
+    let i = 0
+    while (i < mk.length) {
+      s = s + " " + mk[i] + " " + String(ch.macroParams[mk[i]])
+      i = i + 1
+    }
+  }
+  return s
+}
+
+fn mixLine(ch, param, value) {
+  let gain = ch.gain != null ? ch.gain : 0.85
+  let pan = ch.pan != null ? ch.pan : 0
+  let mute = ch.mute ? 1 : 0
+  let solo = ch.solo ? 1 : 0
+  let lo = ch.eqLo != null ? ch.eqLo : 0
+  let mid = ch.eqMid != null ? ch.eqMid : 0
+  let hi = ch.eqHi != null ? ch.eqHi : 0
+  if (param === "gain") { gain = Number(value) }
+  else if (param === "pan") { pan = Number(value) }
+  else if (param === "mute") { mute = value ? 1 : 0 }
+  else if (param === "solo") { solo = value ? 1 : 0 }
+  else if (param === "eq_lo") { lo = Number(value) }
+  else if (param === "eq_mid") { mid = Number(value) }
+  else if (param === "eq_hi") { hi = Number(value) }
+  return "  mix gain " + f(gain) + " pan " + f(pan) + " mute " + String(mute) + " solo " + String(solo) + " eq_lo " + f(lo) + " eq_mid " + f(mid) + " eq_hi " + f(hi)
+}
+
+fn fxLine(ch, param, value) {
+  let rev = ch.reverbSend != null ? ch.reverbSend : 0
+  let drive = ch.drive != null ? ch.drive : 0
+  let lfor = ch.lfoRate != null ? ch.lfoRate : 0
+  let lfod = ch.lfoDepth != null ? ch.lfoDepth : 0
+  let cut = ch.filterCutoff != null ? ch.filterCutoff : 8000
+  let res = ch.filterQ != null ? ch.filterQ : 1
+  if (param === "reverb" || param === "reverb_send") { rev = Number(value) }
+  else if (param === "drive") { drive = Number(value) }
+  else if (param === "lfo_rate") { lfor = Number(value) }
+  else if (param === "lfo_depth") { lfod = Number(value) }
+  else if (param === "cutoff") { cut = Number(value) }
+  else if (param === "res") { res = Number(value) }
+  return "  fx reverb_send " + f(rev) + " drive " + f(drive) + " lfo_rate " + f(lfor) + " lfo_depth " + f(lfod) + " cutoff " + f(cut) + " res " + f(res)
+}
+
+fn voiceLine(ch, param, value) {
+  let oct = ch.octave != null ? Math.floor(ch.octave) : 0
+  let arp = (ch.arp != null && ch.arp !== "") ? ch.arp : "off"
+  let chord = (ch.chord != null && ch.chord !== "") ? ch.chord : "off"
+  if (param === "octave") { oct = Math.floor(Number(value)) }
+  else if (param === "arp") { arp = String(value) }
+  else if (param === "chord") { chord = String(value) }
+  return "  voice octave " + String(oct) + " arp " + arp + " chord " + chord
+}
+
+fn stepsLine(value) {
+  let o = "  steps"
+  let i = 0
+  while (i < 16) {
+    let s = value && i < value.length ? value[i] : null
+    let on = false
+    if (s === true) {
+      on = true
+    } else if (s && s.on) {
+      on = true
+    }
+    o = o + (on ? " x" : " .")
+    i = i + 1
+  }
+  return o
+}
+
+fn masterMixLine(project, param, value) {
+  let mm = project.masterMixer ? project.masterMixer : {}
+  let lo = mm.eqLo != null ? mm.eqLo : 0
+  let mid = mm.eqMid != null ? mm.eqMid : 0
+  let hi = mm.eqHi != null ? mm.eqHi : 0
+  let comp = mm.compEnabled === false ? 0 : 1
+  let reverb = mm.reverbEnabled === false ? 0 : 1
+  if (param === "eq_lo") { lo = Number(value) }
+  else if (param === "eq_mid") { mid = Number(value) }
+  else if (param === "eq_hi") { hi = Number(value) }
+  else if (param === "comp") { comp = value ? 1 : 0 }
+  else if (param === "reverb") { reverb = value ? 1 : 0 }
+  return "master_mix eq_lo " + f(lo) + " eq_mid " + f(mid) + " eq_hi " + f(hi) + " comp " + String(comp) + " reverb " + String(reverb)
+}
+
+fn actorMixLine(project, lane, param, value) {
+  let am = (project.actorMixer && project.actorMixer[lane]) ? project.actorMixer[lane] : {}
+  let gain = am.gain != null ? am.gain : 1
+  let lo = am.eqLo != null ? am.eqLo : 0
+  let mid = am.eqMid != null ? am.eqMid : 0
+  let hi = am.eqHi != null ? am.eqHi : 0
+  let mute = am.mute ? 1 : 0
+  let solo = am.solo ? 1 : 0
+  if (param === "gain") { gain = Number(value) }
+  else if (param === "eq_lo") { lo = Number(value) }
+  else if (param === "eq_mid") { mid = Number(value) }
+  else if (param === "eq_hi") { hi = Number(value) }
+  else if (param === "mute") { mute = value ? 1 : 0 }
+  else if (param === "solo") { solo = value ? 1 : 0 }
+  let o = "actor_mix " + lane + " gain " + f(gain) + " eq_lo " + f(lo) + " eq_mid " + f(mid) + " eq_hi " + f(hi)
+  if (mute === 1) { o = o + " mute 1" }
+  if (solo === 1) { o = o + " solo 1" }
+  return o
+}
+
+/**
+ * Build the minimal TPL fragment for an addressed edit. Addresses (value type):
+ *   bpm | launch_quant | swing                     (number)
+ *   xfade                                           ([x,y] or {x,y})
+ *   main_deck                                       ("live"|"local")
+ *   master/<eq_lo|eq_mid|eq_hi>                     (number)
+ *   master/<comp|reverb>                            (bool — master glue compressor / reverb send bus on/off)
+ *   actor/<lane>/<gain|eq_lo|eq_mid|eq_hi|mute|solo>(number|bool)
+ *   track/<id>/mix/<gain|pan|mute|solo|eq_*>        (number|bool)
+ *   track/<id>/fx/<reverb|drive|cutoff|res|lfo_*>   (number)
+ *   track/<id>/voice/<octave|arp|chord>             (number|string)
+ *   track/<id>/gen/<param>                          (number|string)  // param in TPL snake_case
+ *   track/<id>/deck                                 ({deck,slot})
+ *   track/<id>/steps                                (array of bool/{on})
+ * Returns "" for unknown/invalid addresses (caller can ignore — no-op edit).
+ */
+export fn fragmentForEdit(project, address, value) {
+  let parts = String(address).split("/")
+  let head = parts[0]
+
+  if (head === "bpm" || head === "launch_quant" || head === "swing") {
+    return head + " " + (head === "launch_quant" ? String(Math.floor(Number(value))) : f(value))
+  }
+  if (head === "main_deck") {
+    return "main_deck " + (value === "local" ? "local" : "live")
+  }
+  if (head === "xfade") {
+    let x = 0.5
+    let y = 0.5
+    if (Array.isArray(value)) {
+      x = Number(value[0])
+      y = value.length > 1 ? Number(value[1]) : 0.5
+    } else if (value) {
+      x = Number(value.x)
+      y = value.y != null ? Number(value.y) : 0.5
+    }
+    return "xfade " + f(x) + " " + f(y)
+  }
+  if (head === "master" && parts.length >= 2) {
+    return masterMixLine(project, parts[1], value)
+  }
+  if (head === "actor" && parts.length >= 3) {
+    return actorMixLine(project, parts[1], parts[2], value)
+  }
+  if (head === "track" && parts.length >= 3) {
+    let ch = findChannelById(project, parts[1])
+    if (!ch) {
+      return ""
+    }
+    let section = parts[2]
+    let param = parts.length >= 4 ? parts[3] : null
+    let hdr = trackHeader(ch)
+    if (section === "mix") {
+      return hdr + "\n" + mixLine(ch, param, value)
+    }
+    if (section === "fx") {
+      return hdr + "\n" + fxLine(ch, param, value)
+    }
+    if (section === "voice") {
+      return hdr + "\n" + voiceLine(ch, param, value)
+    }
+    if (section === "gen" && param != null) {
+      return hdr + "\n" + "  gen " + param + " " + (typeof value === "number" ? f(value) : String(value))
+    }
+    // Generator TYPE change (resets params on apply): re-emit the track header with the new gen token.
+    if (section === "gen_type") {
+      return "track " + ch.name + " id " + ch.id + " gen " + generatorIdToTpl(String(value))
+    }
+    // ADSR envelope as one statement (value = {a,d,s,r}).
+    if (section === "adsr") {
+      let a = value && value.a != null ? value.a : 0.01
+      let d = value && value.d != null ? value.d : 0.1
+      let s = value && value.s != null ? value.s : 0.7
+      let r = value && value.r != null ? value.r : 0.2
+      return hdr + "\n" + "  adsr a " + f(a) + " d " + f(d) + " s " + f(s) + " r " + f(r)
+    }
+    if (section === "deck") {
+      let dl = value && value.deck ? value.deck : "live"
+      let line = hdr + "\n" + "  deck " + String(dl)
+      if (value && value.slot != null && Math.floor(Number(value.slot)) === Math.floor(Number(value.slot))) {
+        line = line + " slot " + String(Math.floor(Number(value.slot)))
+      }
+      return line
+    }
+    if (section === "steps") {
+      return hdr + "\n" + stepsLine(value)
+    }
+  }
+  return ""
+}
+
+/**
+ * Bind fragmentForEdit + ingest into the UI's two write verbs:
+ *   emit(address, value)  — addressed document edit
+ *   directive(line)       — a raw `@ …` control line (cue/throw/transport/launch)
+ * `ctxProvider()` returns the local actor ctx {actorId, skillIds, …}. Both go through the one door.
+ */
+export fn createEditor(store, ingest, ctxProvider) {
+  fn emit(address, value) {
+    let frag = fragmentForEdit(store.project, address, value)
+    if (frag === "") {
+      return null
+    }
+    return ingest(frag, ctxProvider ? ctxProvider() : null)
+  }
+  fn directive(line) {
+    return ingest(String(line), ctxProvider ? ctxProvider() : null)
+  }
+  return { emit: emit, directive: directive }
+}

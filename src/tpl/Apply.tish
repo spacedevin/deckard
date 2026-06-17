@@ -214,6 +214,24 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
         }
         vi = vi + 2
       }
+    } else if (h === "deck") {
+      // `deck <A|B|C|D|live> [slot <n>]` — which deck/player corner this channel routes to.
+      if (t.length >= 2) {
+        let dl = t[1]
+        if (dl === "A" || dl === "B" || dl === "C" || dl === "D" || dl === "live") {
+          ch.deck = dl
+        }
+      }
+      let dki = 2
+      while (dki + 1 < t.length) {
+        if (t[dki] === "slot") {
+          let sn = Math.floor(Number(t[dki + 1]))
+          if (sn === sn) {
+            ch.deckSlot = sn
+          }
+        }
+        dki = dki + 1
+      }
     } else if (h === "mix") {
       let mi = 1
       while (mi < t.length) {
@@ -778,6 +796,14 @@ export fn applyMasterMixFromTokens(project, tokens) {
         } else {
           if (k === "eq_hi") {
             m.eqHi = v
+          } else {
+            if (k === "comp") {
+              m.compEnabled = v !== 0
+            } else {
+              if (k === "reverb") {
+                m.reverbEnabled = v !== 0
+              }
+            }
           }
         }
       }
@@ -860,6 +886,25 @@ export fn applyParsed(project, parsed) {
     let ss = Math.floor(Number(parsed.songSeed))
     if (ss === ss) {
       project.songSeed = ss
+    }
+  }
+  if (parsed.xfade !== null && parsed.xfade !== undefined) {
+    let cx = Number(parsed.xfade.x)
+    let cy = Number(parsed.xfade.y)
+    if (cx === cx) {
+      project.transportCrossfade = cx < 0 ? 0 : (cx > 1 ? 1 : cx)
+    }
+    if (cy === cy) {
+      project.transportCrossfadeY = cy < 0 ? 0 : (cy > 1 ? 1 : cy)
+    }
+  }
+  if (parsed.mainDeck !== null && parsed.mainDeck !== undefined) {
+    project.transportMainDeck = parsed.mainDeck === "local" ? "local" : "live"
+  }
+  if (parsed.swing !== null && parsed.swing !== undefined) {
+    let sw = Number(parsed.swing)
+    if (sw === sw) {
+      project.swing = sw < 0 ? 0 : (sw > 1 ? 1 : sw)
     }
   }
   let userMacros = parsed.macros ? parsed.macros : {}

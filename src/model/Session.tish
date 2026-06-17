@@ -297,6 +297,39 @@ export fn syncAllMainClipsFromChannels(project) {
   }
 }
 
+/// Append one more program (an extra scene / P-column) to the session grid and reconcile every track's
+/// slot row to the new count. Returns the new program count. (Mirrors setRackBars for the rack.)
+export fn addSessionProgram(project) {
+  ensureProjectSession(project)
+  let cur = Math.floor(Number(project.session.sceneCount))
+  if (cur !== cur || cur < 1) {
+    cur = 4
+  }
+  project.session.sceneCount = cur + 1
+  ensureProjectSession(project)
+  return cur + 1
+}
+
+/// Drop the last program (scene / P-column), clamped at a minimum of 1. Returns the new program count.
+export fn removeSessionProgram(project) {
+  ensureProjectSession(project)
+  let cur = Math.floor(Number(project.session.sceneCount))
+  if (cur !== cur || cur <= 1) {
+    return cur
+  }
+  project.session.sceneCount = cur - 1
+  let ti = 0
+  while (project.session.slots && ti < project.session.slots.length) {
+    let row = project.session.slots[ti]
+    while (row.length > cur - 1) {
+      row.pop()
+    }
+    ti = ti + 1
+  }
+  ensureProjectSession(project)
+  return cur - 1
+}
+
 export fn ensureProjectSession(project) {
   if (!project.channels) {
     return
@@ -1268,6 +1301,11 @@ export fn playbackClipForChannel(project, rt, chIdx) {
   }
   let cl = findClipOnChannel(ch, armed)
   if (!cl) {
+    return { silent: true }
+  }
+  // Per-clip skip (right-click a session cell): the armed clip is disabled, so this track stays silent for
+  // it until it's re-enabled (left-click / right-click again).
+  if (rt && rt.sessionDisabledClips && rt.sessionDisabledClips[armed] === true) {
     return { silent: true }
   }
   return cl

@@ -1,0 +1,78 @@
+// I/O Rack device selection — the chosen "speakers" (main) and "headphones" (cue) output devices, plus the
+// headphone cue level. A small persisted user preference (NOT document/TPL content), mirroring the
+// localStorage backend pattern used by StationPresets/SetLibrary so it survives reloads.
+
+let KEY = "deckard.audio.devices.v1"
+
+fn defaultBackend() {
+  if (typeof localStorage !== "undefined" && localStorage) {
+    return {
+      read: () => localStorage.getItem(KEY),
+      write: (s) => {
+        localStorage.setItem(KEY, s)
+      }
+    }
+  }
+  let mem = { v: null }
+  return {
+    read: () => mem.v,
+    write: (s) => {
+      mem.v = s
+    }
+  }
+}
+
+fn defaults() {
+  return { speakers: "", headphones: "", cueLevel: 0.9, cueOffsetMs: 0, autoSync: false, drawOff: false, cuePauseDraws: false }
+}
+
+export fn createAudioDeviceSettings(injected) {
+  let be = injected ? injected : defaultBackend()
+
+  fn read() {
+    let raw = be.read()
+    if (raw == null || String(raw).length === 0) {
+      return defaults()
+    }
+    let parsed = null
+    try {
+      parsed = JSON.parse(raw)
+    } catch (e) {
+      parsed = null
+    }
+    if (!parsed) {
+      return defaults()
+    }
+    return {
+      speakers: parsed.speakers != null ? String(parsed.speakers) : "",
+      headphones: parsed.headphones != null ? String(parsed.headphones) : "",
+      cueLevel: typeof parsed.cueLevel === "number" ? parsed.cueLevel : 0.9,
+      cueOffsetMs: typeof parsed.cueOffsetMs === "number" ? parsed.cueOffsetMs : 0,
+      autoSync: parsed.autoSync === true,
+      drawOff: parsed.drawOff === true,
+      cuePauseDraws: parsed.cuePauseDraws === true
+    }
+  }
+
+  fn get() {
+    return read()
+  }
+
+  // Merge a partial update over the current settings and persist.
+  fn save(obj) {
+    let cur = read()
+    let next = {
+      speakers: obj && obj.speakers != null ? String(obj.speakers) : cur.speakers,
+      headphones: obj && obj.headphones != null ? String(obj.headphones) : cur.headphones,
+      cueLevel: obj && typeof obj.cueLevel === "number" ? obj.cueLevel : cur.cueLevel,
+      cueOffsetMs: obj && typeof obj.cueOffsetMs === "number" ? obj.cueOffsetMs : cur.cueOffsetMs,
+      autoSync: obj && typeof obj.autoSync === "boolean" ? obj.autoSync : cur.autoSync,
+      drawOff: obj && typeof obj.drawOff === "boolean" ? obj.drawOff : cur.drawOff,
+      cuePauseDraws: obj && typeof obj.cuePauseDraws === "boolean" ? obj.cuePauseDraws : cur.cuePauseDraws
+    }
+    be.write(JSON.stringify(next))
+    return next
+  }
+
+  return { get: get, save: save }
+}

@@ -8,10 +8,12 @@ import { toggleStep, clearStep, setChannelMute, setChannelSolo, promoteChannelTo
 import { syncMainClipFromChannel } from '../../model/Session.tish'
 import { generatorLabelById } from '../../generators/Registry.tish'
 import { tplLoopSkipsChannel } from '../../tpl/LoopState.tish'
+import { applyStepsEuclid } from '../../tpl/Apply.tish'
 import { setRackBars } from '../../model/RackBars.tish'
 import { channelDeck, channelDeckColor } from '../../model/DeckRouting.tish'
 import { ensureCoDjMeta, setMasterLock } from '../../codj/CoDjMeta.tish'
 import { pianoRowsForChannel } from './PianoGrid.tish'
+import { PanelHeader } from '../PresetBar.tish'
 
 fn stepHasNote(ch, i) {
   let pn = ch.pianoNotes
@@ -273,8 +275,9 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
             title="Mute"
             onclick={(e) => {
               e.stopPropagation()
-              setChannelMute(ch, !ch.mute)
-              setProjectFromUI(project)
+              if (rt && rt.emit) {
+                rt.emit("track/" + ch.id + "/mix/mute", !ch.mute)
+              }
             }}
           >
             {"M"}
@@ -285,8 +288,9 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
             title="Solo"
             onclick={(e) => {
               e.stopPropagation()
-              setChannelSolo(ch, !ch.solo)
-              setProjectFromUI(project)
+              if (rt && rt.emit) {
+                rt.emit("track/" + ch.id + "/mix/solo", !ch.solo)
+              }
             }}
           >
             {"S"}
@@ -412,7 +416,7 @@ fn handleBarWheel(e, rt, gridBars) {
   }
 }
 
-export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt) {
+export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt, headerRight) {
   let gridBars = gridBarsForProject(project)
   let viewBar = 0
   if (rt != null && rt.gridViewBar != null) {
@@ -429,6 +433,19 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
     rt.gridBars = gridBars
     rt.updateGridPlayhead = (step, playing) => {
       applyGridPlayhead(step, playing, gridBars, viewBar)
+      // FOLLOW: keep the viewed bar locked to the bar that's currently sounding, paging at each bar
+      // boundary (one re-render per bar, not per step). New render rebuilds this closure with the new bar.
+      // ONLY in Sequence mode — there the rack IS what's playing. In Session ("song") mode the launched
+      // clips play, NOT this rack, so paging the rack bars would jump the view to bars that aren't sounding.
+      if (playing && rt.seqFollow === true && gridBars > 1 && rt.playMode !== "song") {
+        let pb = Math.floor(Math.floor(step) / 16) % gridBars
+        if (pb !== viewBar) {
+          rt.gridViewBar = pb
+          if (rt.bumpGrid) {
+            rt.bumpGrid()
+          }
+        }
+      }
     }
   }
   let rows = []
@@ -492,12 +509,65 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
       applyGridPlayhead(st, rt.playing === true, gridBars, viewBar)
     }, 0)
   }
+  // Euclidean fill for the selected channel — moved here from the instrument (it edits `steps`,
+  // which is the rack's pattern, not the sound).
+  let selCh = (selectedCh >= 0 && selectedCh < project.channels.length) ? project.channels[selectedCh] : null
+  let euclidRow = null
+  if (selCh) {
+    let pills = []
+    pills.push(
+      <button
+        type="button"
+        class={(!selCh.euclid || selCh.euclid === 0) ? "sg-euclid-pill sg-euclid-on" : "sg-euclid-pill"}
+        onclick={() => {
+          let si = 0
+          while (si < 16) {
+            selCh.steps[si].on = false
+            si = si + 1
+          }
+          selCh.euclid = 0
+          setProjectFromUI(project)
+        }}
+      >
+        {"Off"}
+      </button>
+    )
+    let ek = 1
+    while (ek <= 8) {
+      let hits = ek
+      pills.push(
+        <button
+          type="button"
+          class={selCh.euclid === ek ? "sg-euclid-pill sg-euclid-on" : "sg-euclid-pill"}
+          onclick={() => {
+            applyStepsEuclid(selCh, hits, 16)
+            selCh.euclid = hits
+            setProjectFromUI(project)
+          }}
+        >
+          {String(ek)}
+        </button>
+      )
+      ek = ek + 1
+    }
+    euclidRow = (
+      <div class="sg-euclid">
+        <span class="sg-euclid-label">{"EUCLID"}</span>
+        <span class="sg-euclid-target">{selCh.name}</span>
+        <div class="sg-euclid-pills">{pills}</div>
+      </div>
+    )
+  }
   return (
     <section class="panel sg-panel">
-      <div class="sg-head">
-        <h2>{"SEQUENCER // CHANNEL RACK"}</h2>
-        <span class="sg-head-hint">{"Left: toggle · Right: clear · ▸ expand any track into its piano roll"}</span>
-      </div>
+      {PanelHeader(
+        <Fragment>
+          <h2 class="sg-head-h2">{"SEQUENCER // CHANNEL RACK"}</h2>
+          <span class="sg-head-hint">{"Left: toggle · Right: clear · ▸ expand a track"}</span>
+        </Fragment>,
+        headerRight
+      )}
+      {euclidRow}
       <div class="sg-barpager" title="Shift + scroll to page through bars" onwheel={(e) => handleBarWheel(e, rt, gridBars)}>
         <span class="sg-barpager-label">{"BARS"}</span>
         <button
@@ -521,6 +591,24 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
         {gridBars > 1 ? <span class="sg-barpager-sep">{"·"}</span> : null}
         {gridBars > 1 ? <span class="sg-barpager-label">{"VIEW"}</span> : null}
         {gridBars > 1 ? pager : null}
+        {gridBars > 1 ? <span class="sg-barpager-sep">{"·"}</span> : null}
+        {gridBars > 1 ? (
+          <button
+            type="button"
+            class={rt && rt.seqFollow === true ? "sg-barbtn sg-follow sg-follow-on" : "sg-barbtn sg-follow"}
+            title="Follow playback — auto-page the view to the bar that's currently playing"
+            onclick={() => {
+              if (rt) {
+                rt.seqFollow = rt.seqFollow !== true
+                if (rt.bumpGrid) {
+                  rt.bumpGrid()
+                }
+              }
+            }}
+          >
+            {"FOLLOW"}
+          </button>
+        ) : null}
       </div>
       <div class="sg-grid" onwheel={(e) => handleBarWheel(e, rt, gridBars)}>{rows}</div>
       <div class="sg-ruler">

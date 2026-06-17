@@ -112,7 +112,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       if (!wsOk) {
         return
       }
-      let startPayload = JSON.stringify({ type: "control", op: "playing_start", actorId: aid, authorId: aid, perfStep: ps })
+      let startPayload = JSON.stringify({ type: "control", op: "playing_start", actorId: aid, authorId: aid, perfStep: ps, playMode: rt.playMode === "sequence" ? "sequence" : "song" })
       if (typeof console !== "undefined" && console.log) {
         console.log("[Co-DJ UI] OUTPUT wsSend:", startPayload)
       }
@@ -364,7 +364,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       rt.coDjHostPlaying = true
       let hs = msg.perfStep != null ? Math.floor(Number(msg.perfStep)) : 0
       if (rt.coDjFollowStart) {
-        rt.coDjFollowStart(hs)
+        rt.coDjFollowStart(hs, msg.playMode)
       }
       pushLog("follow host play @" + String(hs))
       return
@@ -381,7 +381,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       rt.coDjHostPlaying = true
       let hs2 = msg.perfStep != null ? Math.floor(Number(msg.perfStep)) : 0
       if (!rt.playing && rt.coDjFollowStart) {
-        rt.coDjFollowStart(hs2)
+        rt.coDjFollowStart(hs2, msg.playMode)
       } else if (rt.coDjApplyClock) {
         rt.coDjApplyClock(hs2)
       }

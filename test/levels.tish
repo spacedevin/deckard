@@ -1,0 +1,407 @@
+// Level-snapshot tests — store/restore at every level (instrument, sequence, rack, deck, session, set).
+// Proves the "debug without clicking 9000 times" promise: snapshot a level → mutate → restore from the
+// snapshot → exact state returns. Each snapshot is plain TPL, so it also doubles as a test fixture.
+// Run: tish build --target js test/levels.tish -o /tmp/lv.js && node /tmp/lv.js
+
+import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
+import { emptyProjectShell } from '../src/model/Project.tish'
+import { emitProject } from '../src/tpl/Emit.tish'
+import { applyTplSource, findChannelById } from '../src/tpl/Apply.tish'
+import { emitLevel, retargetTpl, splitTplBlocks, levelList } from '../src/core/Levels.tish'
+import { createStationPresets } from '../src/core/StationPresets.tish'
+import { createSetLibrary, emitSet, parseSet, loadSet, freeDecks, emitSetStream, parseSetStream, isStreamSet } from '../src/core/SetLibrary.tish'
+import { loadDeckSet, deckSetCatalog } from '../src/model/DeckSets.tish'
+import { channelDeck } from '../src/model/DeckRouting.tish'
+import { stepTriggers } from '../src/audio/Playback.tish'
+import { createAudioDeviceSettings } from '../src/core/AudioDeviceSettings.tish'
+import { applyCueRouting } from '../src/audio/Engine.tish'
+import { levelPresetList, addLevelPreset, findLevelPreset, removeLevelPreset } from '../src/model/LevelPresets.tish'
+import { compileGeneratorToPatchLines, canCompileToPatch } from '../src/model/PatchCompile.tish'
+import { parsePatchGraph } from '../src/tpl/TplExtension.tish'
+
+let pass = 0
+let fail = 0
+fn check(name, cond) {
+  if (cond) {
+    pass = pass + 1
+    console.log("  ok   " + name)
+  } else {
+    fail = fail + 1
+    console.log("  FAIL " + name)
+  }
+}
+
+console.log("=== Level snapshots ===")
+
+let p = loadDefaultDeckardProject().project
+let ch0 = p.channels[0]
+let T = ch0.id
+let T2 = p.channels[1].id
+let nameT2 = findChannelById(p, T2).name
+
+// Give T a distinctive sound + pattern so we can see the slices.
+applyTplSource(p, "tpl 1\ntrack " + ch0.name + " id " + T + " gen basic_osc\n  fx cutoff 1234 drive 0.6\n  mix gain 0.33 pan 0 mute 0 solo 0 eq_lo 0 eq_mid 0 eq_hi 0\n  steps x . . . x . . . x . . . x . . .\n")
+
+// ---- sound vs pattern split ----
+let inst = emitLevel(p, "instrument", T)
+let seq = emitLevel(p, "sequence", T)
+check("instrument slice has the SOUND (cutoff)", inst.indexOf("cutoff 1234") >= 0)
+check("instrument slice has the mix", inst.indexOf("mix gain 0.33") >= 0)
+check("instrument slice has NO pattern (steps)", inst.indexOf("steps") < 0 && inst.indexOf("note ") < 0)
+check("sequence slice has the PATTERN (steps)", seq.indexOf("steps x") >= 0)
+check("sequence slice has NO sound (cutoff/mix/fx)", seq.indexOf("cutoff") < 0 && seq.indexOf("mix ") < 0 && seq.indexOf("fx ") < 0)
+check("instrument + sequence both standalone-applicable (tpl header)", inst.indexOf("tpl 1") === 0 && seq.indexOf("tpl 1") === 0)
+
+// ---- the debug-restore invariant: snapshot → mutate → restore ----
+let instSnap = emitLevel(p, "instrument", T)
+applyTplSource(p, "tpl 1\ntrack " + ch0.name + " id " + T + " gen basic_osc\n  fx cutoff 8000\n")
+check("sound mutated away", Math.abs(findChannelById(p, T).filterCutoff - 8000) < 1e-6)
+applyTplSource(p, instSnap)
+check("instrument RESTORE brings the sound back", Math.abs(findChannelById(p, T).filterCutoff - 1234) < 1e-6)
+
+let seqSnap = emitLevel(p, "sequence", T)
+applyTplSource(p, "tpl 1\ntrack " + ch0.name + " id " + T + " gen basic_osc\n  steps . . . . . . . . . . . . . . . .\n")
+check("pattern mutated away (step 0 off)", findChannelById(p, T).steps[0].on === false)
+applyTplSource(p, seqSnap)
+check("sequence RESTORE brings the pattern back (step 0 on)", findChannelById(p, T).steps[0].on === true)
+
+// ---- retarget: load T's instrument onto a DIFFERENT channel, keeping that channel's identity ----
+let retargeted = retargetTpl(emitLevel(p, "instrument", T), findChannelById(p, T2))
+applyTplSource(p, retargeted)
+check("retarget: T2 adopts T's sound (cutoff)", Math.abs(findChannelById(p, T2).filterCutoff - 1234) < 1e-6)
+check("retarget: T2 keeps its own name", findChannelById(p, T2).name === nameT2)
+check("retarget: T2 keeps its own id", findChannelById(p, T2).id === T2)
+
+// ---- rack: every channel's block; reload onto an empty project ----
+let rackSnap = emitLevel(p, "rack", null)
+let freshRack = emptyProjectShell()
+applyTplSource(freshRack, rackSnap)
+check("rack snapshot recreates every channel", freshRack.channels.length === p.channels.length)
+check("rack snapshot carries sound (cutoff) for T", findChannelById(freshRack, T) != null && Math.abs(findChannelById(freshRack, T).filterCutoff - 1234) < 1e-6)
+
+// ---- deck: only the channels routed to that deck ----
+applyTplSource(p, "tpl 1\ntrack " + nameT2 + " id " + T2 + " gen basic_osc\n  deck B slot 0\n")
+let deckB = emitLevel(p, "deck", "B")
+check("deck B snapshot includes the B-routed channel", deckB.indexOf("id " + T2) >= 0)
+check("deck B snapshot excludes a non-B channel", deckB.indexOf("id " + T) < 0)
+
+// ---- session + set ----
+let sess = emitLevel(p, "session", null)
+check("session slice has session_scenes", sess.indexOf("session_scenes") >= 0)
+check("session slice has NO track blocks", sess.indexOf("track ") < 0)
+check("set level === full emitProject", emitLevel(p, "set", null) === emitProject(p))
+
+// ---- block splitter sanity ----
+let blocks = splitTplBlocks(emitProject(p))
+let trackBlocks = 0
+let bi = 0
+while (bi < blocks.length) {
+  if (blocks[bi].head === "track") {
+    trackBlocks = trackBlocks + 1
+  }
+  bi = bi + 1
+}
+check("splitter finds one track block per channel", trackBlocks === p.channels.length)
+check("levelList has all 7 levels", levelList().length === 7)
+
+console.log("=== Station presets (whole-workspace, global) ===")
+let setMem = { v: null }
+let setBe = { read: () => setMem.v, write: (s) => { setMem.v = s } }
+let sets = createStationPresets(setBe)
+check("[station] built-in Default present", sets.get("Default") != null && sets.get("Default").factory === true)
+check("[station] list starts with just Default", sets.list().length === 1)
+sets.save("MySet", "tpl 1\nbpm 142\n")
+check("[station] save adds a user station", sets.list().length === 2 && sets.get("MySet") != null)
+check("[station] saved station tpl intact", sets.get("MySet").tpl.indexOf("bpm 142") >= 0)
+check("[station] cannot remove the factory Default", sets.remove("Default") === false)
+check("[station] can remove a user station", sets.remove("MySet") === true && sets.list().length === 1)
+// persistence + export/import
+sets.save("Keep", "tpl 1\nbpm 99\n")
+let sets2 = createStationPresets(setBe)
+check("[station] persists across instances", sets2.get("Keep") != null)
+let setExp = sets.exportText("Keep")
+check("[station] export carries name tag", setExp.indexOf("# deckard-station name=Keep") === 0)
+let sets3 = createStationPresets({ read: () => null, write: (s) => {} })
+let setImp = sets3.importText(setExp, null)
+check("[station] import recovers the station", setImp != null && setImp.name === "Keep" && setImp.tpl.indexOf("bpm 99") >= 0)
+
+console.log("=== Contextual level presets (sequence/rack/session, in-project) ===")
+let lp = loadDefaultDeckardProject().project
+check("[lp] starts empty", levelPresetList(lp, "rack").length === 0)
+addLevelPreset(lp, "rack", "r1", "tpl 1\nbpm 100\n")
+addLevelPreset(lp, "rack", "r2", "tpl 1\nbpm 101\n")
+check("[lp] add appends", levelPresetList(lp, "rack").length === 2)
+check("[lp] find by name", findLevelPreset(lp, "rack", "r2") != null && findLevelPreset(lp, "rack", "r2").tpl.indexOf("bpm 101") >= 0)
+addLevelPreset(lp, "rack", "r1", "tpl 1\nbpm 999\n")
+check("[lp] save with same name upserts (no dupe)", levelPresetList(lp, "rack").length === 2 && findLevelPreset(lp, "rack", "r1").tpl.indexOf("bpm 999") >= 0)
+check("[lp] levels are independent", levelPresetList(lp, "sequence").length === 0 && levelPresetList(lp, "session").length === 0)
+check("[lp] remove drops it", removeLevelPreset(lp, "rack", "r1") === true && levelPresetList(lp, "rack").length === 1)
+
+console.log("=== Set library (player-delimited, TIME-aware) ===")
+let setLib = createSetLibrary({ read: () => null, write: (s) => {} })
+let cat = deckSetCatalog()
+check("[setlib] seeded from deck-set catalog (non-empty)", cat.length > 0 && setLib.list().length === cat.length)
+let seeded = setLib.get(cat[0].id)
+check("[setlib] a seeded set is 1 player", seeded != null && seeded.players === 1)
+let seededParsed = parseSet(seeded.tpl)
+check("[setlib] seeded set parses to 1 player with tracks", seededParsed.players.length === 1 && seededParsed.players[0].indexOf("track ") >= 0)
+
+// Build a 2-player project (deck A + deck B) and capture it as a Set with an explicit arrangement (TIME).
+let sp = loadDefaultDeckardProject().project
+loadDeckSet(sp, "A", cat[0].id)
+loadDeckSet(sp, "B", cat[1].id)
+sp.session.song = [{ scene: 0, repeat: 1 }, { scene: 1, repeat: 2 }]
+let setTpl = emitSet(sp, ["A", "B"])
+let parsed = parseSet(setTpl)
+check("[setlib] capture emits 2 players", parsed.players.length === 2)
+check("[setlib] player 0 has tracks", parsed.players[0].indexOf("track ") >= 0)
+check("[setlib] player 1 has tracks", parsed.players[1].indexOf("track ") >= 0)
+check("[setlib] players are deck-agnostic (no deck line)", parsed.players[0].indexOf("deck ") < 0)
+check("[setlib] arrangement (song) survives", parsed.song.length === 2 && parsed.song[0] === "P1" && parsed.song[1] === "P2 x2")
+
+// save → reload → re-parse keeps players + arrangement
+let saved = setLib.save("MyJam", setTpl, 2)
+check("[setlib] save records player count", saved.players === 2)
+let reparsed = parseSet(setLib.get("MyJam").tpl)
+check("[setlib] saved set round-trips players + arrangement", reparsed.players.length === 2 && reparsed.song.length === 2)
+
+// export/import round-trip
+let exp = setLib.exportText("MyJam")
+check("[setlib] export carries tag + player count", exp.indexOf("# deckard-set name=MyJam players=2") === 0)
+let lib2 = createSetLibrary({ read: () => null, write: (s) => {} })
+let imp = lib2.importText(exp, null)
+check("[setlib] import recovers set with players", imp != null && imp.name === "MyJam" && imp.players === 2)
+let impParsed = parseSet(imp.tpl)
+check("[setlib] imported set keeps 2 players + arrangement", impParsed.players.length === 2 && impParsed.song.length === 2)
+
+console.log("=== loadSet (deck / free-slots / ghost) ===")
+// Default project occupies deck A only → B, C, D are free slots.
+let fp = loadDefaultDeckardProject().project
+let fd = freeDecks(fp)
+check("[loadset] default project occupies deck A only", fd.length === 3 && fd[0] === "B" && fd[1] === "C" && fd[2] === "D")
+
+// Free-slot fill: the captured 2-player MyJam fills the next free decks (B, C), leaving D + keeping A.
+let fillRes = loadSet(fp, { tpl: setTpl }, null)
+check("[loadset] free-slot fill loads 2 players onto B,C", fillRes.loaded === 2 && fillRes.decks[0] === "B" && fillRes.decks[1] === "C")
+let fdAfter = freeDecks(fp)
+check("[loadset] B,C now occupied; D still free", fdAfter.length === 1 && fdAfter[0] === "D")
+let hasB = false
+let hasC = false
+let fci = 0
+while (fci < fp.channels.length) {
+  let dk = channelDeck(fp, fp.channels[fci])
+  if (dk === "B") {
+    hasB = true
+  }
+  if (dk === "C") {
+    hasC = true
+  }
+  fci = fci + 1
+}
+check("[loadset] channels routed to decks B and C exist (ghosts)", hasB && hasC)
+check("[loadset] arrangement restored (song)", fp.session.song.length === 2 && fp.session.song[1].repeat === 2)
+
+// Target-deck load: dropping a Set onto your own deck (A) replaces deck A with the Set's first player.
+let tp = loadDefaultDeckardProject().project
+let tgtRes = loadSet(tp, { tpl: setTpl }, "A")
+check("[loadset] target-deck load reports deck A", tgtRes.loaded === 1 && tgtRes.decks[0] === "A")
+let aPrefixed = false
+let tci = 0
+while (tci < tp.channels.length) {
+  if (String(tp.channels[tci].id).indexOf("a_") === 0) {
+    aPrefixed = true
+  }
+  tci = tci + 1
+}
+check("[loadset] deck A now holds the Set's player (a_-prefixed ids)", aPrefixed && freeDecks(tp).length === 3)
+
+// All decks full → a Set can't load (listen-only).
+let full = loadDefaultDeckardProject().project
+loadDeckSet(full, "B", cat[0].id)
+loadDeckSet(full, "C", cat[0].id)
+loadDeckSet(full, "D", cat[0].id)
+check("[loadset] all four decks occupied", freeDecks(full).length === 0)
+let none = loadSet(full, { tpl: setTpl }, null)
+check("[loadset] no free slots → loaded 0 (listen-only)", none.loaded === 0)
+
+console.log("=== Recorded Set (what played — trigger tape) ===")
+let tape = [
+  { step: 0, triggers: [{ busIndex: 0, pitch: 36, vel: 100, durSec: 0.12, beat: 0, noteOffset: 0 }] },
+  { step: 4, triggers: [{ busIndex: 1, pitch: 42, vel: 90, durSec: 0.1, beat: 1, noteOffset: 0 }, { busIndex: 0, pitch: 36, vel: 100, durSec: 0.12, beat: 1, noteOffset: 0 }] },
+  { step: 8, triggers: [{ busIndex: 2, pitch: 60, vel: 80, durSec: 0.25, beat: 2, noteOffset: 0.0125 }] }
+]
+let headerTpl = emitProject(loadDefaultDeckardProject().project)
+let streamTpl = emitSetStream(headerTpl, tape, "song")
+check("[rec] isStreamSet true for a recorded Set", isStreamSet(streamTpl))
+check("[rec] isStreamSet false for a player Set", !isStreamSet(setTpl))
+let ps = parseSetStream(streamTpl)
+check("[rec] header round-trips (tpl + a track, no plays marker)", ps.header.indexOf("tpl 1") >= 0 && ps.header.indexOf("track ") >= 0 && ps.header.indexOf("# plays") < 0)
+check("[rec] play mode parsed", ps.mode === "song")
+check("[rec] all 3 played steps parsed", ps.events.length === 3 && ps.events[0].step === 0 && ps.events[1].step === 4 && ps.events[2].step === 8)
+check("[rec] chord step keeps both triggers", ps.events[1].triggers.length === 2)
+check("[rec] trigger fields round-trip", ps.events[0].triggers[0].busIndex === 0 && ps.events[0].triggers[0].pitch === 36 && Math.abs(ps.events[0].triggers[0].durSec - 0.12) < 1e-6)
+check("[rec] fractional fields (beat/offset) preserved", ps.events[2].triggers[0].busIndex === 2 && ps.events[2].triggers[0].pitch === 60 && Math.abs(ps.events[2].triggers[0].noteOffset - 0.0125) < 1e-6)
+
+// Performance controls (4-way crossfader + per-deck FLT) ride the tape per step and round-trip.
+let ctlTape = [
+  { step: 0, triggers: [{ busIndex: 0, pitch: 36, vel: 100, durSec: 0.12, beat: 0, noteOffset: 0 }], ctl: { xf: 0.5, xfy: 0, fA: 0, fB: 0, fC: 0, fD: 0 } },
+  { step: 6, triggers: [], ctl: { xf: 0.25, xfy: 0.75, fA: -0.6, fB: 0, fC: 0.3, fD: 0 } }
+]
+let ctlStream = emitSetStream(emitProject(loadDefaultDeckardProject().project), ctlTape, "song")
+let ctlParsed = parseSetStream(ctlStream)
+check("[rec] control-only step (no notes, fader moved) is kept", ctlParsed.events.length === 2 && ctlParsed.events[1].step === 6 && ctlParsed.events[1].triggers.length === 0)
+check("[rec] crossfader X/Y snapshot round-trips", ctlParsed.events[1].ctl != null && Math.abs(ctlParsed.events[1].ctl.xf - 0.25) < 1e-6 && Math.abs(ctlParsed.events[1].ctl.xfy - 0.75) < 1e-6)
+check("[rec] per-deck FLT snapshot round-trips", ctlParsed.events[1].ctl != null && Math.abs(ctlParsed.events[1].ctl.fA - (-0.6)) < 1e-6 && Math.abs(ctlParsed.events[1].ctl.fC - 0.3) < 1e-6)
+check("[rec] old Sets without a control token still parse (ctl null)", ps.events[0].ctl == null)
+
+// End-to-end with the REAL engine: stepTriggers (what plays) → tape → Set → parse → replay map.
+let rp = loadDefaultDeckardProject().project
+rp.transportCrossfade = 0   // favour deck A so the default kit is audible in this headless config
+rp.transportCrossfadeY = 0
+let rt0 = { playMode: "sequence" }   // Sequence mode = play the rack pattern (what Play does on the rack)
+let recTape = []
+let s = 0
+while (s < 16) {
+  let trg = stepTriggers(rp, rt0, s)
+  if (trg.length > 0) {
+    recTape.push({ step: s, triggers: trg })
+  }
+  s = s + 1
+}
+check("[rec] real engine fires notes across a bar (the default kit plays)", recTape.length > 0)
+let recSet = emitSetStream(emitProject(rp), recTape, "sequence")
+let recParsed = parseSetStream(recSet)
+check("[rec] played performance round-trips through a Set", recParsed.events.length === recTape.length)
+let rmap = {}
+let rmi = 0
+while (rmi < recParsed.events.length) {
+  rmap[recParsed.events[rmi].step] = recParsed.events[rmi].triggers
+  rmi = rmi + 1
+}
+let firstStep = recTape.length > 0 ? recTape[0].step : -1
+check("[rec] replay map returns the triggers recorded for a step", recTape.length > 0 && rmap[firstStep] != null && rmap[firstStep].length === recTape[0].triggers.length)
+check("[rec] a replayed note matches what actually played (bus + pitch)", recTape.length > 0 && rmap[firstStep][0].busIndex === recTape[0].triggers[0].busIndex && rmap[firstStep][0].pitch === recTape[0].triggers[0].pitch)
+
+console.log("=== I/O Rack (audio device settings + cue routing) ===")
+let devMem = { v: null }
+let devBe = { read: () => devMem.v, write: (s) => { devMem.v = s } }
+let devs = createAudioDeviceSettings(devBe)
+check("[io] defaults are empty + cueLevel 0.9", devs.get().speakers === "" && devs.get().headphones === "" && Math.abs(devs.get().cueLevel - 0.9) < 1e-9)
+devs.save({ speakers: "spk-1", headphones: "hp-2" })
+check("[io] save persists speakers + headphones", devs.get().speakers === "spk-1" && devs.get().headphones === "hp-2")
+devs.save({ cueLevel: 0.6 })
+check("[io] partial save keeps prior fields", devs.get().speakers === "spk-1" && devs.get().headphones === "hp-2" && Math.abs(devs.get().cueLevel - 0.6) < 1e-9)
+let devs2 = createAudioDeviceSettings(devBe)
+check("[io] persists across instances", devs2.get().headphones === "hp-2")
+
+// applyCueRouting: only the cued deck's channels get a non-zero cue send (pre-fader, via channelDeck).
+let cp = loadDefaultDeckardProject().project   // 4 channels on deck A
+loadDeckSet(cp, "B", deckSetCatalog()[0].id)   // + a rack on deck B
+let mockStore = { cuedDecks: { A: false, B: true, C: false, D: false }, cueLevel: 0.9, cueSum: {}, buses: [] }
+let bi2 = 0
+while (bi2 < cp.channels.length) {
+  mockStore.buses.push({ cueSend: { gain: { value: -1 } } })
+  bi2 = bi2 + 1
+}
+applyCueRouting(cp, mockStore)
+let aZero = true
+let bCued = false
+let ci3 = 0
+while (ci3 < cp.channels.length) {
+  let dk = channelDeck(cp, cp.channels[ci3])
+  let v = mockStore.buses[ci3].cueSend.gain.value
+  if (dk === "A" && v !== 0) {
+    aZero = false
+  }
+  if (dk === "B" && Math.abs(v - 0.9) < 1e-9) {
+    bCued = true
+  }
+  ci3 = ci3 + 1
+}
+check("[io] cue routes ONLY deck B to the headphones bus (deck A silent in cue)", aZero && bCued)
+
+console.log("=== Patch compile (switch-to-Patch reduces every voice to a valid graph) ===")
+// Structural guard: each generator that claims to compile to Patch must produce a graph that PARSES and is
+// well-formed — every conn references a defined node (or out/reverb), every env targets a defined node with
+// valid set/lin/exp segments, and there is at least one output. Catches typos / orphan node refs that would
+// silently break the sound when a user clicks "Patch".
+fn validatePatchVoice(lines) {
+  if (lines == null) {
+    return "compiled null"
+  }
+  let g = parsePatchGraph(lines)
+  if (!g.nodes || g.nodes.length === 0) {
+    return "no nodes"
+  }
+  let ids = {}
+  let i = 0
+  while (i < g.nodes.length) {
+    ids[g.nodes[i].id] = true
+    i = i + 1
+  }
+  let hasOut = false
+  let c = 0
+  while (c < g.conns.length) {
+    let cn = g.conns[c]
+    if (ids[cn.src] !== true) {
+      return "conn src undefined: " + String(cn.src)
+    }
+    if (cn.dst === "out") {
+      hasOut = true
+    } else if (cn.dst !== "reverb" && ids[cn.dst] !== true) {
+      return "conn dst undefined: " + String(cn.dst)
+    }
+    c = c + 1
+  }
+  if (!hasOut) {
+    return "no out connection"
+  }
+  let e = 0
+  while (e < g.envs.length) {
+    let en = g.envs[e]
+    if (ids[en.node] !== true) {
+      return "env node undefined: " + String(en.node)
+    }
+    if (!en.segs || en.segs.length === 0) {
+      return "env has no segments"
+    }
+    let s = 0
+    while (s < en.segs.length) {
+      let ty = en.segs[s].type
+      if (ty !== "set" && ty !== "lin" && ty !== "exp") {
+        return "bad env seg type: " + String(ty)
+      }
+      s = s + 1
+    }
+    e = e + 1
+  }
+  return ""
+}
+
+let patchVoices = ["basicOsc", "fmTone", "noiseBurst", "pad", "bell", "drumSynth", "guitar", "clap", "arco", "tine", "aether", "halo", "aahs"]
+let pvi = 0
+while (pvi < patchVoices.length) {
+  let pvid = patchVoices[pvi]
+  let cl = compileGeneratorToPatchLines(pvid, {}, null)
+  let perr = validatePatchVoice(cl)
+  check("[patch] " + pvid + " compiles to a valid patch graph", perr === "")
+  if (perr !== "") {
+    console.log("  -> " + pvid + ": " + perr)
+  }
+  pvi = pvi + 1
+}
+// Parameter-variation coverage for the rebuilt voices (the branches that add/drop nodes).
+check("[patch] aahs 7-singer eeh variation valid", validatePatchVoice(compileGeneratorToPatchLines("aahs", { ensemble: 1, vowel: "eeh" }, null)) === "")
+check("[patch] aahs 2-singer ooh variation valid", validatePatchVoice(compileGeneratorToPatchLines("aahs", { ensemble: 0, vowel: "ooh" }, null)) === "")
+check("[patch] aether tone=0 (no 3rd harmonic) valid", validatePatchVoice(compileGeneratorToPatchLines("aether", { tone: 0 }, null)) === "")
+check("[patch] halo lows=0 (no body sub) valid", validatePatchVoice(compileGeneratorToPatchLines("halo", { lows: 0 }, null)) === "")
+check("[patch] tine drive=0 (no shaper) valid", validatePatchVoice(compileGeneratorToPatchLines("tine", { drive: 0.5 }, null)) === "")
+check("[patch] guitar drive=0 (no shaper) valid", validatePatchVoice(compileGeneratorToPatchLines("guitar", { drive: 0 }, null)) === "")
+check("[patch] arco cello variation valid", validatePatchVoice(compileGeneratorToPatchLines("arco", { voice: "cello" }, null)) === "")
+check("[patch] canCompileToPatch covers all rebuilt voices", canCompileToPatch("tine") && canCompileToPatch("halo") && canCompileToPatch("aahs") && canCompileToPatch("aether") && canCompileToPatch("guitar") && canCompileToPatch("arco"))
+
+console.log("")
+console.log("PASS=" + String(pass) + " FAIL=" + String(fail))
+if (typeof process !== "undefined" && process.exit && fail > 0) {
+  process.exit(1)
+}

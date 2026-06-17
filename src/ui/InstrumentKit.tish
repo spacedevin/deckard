@@ -1,0 +1,281 @@
+// Shared instrument UI kit — the polished visual language for every designer: rotary Knobs (arc + value),
+// wave-shape icon pickers (vendored Lucide icons, defined here), and an ADSR/curve display. Inspired
+// by modern VST rack editors: knobs over sliders, generous cards, per-instrument colour accents.
+
+import { h } from '@tishlang/lattish'
+
+/// Encode an SVG markup string as a data: URL (img src / CSS background). Lives here (the shared kit)
+/// so both WaveIconPicker and MatrixFmPanel use one copy — keeping the import graph acyclic.
+export fn matrixFmSvgDataUrl(svgMarkup) {
+  if (typeof encodeURIComponent !== "undefined") {
+    return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgMarkup)
+  }
+  return ""
+}
+
+/** Lucide v0.469.0 geometry (ISC): Waves, Square, Zap, Triangle, AudioWaveform — vendored as strings
+ *  because the Tish bundle does not import npm; inline svg/path also fails (wrong DOM namespace).
+ *  Source: lucide npm package, dist/esm/icons. */
+export fn matrixFmLucideIconSvg(shape, strokeHex) {
+  let st =
+    " fill=\"none\" stroke=\"" +
+    strokeHex +
+    "\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\""
+  if (shape === "sine") {
+    return (
+      "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">" +
+      "<path d=\"M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1\"" +
+      st +
+      "/>" +
+      "<path d=\"M2 12c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1\"" +
+      st +
+      "/>" +
+      "<path d=\"M2 18c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1\"" +
+      st +
+      "/></svg>"
+    )
+  }
+  if (shape === "square") {
+    return (
+      "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">" +
+      "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"" +
+      st +
+      "/></svg>"
+    )
+  }
+  if (shape === "sawtooth") {
+    return (
+      "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">" +
+      "<path d=\"M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z\"" +
+      st +
+      "/></svg>"
+    )
+  }
+  if (shape === "triangle") {
+    return (
+      "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">" +
+      "<path d=\"M13.73 4a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z\"" +
+      st +
+      "/></svg>"
+    )
+  }
+  if (shape === "noise") {
+    return (
+      "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">" +
+      "<path d=\"M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2\"" +
+      st +
+      "/></svg>"
+    )
+  }
+  return (
+    "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M3 12h18\"" + st + "/></svg>"
+  )
+}
+
+/// Per-instrument colour accent — each voice gets its own tint (like the reference rack's colour-coding).
+export fn accentForGenerator(gid) {
+  if (gid === "basicOsc") {
+    return "#54d1c4"
+  }
+  if (gid === "fmTone") {
+    return "#e8945c"
+  }
+  if (gid === "noiseBurst") {
+    return "#b7b7c2"
+  }
+  if (gid === "pad") {
+    return "#8f86e6"
+  }
+  if (gid === "bell") {
+    return "#e6c34a"
+  }
+  if (gid === "drumSynth") {
+    return "#e2557e"
+  }
+  if (gid === "guitar") {
+    return "#e0863a"
+  }
+  if (gid === "clap") {
+    return "#ec6a6a"
+  }
+  if (gid === "arco") {
+    return "#c47a4e"
+  }
+  if (gid === "tine") {
+    return "#d6a24e"
+  }
+  if (gid === "aether") {
+    return "#6fd3c7"
+  }
+  if (gid === "halo") {
+    return "#86b8cc"
+  }
+  if (gid === "aahs") {
+    return "#c9a6e0"
+  }
+  if (gid === "matrixFm") {
+    return "#5aa9e8"
+  }
+  if (gid === "patch") {
+    return "#5fd06f"
+  }
+  return "#e8945c"
+}
+
+/// Point on a dial: angle measured clockwise from 12 o'clock (0 = top, 90 = right).
+fn dialPoint(cx, cy, r, deg) {
+  let a = (deg * Math.PI) / 180
+  return [cx + r * Math.sin(a), cy - r * Math.cos(a)]
+}
+
+/// SVG arc path from deg1 to deg2 (clockwise). Knob sweep is -135°..+135° (270° total).
+fn dialArc(cx, cy, r, deg1, deg2) {
+  let s = dialPoint(cx, cy, r, deg1)
+  let e = dialPoint(cx, cy, r, deg2)
+  let large = (deg2 - deg1) > 180 ? 1 : 0
+  return "M " + String(s[0]) + " " + String(s[1]) + " A " + String(r) + " " + String(r) + " 0 " + String(large) + " 1 " + String(e[0]) + " " + String(e[1])
+}
+
+fn knobClamp(v, min, max) {
+  if (v < min) {
+    return min
+  }
+  if (v > max) {
+    return max
+  }
+  return v
+}
+
+/**
+ * Rotary knob. opts: { label, value, min, max, step?, fmt?, onInput, accent? }.
+ * Vertical drag = change (up increases). onInput(newValue) fires continuously during the drag.
+ */
+export fn Knob(opts) {
+  let min = opts.min
+  let max = opts.max
+  let v = knobClamp(opts.value, min, max)
+  let t = (max - min) !== 0 ? (v - min) / (max - min) : 0
+  let accent = opts.accent ? opts.accent : "var(--accent-warm, #e8945c)"
+  let cx = 24
+  let cy = 23
+  let r = 17
+  let trackD = dialArc(cx, cy, r, -135, 135)
+  let valD = dialArc(cx, cy, r, -135, -135 + t * 270)
+  let dot = dialPoint(cx, cy, r, -135 + t * 270)
+  let label = opts.label ? opts.label : ""
+  let valText = opts.fmt ? opts.fmt(v) : String(Math.round(v))
+  let rootCls = "ik-knob"
+  if (opts.size === "sm") {
+    rootCls = "ik-knob ik-knob-sm"
+  }
+  if (opts.size === "xs") {
+    rootCls = "ik-knob ik-knob-xs"
+  }
+
+  fn onDown(e) {
+    if (e.preventDefault) {
+      e.preventDefault()
+    }
+    if (e.stopPropagation) {
+      e.stopPropagation()
+    }
+    let startY = e.clientY
+    let startV = v
+    let range = max - min
+    fn onMove(ev) {
+      let dy = startY - ev.clientY
+      let nv = knobClamp(startV + (dy / 150) * range, min, max)
+      if (opts.step != null && opts.step > 0) {
+        nv = Math.round(nv / opts.step) * opts.step
+      }
+      if (opts.onInput) {
+        opts.onInput(nv)
+      }
+    }
+    fn onUp() {
+      document.removeEventListener("mousemove", onMove)
+      document.removeEventListener("mouseup", onUp)
+    }
+    document.addEventListener("mousemove", onMove)
+    document.addEventListener("mouseup", onUp)
+  }
+
+  return (
+    <div class={rootCls}>
+      <svg class="ik-knob-dial" viewBox="0 0 48 48" onmousedown={onDown}>
+        <path class="ik-knob-track" d={trackD} fill="none" />
+        <path class="ik-knob-val" d={valD} fill="none" style={{ stroke: accent }} />
+        <circle class="ik-knob-dot" cx={String(dot[0])} cy={String(dot[1])} r="2.6" style={{ fill: accent }} />
+      </svg>
+      <div class="ik-knob-label">{label}</div>
+      <div class="ik-knob-value">{valText}</div>
+    </div>
+  )
+}
+
+/// Wave-shape icon picker (sine/square/sawtooth/triangle, + noise when allowNoise). onPick(shape).
+export fn WaveIconPicker(current, onPick, opts) {
+  let allowNoise = opts && opts.allowNoise === true
+  let accent = opts && opts.accent ? opts.accent : "var(--accent-warm, #e8945c)"
+  let choices = ["sine", "square", "sawtooth", "triangle"]
+  if (allowNoise) {
+    choices = ["sine", "square", "sawtooth", "triangle", "noise"]
+  }
+  let titles = { sine: "Sine", square: "Square", sawtooth: "Saw", triangle: "Triangle", noise: "Noise" }
+  let btns = []
+  let i = 0
+  while (i < choices.length) {
+    let w = choices[i]
+    let wCopy = w
+    let active = current === w
+    let stroke = active ? "#0a0a0a" : "#cfcfd6"
+    let cls = active ? "ik-wave-btn ik-wave-on" : "ik-wave-btn"
+    let style = active ? { background: accent, borderColor: accent } : {}
+    btns.push(
+      <button
+        type="button"
+        class={cls}
+        key={"ikw" + w}
+        title={titles[w]}
+        style={style}
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={() => onPick(wCopy)}
+      >
+        <img class="ik-wave-img" src={matrixFmSvgDataUrl(matrixFmLucideIconSvg(w, stroke))} alt="" draggable={false} />
+      </button>
+    )
+    i = i + 1
+  }
+  return <div class="ik-wave-row">{btns}</div>
+}
+
+/// ADSR envelope curve as a filled area (reference-style). a/d/s/r in seconds / 0..1.
+fn adsrPathD(a, d, s, r, w, hgt) {
+  let hold = 0.16
+  let aa = a > 0 ? a : 0
+  let dd = d > 0 ? d : 0
+  let rr = r > 0 ? r : 0
+  let ss = s >= 0 && s <= 1 ? s : 0.5
+  let total = aa + dd + hold + rr
+  if (total < 0.0005) {
+    total = 0.0005
+  }
+  let xA = (aa / total) * w
+  let xAD = ((aa + dd) / total) * w
+  let xADS = ((aa + dd + hold) / total) * w
+  let yS = hgt * (1 - ss)
+  return "M 0 " + String(hgt) + " L " + String(xA) + " 0 L " + String(xAD) + " " + String(yS) + " L " + String(xADS) + " " + String(yS) + " L " + String(w) + " " + String(hgt)
+}
+
+/// Filled envelope display (reference-style: line + translucent area fill under it).
+export fn EnvDisplay(a, d, s, r, opts) {
+  let accent = opts && opts.accent ? opts.accent : "var(--accent-warm, #e8945c)"
+  let line = adsrPathD(a, d, s, r, 100, 40)
+  let area = line + " Z"
+  return (
+    <svg class="ik-env" viewBox="0 0 100 44" preserveAspectRatio="none">
+      <path d={area} style={{ fill: accent, fillOpacity: "0.14", stroke: "none" }} />
+      <path d={line} style={{ fill: "none", stroke: accent, strokeWidth: "1.6", strokeLinejoin: "round", strokeLinecap: "round" }} />
+    </svg>
+  )
+}

@@ -1,0 +1,123 @@
+// Plucked electric-guitar voice via Karplus-Strong string synthesis. A short noise burst excites a
+// digital "string": a delay line of one period fed back through a damping lowpass. The result is a
+// realistic plucked-string tone — rendered into a buffer per note (like the noise/drum voices, no
+// feedback-loop latency limits), then run through drive (pickup/amp grit) and a body/cab lowpass.
+// Synthesis, not samples — but pair it with the `chord` voice param for strummed power chords.
+
+import { midiToHz } from '../schedule/Engine.tish'
+
+fn guitarDriveCurve(amount) {
+  let k = amount * 100
+  let n = 1024
+  let curve = new Float32Array(n)
+  let i = 0
+  while (i < n) {
+    let x = (i * 2) / n - 1
+    curve[i] = ((3 + k) * x * 0.6) / (Math.PI + k * Math.abs(x))
+    i = i + 1
+  }
+  return curve
+}
+
+export fn playGuitar(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  let p = ch.generatorParams ? ch.generatorParams : {}
+  let nMidi = Math.floor(midi + bendSemis)
+  let hz = 220
+  if (nMidi >= 0 && nMidi <= 127) {
+    hz = midiToHz(nMidi)
+  }
+  if (hz < 20) {
+    hz = 20
+  }
+  let v = vel / 127
+  if (v < 0) {
+    v = 0
+  }
+  if (v > 1) {
+    v = 1
+  }
+
+  let tone = p.tone >= 0 && p.tone <= 1 ? p.tone : 0.5
+  let decayP = p.decay >= 0 && p.decay <= 1 ? p.decay : 0.6
+  let damping = p.damping >= 0 && p.damping <= 1 ? p.damping : 0.4
+  let driveAmt = p.drive != null ? p.drive : 0.25
+  let body = p.body != null && p.body > 0 ? p.body : 3500
+  let mute = p.mute >= 0 && p.mute <= 1 ? p.mute : 0
+
+  // Palm mute: shorter ring, faster decay, darker body.
+  let decayGain = 0.985 + decayP * 0.0145 - mute * 0.012
+  if (decayGain > 0.9997) {
+    decayGain = 0.9997
+  }
+  let ringSec = (0.4 + decayP * 2.1) * (1 - mute * 0.8)
+  let bodyHz = body * (1 - mute * 0.5)
+
+  let sr = ctx.sampleRate
+  let pN = Math.round(sr / hz)
+  if (pN < 2) {
+    pN = 2
+  }
+  let len = Math.floor(sr * ringSec)
+  if (len < pN + 4) {
+    len = pN + 4
+  }
+  let buf = ctx.createBuffer(1, len, sr)
+  let data = buf.getChannelData(0)
+
+  // Excitation: one period of noise, brightness-shaped by `tone` (one-pole lowpass).
+  let lp = 1 - tone * 0.9
+  let prev = 0
+  let i = 0
+  while (i < pN) {
+    let white = Math.random() * 2 - 1
+    prev = prev + lp * (white - prev)
+    data[i] = prev
+    i = i + 1
+  }
+
+  // Karplus-Strong loop: y[n] = decayGain * (b0*y[n-N] + b1*y[n-N-1]); damping sets the lowpass split.
+  let b1 = damping * 0.5
+  let b0 = 1 - b1
+  let j = pN
+  while (j < len) {
+    let a = data[j - pN]
+    let bb = j - pN - 1 >= 0 ? data[j - pN - 1] : a
+    data[j] = decayGain * (b0 * a + b1 * bb)
+    j = j + 1
+  }
+
+  let src = ctx.createBufferSource()
+  src.buffer = buf
+
+  let lastNode = src
+  if (driveAmt > 0) {
+    let ws = ctx.createWaveShaper()
+    ws.curve = guitarDriveCurve(driveAmt)
+    ws.oversample = "2x"
+    src.connect(ws)
+    lastNode = ws
+  }
+
+  let filt = ctx.createBiquadFilter()
+  filt.type = "lowpass"
+  filt.frequency.value = bodyHz
+  filt.Q.value = 0.9
+  lastNode.connect(filt)
+
+  let amp = ctx.createGain()
+  let peak = v * 0.7
+  let endT = t + ringSec
+  amp.gain.setValueAtTime(0, t)
+  amp.gain.linearRampToValueAtTime(peak, t + 0.004)
+  let relStart = endT - 0.06
+  if (relStart < t + 0.005) {
+    relStart = t + 0.005
+  }
+  amp.gain.setValueAtTime(peak, relStart)
+  amp.gain.linearRampToValueAtTime(0, endT)
+  filt.connect(amp)
+  amp.connect(bus.input)
+
+  src.start(t)
+  src.stop(endT + 0.05)
+}

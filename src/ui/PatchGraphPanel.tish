@@ -1,0 +1,719 @@
+// Generic modular-patch editor: edits any `gen_block patch` graph (nodes / connections / envelopes)
+// visually. The universal counterpart to MatrixFmPanel — where that is welded to the FM op-matrix
+// model, this edits the free-form graph that Patch.tish plays: osc/noise/filter/shaper/gain wired by
+// `conn` lines with breakpoint envelopes on any AudioParam. Round-trips through parsePatchGraph ↔
+// patchGraphToLines, so every edit is plain TPL (streamable, multiplayer, agent-readable).
+
+import { h } from '@tishlang/lattish'
+import { normalizeBasicOscWaveform } from '../generators/Registry.tish'
+import { parseGenBlock } from '../tpl/TplExtension.tish'
+import { Knob, accentForGenerator, WaveIconPicker } from './InstrumentKit.tish'
+import {
+  syncPatchSpecFromGraph,
+  defaultPatchRawLines,
+  addPatchNode,
+  removePatchNode,
+  addPatchConn,
+  removePatchConnAt,
+  addPatchEnv,
+  removePatchEnvAt,
+  addPatchEnvSeg,
+  removePatchEnvSegAt
+} from '../tpl/PatchGraph.tish'
+
+fn numOr(x, def) {
+  if (typeof x === "number" && x === x) {
+    return x
+  }
+  return def
+}
+
+fn freqToSlider(hz) {
+  let lo = Math.log(20)
+  let hi = Math.log(18000)
+  let h0 = hz
+  if (h0 < 20) {
+    h0 = 20
+  }
+  if (h0 > 18000) {
+    h0 = 18000
+  }
+  return Math.round(((Math.log(h0) - lo) / (hi - lo)) * 1000)
+}
+
+fn sliderToFreq(sl) {
+  let lo = Math.log(20)
+  let hi = Math.log(18000)
+  return Math.round(Math.exp(lo + (sl / 1000) * (hi - lo)))
+}
+
+fn nodeIdList(g) {
+  let ids = []
+  let i = 0
+  while (i < g.nodes.length) {
+    ids.push(g.nodes[i].id)
+    i = i + 1
+  }
+  return ids
+}
+
+fn nodeIdOptions(ids, keyPrefix) {
+  let opts = []
+  let i = 0
+  while (i < ids.length) {
+    let id = ids[i]
+    opts.push(
+      <option value={id} key={keyPrefix + id}>
+        {id}
+      </option>
+    )
+    i = i + 1
+  }
+  return opts
+}
+
+fn paramOptions(keyPrefix, includeBlank) {
+  let opts = []
+  if (includeBlank) {
+    opts.push(
+      <option value="" key={keyPrefix + "none"}>
+        {"signal"}
+      </option>
+    )
+  }
+  let choices = ["gain", "freq", "detune", "q"]
+  let i = 0
+  while (i < choices.length) {
+    opts.push(
+      <option value={choices[i]} key={keyPrefix + choices[i]}>
+        {choices[i]}
+      </option>
+    )
+    i = i + 1
+  }
+  return opts
+}
+
+// Oscillator wave shape — the same vendored Lucide wave-shape icons the Matrix FM designer uses
+// (via the shared WaveIconPicker), so the modular patch editor speaks one visual language.
+fn patchWaveTiles(nd, commit, accent) {
+  let cur = normalizeBasicOscWaveform(nd.wave)
+  return WaveIconPicker(cur, (w) => {
+    nd.wave = w
+    commit()
+  }, { accent: accent })
+}
+
+fn oscCard(nd, commit, accent) {
+  let mode = nd.freqMode === "fixed" ? "fixed" : "note"
+  let ratio = numOr(nd.ratio, 1)
+  let fixedHz = numOr(nd.fixedHz, 220)
+  let detune = numOr(nd.detune, 0)
+  let freqCtrl = null
+  if (mode === "fixed") {
+    freqCtrl = Knob({
+      label: "Hz",
+      value: freqToSlider(fixedHz),
+      min: 0,
+      max: 1000,
+      step: 1,
+      accent: accent,
+      fmt: (sl) => String(sliderToFreq(sl)) + " Hz",
+      onInput: (sl) => {
+        nd.fixedHz = sliderToFreq(sl)
+        commit()
+      }
+    })
+  } else {
+    freqCtrl = Knob({
+      label: "Ratio",
+      value: Math.round(ratio * 100),
+      min: 25,
+      max: 1600,
+      step: 1,
+      accent: accent,
+      fmt: (v) => "×" + String(Math.round(v) / 100),
+      onInput: (v) => {
+        nd.ratio = v / 100
+        commit()
+      }
+    })
+  }
+  return (
+    <div class="patch-node-body">
+      {patchWaveTiles(nd, commit, accent)}
+      <label class="gen-row">
+        {"Pitch "}
+        <select
+          class="sytrus-route-sel"
+          value={mode}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={(e) => e.stopPropagation()}
+          onchange={(e) => {
+            nd.freqMode = e.target.value === "fixed" ? "fixed" : "note"
+            commit()
+          }}
+        >
+          <option value="note">{"Note"}</option>
+          <option value="fixed">{"Fixed Hz"}</option>
+        </select>
+      </label>
+      <div class="ik-knob-grid">
+        {freqCtrl}
+        {Knob({
+          label: "Detune",
+          value: Math.round(detune),
+          min: -1200,
+          max: 1200,
+          step: 1,
+          accent: accent,
+          fmt: (v) => String(Math.round(v)) + "¢",
+          onInput: (v) => {
+            nd.detune = v
+            commit()
+          }
+        })}
+      </div>
+    </div>
+  )
+}
+
+fn filterCard(nd, commit, accent) {
+  let q = numOr(nd.q, 0.7)
+  let freq = numOr(nd.freq, 1200)
+  return (
+    <div class="patch-node-body">
+      <label class="gen-row">
+        {"Type "}
+        <select
+          class="sytrus-route-sel"
+          value={nd.ftype ? nd.ftype : "lowpass"}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={(e) => e.stopPropagation()}
+          onchange={(e) => {
+            nd.ftype = e.target.value
+            commit()
+          }}
+        >
+          <option value="lowpass">{"Lowpass"}</option>
+          <option value="highpass">{"Highpass"}</option>
+          <option value="bandpass">{"Bandpass"}</option>
+          <option value="notch">{"Notch"}</option>
+          <option value="peaking">{"Peaking"}</option>
+          <option value="lowshelf">{"Low shelf"}</option>
+          <option value="highshelf">{"High shelf"}</option>
+          <option value="allpass">{"Allpass"}</option>
+        </select>
+      </label>
+      <div class="ik-knob-grid">
+        {Knob({
+          label: "Freq",
+          value: freqToSlider(freq),
+          min: 0,
+          max: 1000,
+          step: 1,
+          accent: accent,
+          fmt: (sl) => String(sliderToFreq(sl)) + " Hz",
+          onInput: (sl) => {
+            nd.freq = sliderToFreq(sl)
+            commit()
+          }
+        })}
+        {Knob({
+          label: "Q",
+          value: Math.round(q * 100),
+          min: 1,
+          max: 2000,
+          step: 1,
+          accent: accent,
+          fmt: (v) => String(Math.round(v) / 100),
+          onInput: (v) => {
+            nd.q = v / 100
+            commit()
+          }
+        })}
+      </div>
+    </div>
+  )
+}
+
+fn shaperCard(nd, commit, accent) {
+  let amount = numOr(nd.amount, 50)
+  return (
+    <div class="patch-node-body">
+      <div class="ik-knob-grid">
+        {Knob({
+          label: "Drive",
+          value: Math.round(amount),
+          min: 0,
+          max: 800,
+          step: 1,
+          accent: accent,
+          fmt: (v) => String(Math.round(v)),
+          onInput: (v) => {
+            nd.amount = v
+            commit()
+          }
+        })}
+      </div>
+    </div>
+  )
+}
+
+fn gainCard(nd, commit, accent) {
+  let value = numOr(nd.value, 1)
+  return (
+    <div class="patch-node-body">
+      <div class="ik-knob-grid">
+        {Knob({
+          label: "Level",
+          value: Math.round(value * 100),
+          min: 0,
+          max: 200,
+          step: 1,
+          accent: accent,
+          fmt: (v) => String(Math.round(v) / 100),
+          onInput: (v) => {
+            nd.value = v / 100
+            commit()
+          }
+        })}
+      </div>
+    </div>
+  )
+}
+
+fn noiseCard() {
+  return (
+    <div class="patch-node-body">
+      <p class="sytrus-hint">{"White noise source."}</p>
+    </div>
+  )
+}
+
+fn nodeCardBody(nd, commit, accent) {
+  if (nd.kind === "osc") {
+    return oscCard(nd, commit, accent)
+  }
+  if (nd.kind === "filter") {
+    return filterCard(nd, commit, accent)
+  }
+  if (nd.kind === "shaper") {
+    return shaperCard(nd, commit, accent)
+  }
+  if (nd.kind === "gain") {
+    return gainCard(nd, commit, accent)
+  }
+  return noiseCard()
+}
+
+fn kindLabel(kind) {
+  if (kind === "osc") {
+    return "OSC"
+  }
+  if (kind === "noise") {
+    return "NOISE"
+  }
+  if (kind === "filter") {
+    return "FILTER"
+  }
+  if (kind === "shaper") {
+    return "SHAPER"
+  }
+  return "GAIN"
+}
+
+export fn PatchGraphPanel(ch, project, setProject, tplMirrorFlush) {
+  if (
+    !ch.generatorSpec ||
+    ch.generatorSpec.kind !== "patch" ||
+    !ch.generatorSpec.raw ||
+    ch.generatorSpec.raw.length === 0
+  ) {
+    ch.generatorSpec = parseGenBlock("patch", defaultPatchRawLines())
+    setProject(project)
+  }
+  let spec = ch.generatorSpec
+  let g = spec.graph
+  if (!g.nodes) {
+    g.nodes = []
+  }
+  if (!g.conns) {
+    g.conns = []
+  }
+  if (!g.envs) {
+    g.envs = []
+  }
+
+  fn commit() {
+    syncPatchSpecFromGraph(spec)
+    setProject(project)
+    if (tplMirrorFlush) {
+      tplMirrorFlush()
+    }
+  }
+
+  let ids = nodeIdList(g)
+  let accent = accentForGenerator(ch.generatorId)
+
+  // Node cards.
+  let nodeCards = []
+  let ni = 0
+  while (ni < g.nodes.length) {
+    let nd = g.nodes[ni]
+    let ndCopy = nd
+    nodeCards.push(
+      <div class="patch-node sytrus-op-card" key={"nd" + nd.id}>
+        <div class="patch-node-top">
+          <span class="patch-node-badge">{kindLabel(nd.kind) + " " + nd.id}</span>
+          <button
+            type="button"
+            class="sytrus-icon-btn"
+            title={"Remove node"}
+            onmousedown={(e) => e.stopPropagation()}
+            onclick={() => {
+              removePatchNode(g, ndCopy.id)
+              commit()
+            }}
+          >
+            {"×"}
+          </button>
+        </div>
+        {nodeCardBody(nd, commit, accent)}
+      </div>
+    )
+    ni = ni + 1
+  }
+
+  // Connection rows.
+  let connRows = []
+  let ci = 0
+  while (ci < g.conns.length) {
+    let cn = g.conns[ci]
+    let cidx = ci
+    let isNodeDst = cn.dst !== "out" && cn.dst !== "reverb"
+    connRows.push(
+      <div class="sytrus-route-row" key={"cn" + String(ci)}>
+        <select
+          class="sytrus-route-sel"
+          value={cn.src}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={(e) => e.stopPropagation()}
+          onchange={(e) => {
+            g.conns[cidx].src = e.target.value
+            commit()
+          }}
+        >
+          {nodeIdOptions(ids, "cs" + cidx)}
+        </select>
+        <span class="sytrus-route-arrow">{"→"}</span>
+        <select
+          class="sytrus-route-sel"
+          value={cn.dst}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={(e) => e.stopPropagation()}
+          onchange={(e) => {
+            let nv = e.target.value
+            g.conns[cidx].dst = nv
+            if (nv === "out" || nv === "reverb") {
+              g.conns[cidx].dstParam = null
+            }
+            commit()
+          }}
+        >
+          {nodeIdOptions(ids, "cd" + cidx)}
+          <option value="out">{"out"}</option>
+          <option value="reverb">{"reverb"}</option>
+        </select>
+        <select
+          class="sytrus-route-sel"
+          value={cn.dstParam ? cn.dstParam : ""}
+          disabled={isNodeDst ? false : true}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={(e) => e.stopPropagation()}
+          onchange={(e) => {
+            let pv = e.target.value
+            g.conns[cidx].dstParam = pv === "" ? null : pv
+            commit()
+          }}
+        >
+          {paramOptions("cp" + cidx, true)}
+        </select>
+        <span class="sytrus-route-vol">
+          {Knob({
+            label: "Vol",
+            value: Math.round(numOr(cn.vol, 1) * 100),
+            min: 0,
+            max: 200,
+            step: 1,
+            accent: accent,
+            size: "xs",
+            fmt: (v) => String(Math.round(v) / 100),
+            onInput: (v) => {
+              g.conns[cidx].vol = v / 100
+              commit()
+            }
+          })}
+        </span>
+        <button
+          type="button"
+          class="sytrus-icon-btn"
+          title={"Remove connection"}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={() => {
+            removePatchConnAt(g, cidx)
+            commit()
+          }}
+        >
+          {"×"}
+        </button>
+      </div>
+    )
+    ci = ci + 1
+  }
+
+  // Envelope blocks.
+  let envBlocks = []
+  let ei = 0
+  while (ei < g.envs.length) {
+    let en = g.envs[ei]
+    let eidx = ei
+    let segRows = []
+    let si = 0
+    while (si < en.segs.length) {
+      let sg = en.segs[si]
+      let sidx = si
+      segRows.push(
+        <div class="patch-seg-row" key={"sg" + eidx + "_" + si}>
+          <select
+            class="sytrus-route-sel"
+            value={sg.type}
+            onmousedown={(e) => e.stopPropagation()}
+            onclick={(e) => e.stopPropagation()}
+            onchange={(e) => {
+              g.envs[eidx].segs[sidx].type = e.target.value
+              commit()
+            }}
+          >
+            <option value="set">{"Set"}</option>
+            <option value="lin">{"Lin"}</option>
+            <option value="exp">{"Exp"}</option>
+          </select>
+          <input
+            class="patch-expr"
+            type="text"
+            value={String(sg.tExpr)}
+            title={"time (s) — expr ok: dur, dur-0.1, note"}
+            onmousedown={(e) => e.stopPropagation()}
+            onchange={(e) => {
+              g.envs[eidx].segs[sidx].tExpr = e.target.value
+              commit()
+            }}
+          />
+          <input
+            class="patch-expr"
+            type="text"
+            value={String(sg.vExpr)}
+            title={"value — expr ok: note, note*2, vel, numbers"}
+            onmousedown={(e) => e.stopPropagation()}
+            onchange={(e) => {
+              g.envs[eidx].segs[sidx].vExpr = e.target.value
+              commit()
+            }}
+          />
+          <button
+            type="button"
+            class="sytrus-icon-btn"
+            title={"Remove segment"}
+            onmousedown={(e) => e.stopPropagation()}
+            onclick={() => {
+              removePatchEnvSegAt(g, eidx, sidx)
+              commit()
+            }}
+          >
+            {"×"}
+          </button>
+        </div>
+      )
+      si = si + 1
+    }
+    envBlocks.push(
+      <div class="patch-env sytrus-op-card" key={"env" + String(ei)}>
+        <div class="patch-env-top">
+          <span class="patch-env-target">
+            <select
+              class="sytrus-route-sel"
+              value={en.node}
+              onmousedown={(e) => e.stopPropagation()}
+              onclick={(e) => e.stopPropagation()}
+              onchange={(e) => {
+                g.envs[eidx].node = e.target.value
+                commit()
+              }}
+            >
+              {nodeIdOptions(ids, "en" + eidx)}
+            </select>
+            <span class="patch-dot">{"."}</span>
+            <select
+              class="sytrus-route-sel"
+              value={en.param ? en.param : "gain"}
+              onmousedown={(e) => e.stopPropagation()}
+              onclick={(e) => e.stopPropagation()}
+              onchange={(e) => {
+                g.envs[eidx].param = e.target.value
+                commit()
+              }}
+            >
+              {paramOptions("ep" + eidx, false)}
+            </select>
+          </span>
+          <button
+            type="button"
+            class="sytrus-icon-btn"
+            title={"Remove envelope"}
+            onmousedown={(e) => e.stopPropagation()}
+            onclick={() => {
+              removePatchEnvAt(g, eidx)
+              commit()
+            }}
+          >
+            {"×"}
+          </button>
+        </div>
+        <div class="patch-seg-head">
+          <span>{"seg"}</span>
+          <span>{"t"}</span>
+          <span>{"value"}</span>
+          <span />
+        </div>
+        {segRows}
+        <button
+          type="button"
+          class="sytrus-add-btn"
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={() => {
+            addPatchEnvSeg(g, eidx)
+            commit()
+          }}
+        >
+          {"+ Seg"}
+        </button>
+      </div>
+    )
+    ei = ei + 1
+  }
+
+  let durIsSet = g.dur != null
+  let durVal = durIsSet ? Number(g.dur) : 0.5
+
+  return (
+    <div class="sytrus-panel patch-panel">
+      <div class="sytrus-panel-head">
+        <span class="sytrus-panel-title">{"PATCH"}</span>
+        <span class="sytrus-panel-sub">{"nodes · wiring · breakpoint envelopes"}</span>
+      </div>
+
+      <section class="sytrus-section">
+        <div class="sytrus-section-h">
+          <span>{"Nodes"}</span>
+          <span class="patch-add-row">
+            <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => { addPatchNode(g, "osc"); commit() }}>{"+ Osc"}</button>
+            <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => { addPatchNode(g, "noise"); commit() }}>{"+ Noise"}</button>
+            <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => { addPatchNode(g, "filter"); commit() }}>{"+ Filter"}</button>
+            <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => { addPatchNode(g, "shaper"); commit() }}>{"+ Shaper"}</button>
+            <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => { addPatchNode(g, "gain"); commit() }}>{"+ Gain"}</button>
+          </span>
+        </div>
+        {g.nodes.length === 0 ? (
+          <p class="sytrus-empty">{"Add a node to start the patch."}</p>
+        ) : (
+          <div class="sytrus-op-grid">{nodeCards}</div>
+        )}
+      </section>
+
+      <section class="sytrus-section">
+        <div class="sytrus-section-h">
+          <span>{"Connections"}</span>
+          <button
+            type="button"
+            class="sytrus-add-btn"
+            onmousedown={(e) => e.stopPropagation()}
+            onclick={() => {
+              addPatchConn(g)
+              commit()
+            }}
+          >
+            {"+ Conn"}
+          </button>
+        </div>
+        {g.conns.length === 0 ? (
+          <p class="sytrus-empty">{"Wire a node to out (or another node's param)."}</p>
+        ) : (
+          <div class="sytrus-routes">{connRows}</div>
+        )}
+      </section>
+
+      <section class="sytrus-section">
+        <div class="sytrus-section-h">
+          <span>{"Envelopes"}</span>
+          <button
+            type="button"
+            class="sytrus-add-btn"
+            onmousedown={(e) => e.stopPropagation()}
+            onclick={() => {
+              addPatchEnv(g)
+              commit()
+            }}
+          >
+            {"+ Env"}
+          </button>
+        </div>
+        <p class="sytrus-hint">{"t / value accept expressions: note, note*2, dur, dur-0.1, vel, or a number."}</p>
+        {g.envs.length === 0 ? (
+          <p class="sytrus-empty">{"Add an envelope on any node's gain / freq / detune / q."}</p>
+        ) : (
+          <div class="patch-env-grid">{envBlocks}</div>
+        )}
+      </section>
+
+      <section class="sytrus-section">
+        <div class="sytrus-section-h">
+          <span>{"Voice length"}</span>
+        </div>
+        <label class="gen-row">
+          <input
+            type="checkbox"
+            checked={durIsSet}
+            onmousedown={(e) => e.stopPropagation()}
+            onchange={(e) => {
+              if (e.target.checked) {
+                g.dur = durVal
+              } else {
+                g.dur = null
+              }
+              commit()
+            }}
+          />
+          {durIsSet ? "Fixed" : "Auto (note length)"}
+        </label>
+        {durIsSet ? (
+          <div class="ik-knob-grid">
+            {Knob({
+              label: "Length",
+              value: Math.round(durVal * 1000),
+              min: 20,
+              max: 2000,
+              step: 1,
+              accent: accent,
+              fmt: (v) => String(Math.round(v)) + " ms",
+              onInput: (v) => {
+                g.dur = v / 1000
+                commit()
+              }
+            })}
+          </div>
+        ) : null}
+      </section>
+    </div>
+  )
+}

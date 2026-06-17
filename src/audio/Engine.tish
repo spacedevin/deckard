@@ -11,7 +11,7 @@ import {
   ensureMasterMixer,
   actorLaneAudible
 } from '../model/MixerRouting.tish'
-import { channelHeardOnMainDeck, deckMainOutGainMultiplier } from '../model/DeckRouting.tish'
+import { channelHeardOnMainDeck, deckMainOutGainMultiplier, channelDeck } from '../model/DeckRouting.tish'
 
 fn makeDriveCurve(ctx, amount) {
   let k = amount * 120
@@ -90,15 +90,17 @@ fn connectTrackEq(ctx, filt, ch, gainAfterEq) {
 }
 
 /** Per-channel bus: filter → 3-band EQ → trim → pan → actor summing node (+ reverb send). */
-export fn buildChannelBus(ctx, ch, actorSummingGain, reverbIn) {
+export fn buildChannelBus(ctx, ch, actorSummingGain, reverbIn, cueSum) {
   let pan = ctx.createStereoPanner()
   pan.pan.value = ch.pan
   let g = ctx.createGain()
   g.gain.value = ch.gain != null ? ch.gain : 0.85
   let filt = ctx.createBiquadFilter()
   filt.type = "lowpass"
-  filt.frequency.value = ch.filterCutoff
-  filt.Q.value = ch.filterQ
+  // Default OPEN (20 kHz ≈ transparent): the channel filter is an opt-in effect, not an always-on dulling
+  // insert. A null/unset cutoff must never collapse the filter to silence.
+  filt.frequency.value = ch.filterCutoff != null ? ch.filterCutoff : 20000
+  filt.Q.value = ch.filterQ != null ? ch.filterQ : 0.7
   // Per-channel drive (waveshaper) feeding the filter — saturation/warmth for any generator.
   let drive = ctx.createWaveShaper()
   drive.oversample = "2x"
@@ -118,6 +120,14 @@ export fn buildChannelBus(ctx, ch, actorSummingGain, reverbIn) {
   let teq = connectTrackEq(ctx, filt, ch, g)
   g.connect(pan)
   pan.connect(actorSummingGain)
+  // CUE send (DJ pre-fader listen): taps POST-EQ, PRE-fader so a deck can be auditioned in the headphones
+  // regardless of the channel fader OR the crossfader (deck gain). Off (gain 0) until its deck is cued.
+  let cueSend = ctx.createGain()
+  cueSend.gain.value = 0
+  teq.hi.connect(cueSend)
+  if (cueSum) {
+    cueSend.connect(cueSum)
+  }
   // Passive analyser tap (post gain/pan) for the per-stem waveform thumbnails.
   let analyser = ctx.createAnalyser()
   analyser.fftSize = 128
@@ -139,6 +149,7 @@ export fn buildChannelBus(ctx, ch, actorSummingGain, reverbIn) {
     eqHi: teq.hi,
     analyser: analyser,
     reverbSend: revSend,
+    cueSend: cueSend,
     driveNode: drive,
     driveCached: ch.drive != null ? ch.drive : 0,
     lfo: lfo,
@@ -246,7 +257,49 @@ export fn ensureAudio(project, store) {
   masterGain.connect(comp)
   comp.connect(softClip)
   softClip.connect(analyser)
-  analyser.connect(ctx.destination)
+  // ---- Output: the MAIN mix stays on the NATIVE ctx.destination (low-latency render thread — routing it
+  // through a MediaStream/<audio> element pitches it down + lags under load). The speakers device is chosen
+  // with AudioContext.setSinkId (Chrome/Edge). The CUE (headphones) bus is the only thing that uses the
+  // MediaStreamDestination → <audio> path, and it's built LAZILY (first time a deck is cued / a headphone
+  // device is picked) so the default no-cue case has ZERO extra audio overhead.
+  // A 0-by-default DelayNode on the MAIN path. The CUE (headphones) goes through a buffered MediaStream
+  // <audio> element which is inherently a bit LATE vs this native output; the cue can't be made earlier, so
+  // the standard DJ fix is a monitor-offset that nudges MAIN later to align with the phones. 0 = unchanged.
+  let mainDelay = ctx.createDelay(1.0)
+  mainDelay.delayTime.value = 0
+  analyser.connect(mainDelay)
+  mainDelay.connect(ctx.destination)
+  store.mainDelay = mainDelay
+  let mkStreamDest = null
+  if (typeof ctx.createMediaStreamDestination === "function") {
+    mkStreamDest = () => ctx.createMediaStreamDestination()
+  } else if (typeof ctx.createMediaStreamAudioDestination === "function") {
+    mkStreamDest = () => ctx.createMediaStreamAudioDestination()
+  }
+  let canSinkEl = false
+  if (typeof Audio !== "undefined") {
+    let testEl = new Audio()
+    canSinkEl = typeof testEl.setSinkId === "function"
+  }
+  store.mkStreamDest = mkStreamDest
+  store.canDualOut = mkStreamDest != null && canSinkEl
+  store.ctxCanSink = typeof ctx.setSinkId === "function"
+  store.cueSum = null
+  store.cueDest = null
+  store.cueEl = null
+  store.cueLevel = 0.9
+  // Auto-sync (optional): when ON, the MAIN also rides a MediaStream → <audio> element (mirroring the cue),
+  // so both share the same buffering latency and stay in time WITHOUT a manual offset. OFF (default) = MAIN
+  // on the native ctx.destination (low latency, no pitch/lag risk). Built lazily on first enable.
+  store.mainDest = null
+  store.mainEl = null
+  store.autoSync = false
+  // Draw gating: `drawDisabled` = user killed all visual draws (max headroom). `drawBlocked` = a transient
+  // window (set automatically around audio-source switches) so the main thread is quiet while the graph is
+  // reconfigured — canvas/DOM draw calls competing with a reroute is what makes the cue sync flaky.
+  store.drawDisabled = false
+  store.drawBlocked = false
+  store.dualOut = store.canDualOut || store.ctxCanSink
   store.masterComp = comp
   store.analyser = analyser
   store.ctx = ctx
@@ -302,7 +355,7 @@ export fn ensureAudio(project, store) {
   while (ci < project.channels.length) {
     let lane = channelActorLane(project.channels[ci], project)
     let ab = store.actorBuses[lane]
-    buses.push(buildChannelBus(ctx, project.channels[ci], ab.summingGain, store.reverbIn))
+    buses.push(buildChannelBus(ctx, project.channels[ci], ab.summingGain, store.reverbIn, store.cueSum))
     ci = ci + 1
   }
   store.buses = buses
@@ -320,7 +373,7 @@ export fn syncChannelBuses(project, store) {
     let lane = channelActorLane(ch, project)
     ensureActorBus(project, store, lane)
     let ab = store.actorBuses[lane]
-    store.buses.push(buildChannelBus(ctx, ch, ab.summingGain, store.reverbIn))
+    store.buses.push(buildChannelBus(ctx, ch, ab.summingGain, store.reverbIn, store.cueSum))
   }
 }
 
@@ -357,8 +410,12 @@ export fn resyncAllChannelBuses(project, store) {
     let lane = channelActorLane(project.channels[ci], project)
     ensureActorBus(project, store, lane)
     let ab = store.actorBuses[lane]
-    store.buses.push(buildChannelBus(store.ctx, project.channels[ci], ab.summingGain, store.reverbIn))
+    store.buses.push(buildChannelBus(store.ctx, project.channels[ci], ab.summingGain, store.reverbIn, store.cueSum))
     ci = ci + 1
+  }
+  // Re-apply cue sends after a full bus rebuild (deck-set hot-swap) — rare path, not the per-emit hot path.
+  if (store.cueSum) {
+    applyCueRouting(project, store)
   }
 }
 
@@ -418,7 +475,7 @@ export fn updateMixerFromProject(project, store, atBeat) {
       b.eqMid.gain.value = midFall
       b.eqHi.gain.value = hiFall
     }
-    b.filterNode.frequency.value = ch.filterCutoff
+    b.filterNode.frequency.value = ch.filterCutoff != null ? ch.filterCutoff : 20000
     if (b.reverbSend) {
       b.reverbSend.gain.value = ch.reverbSend != null ? ch.reverbSend : 0
     }
@@ -448,6 +505,18 @@ export fn updateMixerFromProject(project, store, atBeat) {
       store.masterEq.mid.gain.value = m.eqMid != null ? m.eqMid : 0
       store.masterEq.hi.gain.value = m.eqHi != null ? m.eqHi : 0
     }
+  }
+  // Master glue compressor toggle: ratio 1 + threshold 0 makes the DynamicsCompressor a transparent
+  // pass-through (no gain reduction), so disabling is a real audible bypass; re-enabling restores the
+  // glue settings from buildAudioGraph. The COMPRESSOR readout (comp.reduction) then reads ~0 when off.
+  if (store.masterComp && project.masterMixer) {
+    let compOn = project.masterMixer.compEnabled !== false
+    store.masterComp.ratio.value = compOn ? 3.5 : 1
+    store.masterComp.threshold.value = compOn ? -14 : 0
+  }
+  // Reverb send bus toggle: mute the bus input so no channel send reaches the convolver.
+  if (store.reverbIn && project.masterMixer) {
+    store.reverbIn.gain.value = project.masterMixer.reverbEnabled === false ? 0 : 0.85
   }
   if (store.actorBuses && project.actorMixer) {
     let lanes = collectActorLanes(project)
@@ -481,6 +550,227 @@ export fn updateMixerFromProject(project, store, atBeat) {
       ai = ai + 1
     }
   }
+  // NOTE: cue routing is reconciled by onCueToggle / on play / on bus rebuild — NOT here. updateMixerFromProject
+  // runs on every emit (each crossfader pixel), so a second per-channel loop here would starve the audio thread.
+}
+
+/**
+ * Lazily build the CUE (headphones) output the first time it's needed: a cue summing bus → a
+ * MediaStreamDestination → a second <audio> element (its setSinkId picks the headphone device). Until then
+ * the default no-cue session pays ZERO MediaStream/audio-element overhead. Wires existing channel cueSends in.
+ */
+export fn ensureCueOutput(store) {
+  if (!store || store.cueSum) {
+    return store ? store.cueSum : null
+  }
+  if (!store.canDualOut || !store.ctx || !store.mkStreamDest) {
+    return null
+  }
+  let ctx = store.ctx
+  let cueDest = store.mkStreamDest()
+  let cueSum = ctx.createGain()
+  cueSum.gain.value = store.cueLevel != null ? store.cueLevel : 0.9
+  cueSum.connect(cueDest)
+  let cueEl = new Audio()
+  cueEl.autoplay = true
+  cueEl.srcObject = cueDest.stream
+  let p = cueEl.play()
+  if (p && p.then) {
+    p.then(() => {}, (e) => {})
+  }
+  store.cueDest = cueDest
+  store.cueSum = cueSum
+  store.cueEl = cueEl
+  if (store.buses) {
+    let i = 0
+    while (i < store.buses.length) {
+      let b = store.buses[i]
+      if (b && b.cueSend) {
+        b.cueSend.connect(cueSum)
+      }
+      i = i + 1
+    }
+  }
+  return cueSum
+}
+
+/**
+ * Reconcile the per-channel CUE sends from store.cuedDecks: a channel sends to the headphones bus iff its
+ * deck is cued. Pre-fader (PFL) at store.cueLevel, so a cued deck is heard regardless of the crossfader.
+ * Called on cue toggle / play / bus rebuild — never in the per-emit mixer hot path.
+ */
+export fn applyCueRouting(project, store) {
+  if (!store || !store.buses) {
+    return
+  }
+  let cued = store.cuedDecks != null ? store.cuedDecks : {}
+  // First time anything is cued, build the headphone output path on demand.
+  if (!store.cueSum) {
+    if (cued.A === true || cued.B === true || cued.C === true || cued.D === true) {
+      ensureCueOutput(store)
+    }
+    if (!store.cueSum) {
+      return
+    }
+  }
+  let level = store.cueLevel != null ? store.cueLevel : 0.9
+  let i = 0
+  while (i < project.channels.length && i < store.buses.length) {
+    let b = store.buses[i]
+    if (b && b.cueSend) {
+      let dk = channelDeck(project, project.channels[i])
+      b.cueSend.gain.value = cued[dk] === true ? level : 0
+    }
+    i = i + 1
+  }
+}
+
+/** Pin the MAIN mix to the speakers device (native, via ctx.setSinkId) and the CUE bus to the headphones
+ *  device. Empty id = system default. Builds the cue path lazily when a headphone device is first chosen. */
+export fn applyOutputDevices(store, speakersId, headphonesId) {
+  if (!store) {
+    return
+  }
+  let spk = speakersId != null ? String(speakersId) : ""
+  // MAIN: in AUTO-SYNC it rides the matched <audio> element (shares the cue's buffering → stays in time with
+  // the phones); otherwise it's the native ctx.destination (low-latency render thread, no MediaStream).
+  if (store.autoSync && store.mainEl && typeof store.mainEl.setSinkId === "function") {
+    let pm = store.mainEl.setSinkId(spk)
+    if (pm && pm.then) {
+      pm.then(() => {}, (e) => {})
+    }
+  } else if (store.ctx && typeof store.ctx.setSinkId === "function") {
+    let p = store.ctx.setSinkId(spk)
+    if (p && p.then) {
+      p.then(() => {}, (e) => {})
+    }
+  }
+  // HEADPHONES: build the cue path on first selection, then pin it to the chosen device.
+  let hp = headphonesId != null ? String(headphonesId) : ""
+  if (hp.length > 0 && !store.cueSum) {
+    ensureCueOutput(store)
+  }
+  if (store.cueEl && store.cueEl.setSinkId) {
+    let p2 = store.cueEl.setSinkId(hp)
+    if (p2 && p2.then) {
+      p2.then(() => {}, (e) => {})
+    }
+  }
+}
+
+/** Headphone cue level (0..~1.2) on the cue summing bus. */
+export fn setCueLevel(store, v) {
+  if (!store) {
+    return
+  }
+  let lv = Number(v)
+  if (lv !== lv) {
+    lv = 0.9
+  }
+  store.cueLevel = lv
+  if (store.cueSum) {
+    store.cueSum.gain.value = lv
+  }
+}
+
+/** Monitor offset (ms): delay the MAIN output to line it up with the buffered headphone cue. 0 = no delay. */
+export fn setCueSyncOffset(store, ms) {
+  if (!store || !store.mainDelay) {
+    return
+  }
+  let s = Number(ms) / 1000
+  if (!(s >= 0)) {
+    s = 0
+  }
+  if (s > 1) {
+    s = 1
+  }
+  store.mainDelay.delayTime.value = s
+}
+
+/** Master switch: when true, the UI suspends ALL visual draw loops (scope/meters/waveforms/playhead). */
+export fn setDrawDisabled(store, on) {
+  if (store) {
+    store.drawDisabled = on === true
+  }
+}
+
+/** True if drawing should be skipped this frame — either the user disabled it or we're mid-switch. */
+export fn drawsSuspended(store) {
+  return store != null && (store.drawDisabled === true || store.drawBlocked === true)
+}
+
+/**
+ * Run an audio-source switch (reroute / setSinkId) inside a quiet window: blank ALL draw calls for ~250ms
+ * BEFORE the switch, do the switch, then keep them blanked ~250ms AFTER — so the main thread isn't drawing
+ * while the audio graph reconfigures (that contention is what makes cue sync intermittent).
+ */
+export fn suspendDrawsAround(store, doSwitch) {
+  if (!store) {
+    if (doSwitch) {
+      doSwitch()
+    }
+    return
+  }
+  store.drawBlocked = true
+  setTimeout(() => {
+    if (doSwitch) {
+      doSwitch()
+    }
+    setTimeout(() => {
+      store.drawBlocked = false
+    }, 250)
+  }, 250)
+}
+
+/**
+ * AUTO-SYNC: route the MAIN through a MediaStream → <audio> element (matched with the cue's path) so both
+ * share the same buffering latency and stay in time automatically — no manual offset. OFF reverts MAIN to
+ * the native ctx.destination (low latency). The pitch-down-under-load risk only applies while ON, and both
+ * outputs then move together (synced) rather than drifting. Needs MediaStream + <audio>.setSinkId support.
+ */
+export fn setMainAutoSync(store, on) {
+  if (!store || !store.ctx || !store.analyser || !store.mainDelay) {
+    return
+  }
+  let want = on === true
+  if (want && !store.canDualOut) {
+    return
+  }
+  if (want === store.autoSync) {
+    return
+  }
+  if (want) {
+    if (!store.mainDest) {
+      store.mainDest = store.mkStreamDest()
+      let el = new Audio()
+      el.autoplay = true
+      el.srcObject = store.mainDest.stream
+      let p = el.play()
+      if (p && p.then) {
+        p.then(() => {}, (e) => {})
+      }
+      store.mainEl = el
+    }
+    // Move MAIN off the native ctx.destination onto the matched <audio> path.
+    store.analyser.disconnect()
+    store.analyser.connect(store.mainDest)
+    if (store.mainEl) {
+      let p2 = store.mainEl.play()
+      if (p2 && p2.then) {
+        p2.then(() => {}, (e) => {})
+      }
+    }
+    store.autoSync = true
+  } else {
+    // Back to the native low-latency path (analyser → mainDelay → ctx.destination).
+    store.analyser.disconnect()
+    store.analyser.connect(store.mainDelay)
+    if (store.mainEl && store.mainEl.pause) {
+      store.mainEl.pause()
+    }
+    store.autoSync = false
+  }
 }
 
 export fn playHitAt(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
@@ -498,7 +788,7 @@ export fn anySolo(project) {
   return false
 }
 
-export fn channelAudible(project, idx) {
+export fn channelAudible(project, idx, cuedDecks) {
   let ch = project.channels[idx]
   if (!ch) {
     return false
@@ -514,7 +804,13 @@ export fn channelAudible(project, idx) {
     return ch.solo
   }
   if (!channelHeardOnMainDeck(project, ch)) {
-    return false
+    // PFL cue: a CUED deck still fires its notes so it can be pre-listened on the headphones even with the
+    // fader / crossfader / deck-volume pulled all the way down (the cue send taps pre-fader). Without this a
+    // faded-out cued deck generates no sound, so there's nothing for the cue tap to send to the headphones.
+    let dk = channelDeck(project, ch)
+    if (!(cuedDecks != null && cuedDecks[dk] === true)) {
+      return false
+    }
   }
   return true
 }

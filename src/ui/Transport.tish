@@ -13,6 +13,7 @@ export fn TransportBar(
   onPlayStop,
   onSelectMode,
   onBpmInput,
+  onBpmStep,
   onExport,
   onImport,
   mainDeck,
@@ -47,10 +48,12 @@ export fn TransportBar(
         {playing ? "■ Stop" : "▶ Play"}
         <span class="btn-key">{"Enter"}</span>
       </button>
-      <label class="bpm-label">
-        {"BPM "}
+      <div class="bpm-stepper" title={"Tempo — tap − / + to nudge a BPM (like a deck), or type a value"}>
+        <span class="bpm-stepper-cap">{"BPM"}</span>
+        <button type="button" class="bpm-btn bpm-btn-down" title={"−1 BPM"} onmousedown={(e) => e.preventDefault()} onclick={() => onBpmStep(-1)}>{"−"}</button>
         <input type="number" class="bpm-input" min="40" max="240" value={String(bpm)} oninput={onBpmInput} />
-      </label>
+        <button type="button" class="bpm-btn bpm-btn-up" title={"+1 BPM"} onmousedown={(e) => e.preventDefault()} onclick={() => onBpmStep(1)}>{"+"}</button>
+      </div>
       <label class="quant-label" title={"Launch quantize — clip / scene launches drop on this grid"}>
         {"Q "}
         <select class="quant-select" value={qv} onchange={(e) => onLaunchQuant(Number(e.target.value))}>

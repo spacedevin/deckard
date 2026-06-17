@@ -1,0 +1,609 @@
+// Sets — the TIME-aware, per-player loadable bundle (the new "Set"; the whole-workspace snapshot is now a
+// "Station", see StationPresets.tish). A Set is a stream of TPL for 1–4 "players" plus a `song`
+// arrangement (the TIME axis). You load a Set onto one deck, or let it fill the free deck slots — a loaded
+// player you didn't perform is a "ghost" you can play alongside (Mario-Kart style). This is the TPL thesis:
+// a Set is a replayable stream of TPL.
+//
+// Storage is a single TPL document with explicit player delimiters, so it stays deck-agnostic — each
+// player is a plain rack (+ its clips) that loadSet can drop onto ANY free deck:
+//
+//   # player 0
+//   track Kick id kick gen patch
+//     steps x . . . ...
+//   clip ... channel kick ...
+//   # player 1
+//   track ...
+//   # song
+//   P1
+//   P2 x2
+//
+// localStorage-backed (deckard.sets.v1) + .tpl file export/import, mirroring StationPresets' API. Seeded
+// from the existing deck-set catalog (each deck set becomes a 1-player Set) so the library is never empty.
+
+import { emitProject } from '../tpl/Emit.tish'
+import { splitTplBlocks } from './Levels.tish'
+import { findChannelById } from '../tpl/Apply.tish'
+import { channelDeck } from '../model/DeckRouting.tish'
+import { deckSetCatalog, deckSetTplById, graftRackOntoDeck } from '../model/DeckSets.tish'
+import { normalizeSongEntries } from '../model/Session.tish'
+
+let KEY = "deckard.sets.v1"
+let TAG = "# deckard-set"
+let PLAYER_MARK = "# player"
+let SONG_MARK = "# song"
+let MODE_MARK = "# mode"
+let PLAYS_MARK = "# plays"
+let DECK_LETTERS = ["A", "B", "C", "D"]
+
+fn firstTokenLn(ln) {
+  let s = String(ln).trim()
+  let sp = s.indexOf(" ")
+  return sp < 0 ? s : s.substring(0, sp)
+}
+
+// Split on whitespace runs without a regex literal (Tish keeps these simple).
+fn wsplit(s) {
+  let parts = String(s).trim().split(" ")
+  let out = []
+  let i = 0
+  while (i < parts.length) {
+    if (parts[i].length > 0) {
+      out.push(parts[i])
+    }
+    i = i + 1
+  }
+  return out
+}
+
+// Value after `key` (e.g. "name=") on a header line, up to the next space. null if absent.
+fn afterKey(s, key) {
+  let ki = String(s).indexOf(key)
+  if (ki < 0) {
+    return null
+  }
+  let rest = String(s).substring(ki + key.length)
+  let sp = rest.indexOf(" ")
+  return sp < 0 ? rest.trim() : rest.substring(0, sp).trim()
+}
+
+// Full block text (header + indented body), as written.
+fn blockText(b) {
+  if (b.body.length === 0) {
+    return b.header + "\n"
+  }
+  return b.header + "\n" + b.body.join("\n") + "\n"
+}
+
+// Track block minus its `deck …` routing line, so a captured player rack is deck-agnostic (loadSet picks
+// the target deck and re-stamps routing, exactly like loadDeckSet does for the catalog racks).
+fn trackTextNoDeck(b) {
+  let out = b.header + "\n"
+  let i = 0
+  while (i < b.body.length) {
+    if (firstTokenLn(b.body[i]) !== "deck") {
+      out = out + b.body[i] + "\n"
+    }
+    i = i + 1
+  }
+  return out
+}
+
+// `clip <id> channel <chId> …` → the channel id it belongs to.
+fn clipChannelId(header) {
+  let toks = wsplit(header)
+  let i = 0
+  while (i + 1 < toks.length) {
+    if (toks[i] === "channel") {
+      return toks[i + 1]
+    }
+    i = i + 1
+  }
+  return null
+}
+
+// Strip a leading `tpl 1` header line from a rack TPL so it can nest inside a player section.
+fn stripTplHeader(tpl) {
+  let lines = String(tpl).split("\n")
+  let out = []
+  let i = 0
+  while (i < lines.length) {
+    if (firstTokenLn(lines[i]) !== "tpl") {
+      out.push(lines[i])
+    }
+    i = i + 1
+  }
+  return out.join("\n")
+}
+
+/**
+ * The song arrangement (TIME) as `P<n> [xN]` lines — the same shape emitProject writes, so it re-applies
+ * through the normal `song` parser. Empty string when the project has no explicit arrangement.
+ */
+export fn emitSetArrangement(project) {
+  if (!project.session || !project.session.song || project.session.song.length === 0) {
+    return ""
+  }
+  let out = ""
+  let i = 0
+  while (i < project.session.song.length) {
+    let e = project.session.song[i]
+    let rep = e.repeat != null ? Math.floor(Number(e.repeat)) : 1
+    if (rep < 1) {
+      rep = 1
+    }
+    out = out + "P" + String(Math.floor(Number(e.scene)) + 1)
+    if (rep > 1) {
+      out = out + " x" + String(rep)
+    }
+    out = out + "\n"
+    i = i + 1
+  }
+  return out
+}
+
+/**
+ * Emit a Set as a player-delimited TPL document. `deckLetters` = the decks to capture as players (in
+ * order), e.g. ["A","B"]. Each player section holds that deck's track blocks (deck-line stripped) plus the
+ * clips for those channels; a trailing `# song` section carries the shared arrangement.
+ */
+export fn emitSet(project, deckLetters) {
+  let blocks = splitTplBlocks(emitProject(project))
+  let body = ""
+  let pi = 0
+  while (pi < deckLetters.length) {
+    let L = deckLetters[pi]
+    body = body + PLAYER_MARK + " " + String(pi) + "\n"
+    let bi = 0
+    while (bi < blocks.length) {
+      let blk = blocks[bi]
+      if (blk.head === "track") {
+        let ch = findChannelById(project, blk.trackId)
+        if (ch && channelDeck(project, ch) === L) {
+          body = body + trackTextNoDeck(blk)
+        }
+      }
+      bi = bi + 1
+    }
+    let ci = 0
+    while (ci < blocks.length) {
+      let cb = blocks[ci]
+      if (cb.head === "clip") {
+        let cch = clipChannelId(cb.header)
+        let och = cch ? findChannelById(project, cch) : null
+        if (och && channelDeck(project, och) === L) {
+          body = body + blockText(cb)
+        }
+      }
+      ci = ci + 1
+    }
+    pi = pi + 1
+  }
+  body = body + SONG_MARK + "\n" + emitSetArrangement(project)
+  return body
+}
+
+/**
+ * Parse a Set document back into { players: [tplString], song: [line] }. Each player string is a standalone
+ * `tpl 1` rack (+ clips) ready to graft onto a deck; song is the raw `P<n> [xN]` arrangement lines.
+ */
+export fn parseSet(tpl) {
+  let lines = String(tpl).split("\n")
+  let players = []
+  let cur = null
+  let song = []
+  let inSong = false
+  let i = 0
+  while (i < lines.length) {
+    let ln = lines[i]
+    let t = ln.trim()
+    if (t.indexOf(PLAYER_MARK) === 0) {
+      cur = []
+      players.push(cur)
+      inSong = false
+    } else if (t.indexOf(SONG_MARK) === 0) {
+      inSong = true
+    } else if (t.indexOf(TAG) === 0) {
+      // library tag line — skip
+    } else if (inSong) {
+      if (t.length > 0) {
+        song.push(t)
+      }
+    } else if (cur != null) {
+      cur.push(ln)
+    }
+    i = i + 1
+  }
+  let out = []
+  let pj = 0
+  while (pj < players.length) {
+    out.push("tpl 1\n" + players[pj].join("\n"))
+    pj = pj + 1
+  }
+  return { players: out, song: song }
+}
+
+/** Decks (A→D) with NO channel routed to them right now — the free slots a Set can fill. */
+export fn freeDecks(project) {
+  let occupied = {}
+  let i = 0
+  while (i < project.channels.length) {
+    occupied[channelDeck(project, project.channels[i])] = true
+    i = i + 1
+  }
+  let out = []
+  let d = 0
+  while (d < DECK_LETTERS.length) {
+    if (!occupied[DECK_LETTERS[d]]) {
+      out.push(DECK_LETTERS[d])
+    }
+    d = d + 1
+  }
+  return out
+}
+
+// `P<n> [xN]` arrangement lines → [{scene, repeat}] (P1 = scene 0).
+fn parseSongLines(lines) {
+  let out = []
+  let i = 0
+  while (i < lines.length) {
+    let toks = wsplit(lines[i])
+    if (toks.length > 0 && toks[0].charAt(0) === "P") {
+      let sceneNum = Number(toks[0].substring(1))
+      if (sceneNum === sceneNum && sceneNum >= 1) {
+        let rep = 1
+        let ti = 1
+        while (ti < toks.length) {
+          if (toks[ti].charAt(0) === "x") {
+            let rv = Number(toks[ti].substring(1))
+            if (rv === rv && rv >= 1) {
+              rep = Math.floor(rv)
+            }
+          }
+          ti = ti + 1
+        }
+        out.push({ scene: Math.floor(sceneNum) - 1, repeat: rep })
+      }
+    }
+    i = i + 1
+  }
+  return out
+}
+
+fn restoreSong(project, songLines) {
+  if (!songLines || songLines.length === 0) {
+    return
+  }
+  project.session.song = normalizeSongEntries(project, parseSongLines(songLines))
+}
+
+/**
+ * Load a Set. `set` is a library entry ({tpl}) or a raw Set TPL string. With `targetDeck` ("A".."D") the
+ * Set's first player lands on that deck (load onto your own deck to modify it). With targetDeck null each
+ * player fills the next FREE deck slot in A→D order — occupied decks are skipped, so a 4-player Set onto an
+ * empty station fills everything (listen-only) while a 2-player Set leaves room to jam alongside the ghosts.
+ * The `song` arrangement (the TIME axis) is restored either way. Returns { loaded, decks }.
+ */
+export fn loadSet(project, set, targetDeck) {
+  let tpl = typeof set === "string" ? set : (set && set.tpl ? set.tpl : "")
+  let parsed = parseSet(tpl)
+  if (parsed.players.length === 0) {
+    return { loaded: 0, decks: [] }
+  }
+  let decks = []
+  if (targetDeck != null) {
+    graftRackOntoDeck(project, targetDeck, parsed.players[0], true)
+    decks.push(targetDeck)
+  } else {
+    let free = freeDecks(project)
+    let pi = 0
+    while (pi < parsed.players.length && pi < free.length) {
+      graftRackOntoDeck(project, free[pi], parsed.players[pi], true)
+      decks.push(free[pi])
+      pi = pi + 1
+    }
+  }
+  restoreSong(project, parsed.song)
+  return { loaded: decks.length, decks: decks }
+}
+
+// ---- Recorded Sets: WHAT PLAYED (the "Set" = a captured performance) ----------------------------------
+// A recorded Set is the project SOUND state at the take's start (the header) followed by a `# plays` tape:
+// one line per played step — `@<step> <bus>:<pitch>:<vel>:<dur>:<beat>:<offset> …` — i.e. the exact note
+// triggers the sequencer fired. Replaying loads the sounds then re-fires these triggers step-for-step (the
+// ghost re-plays the performance). This is the Set: not the edits, what actually came out.
+
+/** True if a Set carries a recorded played-trigger tape (vs the player/deck-graft format). */
+export fn isStreamSet(tpl) {
+  return String(tpl == null ? "" : tpl).indexOf(PLAYS_MARK) >= 0
+}
+
+// Compact number: up to 4 decimals, no trailing zeros.
+fn fmtNum(n) {
+  if (n == null) {
+    return "0"
+  }
+  let v = Number(n)
+  if (v !== v) {
+    return "0"
+  }
+  return String(Math.round(v * 10000) / 10000)
+}
+
+// tape = [{step, triggers:[{busIndex,pitch,vel,durSec,beat,noteOffset}]}] → the `# plays` body text.
+fn serializeTape(tape) {
+  let out = ""
+  let i = 0
+  while (i < tape.length) {
+    let e = tape[i]
+    out = out + "@" + String(Math.floor(Number(e.step)))
+    let trs = e.triggers != null ? e.triggers : []
+    let j = 0
+    while (j < trs.length) {
+      let t = trs[j]
+      out = out + " " + String(Math.floor(Number(t.busIndex))) + ":" + fmtNum(t.pitch) + ":" + fmtNum(t.vel) + ":" + fmtNum(t.durSec) + ":" + fmtNum(t.beat) + ":" + fmtNum(t.noteOffset)
+      j = j + 1
+    }
+    // Performance-control snapshot for this step: !<xfX>:<xfY>:<fltA>:<fltB>:<fltC>:<fltD> (the 4-way
+    // crossfader + per-deck filter). The `!` prefix keeps it distinct from a note trigger.
+    let c = e.ctl
+    if (c != null) {
+      out = out + " !" + fmtNum(c.xf) + ":" + fmtNum(c.xfy) + ":" + fmtNum(c.fA) + ":" + fmtNum(c.fB) + ":" + fmtNum(c.fC) + ":" + fmtNum(c.fD)
+    }
+    out = out + "\n"
+    i = i + 1
+  }
+  return out
+}
+
+fn parseTapeLines(lines) {
+  let events = []
+  let i = 0
+  while (i < lines.length) {
+    let t = String(lines[i]).trim()
+    if (t.length > 1 && t.charAt(0) === "@") {
+      let toks = wsplit(t)
+      let step = Number(toks[0].substring(1))
+      if (step === step) {
+        let triggers = []
+        let ctl = null
+        let k = 1
+        while (k < toks.length) {
+          let tok = toks[k]
+          if (tok.charAt(0) === "!") {
+            // Performance-control snapshot: !xf:xfy:fltA:fltB:fltC:fltD.
+            let cp = tok.substring(1).split(":")
+            if (cp.length >= 6) {
+              ctl = { xf: Number(cp[0]), xfy: Number(cp[1]), fA: Number(cp[2]), fB: Number(cp[3]), fC: Number(cp[4]), fD: Number(cp[5]) }
+            }
+          } else {
+            let parts = tok.split(":")
+            if (parts.length >= 6) {
+              triggers.push({
+                busIndex: Math.floor(Number(parts[0])),
+                pitch: Number(parts[1]),
+                vel: Number(parts[2]),
+                durSec: Number(parts[3]),
+                beat: Number(parts[4]),
+                noteOffset: Number(parts[5])
+              })
+            }
+          }
+          k = k + 1
+        }
+        events.push({ step: Math.floor(step), triggers: triggers, ctl: ctl })
+      }
+    }
+    i = i + 1
+  }
+  return events
+}
+
+/**
+ * Serialize a recorded Set: the sound-state project TPL (header) + the play mode + the played-trigger tape.
+ * `headerTpl` is emitProject(startState); `tape` is the recorder's [{step,triggers}] log.
+ */
+export fn emitSetStream(headerTpl, tape, mode) {
+  let m = mode === "sequence" ? "sequence" : "song"
+  return String(headerTpl) + "\n" + MODE_MARK + " " + m + "\n" + PLAYS_MARK + "\n" + serializeTape(tape)
+}
+
+/** Parse a recorded Set back into { header, mode, events:[{step,triggers}] }. */
+export fn parseSetStream(tpl) {
+  let lines = String(tpl == null ? "" : tpl).split("\n")
+  let header = []
+  let evLines = []
+  let mode = "song"
+  let inPlays = false
+  let i = 0
+  while (i < lines.length) {
+    let ln = lines[i]
+    let t = ln.trim()
+    if (!inPlays && t.indexOf(PLAYS_MARK) === 0) {
+      inPlays = true
+    } else if (inPlays) {
+      evLines.push(ln)
+    } else if (t.indexOf(MODE_MARK) === 0) {
+      let mv = t.substring(MODE_MARK.length).trim()
+      if (mv === "sequence" || mv === "song") {
+        mode = mv
+      }
+    } else {
+      header.push(ln)
+    }
+    i = i + 1
+  }
+  return { header: header.join("\n"), mode: mode, events: parseTapeLines(evLines) }
+}
+
+// Wrap a catalog deck-set rack as a 1-player Set body (plain rack, no clips, no arrangement → it just
+// loops). Seeds the library so it's never empty even before the user captures anything.
+fn deckSetAsSetBody(deckSet) {
+  return PLAYER_MARK + " 0\n" + stripTplHeader(deckSet.tpl) + "\n" + SONG_MARK + "\n"
+}
+
+fn factorySets() {
+  let cat = deckSetCatalog()
+  let out = []
+  let i = 0
+  while (i < cat.length) {
+    let meta = cat[i]
+    let ds = deckSetTplById(meta.id)
+    if (ds) {
+      out.push({
+        id: meta.id,
+        name: meta.name,
+        genre: meta.genre,
+        bpm: meta.bpm,
+        players: 1,
+        tpl: deckSetAsSetBody(ds),
+        factory: true,
+        ord: -1000 + i
+      })
+    }
+    i = i + 1
+  }
+  return out
+}
+
+fn defaultBackend() {
+  if (typeof localStorage !== "undefined" && localStorage) {
+    return {
+      read: () => localStorage.getItem(KEY),
+      write: (s) => {
+        localStorage.setItem(KEY, s)
+      }
+    }
+  }
+  let mem = { v: null }
+  return {
+    read: () => mem.v,
+    write: (s) => {
+      mem.v = s
+    }
+  }
+}
+
+export fn createSetLibrary(injected) {
+  let be = injected ? injected : defaultBackend()
+
+  fn readLib() {
+    let raw = be.read()
+    if (raw == null || String(raw).length === 0) {
+      return { items: {}, ord: 0 }
+    }
+    let parsed = null
+    try {
+      parsed = JSON.parse(raw)
+    } catch (e) {
+      parsed = null
+    }
+    if (!parsed || !parsed.items) {
+      return { items: {}, ord: 0 }
+    }
+    if (typeof parsed.ord !== "number") {
+      parsed.ord = 0
+    }
+    return parsed
+  }
+
+  let lib = readLib()
+
+  fn persist() {
+    be.write(JSON.stringify(lib))
+  }
+
+  // `players` = the player count (1–4). tpl = a player-delimited Set body (from emitSet).
+  fn save(name, tpl, players) {
+    lib.ord = lib.ord + 1
+    let pc = players != null ? Math.floor(Number(players)) : parseSet(tpl).players.length
+    lib.items[name] = { id: name, name: name, tpl: tpl, players: pc, ord: lib.ord, factory: false }
+    persist()
+    return lib.items[name]
+  }
+
+  fn get(name) {
+    if (lib.items[name]) {
+      return lib.items[name]
+    }
+    let f = factorySets()
+    let i = 0
+    while (i < f.length) {
+      if (f[i].name === name || f[i].id === name) {
+        return f[i]
+      }
+      i = i + 1
+    }
+    return null
+  }
+
+  // Factory Sets first, then user Sets (ord-ascending).
+  fn list() {
+    let out = factorySets()
+    let names = Object.keys(lib.items)
+    let user = []
+    let i = 0
+    while (i < names.length) {
+      user.push(lib.items[names[i]])
+      i = i + 1
+    }
+    user.sort((a, b) => a.ord - b.ord)
+    let j = 0
+    while (j < user.length) {
+      out.push(user[j])
+      j = j + 1
+    }
+    return out
+  }
+
+  fn remove(name) {
+    if (lib.items[name]) {
+      delete lib.items[name]
+      persist()
+      return true
+    }
+    return false
+  }
+
+  fn exportText(name) {
+    let s = get(name)
+    if (!s) {
+      return null
+    }
+    return TAG + " name=" + name + " players=" + String(s.players) + "\n" + s.tpl
+  }
+
+  fn importText(text, fallbackName) {
+    let body = String(text == null ? "" : text)
+    let name = fallbackName
+    let players = null
+    let nl = body.indexOf("\n")
+    let first = nl >= 0 ? body.substring(0, nl) : body
+    if (first.indexOf(TAG) === 0) {
+      let nm = afterKey(first, "name=")
+      if (nm != null && nm.length > 0) {
+        name = nm
+      }
+      let pvRaw = afterKey(first, "players=")
+      if (pvRaw != null) {
+        let pv = Number(pvRaw)
+        if (pv === pv && pv > 0) {
+          players = pv
+        }
+      }
+      body = nl >= 0 ? body.substring(nl + 1) : ""
+    }
+    if (name == null || name.length === 0) {
+      return null
+    }
+    return save(name, body, players)
+  }
+
+  return {
+    save: save,
+    get: get,
+    list: list,
+    remove: remove,
+    exportText: exportText,
+    importText: importText
+  }
+}
