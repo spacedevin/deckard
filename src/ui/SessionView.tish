@@ -14,7 +14,7 @@ import {
   removeSessionProgram
 } from '../model/Session.tish'
 import { channelDeck, channelDeckColor } from '../model/DeckRouting.tish'
-import { launchClipDirective, launchClipStopDirective } from '../codj/Launch.tish'
+import { launchClipDirective, launchClipStopDirective, cueDirective } from '../codj/Launch.tish'
 
 // Broadcast a session-control directive to collaborators, if connected (no-op offline).
 fn pushControl(rt, line) {
@@ -149,6 +149,18 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
   fn bumpSeqIfPlaying() {
     if (playing && rt.bumpSeqPromoteUi) {
       rt.bumpSeqPromoteUi()
+    }
+  }
+
+  // CUE this scene to the private preview (audition; peers hear nothing until a THROW). Toggles: clicking the
+  // already-cued scene un-cues it. Routes @ cue / @ cue off through ingest → applyLaunchDirective.
+  fn onCueScene(si) {
+    if (rt && rt.directive) {
+      if (rt.cueScene != null && Math.floor(Number(rt.cueScene)) === si) {
+        rt.directive(cueDirective("off"))
+      } else {
+        rt.directive(cueDirective(si))
+      }
     }
   }
 
@@ -427,9 +439,21 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
         </button>
       )
     }
+    let isCued = rt && rt.cueScene != null && Math.floor(Number(rt.cueScene)) === si
+    let cueHdrCls = isCued ? hdrCls + " session-scene-head-cued" : hdrCls
     sceneHeaders.push(
-      <div class={hdrCls} key={"sc-h-" + String(si)}>
-        <span class="session-scene-label">{"P"}{String(si + 1)}</span>
+      <div class={cueHdrCls} key={"sc-h-" + String(si)}>
+        <div class="session-scene-toprow">
+          <span class="session-scene-label">{"P"}{String(si + 1)}</span>
+          <button
+            type="button"
+            class={isCued ? "btn-scene-cue btn-scene-cue-on" : "btn-scene-cue"}
+            onclick={() => onCueScene(si)}
+            title={isCued ? "CUED — click to un-cue. Auditions in sync with the main beat; THROW to go live." : "CUE — audition this scene privately, in time with the main beat (peers hear nothing). Click again to un-cue; THROW to go live."}
+          >
+            {isCued ? "♪ CUE" : "CUE"}
+          </button>
+        </div>
         {headOps}
       </div>
     )

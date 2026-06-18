@@ -18,6 +18,7 @@ import { applyCueRouting } from '../src/audio/Engine.tish'
 import { levelPresetList, addLevelPreset, findLevelPreset, removeLevelPreset } from '../src/model/LevelPresets.tish'
 import { compileGeneratorToPatchLines, canCompileToPatch } from '../src/model/PatchCompile.tish'
 import { parsePatchGraph } from '../src/tpl/TplExtension.tish'
+import { parseMidiBytes, ccKey, normalize01, createMidiController, midiTargetList } from '../src/midi/Midi.tish'
 
 let pass = 0
 let fail = 0
@@ -399,6 +400,51 @@ check("[patch] tine drive=0 (no shaper) valid", validatePatchVoice(compileGenera
 check("[patch] guitar drive=0 (no shaper) valid", validatePatchVoice(compileGeneratorToPatchLines("guitar", { drive: 0 }, null)) === "")
 check("[patch] arco cello variation valid", validatePatchVoice(compileGeneratorToPatchLines("arco", { voice: "cello" }, null)) === "")
 check("[patch] canCompileToPatch covers all rebuilt voices", canCompileToPatch("tine") && canCompileToPatch("halo") && canCompileToPatch("aahs") && canCompileToPatch("aether") && canCompileToPatch("guitar") && canCompileToPatch("arco"))
+
+console.log("=== MIDI (parse + learn/map flow + persistence) ===")
+let mNoteOn = parseMidiBytes([144, 60, 100])
+check("[midi] parse noteOn", mNoteOn != null && mNoteOn.kind === "noteOn" && mNoteOn.note === 60 && mNoteOn.velocity === 100 && mNoteOn.channel === 0)
+let mNoteOn0 = parseMidiBytes([145, 60, 0])
+check("[midi] parse noteOn vel 0 = noteOff", mNoteOn0 != null && mNoteOn0.kind === "noteOff" && mNoteOn0.channel === 1)
+let mNoteOff = parseMidiBytes([128, 64, 0])
+check("[midi] parse noteOff", mNoteOff != null && mNoteOff.kind === "noteOff" && mNoteOff.note === 64)
+let mCc = parseMidiBytes([176, 7, 64])
+check("[midi] parse CC", mCc != null && mCc.kind === "cc" && mCc.controller === 7 && mCc.value === 64)
+let mPb = parseMidiBytes([224, 0, 64])
+check("[midi] parse pitchBend 14-bit", mPb != null && mPb.kind === "pitchBend" && mPb.value14 === 8192)
+check("[midi] system messages ignored", parseMidiBytes([248]) === null && parseMidiBytes([240, 1, 2]) === null)
+check("[midi] normalize01 maps 0..127 → 0..1", normalize01(0) === 0 && Math.abs(normalize01(127) - 1) < 1e-9 && Math.abs(normalize01(64) - (64 / 127)) < 1e-9)
+check("[midi] ccKey is stable per channel+controller", ccKey({ channel: 2, controller: 7 }) === "cc:2:7")
+
+// Learn → map → drive flow, with an injected backend (no localStorage) and captured callbacks.
+let midiMem = { v: null }
+let midiBe = { read: () => midiMem.v, write: (s) => { midiMem.v = s } }
+let captured = { note: null, control: null, changes: 0 }
+let ctl = createMidiController({
+  onNote: (n, v) => { captured.note = { n: n, v: v } },
+  onControl: (id, v01) => { captured.control = { id: id, v: v01 } },
+  onChange: () => { captured.changes = captured.changes + 1 },
+  backend: midiBe
+})
+ctl.feed([144, 60, 110])
+check("[midi] note-on routes to onNote", captured.note != null && captured.note.n === 60 && captured.note.v === 110)
+ctl.setLearn(true)
+ctl.feed([176, 7, 50])
+check("[midi] in learn mode a CC becomes pending (not a control)", ctl.state().pending != null && ctl.state().pending.controller === 7 && captured.control === null)
+ctl.bindPending("bpm")
+check("[midi] bindPending stores the mapping + clears pending", ctl.state().mappings["cc:0:7"] === "bpm" && ctl.state().pending === null)
+check("[midi] mapping persisted to the backend", midiMem.v != null && midiMem.v.indexOf("bpm") >= 0)
+ctl.setLearn(false)
+ctl.feed([176, 7, 127])
+check("[midi] a mapped CC drives onControl with normalized value", captured.control != null && captured.control.id === "bpm" && Math.abs(captured.control.v - 1) < 1e-9)
+// Persistence: a fresh controller on the same backend restores the mapping.
+let ctl2 = createMidiController({ onControl: (id, v01) => {}, backend: midiBe })
+check("[midi] mappings persist across controller instances", ctl2.state().mappings["cc:0:7"] === "bpm")
+ctl.removeMapping("cc:0:7")
+check("[midi] removeMapping clears it", ctl.state().mappings["cc:0:7"] == null)
+// The mappable target list includes the globals + a per-channel gain for every track.
+let mtl = midiTargetList(loadDefaultDeckardProject().project)
+check("[midi] target list has globals + per-track gains", mtl.some(t => t.id === "bpm") && mtl.some(t => t.id === "xfade_x") && mtl.some(t => String(t.id).indexOf("track:") === 0))
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))

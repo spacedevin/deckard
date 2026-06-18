@@ -147,6 +147,21 @@ export fn deckVolumeFor(project, ch) {
   return v
 }
 
+/** Equal-power crossfader gain for a whole DECK (0=A,1=B,2=C,3=D), no per-channel volume. Lets a non-channel
+ *  source (the scratch deck) ride the same 4-way fader so it cuts with the decks. */
+export fn deckCrossfadeGain(project, deckIndex) {
+  let x = crossfadeValue(project)
+  let y = crossfadeValueY(project)
+  let gLeft = Math.cos((x * Math.PI) / 2)
+  let gRight = Math.sin((x * Math.PI) / 2)
+  let gTop = Math.cos((y * Math.PI) / 2)
+  let gBottom = Math.sin((y * Math.PI) / 2)
+  let idx = Math.floor(Number(deckIndex))
+  let gx = idx % 2 === 0 ? gLeft : gRight
+  let gy = idx < 2 ? gTop : gBottom
+  return gx * gy
+}
+
 /** Equal-power crossfader corner gain × the per-deck volume fader — the channel's full main-out multiplier. */
 export fn deckMainOutGainMultiplier(project, ch) {
   let x = crossfadeValue(project)

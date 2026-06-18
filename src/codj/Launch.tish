@@ -71,6 +71,22 @@ export fn throwDirective(sceneIdx) {
   return "@ throw " + String(Math.floor(Number(sceneIdx)))
 }
 
+/** Live FX throw (e.g. `@ fx echo on` / `@ fx echo off [time <s>] [fb <0..0.9>]`). Master-gated, broadcast
+ *  (NOT private) so every client hears the punch in sync. `on` engages, `off` releases into the decay. */
+export fn fxDirective(type, on, params) {
+  let t = String(type)
+  let s = on ? "on" : "off"
+  let p = params ? params : {}
+  let extra = ""
+  if (typeof p.time === "number" && p.time > 0) {
+    extra = extra + " time " + String(p.time)
+  }
+  if (typeof p.fb === "number") {
+    extra = extra + " fb " + String(p.fb)
+  }
+  return "@ fx " + t + " " + s + extra
+}
+
 // ---- detect ------------------------------------------------------------------------------------
 
 /** True when a trimmed line is a session-control directive (`@ launch|transport|cue|throw …`). */
@@ -82,7 +98,7 @@ export fn isLaunchDirective(line) {
   if (toks.length < 2 || toks[0] !== "@") {
     return false
   }
-  return toks[1] === "launch" || toks[1] === "transport" || toks[1] === "cue" || toks[1] === "throw"
+  return toks[1] === "launch" || toks[1] === "transport" || toks[1] === "cue" || toks[1] === "throw" || toks[1] === "fx"
 }
 
 /** A PRIVATE directive must never leave this machine (cue/preview are local-only). Used by the
@@ -197,6 +213,65 @@ export fn applyLaunchDirective(project, rt, line, actorId, skillIds) {
         rt.songScene = scene
         rt.songPos = null
       }
+    }
+    return true
+  }
+
+  // Cue: `@ cue <scene>` — audition a scene on your PRIVATE preview (local only, never broadcast). `@ cue off`
+  // un-cues (stops the audition). No master gate — your own headphones.
+  if (kind === "cue") {
+    if (toks.length >= 3 && toks[2] === "off") {
+      if (rt.onUncue) {
+        rt.onUncue()
+      }
+      return true
+    }
+    let target = toks.length >= 3 ? Math.floor(Number(toks[2])) : -1
+    let sc = Math.floor(Number(project.session.sceneCount))
+    if (target >= 0 && target < sc && target === target && rt.onCueScene) {
+      rt.onCueScene(target)
+    }
+    return true
+  }
+
+  // Throw: `@ throw [scene]` — commit the cued scene to the SHARED main (master-gated, broadcast). Falls
+  // back to the local rt.cueScene when no scene is given. Stops the private preview + goes live for everyone.
+  if (kind === "throw") {
+    if (!laneCanMaster(actorId, skillIds)) {
+      return true
+    }
+    let scene = toks.length >= 3 ? Math.floor(Number(toks[2])) : (rt.cueScene != null ? Math.floor(Number(rt.cueScene)) : -1)
+    let sc2 = Math.floor(Number(project.session.sceneCount))
+    if (scene >= 0 && scene < sc2 && scene === scene && rt.onThrowScene) {
+      rt.onThrowScene(scene)
+    }
+    return true
+  }
+
+  // Live FX throw: `@ fx <type> on|off [time <s>] [fb <f>]`. Master-gated, broadcast. Fires the audio via
+  // the rt hook (App wires it to the Engine's master FX unit) so the punch lands the same on every client.
+  if (kind === "fx") {
+    if (!laneCanMaster(actorId, skillIds)) {
+      return true
+    }
+    let type = toks.length >= 3 ? toks[2] : "echo"
+    let on = !(toks.length >= 4 && toks[3] === "off")
+    let params = {}
+    let fi = 4
+    while (fi + 1 < toks.length) {
+      let k = toks[fi]
+      let v = Number(toks[fi + 1])
+      if (v === v) {
+        if (k === "time") {
+          params.time = v
+        } else if (k === "fb") {
+          params.fb = v
+        }
+      }
+      fi = fi + 2
+    }
+    if (rt.triggerMasterFx) {
+      rt.triggerMasterFx(type, on, params)
     }
     return true
   }

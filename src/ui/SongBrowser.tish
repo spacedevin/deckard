@@ -1,0 +1,112 @@
+// SONG browser — a dedicated, searchable library of loadable songs (the catalog deck-sets + your saved
+// Sets). Each "song" is a full kit (stems + their patterns + arrangement); pick a deck A–D to load it there.
+// This is the deck-preset loader grown up into a real song selector. Loading routes through
+// rt.loadSongOntoDeck (catalog vs Set, BPM-follows-only-when-stopped).
+
+import { h, Fragment } from '@tishlang/lattish'
+import { deckSetCatalog } from '../model/DeckSets.tish'
+import { createSetLibrary, freeDecks } from '../core/SetLibrary.tish'
+
+// `q` / `setQ` are owned by App (so this stays a pure prop-driven component — safe to mount/unmount).
+export fn SongBrowser(project, rt, onClose, q, setQ) {
+  // Combined library: catalog songs (with genre + BPM) then user-saved Sets.
+  let songs = []
+  let cat = deckSetCatalog()
+  let i = 0
+  while (i < cat.length) {
+    let s = cat[i]
+    songs.push({ kind: "rack", key: s.id, name: s.name, sub: s.genre, bpm: s.bpm })
+    i = i + 1
+  }
+  let lib = createSetLibrary()
+  let sets = lib.list()
+  let si = 0
+  while (si < sets.length) {
+    if (!sets[si].factory) {
+      songs.push({ kind: "set", key: sets[si].name, name: sets[si].name, sub: String(sets[si].players) + " players", bpm: null })
+    }
+    si = si + 1
+  }
+
+  let ql = String(q).toLowerCase()
+  let filtered = []
+  let fi = 0
+  while (fi < songs.length) {
+    let sg = songs[fi]
+    if (ql.length === 0 || String(sg.name).toLowerCase().indexOf(ql) >= 0 || String(sg.sub).toLowerCase().indexOf(ql) >= 0) {
+      filtered.push(sg)
+    }
+    fi = fi + 1
+  }
+
+  // Which decks are free vs occupied (occupied ones are replaced on load).
+  let freeSet = {}
+  let free = freeDecks(project)
+  let fk = 0
+  while (fk < free.length) {
+    freeSet[free[fk]] = true
+    fk = fk + 1
+  }
+  let decks = ["A", "B", "C", "D"]
+
+  let rows = []
+  let ri = 0
+  while (ri < filtered.length) {
+    let sg = filtered[ri]
+    let deckBtns = []
+    let di = 0
+    while (di < decks.length) {
+      let d = decks[di]
+      let occ = freeSet[d] !== true
+      let dl = d === "B" ? "b" : (d === "C" ? "c" : (d === "D" ? "d" : "a"))
+      deckBtns.push(
+        <button
+          type="button"
+          class={occ ? "song-deck-btn song-deck-occ dk-acc-" + dl : "song-deck-btn dk-acc-" + dl}
+          title={(occ ? "Replace deck " + d + " with " : "Load onto deck " + d + ": ") + sg.name}
+          onclick={() => { if (rt && rt.loadSongOntoDeck) { rt.loadSongOntoDeck(sg.kind, sg.key, d) } }}
+        >
+          {d}
+        </button>
+      )
+      di = di + 1
+    }
+    rows.push(
+      <div class="song-row">
+        <div class="song-row-meta">
+          <span class="song-row-name">{sg.kind === "set" ? ("◆ " + sg.name) : sg.name}</span>
+          <span class="song-row-sub">{sg.sub}{sg.bpm != null ? (" · " + String(sg.bpm) + " BPM") : ""}</span>
+        </div>
+        <div class="song-row-decks">
+          <span class="song-row-load">{"LOAD →"}</span>
+          {deckBtns}
+        </div>
+      </div>
+    )
+    ri = ri + 1
+  }
+  if (filtered.length === 0) {
+    rows.push(<div class="song-empty">{"no songs match “" + String(q) + "”"}</div>)
+  }
+
+  return (
+    <div class="song-overlay" onmousedown={(e) => { if (e.target === e.currentTarget && onClose) { onClose() } }}>
+      <div class="song-panel">
+        <div class="song-panel-head">
+          <span class="song-panel-title">{"♫ SONGS"}</span>
+          <input
+            class="song-search"
+            type="text"
+            placeholder="search name / genre…"
+            value={q}
+            oninput={(e) => setQ(e.target.value)}
+          />
+          <span class="song-panel-count">{String(filtered.length) + " songs"}</span>
+          <button type="button" class="song-close" title="Close" onclick={() => { if (onClose) { onClose() } }}>{"✕"}</button>
+        </div>
+        <div class="song-list">{rows}</div>
+        <div class="song-hint">{"Pick a deck (A–D) to load a song's full kit + patterns onto it — occupied decks are replaced. The tempo follows the song only when nothing is playing."}</div>
+      </div>
+    </div>
+  )
+}

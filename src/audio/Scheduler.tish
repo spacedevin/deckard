@@ -15,6 +15,34 @@ export fn secondsPerStep(bpm) {
 }
 
 /**
+ * Swing: delay each ODD (off-beat) 16th step so the groove shuffles. Even steps (on-beats) are unchanged
+ * (returns 0); odd steps are delayed by `swing * secPerStep * 0.5` (so swing=1 = a half-step max). `swing`
+ * is clamped 0..1. The caller keeps the base grid (`nextStepSec`) un-swung, so this adds groove with ZERO
+ * accumulated drift and stays deterministic across co-DJ clients (parity is the shared global tick's).
+ */
+export fn swingOffsetSec(step, secPerStep, swing) {
+  let s = typeof swing === "number" ? swing : 0
+  if (s < 0) {
+    s = 0
+  }
+  if (s > 1) {
+    s = 1
+  }
+  if (s <= 0) {
+    return 0
+  }
+  let st = Math.floor(Number(step))
+  if (st % 2 !== 1) {
+    return 0
+  }
+  let sp = Number(secPerStep)
+  if (sp <= 0 || sp !== sp) {
+    return 0
+  }
+  return s * sp * 0.5
+}
+
+/**
  * Given the next step to play (`startStep` at audio-time `nextStepSec`), the current audio clock
  * (`ctxNow`), a `lookahead` window, and the per-step duration `secPerStep`, return the batch of
  * { step, when } to schedule now plus the advanced cursor. Self-correcting: `when` accumulates by

@@ -1,10 +1,12 @@
 // PlaylistView — the Set timeline: a recording of WHAT PLAYED. While the transport runs, every step's note
-// triggers (stepTriggers' output) are taped (the FULL set is still captured + replayable note-for-note —
-// the ghost). The DISPLAY is ONE continuous summarized waveform PER DECK (in the deck's colour): per step,
-// that deck's total trigger energy (summed velocities) drawn as a filled mirror envelope across the timeline.
+// triggers (stepTriggers' output) are taped (the FULL set is still captured + replayable note-for-note — the
+// ghost). The DISPLAY is ONE continuous summarized waveform PER DECK (in the deck's colour), drawn IMPERATIVELY
+// to a <canvas> per lane by drawSetWaveLane (called from scopeFrame off an incremental rt.tplEnergy map) — NOT
+// through the vdom. This component renders only the static chrome (head/ruler/labels/playhead/status) so a
+// 90-bar take never re-buckets the tape or rebuilds a giant SVG path on render; the waveform pixels live on
+// canvas and update at ~30fps independent of React.
 
 import { h, Fragment } from '@tishlang/lattish'
-import { channelDeck } from '../model/DeckRouting.tish'
 
 let BAR_PX = 26
 let STEPS_PER_BAR = 16
@@ -25,41 +27,27 @@ fn deckColorHex(deck) {
   return "#22d3ee"
 }
 
-// One deck's per-step energy -> a CONTINUOUS filled mirror envelope (sampled at every step 0..maxStep, silent
-// steps get a thin baseline, so it reads as one always-on recording, not separated bursts). Closed path.
-fn buildWaveD(energy, maxStep, maxE, waveH) {
-  let cy = waveH / 2
-  let half = (waveH - 6) / 2
-  let topD = ""
-  let botParts = []
-  let s = 0
-  while (s <= maxStep) {
-    let e = energy[String(s)] != null ? energy[String(s)] : 0
-    let amp = e / maxE
-    let hh = amp * half
-    if (hh < 1) {
-      hh = 1
-    }
-    let x = Math.round((s / STEPS_PER_BAR) * BAR_PX * 10) / 10
-    let yT = Math.round((cy - hh) * 10) / 10
-    let yB = Math.round((cy + hh) * 10) / 10
-    topD = s === 0 ? ("M" + String(x) + " " + String(yT)) : (topD + " L" + String(x) + " " + String(yT))
-    botParts.push(" L" + String(x) + " " + String(yB))
-    s = s + 1
-  }
-  let d = topD
-  let bpi = botParts.length - 1
-  while (bpi >= 0) {
-    d = d + botParts[bpi]
-    bpi = bpi - 1
-  }
-  return d + " Z"
-}
-
 export fn PlaylistView(project, rt, props) {
   let p = props ? props : {}
   let tape = rt && Array.isArray(rt.tplTape) ? rt.tplTape : []
   let recordings = Array.isArray(p.recordings) ? p.recordings : []
+
+  // Deck remap (a channel changed deck/owner → channelsRev bumped): the incremental tplEnergy assigned past
+  // triggers to the OLD decks, so re-fold the whole tape once with the fresh roster. Fires exactly once per
+  // channelsRev change (and only when there's tape to re-fold), via a baseline stored on rt.
+  if (rt) {
+    if (rt.tplViewChannelsRev !== p.channelsRev) {
+      rt.tplViewChannelsRev = p.channelsRev
+      if (tape.length > 0 && p.rebuildTplEnergy) {
+        p.rebuildTplEnergy()
+      }
+    }
+  }
+
+  let energy = rt && rt.tplEnergy ? rt.tplEnergy : { A: {}, B: {}, C: {}, D: {}, maxStep: 0, maxE: 1, totalNotes: 0 }
+  let active = rt && rt.tplActiveDecks ? rt.tplActiveDecks : { A: false, B: false, C: false, D: false }
+  let maxStep = energy.maxStep != null ? energy.maxStep : 0
+  let totalNotes = energy.totalNotes != null ? energy.totalNotes : 0
 
   // Direct-DOM playhead mover (re-asserted every rAF by the transport.position subscriber in App).
   if (rt) {
@@ -91,48 +79,6 @@ export fn PlaylistView(project, rt, props) {
     }
   }
 
-  // Bucket trigger energy per DECK per step: each trigger's busIndex -> channel -> deck, summed velocity.
-  // A shared maxE across all decks keeps the four waveforms on the same scale (a busier deck reads bigger).
-  let deckEnergy = { A: {}, B: {}, C: {}, D: {} }
-  let maxStep = 0
-  let totalNotes = 0
-  let maxE = 1
-  let ti = 0
-  while (ti < tape.length) {
-    let e = tape[ti]
-    if (e.step > maxStep) {
-      maxStep = e.step
-    }
-    let trs = e.triggers != null ? e.triggers : []
-    let k = 0
-    while (k < trs.length) {
-      let bus = Math.floor(Number(trs[k].busIndex))
-      let dk = "A"
-      if (project && project.channels && bus >= 0 && bus < project.channels.length) {
-        let ch = project.channels[bus]
-        if (ch) {
-          dk = channelDeck(project, ch)
-        }
-      }
-      if (deckEnergy[dk] == null) {
-        dk = "A"
-      }
-      let vel = trs[k].vel != null ? Number(trs[k].vel) : 100
-      if (vel !== vel || vel <= 0) {
-        vel = 100
-      }
-      let cur = deckEnergy[dk][e.step] != null ? deckEnergy[dk][e.step] : 0
-      let tot = cur + vel
-      deckEnergy[dk][e.step] = tot
-      if (tot > maxE) {
-        maxE = tot
-      }
-      totalNotes = totalNotes + 1
-      k = k + 1
-    }
-    ti = ti + 1
-  }
-
   let gridBars = Math.ceil((maxStep + 1) / STEPS_PER_BAR) + 2
   if (gridBars < MIN_BARS) {
     gridBars = MIN_BARS
@@ -151,29 +97,25 @@ export fn PlaylistView(project, rt, props) {
     b = b + 1
   }
 
-  // ---- one continuous filled waveform PER DECK, in the deck colour ----
-  let cyD = DECK_WAVE_H / 2
+  // ---- one canvas lane PER DECK that has produced sound (drawn imperatively by drawSetWaveLane in scopeFrame) ----
   let rows = []
   let decks = ["A", "B", "C", "D"]
   let hasData = false
   let di = 0
   while (di < decks.length) {
     let dk = decks[di]
-    let en = deckEnergy[dk]
-    if (Object.keys(en).length > 0) {
+    if (active[dk] === true) {
       hasData = true
       let col = deckColorHex(dk)
-      let waveD = buildWaveD(en, maxStep, maxE, DECK_WAVE_H)
+      // The canvas has NO width/height in the vnode — drawSetWaveLane owns its size + pixels imperatively, so
+      // memo re-renders never touch (and never clear) it. The track div carries the scroll extent + gridlines.
       rows.push(
         <div class="pl-lane pl-wave-lane">
           <div class="pl-lane-label pl-deck-label" style={{ color: col, borderColor: col, height: String(DECK_WAVE_H) + "px" }} title={"Deck " + dk}>
             {"DECK " + dk}
           </div>
           <div class="pl-lane-track pl-wave-track" style={{ width: String(laneWidth) + "px", height: String(DECK_WAVE_H) + "px" }}>
-            <svg class="pl-wave" width={String(laneWidth)} height={String(DECK_WAVE_H)} preserveAspectRatio="none">
-              <line class="pl-wave-center" x1="0" y1={String(cyD)} x2={String(laneWidth)} y2={String(cyD)} />
-              <path class="pl-wave-path" d={waveD} style={{ fill: col + "80", stroke: col }} />
-            </svg>
+            <canvas class={"pl-wave-cv pl-wave-cv-" + dk}></canvas>
           </div>
         </div>
       )
@@ -184,6 +126,12 @@ export fn PlaylistView(project, rt, props) {
     rows.push(
       <div class="pl-empty-hint">{"hit Play (Sequence or Session) — whatever plays is captured here, then Save it as a replayable Set"}</div>
     )
+  }
+
+  // The canvases above may have been freshly (re)created by memo — re-assert a repaint on the next scopeFrame so
+  // they're filled from rt.tplEnergy (same re-assert-after-render discipline the playhead relies on).
+  if (rt) {
+    rt.tplWaveDirty = true
   }
 
   // ---- recordings dropdown ----

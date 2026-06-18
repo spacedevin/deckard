@@ -163,6 +163,126 @@ export fn busPeakLevel(analyser) {
   return lvl
 }
 
+// Deck colour for the Set Recorder lanes (kept in sync with PlaylistView.deckColorHex).
+fn setLaneColorHex(deck) {
+  if (deck === "B") {
+    return "#e879f9"
+  }
+  if (deck === "C") {
+    return "#f59e0b"
+  }
+  if (deck === "D") {
+    return "#4ade80"
+  }
+  return "#22d3ee"
+}
+
+/** Set Recorder lane: one deck's per-step energy (summed velocity, keyed by take-relative step in `energy[deck]`)
+ *  drawn as a filled mirror-envelope in the deck colour. A FULL repaint from `energy` every call — the canvas
+ *  width grows with the take so its bitmap is cleared on resize anyway, making incremental append pointless; but
+ *  this is cheap 2D line drawing called at most ~30fps from scopeFrame (never on the audio scheduler path). The
+ *  canvas is sized imperatively here (CSS + HiDPI bitmap) so vdom re-renders never touch its size or content.
+ *  `laneH` matches PlaylistView.DECK_WAVE_H (42); barPx/stepsPerBar match BAR_PX/STEPS_PER_BAR (26/16). */
+export fn drawSetWaveLane(canvas, energy, deck, barPx, stepsPerBar) {
+  if (!canvas || !energy || typeof window === "undefined") {
+    return
+  }
+  let dpr = 1
+  if (window.devicePixelRatio) {
+    dpr = window.devicePixelRatio
+  }
+  if (dpr > 2.5) {
+    dpr = 2.5
+  }
+  let laneH = 42
+  let maxStep = energy.maxStep != null ? energy.maxStep : 0
+  // Defence-in-depth: this runs every dirty frame, so a bad maxStep (NaN, or an absurd value from a corrupt
+  // loaded Set) would loop millions of times / size a giant canvas. Clamp to a sane bound.
+  if (!(maxStep >= 0)) {
+    maxStep = 0
+  }
+  if (maxStep > 131072) {
+    maxStep = 131072
+  }
+  let cssW = Math.max(8, Math.ceil(((maxStep + 1) / stepsPerBar) * barPx))
+  // Own the layout size (CSS px) AND the backing bitmap (CSS px * dpr) imperatively. Setting canvas.width/height
+  // clears the bitmap, so only touch them when they actually changed (the Scope.tish convention).
+  let bw = Math.max(1, Math.floor(cssW * dpr))
+  let bh = Math.max(1, Math.floor(laneH * dpr))
+  if (canvas.width !== bw || canvas.height !== bh) {
+    canvas.width = bw
+    canvas.height = bh
+  }
+  let wantW = String(cssW) + "px"
+  let wantH = String(laneH) + "px"
+  if (canvas.style.width !== wantW) {
+    canvas.style.width = wantW
+  }
+  if (canvas.style.height !== wantH) {
+    canvas.style.height = wantH
+  }
+  let ctx2 = canvas.getContext("2d")
+  if (!ctx2) {
+    return
+  }
+  ctx2.setTransform(dpr, 0, 0, dpr, 0, 0)
+  let w = cssW
+  let h = laneH
+  ctx2.clearRect(0, 0, w, h)
+  let cy = h / 2
+  // Faint centre line (drawn here rather than CSS so it sits under the fill at the exact bitmap centre).
+  ctx2.strokeStyle = "rgba(255,255,255,0.07)"
+  ctx2.lineWidth = 1
+  ctx2.beginPath()
+  ctx2.moveTo(0, cy)
+  ctx2.lineTo(w, cy)
+  ctx2.stroke()
+  let en = energy[deck]
+  if (!en) {
+    return
+  }
+  let maxE = energy.maxE != null && energy.maxE > 0 ? energy.maxE : 1
+  let half = (h - 6) / 2
+  // One closed path: top edge L->R, bottom edge R->L = a filled mirror envelope. Silent steps floor at 1px so
+  // the recording reads as one continuous always-on line, not separated bursts.
+  ctx2.beginPath()
+  let s = 0
+  while (s <= maxStep) {
+    let e = en[String(s)] != null ? en[String(s)] : 0
+    let hh = (e / maxE) * half
+    if (hh < 1) {
+      hh = 1
+    }
+    let x = (s / stepsPerBar) * barPx
+    let yT = cy - hh
+    if (s === 0) {
+      ctx2.moveTo(x, yT)
+    } else {
+      ctx2.lineTo(x, yT)
+    }
+    s = s + 1
+  }
+  let s2 = maxStep
+  while (s2 >= 0) {
+    let e2 = en[String(s2)] != null ? en[String(s2)] : 0
+    let hh2 = (e2 / maxE) * half
+    if (hh2 < 1) {
+      hh2 = 1
+    }
+    let x2 = (s2 / stepsPerBar) * barPx
+    ctx2.lineTo(x2, cy + hh2)
+    s2 = s2 - 1
+  }
+  ctx2.closePath()
+  let col = setLaneColorHex(deck)
+  ctx2.fillStyle = col + "80"
+  ctx2.fill()
+  ctx2.strokeStyle = col
+  ctx2.lineWidth = 0.75
+  ctx2.lineJoin = "round"
+  ctx2.stroke()
+}
+
 export fn drawScopeCanvas(canvas, analyser) {
   if (!canvas || !analyser) {
     return

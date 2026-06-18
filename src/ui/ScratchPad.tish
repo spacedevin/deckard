@@ -1,0 +1,127 @@
+// Scratch pad — grab a DECK's loop (its actual music, rendered to a buffer) and rub it: the jog wheel drives
+// the scratch worklet's signed read-rate (forward, back, reverse). No movement = silence (you're the motor).
+// While you hold the platter, that deck's LIVE output ducks, so the scratch REPLACES the deck instead of
+// layering noise over it. The output rides the deck's crossfader gain, so the 4-way fader cuts it too.
+// Hook-free (pure props) so it's safe to mount/unmount as an overlay. All audio is via rt.scratch* hooks.
+
+import { h, Fragment } from '@tishlang/lattish'
+
+export fn ScratchPad(rt, project, onClose, loadedName, deckIdx, volume) {
+  let curIdx = deckIdx != null ? Math.floor(Number(deckIdx)) : 0
+  let curLetter = curIdx === 1 ? "B" : (curIdx === 2 ? "C" : (curIdx === 3 ? "D" : "A"))
+
+  fn angleOf(e, el) {
+    let r = el.getBoundingClientRect()
+    let cx = r.left + r.width / 2
+    let cy = r.top + r.height / 2
+    return Math.atan2(e.clientY - cy, e.clientX - cx)
+  }
+  // Grab the platter: each frame the rate = how far you spun it that frame (so STOP moving = silence). A
+  // direct-DOM marker rotation gives feedback without React state. Grabbing DUCKS the deck's live output so
+  // the scratch replaces it; releasing un-ducks.
+  fn onWheelDown(e) {
+    if (e.preventDefault) {
+      e.preventDefault()
+    }
+    let el = e.currentTarget
+    let marker = el.querySelector ? el.querySelector(".scratch-marker") : null
+    let active = true
+    let lastAngle = angleOf(e, el)
+    let accum = 0
+    let rot = 0
+    let GAIN = 7
+    if (rt && rt.scratchDuck) {
+      rt.scratchDuck(true)
+    }
+    fn frame() {
+      if (!active) {
+        return
+      }
+      let rate = accum * GAIN
+      accum = 0
+      if (rt && rt.scratchRate) {
+        rt.scratchRate(rate)
+      }
+      requestAnimationFrame(frame)
+    }
+    requestAnimationFrame(frame)
+    fn move(ev) {
+      let a = angleOf(ev, el)
+      let d = a - lastAngle
+      if (d > Math.PI) {
+        d = d - 2 * Math.PI
+      }
+      if (d < 0 - Math.PI) {
+        d = d + 2 * Math.PI
+      }
+      accum = accum + d
+      lastAngle = a
+      rot = rot + d
+      if (marker) {
+        marker.style.transform = "translateX(-50%) rotate(" + String(rot) + "rad)"
+      }
+    }
+    fn up() {
+      active = false
+      if (rt && rt.scratchRate) {
+        rt.scratchRate(0)
+      }
+      if (rt && rt.scratchDuck) {
+        rt.scratchDuck(false)
+      }
+      document.removeEventListener("mousemove", move)
+      document.removeEventListener("mouseup", up)
+    }
+    document.addEventListener("mousemove", move)
+    document.addEventListener("mouseup", up)
+  }
+
+  let decks = ["A", "B", "C", "D"]
+  let deckBtns = []
+  let di = 0
+  while (di < decks.length) {
+    let d = decks[di]
+    let idx = di
+    let dl = d === "B" ? "b" : (d === "C" ? "c" : (d === "D" ? "d" : "a"))
+    let on = curIdx === idx
+    deckBtns.push(
+      <button
+        type="button"
+        class={on ? "scratch-deck-btn scratch-deck-on dk-acc-" + dl : "scratch-deck-btn dk-acc-" + dl}
+        title={"Scratch deck " + d + "'s loop (and cut it on the 4-way fader)"}
+        onclick={() => { if (rt && rt.scratchSetDeck) { rt.scratchSetDeck(idx) } }}
+      >
+        {d}
+      </button>
+    )
+    di = di + 1
+  }
+
+  return (
+    <div class="scratch-overlay" onmousedown={(e) => { if (e.target === e.currentTarget && onClose) { onClose() } }}>
+      <div class="scratch-panel">
+        <div class="scratch-head">
+          <span class="scratch-title">{"▤ SCRATCH"}</span>
+          <button type="button" class="song-close" title="Close" onclick={() => { if (onClose) { onClose() } }}>{"✕"}</button>
+        </div>
+        <div class="scratch-load-row">
+          <button type="button" class="scratch-load" title="Re-grab this deck's current loop (do this after you change its pattern)" onclick={() => { if (rt && rt.scratchLoadDeckLoop) { rt.scratchLoadDeckLoop() } }}>{"⟳ GRAB DECK " + curLetter}</button>
+          <span class={loadedName ? "scratch-loaded scratch-loaded-on" : "scratch-loaded"}>{loadedName ? ("● " + String(loadedName)) : "no loop — pick a deck"}</span>
+        </div>
+        <div class="scratch-wheel" onmousedown={onWheelDown} title="Grab + rub — forward, back, reverse. No movement = silence. The deck ducks while you rub.">
+          <div class="scratch-marker" />
+          <div class="scratch-hub" />
+        </div>
+        <div class="scratch-row">
+          <span class="scratch-lbl">{"SCRATCH DECK"}</span>
+          {deckBtns}
+        </div>
+        <div class="scratch-row">
+          <span class="scratch-lbl">{"VOL"}</span>
+          <input type="range" class="scratch-vol" min="0" max="1.2" step="0.01" value={String(volume != null ? volume : 0.85)} oninput={(e) => { if (rt && rt.scratchSetVolume) { rt.scratchSetVolume(Number(e.target.value)) } }} />
+        </div>
+        <div class="scratch-hint">{"Pick a deck to scratch its LOOP, then grab the platter and rub — forward, back, even reverse. No movement = silence (you're the motor). While you hold it the deck ducks, so the scratch replaces the deck; the 4-way crossfader still cuts it."}</div>
+      </div>
+    </div>
+  )
+}

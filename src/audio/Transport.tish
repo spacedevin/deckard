@@ -6,6 +6,8 @@
 //   "transport.health"    -> { target, trueBpm, marginMs, underruns }
 // App subscribes to those to drive the playhead / grid / BPM readout. See [[transport-clock-architecture]].
 
+import { swingOffsetSec } from './Scheduler.tish'
+
 export fn createTransport(audioStore, signals) {
   let LOOKAHEAD_SEC = 0.1
   let globalTick = 0
@@ -52,13 +54,18 @@ export fn createTransport(audioStore, signals) {
     let horizon = now + LOOKAHEAD_SEC
     let safety = 0
     while (nextStepSec < horizon && safety < 256) {
-      if (nextStepSec < now) {
+      let sp = cfg.secPerStep()
+      // Swing delays the off-beat 16ths for groove; the base grid (nextStepSec) stays un-swung so there's
+      // no accumulated drift and the playhead matches the audible time.
+      let sw = cfg.swing ? cfg.swing() : 0
+      let playAt = nextStepSec + swingOffsetSec(globalTick, sp, sw)
+      if (playAt < now) {
         underruns = underruns + 1
       }
-      let stop = cfg.onStep(globalTick, nextStepSec)
-      drawQueue.push({ step: globalTick, when: nextStepSec })
+      let stop = cfg.onStep(globalTick, playAt)
+      drawQueue.push({ step: globalTick, when: playAt })
       globalTick = globalTick + 1
-      nextStepSec = nextStepSec + cfg.secPerStep()
+      nextStepSec = nextStepSec + sp
       safety = safety + 1
       if (stop === true) {
         teardown()

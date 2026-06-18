@@ -322,7 +322,6 @@ fn DeckChannelStrip(project, deck, setProjectFromUI, touchMixer, rt) {
       >
         {"CUE"}
       </button>
-      <span class={"dk-ch-tag " + acc}>{deck}</span>
       <div class="dk-ch-vol">
         <div class="dk-lever">
           {vertLeverEl(vol, accentColor, setVol)}
@@ -471,6 +470,40 @@ export fn DeckMixer(project, setProjectFromUI, touchMixer, rt) {
             {h(DeckChannelStripMemo, stripProps("D"))}
           </div>
           <div class="dk-xfade">
+            <div class="dk-fx-row">
+              <span class="dk-fx-label">{"FX"}</span>
+              <select
+                class="dk-fx-div"
+                title="Echo time — beat-synced to the tempo so the repeats land on the grid."
+                onmousedown={(e) => e.stopPropagation()}
+                onchange={(e) => { if (rt) { rt.fxBeatDiv = Number(e.target.value) } }}
+              >
+                <option value="0.5">{"1/8"}</option>
+                <option value="0.75" selected={true}>{"3/16"}</option>
+                <option value="1">{"1/4"}</option>
+                <option value="2">{"1/2"}</option>
+              </select>
+              <button
+                type="button"
+                class="dk-fx-throw"
+                title="ECHO throw — HOLD to punch a tempo-synced master echo into the mix, release to let it ring out (hotkey: hold E). Master only."
+                onmousedown={(e) => { if (e.preventDefault) { e.preventDefault() } if (rt && rt.onFxThrow) { rt.onFxThrow("echo", true) } }}
+                onmouseup={() => { if (rt && rt.onFxThrow) { rt.onFxThrow("echo", false) } }}
+                onmouseleave={() => { if (rt && rt.onFxThrow) { rt.onFxThrow("echo", false) } }}
+              >
+                {"ECHO"}
+              </button>
+              <button
+                type="button"
+                class="dk-fx-throw"
+                title="FILTER throw — HOLD to sweep a master lowpass down over the mix, release to open it back up (hotkey: hold F). Master only."
+                onmousedown={(e) => { if (e.preventDefault) { e.preventDefault() } if (rt && rt.onFxThrow) { rt.onFxThrow("filter", true) } }}
+                onmouseup={() => { if (rt && rt.onFxThrow) { rt.onFxThrow("filter", false) } }}
+                onmouseleave={() => { if (rt && rt.onFxThrow) { rt.onFxThrow("filter", false) } }}
+              >
+                {"FILTER"}
+              </button>
+            </div>
             <div class="dk-xfade-labels">
               <span class="dk-xfade-mid">{"4-WAY FADER"}</span>
             </div>

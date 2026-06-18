@@ -4,6 +4,7 @@ import { generatorChannelAtBeat } from './ParamAtBeat.tish'
 import { expandTriggerNotes } from './NoteExpand.tish'
 import { tplLoopOnBarBoundary, tplLoopSkipsChannel } from '../tpl/LoopState.tish'
 import { playbackClipForChannel, clipPatternSpanSteps } from '../model/Session.tish'
+import { channelDeck } from '../model/DeckRouting.tish'
 
 /**
  * PURE note selection: which notes fire at `globalStep`, given ONLY the fold (project) + the performance
@@ -93,6 +94,72 @@ export fn stepTriggers(project, rt, globalStep) {
     bi = bi + 1
   }
   return out
+}
+
+/**
+ * Render ONE deck's pattern loop to a mono Float32Array OFFLINE — this is the scratch source, so scratching
+ * manipulates the DECK's actual music (not a one-shot voice layered on top). We reuse the real sequencer:
+ * `stepTriggers` with `cuedDecks:{[deck]:true}` makes that deck's channels audible regardless of the
+ * crossfader/main-deck (the PFL path), and we keep only triggers whose channel is ON this deck — so the
+ * buffer is exactly what that deck plays for `bars` bars, ready to be wrapped/scratched as a loop.
+ * Returns Promise<{data, sampleRate}>|null (null = no audio engine, or the deck is empty).
+ */
+export fn renderDeckLoopToBuffer(project, deck, bars) {
+  if (typeof OfflineAudioContext === "undefined" || !project || !project.channels) {
+    return null
+  }
+  let bpm = project.bpm != null && project.bpm > 0 ? project.bpm : 120
+  let stepSec = 60 / bpm / 4
+  let nbars = bars != null && Math.floor(Number(bars)) >= 1 ? Math.floor(Number(bars)) : 1
+  let totalSteps = nbars * 16
+  let sr = 44100
+  let tailSec = 0.55
+  let len = Math.floor(sr * (totalSteps * stepSec + tailSec))
+  if (len < 2) {
+    return null
+  }
+  // Which channels belong to this deck → an offline bus each (all summed into the mono destination).
+  let buses = {}
+  let any = false
+  let octx = new OfflineAudioContext(1, len, sr)
+  let ci = 0
+  while (ci < project.channels.length) {
+    if (channelDeck(project, project.channels[ci]) === deck) {
+      buses[ci] = { input: octx.destination, reverbSend: null }
+      any = true
+    }
+    ci = ci + 1
+  }
+  if (!any) {
+    return null
+  }
+  // Cue THIS deck so its channels fire regardless of the crossfader / main-deck gate.
+  let cd = { A: false, B: false, C: false, D: false }
+  cd[deck] = true
+  let rrt = { playMode: "sequence", cuedDecks: cd }
+  let s = 0
+  while (s < totalSteps) {
+    let trigs = stepTriggers(project, rrt, s)
+    let t = s * stepSec
+    let k = 0
+    while (k < trigs.length) {
+      let tr = trigs[k]
+      let bus = buses[tr.busIndex]
+      if (bus != null) {
+        let ch = project.channels[tr.busIndex]
+        let gch = generatorChannelAtBeat(project, ch, tr.beat)
+        let tWhen = tr.noteOffset != null ? t + tr.noteOffset : t
+        playHitAt(octx, bus, tWhen, tr.pitch, tr.vel, tr.durSec, gch, 0)
+      }
+      k = k + 1
+    }
+    s = s + 1
+  }
+  return octx.startRendering().then((rendered) => {
+    return { data: rendered.getChannelData(0), sampleRate: sr }
+  }, (e) => {
+    return null
+  })
 }
 
 export fn transportTick(project, store, globalStep, rt, whenSec) {

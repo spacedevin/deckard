@@ -14,6 +14,17 @@ export fn createDeckardRuntime() {
     tplStartState: null,
     tplTapeStartStep: 0,
     tplRecMode: "song",
+    // Set Recorder waveform: an incremental per-deck energy accumulator (summed velocity per take-relative
+    // step) folded once per played step, then drawn imperatively to four <canvas> from the scopeFrame rAF —
+    // NOT through the vdom — so the audio scheduler hot path stays paint-free and a 90-bar take never hitches.
+    // tplWaveDirty coalesces repaints to <=1/frame; tplDeckOfBus caches busIndex->deck (rebuilt only when the
+    // channel roster changes); tplActiveDecks tracks which deck lanes have produced sound (gates lane mount).
+    tplEnergy: { A: {}, B: {}, C: {}, D: {}, maxStep: 0, maxE: 1, totalNotes: 0 },
+    tplWaveDirty: false,
+    tplDeckOfBus: null,
+    tplDeckOfBusProj: null,
+    tplDeckOfBusRev: -1,
+    tplActiveDecks: { A: false, B: false, C: false, D: false },
     updateTimelinePlayhead: null,
     selectedCh: 0,
     setSelectedCh: null,

@@ -1,0 +1,54 @@
+// Set Recorder waveform accumulator (PURE — no audio, no DOM, no rt). The recorder folds each played step's
+// note triggers into a per-deck energy map (summed velocity, keyed by take-relative step) so the timeline
+// canvas can be repainted in O(maxStep) without ever re-scanning the whole tape. Kept here, pure + exported,
+// so the fold/reset logic is unit-testable (the App wires it to rt + drives drawSetWaveLane from scopeFrame).
+
+/** A fresh, empty energy map: per-deck step→summed-velocity dictionaries + running aggregates. */
+export fn freshSetEnergy() {
+  return { A: {}, B: {}, C: {}, D: {}, maxStep: 0, maxE: 1, totalNotes: 0 }
+}
+
+/** A fresh "which decks have produced sound" flag set (gates lane-canvas mounting). */
+export fn freshActiveDecks() {
+  return { A: false, B: false, C: false, D: false }
+}
+
+/**
+ * Fold one played step's triggers into `energy` (+ mark `activeDecks`). `deckOfBus` is a busIndex→deck-letter
+ * array (channels off-deck still resolve to "A" so nothing is dropped). Velocity is sanitized (NaN/<=0 → 100,
+ * matching the live trigger default). Returns true if a deck produced its FIRST sound this step — the caller
+ * uses that to mount the new lane (a one-off re-render) without re-rendering every bar.
+ */
+export fn foldSetEnergyStep(energy, activeDecks, deckOfBus, step, trs) {
+  let triggers = trs != null ? trs : []
+  if (step > energy.maxStep) {
+    energy.maxStep = step
+  }
+  let key = String(step)
+  let newLane = false
+  let k = 0
+  while (k < triggers.length) {
+    let bus = Math.floor(Number(triggers[k].busIndex))
+    let dk = (deckOfBus != null && bus >= 0 && bus < deckOfBus.length && deckOfBus[bus] != null) ? deckOfBus[bus] : "A"
+    if (energy[dk] == null) {
+      dk = "A"
+    }
+    let vel = triggers[k].vel != null ? Number(triggers[k].vel) : 100
+    if (vel !== vel || vel <= 0) {
+      vel = 100
+    }
+    let cur = energy[dk][key] != null ? energy[dk][key] : 0
+    let tot = cur + vel
+    energy[dk][key] = tot
+    if (tot > energy.maxE) {
+      energy.maxE = tot
+    }
+    energy.totalNotes = energy.totalNotes + 1
+    if (activeDecks[dk] !== true) {
+      activeDecks[dk] = true
+      newLane = true
+    }
+    k = k + 1
+  }
+  return newLane
+}

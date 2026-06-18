@@ -19,7 +19,11 @@ export fn TransportBar(
   mainDeck,
   onDeckMain,
   launchQuant,
-  onLaunchQuant
+  onLaunchQuant,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo
 ) {
   // Preview = audition the rack on its OWN clock (separate, never live). The Sequence | Session toggle
   // + Play are the LIVE transport: both modes share one clock; flip between them live, no restart.
@@ -65,6 +69,13 @@ export fn TransportBar(
       </label>
       <span class="bpm-debug ok" title={"Transport health — TGT: target bpm · TRUE: measured bpm · BUF: scheduler lookahead headroom (lower = closer to dropping) · ✕N: audio underruns"}>{"TGT — · TRUE — · BUF —"}</span>
       <span class="transport-spacer" />
+      <button class="btn-ghost btn-undo" disabled={!canUndo} onclick={onUndo} title={"Undo (Cmd/Ctrl+Z) — reverts mixer / FX / BPM / crossfader / swing edits (step & note edits aren't undoable yet)"}>
+        {"↶"}
+      </button>
+      <button class="btn-ghost btn-undo" disabled={!canRedo} onclick={onRedo} title={"Redo (Cmd/Ctrl+Shift+Z)"}>
+        {"↷"}
+      </button>
+      <span class="transport-div" />
       <button class="btn-ghost" onclick={onExport}>
         {"Export JSON"}
       </button>

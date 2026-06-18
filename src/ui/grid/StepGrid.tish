@@ -418,6 +418,12 @@ fn handleBarWheel(e, rt, gridBars) {
 
 export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt, headerRight) {
   let gridBars = gridBarsForProject(project)
+  // Swing groove: a 0..60% shuffle on the off-beat 16ths. Edits via rt.emit("swing", v) → the `swing`
+  // address round-trips + broadcasts; the scheduler (swingOffsetSec) delays odd steps by it.
+  let swingVal = (project && typeof project.swing === "number") ? project.swing : 0
+  let swingPct = Math.round(swingVal * 100)
+  let swingDown = Math.round(Math.max(0, swingVal - 0.05) * 100) / 100
+  let swingUp = Math.round(Math.min(0.6, swingVal + 0.05) * 100) / 100
   let viewBar = 0
   if (rt != null && rt.gridViewBar != null) {
     viewBar = Math.floor(rt.gridViewBar)
@@ -609,6 +615,27 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
             {"FOLLOW"}
           </button>
         ) : null}
+        <span class="sg-barpager-sep">{"·"}</span>
+        <span class="sg-barpager-label" title="Swing — shuffle the off-beat 16ths (groove). 0% = straight.">{"SWING"}</span>
+        <button
+          type="button"
+          class="sg-barbtn sg-barbtn-mod"
+          title="Less swing"
+          disabled={swingPct <= 0}
+          onclick={() => { if (rt && rt.emit) { rt.emit("swing", swingDown); if (rt.bumpGrid) { rt.bumpGrid() } } }}
+        >
+          {"−"}
+        </button>
+        <span class="sg-barpager-count">{String(swingPct) + "%"}</span>
+        <button
+          type="button"
+          class="sg-barbtn sg-barbtn-mod"
+          title="More swing (shuffle the off-beats)"
+          disabled={swingPct >= 60}
+          onclick={() => { if (rt && rt.emit) { rt.emit("swing", swingUp); if (rt.bumpGrid) { rt.bumpGrid() } } }}
+        >
+          {"+"}
+        </button>
       </div>
       <div class="sg-grid" onwheel={(e) => handleBarWheel(e, rt, gridBars)}>{rows}</div>
       <div class="sg-ruler">

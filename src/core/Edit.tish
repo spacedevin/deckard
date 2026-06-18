@@ -218,21 +218,147 @@ export fn fragmentForEdit(project, address, value) {
 }
 
 /**
- * Bind fragmentForEdit + ingest into the UI's two write verbs:
- *   emit(address, value)  — addressed document edit
- *   directive(line)       — a raw `@ …` control line (cue/throw/transport/launch)
- * `ctxProvider()` returns the local actor ctx {actorId, skillIds, …}. Both go through the one door.
+ * Read the CURRENT scalar at an undoable address (the same fields fragmentForEdit re-emits), so the inverse
+ * of an edit is `fragmentForEdit(project, address, readAddr(...))` — the owning statement as it stands now.
+ * Returns `undefined` for addresses that aren't cleanly reversible (gen/adsr/deck/steps/launch_quant/…) —
+ * those are simply not pushed onto the undo stack ("undo only in places").
+ */
+export fn readAddr(project, address) {
+  let parts = String(address).split("/")
+  let head = parts[0]
+  if (head === "bpm") {
+    return project.bpm != null ? project.bpm : 120
+  }
+  if (head === "swing") {
+    return project.swing != null ? project.swing : 0
+  }
+  if (head === "xfade") {
+    let x = project.transportCrossfade != null ? project.transportCrossfade : 0.5
+    let y = project.transportCrossfadeY != null ? project.transportCrossfadeY : 0.5
+    return [x, y]
+  }
+  if (head === "master" && parts.length >= 2) {
+    let mm = project.masterMixer ? project.masterMixer : {}
+    let p = parts[1]
+    if (p === "eq_lo") { return mm.eqLo != null ? mm.eqLo : 0 }
+    if (p === "eq_mid") { return mm.eqMid != null ? mm.eqMid : 0 }
+    if (p === "eq_hi") { return mm.eqHi != null ? mm.eqHi : 0 }
+    if (p === "comp") { return mm.compEnabled !== false }
+    if (p === "reverb") { return mm.reverbEnabled !== false }
+    return undefined
+  }
+  if (head === "actor" && parts.length >= 3) {
+    let am = (project.actorMixer && project.actorMixer[parts[1]]) ? project.actorMixer[parts[1]] : {}
+    let p = parts[2]
+    if (p === "gain") { return am.gain != null ? am.gain : 1 }
+    if (p === "eq_lo") { return am.eqLo != null ? am.eqLo : 0 }
+    if (p === "eq_mid") { return am.eqMid != null ? am.eqMid : 0 }
+    if (p === "eq_hi") { return am.eqHi != null ? am.eqHi : 0 }
+    if (p === "mute") { return am.mute === true }
+    if (p === "solo") { return am.solo === true }
+    return undefined
+  }
+  if (head === "track" && parts.length >= 4) {
+    let ch = findChannelById(project, parts[1])
+    if (!ch) {
+      return undefined
+    }
+    let section = parts[2]
+    let p = parts[3]
+    if (section === "mix") {
+      if (p === "gain") { return ch.gain != null ? ch.gain : 0.85 }
+      if (p === "pan") { return ch.pan != null ? ch.pan : 0 }
+      if (p === "mute") { return ch.mute === true }
+      if (p === "solo") { return ch.solo === true }
+      if (p === "eq_lo") { return ch.eqLo != null ? ch.eqLo : 0 }
+      if (p === "eq_mid") { return ch.eqMid != null ? ch.eqMid : 0 }
+      if (p === "eq_hi") { return ch.eqHi != null ? ch.eqHi : 0 }
+    }
+    if (section === "fx") {
+      if (p === "reverb" || p === "reverb_send") { return ch.reverbSend != null ? ch.reverbSend : 0 }
+      if (p === "drive") { return ch.drive != null ? ch.drive : 0 }
+      if (p === "lfo_rate") { return ch.lfoRate != null ? ch.lfoRate : 0 }
+      if (p === "lfo_depth") { return ch.lfoDepth != null ? ch.lfoDepth : 0 }
+      if (p === "cutoff") { return ch.filterCutoff != null ? ch.filterCutoff : 8000 }
+      if (p === "res") { return ch.filterQ != null ? ch.filterQ : 1 }
+    }
+    if (section === "voice") {
+      if (p === "octave") { return ch.octave != null ? Math.floor(ch.octave) : 0 }
+      if (p === "arp") { return (ch.arp != null && ch.arp !== "") ? ch.arp : "off" }
+      if (p === "chord") { return (ch.chord != null && ch.chord !== "") ? ch.chord : "off" }
+    }
+    return undefined
+  }
+  return undefined
+}
+
+/**
+ * Bind fragmentForEdit + ingest into the UI's write verbs:
+ *   emit(address, value)  — addressed document edit (captured for undo when the address is reversible)
+ *   directive(line)       — a raw `@ …` control line (cue/throw/transport/launch); NOT undoable (live perf)
+ *   undo() / redo()       — re-ingest the inverse / forward fragment through the SAME gated door, so undo
+ *                           is ownership-checked, broadcast, and round-trip-safe (never a side-channel).
+ * Consecutive edits to the SAME address coalesce into one undo step (a fader drag = a single undo).
+ * `ctxProvider()` returns the local actor ctx {actorId, skillIds, …}.
  */
 export fn createEditor(store, ingest, ctxProvider) {
+  let undoStack = []
+  let redoStack = []
+  let MAX_UNDO = 200
+  fn record(address, inverse, forward) {
+    let n = undoStack.length
+    if (n > 0 && undoStack[n - 1].address === address) {
+      // Same control edited consecutively (e.g. a drag) — keep the original inverse, move the destination.
+      undoStack[n - 1].forward = forward
+    } else {
+      undoStack.push({ address: address, inverse: inverse, forward: forward })
+      if (undoStack.length > MAX_UNDO) {
+        undoStack.shift()
+      }
+    }
+    redoStack = []
+  }
   fn emit(address, value) {
     let frag = fragmentForEdit(store.project, address, value)
     if (frag === "") {
       return null
+    }
+    // Capture the inverse (the owning line as it stands now) BEFORE applying — only for reversible addresses.
+    let old = readAddr(store.project, address)
+    if (old !== undefined) {
+      let inverse = fragmentForEdit(store.project, address, old)
+      if (inverse !== "" && inverse !== frag) {
+        record(address, inverse, frag)
+      }
     }
     return ingest(frag, ctxProvider ? ctxProvider() : null)
   }
   fn directive(line) {
     return ingest(String(line), ctxProvider ? ctxProvider() : null)
   }
-  return { emit: emit, directive: directive }
+  fn undo() {
+    if (undoStack.length === 0) {
+      return false
+    }
+    let e = undoStack.pop()
+    redoStack.push(e)
+    ingest(e.inverse, ctxProvider ? ctxProvider() : null)
+    return true
+  }
+  fn redo() {
+    if (redoStack.length === 0) {
+      return false
+    }
+    let e = redoStack.pop()
+    undoStack.push(e)
+    ingest(e.forward, ctxProvider ? ctxProvider() : null)
+    return true
+  }
+  fn canUndo() {
+    return undoStack.length > 0
+  }
+  fn canRedo() {
+    return redoStack.length > 0
+  }
+  return { emit: emit, directive: directive, undo: undo, redo: redo, canUndo: canUndo, canRedo: canRedo }
 }

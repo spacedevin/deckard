@@ -1,19 +1,28 @@
 import { useState, useRef, useEffect, h, Fragment, memo } from '@tishlang/lattish'
 import { projectToJson, projectFromJson } from '../model/Project.tish'
 import { channelDeck, crossfadeValue, crossfadeValueY } from '../model/DeckRouting.tish'
+import { freshSetEnergy, freshActiveDecks, foldSetEnergyStep } from '../model/SetEnergy.tish'
 import { loadDefaultDeckardProject, loadProjectFromTpl } from '../model/ProjectLoad.tish'
 import { createStationPresets } from '../core/StationPresets.tish'
 import { emitLevel, retargetTpl } from '../core/Levels.tish'
 import { createSetLibrary, emitSet, loadSet, freeDecks, emitSetStream, parseSetStream, isStreamSet } from '../core/SetLibrary.tish'
+import { loadDeckSet, deckSetCatalog } from '../model/DeckSets.tish'
 import { levelPresetList, addLevelPreset, findLevelPreset } from '../model/LevelPresets.tish'
 import { PresetBar } from './PresetBar.tish'
 import { emitProject, emitLivePlayback } from '../tpl/Emit.tish'
 import { CodeDebugView } from './CodeDebugView.tish'
 import { migrateProjectGenerators } from '../model/Migrate.tish'
-import { ensureAudio, updateMixerFromProject, resyncAllChannelBuses, applyCueRouting, applyOutputDevices, setCueLevel, setCueSyncOffset, setMainAutoSync, ensureCueOutput, suspendDrawsAround, drawsSuspended, setDrawDisabled } from '../audio/Engine.tish'
+import { ensureAudio, updateMixerFromProject, resyncAllChannelBuses, applyCueRouting, applyOutputDevices, setCueLevel, setCueSyncOffset, setMainAutoSync, ensureCueOutput, suspendDrawsAround, drawsSuspended, setDrawDisabled, triggerMasterFxEcho, triggerMasterFxFilter, playHitAt } from '../audio/Engine.tish'
 import { createAudioDeviceSettings } from '../core/AudioDeviceSettings.tish'
 import { AudioRackPanel } from './AudioRackPanel.tish'
+import { MidiPanel } from './MidiPanel.tish'
+import { SongBrowser } from './SongBrowser.tish'
+import { ScratchPad } from './ScratchPad.tish'
+import { loadScratchBuffer, setScratchRate, setScratchDeck, setScratchVolume, setScratchDucking } from '../audio/Engine.tish'
+import { renderDeckLoopToBuffer } from '../audio/Playback.tish'
+import { createMidiController } from '../midi/Midi.tish'
 import { transportTick } from '../audio/Playback.tish'
+import { generatorChannelAtBeat } from '../audio/ParamAtBeat.tish'
 import { secondsPerStep } from '../audio/Scheduler.tish'
 import { createIngest, bumpAllRev, ensureProjectRev } from '../core/Ingest.tish'
 import { createEditor } from '../core/Edit.tish'
@@ -24,7 +33,7 @@ import { TransportBar } from './Transport.tish'
 import { collectActorLanes, channelActorLane, ensureActorMixerEntries } from '../model/MixerRouting.tish'
 import { InstrumentStack } from './InstrumentStack.tish'
 import { CoDjPanel } from './CoDjPanel.tish'
-import { launchSceneDirective, transportDirective } from '../codj/Launch.tish'
+import { launchSceneDirective, transportDirective, fxDirective, cueDirective } from '../codj/Launch.tish'
 import { coDjClockPayload, coDjShouldFollow, coDjClockAlign } from '../codj/Transport.tish'
 import {
   PianoRollCanvas,
@@ -35,7 +44,7 @@ import {
   rackPianoPreviewSig,
   updatePianoRollCtx
 } from './PianoRoll.tish'
-import { drawScopeCanvas, drawSpectrumCanvas, drawMiniWave, busPeakLevel } from './Scope.tish'
+import { drawScopeCanvas, drawSpectrumCanvas, drawMiniWave, busPeakLevel, drawSetWaveLane } from './Scope.tish'
 import { StepGridPanel } from './grid/StepGrid.tish'
 import { DeckMixer, applyDeckEq, ensureDeckEq } from './deck/DeckMixer.tish'
 import { PatternBank } from './PatternBank.tish'
@@ -54,6 +63,7 @@ import {
   sessionArmScene,
   sessionCommitQueued,
   sessionQueueScene,
+  sceneSlotClipId,
   sessionPlayingSceneIndex,
   sessionWriteRackToSceneClip,
   sessionWriteRackBarToSceneClip,
@@ -211,6 +221,11 @@ export fn App() {
   let [playMode, setPlayMode] = useState("song")
   let [sessionUiGen, setSessionUiGen] = useState(0)
   let [seqPromoteUi, setSeqPromoteUi] = useState(0)
+  let [midiGen, setMidiGen] = useState(0)
+  let [songBrowserOpen, setSongBrowserOpen] = useState(false)
+  let [songQuery, setSongQuery] = useState("")
+  let [scratchOpen, setScratchOpen] = useState(false)
+  let [scratchGen, setScratchGen] = useState(0)
   let [gridGen, setGridGen] = useState(0)
   let [deckMixRev, setDeckMixRev] = useState(0)
 
@@ -351,6 +366,68 @@ export fn App() {
   rt.directive = (line) => editorRef.current.directive(line)
   // Apply an arbitrary TPL fragment (e.g. a preset's TPL) through the one gated write door.
   rt.applyTpl = (tpl) => editorRef.current.directive(tpl)
+  // Undo / redo: re-ingest the inverse / forward TPL through the same gated door (ownership-checked,
+  // broadcast, round-trip-safe). ingest re-renders via onAdvance, so the toolbar buttons refresh.
+  rt.undo = () => editorRef.current.undo()
+  rt.redo = () => editorRef.current.redo()
+  rt.canUndo = () => editorRef.current.canUndo()
+  rt.canRedo = () => editorRef.current.canRedo()
+
+  // ---- MIDI: keyboard notes audition the SELECTED instrument; a learned CC drives a control via emit (the
+  // same gated/broadcast/round-tripping TPL a UI drag emits → multiplayer-native).
+  // A MIDI note-on plays the selected channel's voice live (a monitor).
+  fn midiNote(note, vel) {
+    ensureAudio(project, audioStore)
+    let ctx = audioStore.ctx
+    if (!ctx || !audioStore.buses) {
+      return
+    }
+    let sc = typeof rt.selectedCh === "number" ? Math.floor(rt.selectedCh) : 0
+    let bus = audioStore.buses[sc]
+    let ch = project.channels[sc]
+    if (!bus || !ch) {
+      return
+    }
+    let gch = generatorChannelAtBeat(project, ch, 0)
+    playHitAt(ctx, bus, ctx.currentTime + 0.005, note, vel, 0.5, gch, 0)
+  }
+  // A mapped CC (value 0..1) → resolve its target to one emit. Keep these ids in sync with midiTargetList.
+  fn midiControl(targetId, v01) {
+    let ed = editorRef.current
+    if (!ed) {
+      return
+    }
+    let p = rtRef.current.project
+    if (targetId === "bpm") {
+      ed.emit("bpm", Math.round(40 + v01 * 200))
+    } else if (targetId === "scratch") {
+      // A centered pitch fader / spring knob scrubs the scratch: 0.5 = stop, ends = ±max reverse/forward.
+      if (rt.scratchRate) {
+        rt.scratchRate((v01 - 0.5) * 16)
+      }
+    } else if (targetId === "master_lo") {
+      ed.emit("master/eq_lo", Math.round((-12 + v01 * 24) * 10) / 10)
+    } else if (targetId === "master_mid") {
+      ed.emit("master/eq_mid", Math.round((-12 + v01 * 24) * 10) / 10)
+    } else if (targetId === "master_hi") {
+      ed.emit("master/eq_hi", Math.round((-12 + v01 * 24) * 10) / 10)
+    } else if (targetId === "xfade_x") {
+      ed.emit("xfade", [v01, p.transportCrossfadeY != null ? p.transportCrossfadeY : 0])
+    } else if (targetId === "xfade_y") {
+      ed.emit("xfade", [p.transportCrossfade != null ? p.transportCrossfade : 0.5, v01])
+    } else if (String(targetId).indexOf("track:") === 0) {
+      ed.emit("track/" + String(targetId).substring(6) + "/mix/gain", Math.round(v01 * 1000) / 1000)
+    }
+  }
+  let midiRef = useRef(null)
+  if (!midiRef.current) {
+    midiRef.current = createMidiController({
+      onNote: (note, vel) => midiNote(note, vel),
+      onControl: (targetId, v01) => midiControl(targetId, v01),
+      onChange: () => setMidiGen((x) => x + 1)
+    })
+  }
+  rt.midi = midiRef.current
   // Set presets: named, saveable copies of the WHOLE workspace (the one level a global load fits — it
   // replaces everything, no target). Built-in "Default" is always present (loading it resets the set).
   let setPresetsRef = useRef(null)
@@ -460,6 +537,21 @@ export fn App() {
       if (tag === "input" || tag === "textarea" || tag === "select" || (tgt && tgt.isContentEditable)) {
         return
       }
+      // Undo / redo first (they own the Cmd/Ctrl+Z chord). Cmd/Ctrl+Z = undo, +Shift (or Cmd/Ctrl+Y) = redo.
+      if ((e.metaKey || e.ctrlKey) && (e.key === "z" || e.key === "Z" || e.key === "y" || e.key === "Y")) {
+        e.preventDefault()
+        let isRedo = (e.key === "y" || e.key === "Y") || ((e.key === "z" || e.key === "Z") && e.shiftKey)
+        if (isRedo) {
+          if (r.redo) { r.redo() }
+        } else {
+          if (r.undo) { r.undo() }
+        }
+        return
+      }
+      // A plain modifier+key chord that we don't handle (e.g. Cmd+C copy) — let the browser have it.
+      if (e.metaKey || e.ctrlKey || e.altKey) {
+        return
+      }
       if (e.code === "Space" || e.key === " ") {
         // Space = Preview: audition the rack on its own clock (separate from the live transport).
         e.preventDefault()
@@ -472,11 +564,44 @@ export fn App() {
         if (r.onPlayStop) {
           r.onPlayStop()
         }
+      } else if (e.key === "e" || e.key === "E") {
+        // Hold E = ECHO FX throw: engage on the first keydown (ignore auto-repeat), release on keyup.
+        if (!e.repeat && r.onFxThrow) {
+          r.onFxThrow("echo", true)
+        }
+      } else if (e.key === "f" || e.key === "F") {
+        // Hold F = FILTER FX throw (master lowpass sweep).
+        if (!e.repeat && r.onFxThrow) {
+          r.onFxThrow("filter", true)
+        }
+      } else if (e.key === "c" || e.key === "C") {
+        // C = cue / un-cue the active scene on the private preview (launch a scene to take it live).
+        if (!e.repeat && r.onCueActive) {
+          r.onCueActive()
+        }
+      }
+    }
+    fn onKeyUp(e) {
+      let r = rtRef.current
+      if (!r) {
+        return
+      }
+      let tgt = e.target
+      let tag = tgt && tgt.tagName ? String(tgt.tagName).toLowerCase() : ""
+      if (tag === "input" || tag === "textarea" || tag === "select" || (tgt && tgt.isContentEditable)) {
+        return
+      }
+      if ((e.key === "e" || e.key === "E") && r.onFxThrow) {
+        r.onFxThrow("echo", false)
+      } else if ((e.key === "f" || e.key === "F") && r.onFxThrow) {
+        r.onFxThrow("filter", false)
       }
     }
     window.addEventListener("keydown", onKey)
+    window.addEventListener("keyup", onKeyUp)
     return () => {
       window.removeEventListener("keydown", onKey)
+      window.removeEventListener("keyup", onKeyUp)
     }
   }, [])
 
@@ -810,6 +935,37 @@ export fn App() {
       if (sw != null && frames != null && frames.length > 0) {
         scopeWorker.postMessage({ type: "frame", frames: frames }, bufs)
       }
+      // Set Recorder waveform: repaint the four deck lane canvases ONLY when the tape changed (the dirty flag is
+      // set by recordPlayedStep as it folds each step, and re-asserted at the end of every PlaylistView render
+      // so a memo-recreated canvas repaints). This coalesces many taped steps into <=1 repaint/frame, here on
+      // the throttled visual loop — never on the audio scheduler path. The flag is cleared only AFTER drawing,
+      // and this whole block is past the drawsSuspended/30fps gate, so a step taped during a suspend survives.
+      if (rt.tplWaveDirty && rt.tplEnergy) {
+        let plDecks = ["A", "B", "C", "D"]
+        let pli = 0
+        while (pli < plDecks.length) {
+          let plCv = document.querySelector(".pl-wave-cv-" + plDecks[pli])
+          if (plCv) {
+            drawSetWaveLane(plCv, rt.tplEnergy, plDecks[pli], 26, 16)
+          }
+          pli = pli + 1
+        }
+        // Keep the note/step/bar counter live without a per-bar vdom render (bumpTimeline now fires only when a
+        // new lane mounts). Imperative textContent — same format as PlaylistView's status line.
+        let plStatus = document.querySelector(".pl-status")
+        if (plStatus) {
+          let tn = rt.tplEnergy.totalNotes != null ? rt.tplEnergy.totalNotes : 0
+          let stp = Array.isArray(rt.tplTape) ? rt.tplTape.length : 0
+          let brs = Math.ceil((rt.tplEnergy.maxStep + 1) / 16)
+          let txt = stp === 0
+            ? "nothing recorded yet"
+            : String(tn) + " note" + (tn === 1 ? "" : "s") + " · " + String(stp) + " step" + (stp === 1 ? "" : "s") + " · " + String(brs) + " bar" + (brs === 1 ? "" : "s")
+          if (plStatus.textContent !== txt) {
+            plStatus.textContent = txt
+          }
+        }
+        rt.tplWaveDirty = false
+      }
       requestAnimationFrame(scopeFrame)
     }
     requestAnimationFrame(scopeFrame)
@@ -959,6 +1115,10 @@ export fn App() {
         let p2 = rtRef.current.project
         return p2 && typeof p2.bpm === "number" ? p2.bpm : 120
       },
+      swing: () => {
+        let p2 = rtRef.current.project
+        return p2 && typeof p2.swing === "number" ? p2.swing : 0
+      },
       onStep: (step, when) => {
         let r = rtRef.current
         scheduleStep(r.project, r, step, when)
@@ -1035,6 +1195,37 @@ export fn App() {
   }
   rt.coDjPushControl = coDjPushControl
   rt.nextLaunchStep = nextLaunchStep
+
+  // Live FX throw audio hook (the Audio side of the `@ fx` directive): applyLaunchDirective calls this on
+  // every client (local + peers) so the punch lands identically. echo = tempo-synced delay; filter = sweep.
+  rt.triggerMasterFx = (type, on, params) => {
+    if (type === "filter") {
+      triggerMasterFxFilter(audioStore, on, params)
+    } else {
+      triggerMasterFxEcho(audioStore, on, params)
+    }
+  }
+  // The echo division (in BEATS: 1/4 note = 1, 1/8 = 0.5, 3/16 = 0.75, 1/2 = 2). Chosen in the FX row.
+  if (rt.fxBeatDiv == null) {
+    rt.fxBeatDiv = 0.75
+  }
+  // UI/hotkey entry for an FX throw: apply LOCALLY through ingest (gated → fires the audio) AND broadcast to
+  // peers. Hold-to-throw (on=engage, off=release). The echo TIME is beat-synced to the current BPM so the
+  // repeats land on the grid (not a fixed 0.3s).
+  rt.onFxThrow = (type, on) => {
+    let params = {}
+    if (type !== "filter") {
+      let bpm = rtRef.current.project && typeof rtRef.current.project.bpm === "number" ? rtRef.current.project.bpm : 120
+      let beats = typeof rt.fxBeatDiv === "number" && rt.fxBeatDiv > 0 ? rt.fxBeatDiv : 0.75
+      params.time = Math.round((60 / bpm) * beats * 1000) / 1000
+      params.fb = 0.5
+    }
+    let line = fxDirective(type === "filter" ? "filter" : "echo", on === true, params)
+    if (rt.directive) {
+      rt.directive(line)
+    }
+    coDjPushControl([line], 0)
+  }
 
   // Host clock heartbeat: while the host plays, broadcast the playhead (step + scene) once per bar so
   // followers can lock to it. Only the host emits — followers slave.
@@ -1149,6 +1340,9 @@ export fn App() {
   // STARTS the session live on this scene immediately — launching is a live act, so you hear it.
   fn onPatternLaunch(si) {
     ensureProjectSession(project)
+    // Launching a scene takes it live — so end any private cue audition (you've committed). This is the
+    // "cue → launch" path that replaced the separate THROW button.
+    onStopPreview()
     // A full pattern LAUNCH resets the per-track mix — every track follows this pattern again.
     rt.trackOverrides = []
     rt.trackPending = []
@@ -1216,6 +1410,64 @@ export fn App() {
     }
     return a.xf !== b.xf || a.xfy !== b.xfy || a.fA !== b.fA || a.fB !== b.fB || a.fC !== b.fC || a.fD !== b.fD
   }
+  // ---- Set Recorder waveform accumulator. The timeline is drawn imperatively to canvas (drawSetWaveLane, from
+  // scopeFrame) off an incremental per-deck energy map on rt — so per played step is O(triggers), never an
+  // O(total) re-bucket + SVG-path rebuild in render. The fold math is pure (SetEnergy.tish); these wire it to rt.
+  fn resetTplEnergy() {
+    rt.tplEnergy = freshSetEnergy()
+    rt.tplActiveDecks = freshActiveDecks()
+    rt.tplWaveDirty = true
+  }
+  // Cache busIndex -> deck letter; rebuilt only when the channel roster changes (channelDeck does a co-DJ roster
+  // walk, too costly per-trigger in the hot path). channelsRev is the roster's rev counter.
+  fn ensureDeckOfBus() {
+    let p = rt.project
+    if (!p || !p.channels) {
+      rt.tplDeckOfBus = []
+      return
+    }
+    let rev = ensureProjectRev(p).channels
+    // Key the cache on project IDENTITY as well as the channels rev. rev.channels is a per-instance counter
+    // that every freshly loaded project starts at 0 (loads never bump it), so a project SWAP (load/replay)
+    // could collide on rev (old 0 === new 0) and silently reuse the previous project's bus→deck map — which
+    // collapses a multi-deck Set's energy onto the wrong/missing lanes. Identity guards that.
+    if (rt.tplDeckOfBus != null && rt.tplDeckOfBusProj === p && rt.tplDeckOfBusRev === rev) {
+      return
+    }
+    let arr = []
+    let i = 0
+    while (i < p.channels.length) {
+      arr.push(channelDeck(p, p.channels[i]))
+      i = i + 1
+    }
+    rt.tplDeckOfBus = arr
+    rt.tplDeckOfBusProj = p
+    rt.tplDeckOfBusRev = rev
+  }
+  // Fold one played step's triggers into the per-deck energy map. Returns true if a deck produced its FIRST
+  // sound (so the caller can mount that lane's canvas via a one-off bumpTimeline).
+  fn foldStepIntoEnergy(step, trs) {
+    ensureDeckOfBus()
+    return foldSetEnergyStep(rt.tplEnergy, rt.tplActiveDecks, rt.tplDeckOfBus, step, trs)
+  }
+  // One-time O(total) rebuild from the tape (load/replay/deck-remap only, never per bar).
+  fn rebuildTplEnergy() {
+    resetTplEnergy()
+    let tape = Array.isArray(rt.tplTape) ? rt.tplTape : []
+    let i = 0
+    while (i < tape.length) {
+      let ev = tape[i]
+      let s = Math.floor(Number(ev.step))
+      // A loaded Set is untrusted input: drop NaN/negative steps and cap the max so a corrupt/hostile file
+      // can't push an absurd maxStep into the per-frame canvas loop (a 162M-px canvas → UI hang). Live
+      // recording is already bounded by transport progress; only the load path needs the clamp.
+      if (s >= 0 && s <= 131072) {
+        foldStepIntoEnergy(s, ev.triggers != null ? ev.triggers : [])
+      }
+      i = i + 1
+    }
+    rt.tplWaveDirty = true
+  }
   rt.recordPlayedStep = (globalStep, triggers) => {
     if (!rt.tplRecording || rt.tplReplaying) {
       return
@@ -1234,8 +1486,14 @@ export fn App() {
     }
     rt.tplLastCtl = ctl
     rt.tplTape.push({ step: step, triggers: trs, ctl: ctl })
-    // Live timeline feedback, throttled to bar boundaries (cheap; the grid already re-renders per bar).
-    if (Math.floor(globalStep) % 16 === 0) {
+    // Fold this step into the per-deck energy map + flag the canvas dirty (scopeFrame repaints the lanes, off
+    // the audio path). Re-render the React CHROME when a deck FIRST produces sound (its lane canvas must mount)
+    // OR at a bar boundary (so the ruler ticks + the track's gridline width keep growing with the take instead
+    // of freezing at the last lane-mount). This stays cheap — the heavy waveform is canvas/off-vdom now, so
+    // PlaylistView only rebuilds the small ruler/chrome, NEVER an SVG path or a tape re-bucket; no old jank.
+    let newLane = foldStepIntoEnergy(step, trs)
+    rt.tplWaveDirty = true
+    if (newLane || step % 16 === 0) {
       bumpTimeline()
     }
   }
@@ -1247,6 +1505,7 @@ export fn App() {
     }
     rt.tplTape = []
     rt.tplLastCtl = null
+    resetTplEnergy()
     rt.tplStartState = emitProject(rt.project)
     rt.tplRecMode = rt.playMode === "sequence" ? "sequence" : "song"
     rt.tplTapeStartStep = Math.floor(startStep != null ? startStep : (typeof rt.perfStep === "number" ? rt.perfStep : 0))
@@ -1257,6 +1516,7 @@ export fn App() {
     rt.tplTape = []
     rt.tplStartState = null
     rt.tplLastCtl = null
+    resetTplEnergy()
     // Restart the take at the 0 marker: re-zero the take clock (so whatever plays next records as step 0 and
     // draws from the left edge) and snap the timeline scroll back to the start — even mid-playback.
     let ps = typeof rt.perfStep === "number" ? Math.floor(rt.perfStep) : 0
@@ -1351,6 +1611,12 @@ export fn App() {
     let res = loadProjectFromTpl(parsed.header)
     loadFullProject(res.project)
     rt.tplTape = parsed.events
+    // loadFullProject's setProject is microtask-deferred, so rt.project still points at the OLD roster right
+    // now — but rebuildTplEnergy folds synchronously and maps each trigger's busIndex→deck through rt.project.
+    // Point it at the loaded project first (the deferred render reassigns the same instance) so a multi-deck
+    // Set's energy lands on the right lanes instead of collapsing onto deck A via the off-roster fallback.
+    rt.project = res.project
+    rebuildTplEnergy()
     bumpTimeline()
     setTimeout(() => {
       replayTriggers(parsed.events, parsed.mode)
@@ -1441,6 +1707,11 @@ export fn App() {
       previewTimer = null
     }
     setPreviewing(false)
+    // Stopping the preview clears any cue (so the THROW disarms + the scene un-highlights).
+    if (rt.cueScene != null) {
+      rt.cueScene = null
+      bumpSessionUi()
+    }
   }
   fn onPreview() {
     if (previewing) {
@@ -1471,12 +1742,170 @@ export fn App() {
   }
   rt.onPreview = onPreview
   rt.onStopPreview = onStopPreview
+  // Un-cue: stop the audition + clear the cue (so THROW disarms). Driven by `@ cue off`.
+  rt.onUncue = () => onStopPreview()
+
+  // ---- Cue → Throw (Pioneer deck model): CUE auditions a scene PRIVATELY on the preview transport (never
+  // broadcast — peers hear nothing); THROW commits the cued scene to the SHARED main. Driven by the
+  // @ cue / @ throw directives so the whole flow is multiplayer-native TPL.
+  rt.onCueScene = (scene) => {
+    onStopPreview()
+    ensureAudio(project, audioStore)
+    applyIoRack()
+    updateMixerFromProject(project, audioStore)
+    if (previewTimer) {
+      clearTimeout(previewTimer)
+    }
+    // Beat-LOCK the cue to the main when it's playing: start the audition at the main's current step so the
+    // cued scene's bar phase lines up with the master grid (you hear how it will actually drop). When the
+    // main is stopped, the cue is a free audition from 0.
+    previewTick = rt.playing && typeof rt.perfStep === "number" ? Math.floor(rt.perfStep) : 0
+    rt.cueScene = scene
+    ensureProjectSession(project)
+    // The preview plays the CUED scene (song mode + that scene's clips armed) — your private audition.
+    let armed = []
+    let ti = 0
+    while (ti < project.channels.length) {
+      armed.push(sceneSlotClipId(project, scene, ti))
+      ti = ti + 1
+    }
+    let pRt = { playMode: "song", playing: true, sessionArmedClipIds: armed, songScene: scene }
+    fn cueStep() {
+      let r = rtRef.current
+      if (!r || !audioStore.ctx) {
+        return
+      }
+      pRt.project = r.project
+      transportTick(r.project, audioStore, previewTick, pRt)
+      previewTick = previewTick + 1
+      previewTimer = setTimeout(cueStep, previewStepMs())
+    }
+    cueStep()
+    setPreviewing(true)
+    bumpSessionUi()
+  }
+  // Commit the cued scene to the shared main LOCALLY (the @ throw directive already broadcast — no re-push).
+  rt.onThrowScene = (scene) => {
+    onStopPreview()
+    rt.cueScene = null
+    ensureProjectSession(project)
+    rt.trackOverrides = []
+    rt.trackPending = []
+    if (rt.playing && rt.playMode === "song") {
+      sessionQueueScene(project, rt, scene)
+    } else {
+      onPlay("song", 0, scene)
+    }
+    bumpSessionUi()
+    setProjectFromUI(project)
+  }
+  // Hotkey C toggles the cue: un-cue if something's cued, else cue the active/last scene.
+  rt.onCueActive = () => {
+    if (!rt.directive) {
+      return
+    }
+    if (rt.cueScene != null) {
+      rt.directive(cueDirective("off"))
+      return
+    }
+    let s = rt.sessionActiveScene != null ? rt.sessionActiveScene : (rt.songScene != null ? rt.songScene : 0)
+    rt.directive(cueDirective(Math.floor(Number(s))))
+  }
   // Deck-set hot-swap: rebuild channel buses on the LIVE audio context so playback continues
   // seamlessly through a set load (no stop / no manual re-Play). No-op until audio has started.
   rt.resyncAudio = () => {
     let p = rtRef.current.project
     resyncAllChannelBuses(p, audioStore)
     updateMixerFromProject(p, audioStore)
+  }
+  // Load a SONG (a catalog deck-set or a user Set) onto a deck — the shared loader behind the Song panel +
+  // the deck-header picker. Catalog songs carry a BPM; adopt it ONLY when nothing's playing (don't disrupt a
+  // live set). Clears stale arming + reconciles audio so playback continues seamlessly through the swap.
+  rt.loadSongOntoDeck = (kind, key, deck) => {
+    let bpm = null
+    if (kind === "set") {
+      let lib = createSetLibrary()
+      let st = lib.get(key)
+      if (st) {
+        loadSet(project, st, deck)
+      }
+    } else {
+      loadDeckSet(project, deck, key)
+      let cat = deckSetCatalog()
+      let ci = 0
+      while (ci < cat.length) {
+        if (cat[ci].id === key) {
+          bpm = cat[ci].bpm
+        }
+        ci = ci + 1
+      }
+    }
+    rt.sessionArmedClipIds = []
+    rt.sessionQueuedClipIds = []
+    rt.sessionQueuePending = false
+    rt.sessionQueuedScene = null
+    if (rt.resyncAudio) {
+      rt.resyncAudio()
+    }
+    // Adopt the song's tempo only when stopped — through the one write door so it round-trips + broadcasts.
+    if (bpm != null && bpm > 0 && !rt.playing && editorRef.current) {
+      editorRef.current.emit("bpm", Math.round(Number(bpm)))
+    }
+    setProjectFromUI(project)
+  }
+  // ---- Scratch deck. Renders the assigned DECK's pattern loop into a buffer (the deck's actual music), then
+  // the jog wheel drives the worklet's signed read-rate (reverse-capable). While grabbed it DUCKS that deck's
+  // live channels, so the scratch REPLACES the deck instead of layering noise on top. A local performance
+  // gesture (not streamed) — like the meters/preview. The output rides the deck's crossfader gain.
+  fn scratchDeckLetter() {
+    let sdix = audioStore.scratchDeck != null ? audioStore.scratchDeck : 0
+    return sdix === 1 ? "B" : (sdix === 2 ? "C" : (sdix === 3 ? "D" : "A"))
+  }
+  rt.scratchLoadDeckLoop = () => {
+    ensureAudio(project, audioStore)
+    let deck = scratchDeckLetter()
+    let pr = renderDeckLoopToBuffer(project, deck, 1)
+    if (pr && pr.then) {
+      pr.then((res) => {
+        if (res && res.data) {
+          loadScratchBuffer(audioStore, res.data)
+          rt.scratchLoaded = "Deck " + deck
+          setScratchGen((x) => x + 1)
+        } else {
+          rt.scratchLoaded = "Deck " + deck + " — empty"
+          setScratchGen((x) => x + 1)
+        }
+      }, (e) => {})
+    } else {
+      rt.scratchLoaded = "Deck " + deck + " — empty"
+      setScratchGen((x) => x + 1)
+    }
+  }
+  rt.scratchRate = (rate) => setScratchRate(audioStore, rate)
+  rt.scratchSetDeck = (d) => {
+    setScratchDeck(audioStore, d)
+    if (rt.scheduleDeckMix) {
+      rt.scheduleDeckMix()
+    }
+    // Picking a deck re-grabs THAT deck's loop, so the platter always scratches the selected deck's music.
+    rt.scratchLoadDeckLoop()
+  }
+  rt.scratchSetVolume = (v) => {
+    setScratchVolume(audioStore, v)
+    if (rt.scheduleDeckMix) {
+      rt.scheduleDeckMix()
+    }
+  }
+  // Grab/release the platter: duck the deck's live output while scratching so the scratch replaces it.
+  // Only ducks if a buffer is loaded (else releasing the deck to silence would just mute it).
+  rt.scratchDuck = (on) => {
+    if (on && !audioStore.scratchHasBuffer) {
+      return
+    }
+    setScratchDucking(audioStore, on)
+    if (rt.scheduleDeckMix) {
+      rt.scheduleDeckMix()
+    }
   }
 
   fn onBpmInput(e) {
@@ -1767,7 +2196,9 @@ export fn App() {
     onNewTake: onNewTake,
     onSaveRecording: onSaveRecording,
     onLoadReplay: onLoadReplay,
-    onStop: onStop
+    onStop: onStop,
+    channelsRev: channelsRev,
+    rebuildTplEnergy: rebuildTplEnergy
   }
   let seqSession = (
     <div class="seq-session-wrap">
@@ -1844,9 +2275,16 @@ export fn App() {
         project.transportMainDeck !== "local" ? "live" : "local",
         onDeckMain,
         launchQuant,
-        (q) => setLaunchQuant(q)
+        (q) => setLaunchQuant(q),
+        () => rt.undo(),
+        () => rt.redo(),
+        rt.canUndo ? rt.canUndo() : false,
+        rt.canRedo ? rt.canRedo() : false
       )}
       <div class="set-presets" key={"sp-" + String(setListGenKey)}>
+        <button type="button" class="songs-open-btn" title="Browse the song library — load a full song (kit + patterns) onto any deck" onclick={() => setSongBrowserOpen(true)}>{"♫ SONGS"}</button>
+        <button type="button" class="songs-open-btn scratch-open-btn" title="Scratch pad — grab a deck's loop and scratch it on the jog wheel (the deck ducks while you rub)" onclick={() => { setScratchOpen(true); if (rt.scratchLoadDeckLoop) { rt.scratchLoadDeckLoop() } }}>{"▤ SCRATCH"}</button>
+        <span class="transport-div" />
         <span class="set-presets-label">{"STATION"}</span>
         <select
           class="set-select"
@@ -1922,8 +2360,11 @@ export fn App() {
           <span class="master-rev-state">{reverbOn ? ("ON · " + String(revSends) + " send" + (revSends === 1 ? "" : "s")) : "OFF"}</span>
         </button>
         {AudioRackPanel(audioStore)}
+        {MidiPanel(midiRef.current, project, midiGen)}
       </div>
       <span class="daw-foot-meta">{"TPL: docs/TPL_GRAMMAR.md · ARCH: docs/ARCHITECTURE.md · DEV_NODE: AETHER_LABS"}</span>
     </footer>
+    {songBrowserOpen ? SongBrowser(project, rt, () => setSongBrowserOpen(false), songQuery, setSongQuery) : null}
+    {scratchOpen ? ScratchPad(rt, project, () => setScratchOpen(false), rt.scratchLoaded, audioStore.scratchDeck, audioStore.scratchVolume) : null}
   </div>
 }

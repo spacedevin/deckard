@@ -11,7 +11,7 @@ import {
   ensureMasterMixer,
   actorLaneAudible
 } from '../model/MixerRouting.tish'
-import { channelHeardOnMainDeck, deckMainOutGainMultiplier, channelDeck } from '../model/DeckRouting.tish'
+import { channelHeardOnMainDeck, deckMainOutGainMultiplier, deckCrossfadeGain, channelDeck } from '../model/DeckRouting.tish'
 
 fn makeDriveCurve(ctx, amount) {
   let k = amount * 120
@@ -256,7 +256,34 @@ export fn ensureAudio(project, store) {
   analyser.fftSize = 512
   masterGain.connect(comp)
   comp.connect(softClip)
-  softClip.connect(analyser)
+  // ---- Master FX unit (one Beat-FX-style section, live punch-in). FILTER: a master lowpass on the whole mix,
+  // transparent at 20kHz until `@ fx filter` sweeps the cutoff down (and back up on release). ECHO: a parallel
+  // tempo-synced delay+feedback fed by a GATED send (open → the post-comp mix feeds the delay; on release the
+  // captured echoes ring out via the feedback loop). Both rejoin the meter+output; inert when nothing's thrown.
+  let fxFilter = ctx.createBiquadFilter()
+  fxFilter.type = "lowpass"
+  fxFilter.frequency.value = 20000
+  fxFilter.Q.value = 0.9
+  softClip.connect(fxFilter)
+  fxFilter.connect(analyser)
+  store.masterFxFilter = fxFilter
+  let fxSend = ctx.createGain()
+  fxSend.gain.value = 0
+  let fxDelay = ctx.createDelay(2.0)
+  fxDelay.delayTime.value = 0.3
+  let fxFb = ctx.createGain()
+  fxFb.gain.value = 0.45
+  let fxWet = ctx.createGain()
+  fxWet.gain.value = 0.6
+  softClip.connect(fxSend)
+  fxSend.connect(fxDelay)
+  fxDelay.connect(fxFb)
+  fxFb.connect(fxDelay)
+  fxDelay.connect(fxWet)
+  fxWet.connect(fxFilter)
+  store.masterFxSend = fxSend
+  store.masterFxDelay = fxDelay
+  store.masterFxFb = fxFb
   // ---- Output: the MAIN mix stays on the NATIVE ctx.destination (low-latency render thread — routing it
   // through a MediaStream/<audio> element pitches it down + lags under load). The speakers device is chosen
   // with AudioContext.setSinkId (Chrome/Edge). The CUE (headphones) bus is the only thing that uses the
@@ -326,6 +353,32 @@ export fn ensureAudio(project, store) {
   store.master = masterGain
   store.masterSum = masterSum
   store.masterEq = { lo: mLo, mid: mMid, hi: mHi }
+  // ---- Scratch deck: a worklet that reads a rendered one-shot buffer at a hand-driven (reversible) rate.
+  // Its output rides a chosen deck's crossfader gain (store.scratchDeck) so the 4-way fader CUTS it like a
+  // deck. scratchGain = scratchVolume × deck-crossfade-gain (reconciled in updateMixerFromProject). The node
+  // loads async; a buffer set before it's ready is queued in store.scratchPending.
+  store.scratchDeck = 0
+  store.scratchVolume = 0.85
+  store.scratchPending = null
+  store.scratchNode = null
+  let scratchGain = ctx.createGain()
+  scratchGain.gain.value = 0
+  scratchGain.connect(masterSum)
+  store.scratchGain = scratchGain
+  if (typeof ctx.audioWorklet !== "undefined" && ctx.audioWorklet && ctx.audioWorklet.addModule) {
+    let smod = ctx.audioWorklet.addModule("/scratch-worklet.js")
+    if (smod && smod.then) {
+      smod.then(() => {
+        let snode = new AudioWorkletNode(ctx, "deckard-scratch", { outputChannelCount: [2] })
+        snode.connect(scratchGain)
+        store.scratchNode = snode
+        if (store.scratchPending) {
+          snode.port.postMessage(store.scratchPending)
+          store.scratchPending = null
+        }
+      }, (e) => {})
+    }
+  }
   // Shared reverb send bus (the REVERB_BUS): a smooth convolution reverb (synthetic hall impulse),
   // gently high-passed so the tail doesn't muddy the low end, into the master sum.
   let revIn = ctx.createGain()
@@ -451,6 +504,13 @@ export fn updateMixerFromProject(project, store, atBeat) {
   if (store.master) {
     store.master.gain.value = automationAt(mg2, gainBeat)
   }
+  // While the scratch platter is grabbed, DUCK its deck's live channels to silence so the scratch REPLACES
+  // the deck (you scratch the deck's loop instead of layering noise over the still-playing deck).
+  let scratchDuckLetter = null
+  if (store.scratchDucking) {
+    let sdix = store.scratchDeck != null ? store.scratchDeck : 0
+    scratchDuckLetter = sdix === 1 ? "B" : (sdix === 2 ? "C" : (sdix === 3 ? "D" : "A"))
+  }
   let mi = 0
   while (mi < project.channels.length) {
     let ch = project.channels[mi]
@@ -461,6 +521,9 @@ export fn updateMixerFromProject(project, store, atBeat) {
     let midFall = ch.eqMid != null ? ch.eqMid : 0
     let hiFall = ch.eqHi != null ? ch.eqHi : 0
     let deckMul = deckMainOutGainMultiplier(project, ch)
+    if (scratchDuckLetter != null && channelDeck(project, ch) === scratchDuckLetter) {
+      deckMul = 0
+    }
     if (live) {
       b.gainNode.gain.value =
         mixerAutomationAt(project, "channel", ch.id, "gain", atBeat, gFall) * deckMul
@@ -517,6 +580,12 @@ export fn updateMixerFromProject(project, store, atBeat) {
   // Reverb send bus toggle: mute the bus input so no channel send reaches the convolver.
   if (store.reverbIn && project.masterMixer) {
     store.reverbIn.gain.value = project.masterMixer.reverbEnabled === false ? 0 : 0.85
+  }
+  // Scratch deck rides its assigned deck's crossfader gain — the 4-way fader cuts it like a deck.
+  if (store.scratchGain) {
+    let sd = store.scratchDeck != null ? store.scratchDeck : 0
+    let sv = store.scratchVolume != null ? store.scratchVolume : 0.85
+    store.scratchGain.gain.value = sv * deckCrossfadeGain(project, sd)
   }
   if (store.actorBuses && project.actorMixer) {
     let lanes = collectActorLanes(project)
@@ -673,6 +742,65 @@ export fn setCueLevel(store, v) {
   }
 }
 
+/** Live ECHO FX throw: `on` opens the gated send (the mix feeds the master delay); off closes it and lets
+ *  the feedback ring out. Optional params { time (s, <=2), fb (0..0.9) } reshape the echo on engage. Driven
+ *  by the `@ fx echo on|off` directive so it is master-gated + broadcast to every client identically. */
+export fn triggerMasterFxEcho(store, on, params) {
+  if (!store || !store.ctx || !store.masterFxSend) {
+    return
+  }
+  let now = store.ctx.currentTime
+  let p = params ? params : {}
+  if (on) {
+    if (typeof p.time === "number" && p.time > 0 && store.masterFxDelay) {
+      let dt = p.time
+      if (dt > 2) {
+        dt = 2
+      }
+      store.masterFxDelay.delayTime.setValueAtTime(dt, now)
+    }
+    if (typeof p.fb === "number" && store.masterFxFb) {
+      let fb = p.fb
+      if (fb < 0) {
+        fb = 0
+      }
+      if (fb > 0.9) {
+        fb = 0.9
+      }
+      store.masterFxFb.gain.setValueAtTime(fb, now)
+    }
+    store.masterFxSend.gain.cancelScheduledValues(now)
+    store.masterFxSend.gain.setValueAtTime(store.masterFxSend.gain.value, now)
+    store.masterFxSend.gain.linearRampToValueAtTime(1, now + 0.015)
+  } else {
+    store.masterFxSend.gain.cancelScheduledValues(now)
+    store.masterFxSend.gain.setValueAtTime(store.masterFxSend.gain.value, now)
+    store.masterFxSend.gain.linearRampToValueAtTime(0, now + 0.03)
+  }
+}
+
+/** Live FILTER FX throw: `on` sweeps the master lowpass cutoff down (closes the mix), `off` opens it back to
+ *  transparent. A classic master filter sweep. Optional params { freq (target Hz on engage) }. */
+export fn triggerMasterFxFilter(store, on, params) {
+  if (!store || !store.ctx || !store.masterFxFilter) {
+    return
+  }
+  let now = store.ctx.currentTime
+  let p = params ? params : {}
+  let f = store.masterFxFilter.frequency
+  f.cancelScheduledValues(now)
+  f.setValueAtTime(f.value, now)
+  if (on) {
+    let target = typeof p.freq === "number" && p.freq > 0 ? p.freq : 380
+    if (target < 80) {
+      target = 80
+    }
+    f.exponentialRampToValueAtTime(target, now + 0.08)
+  } else {
+    f.exponentialRampToValueAtTime(20000, now + 0.12)
+  }
+}
+
 /** Monitor offset (ms): delay the MAIN output to line it up with the buffered headphone cue. 0 = no delay. */
 export fn setCueSyncOffset(store, ms) {
   if (!store || !store.mainDelay) {
@@ -686,6 +814,78 @@ export fn setCueSyncOffset(store, ms) {
     s = 1
   }
   store.mainDelay.delayTime.value = s
+}
+
+// ---- Scratch deck (renderDeckLoopToBuffer lives in Playback.tish — it needs the sequencer) ------------
+
+/** Load a rendered buffer into the scratch worklet (queued if the node isn't ready yet). */
+export fn loadScratchBuffer(store, data) {
+  if (!store || !data) {
+    return
+  }
+  store.scratchHasBuffer = true
+  let msg = { type: "buffer", data: data }
+  if (store.scratchNode) {
+    store.scratchNode.port.postMessage(msg)
+  } else {
+    store.scratchPending = msg
+  }
+}
+
+/** While grabbed, the scratch DUCKS its deck's live channels so the scratch REPLACES the deck (not layers on
+ *  top). Reconciled in updateMixerFromProject (channels on the scratch deck → gain 0 while ducking). */
+export fn setScratchDucking(store, on) {
+  if (!store) {
+    return
+  }
+  store.scratchDucking = on === true
+}
+
+/** Live scratch rate: output-samples advanced per output-sample. Negative = reverse, 0 = silence. */
+export fn setScratchRate(store, rate) {
+  if (!store || !store.scratchNode) {
+    return
+  }
+  let r = Number(rate)
+  if (r !== r) {
+    r = 0
+  }
+  if (r > 16) {
+    r = 16
+  }
+  if (r < -16) {
+    r = -16
+  }
+  store.scratchNode.port.postMessage({ type: "rate", rate: r })
+}
+
+/** Which deck (0=A..3=D) the scratch rides for the crossfader cut. */
+export fn setScratchDeck(store, deckIndex) {
+  if (!store) {
+    return
+  }
+  let d = Math.floor(Number(deckIndex))
+  if (d < 0 || d > 3 || d !== d) {
+    d = 0
+  }
+  store.scratchDeck = d
+}
+
+export fn setScratchVolume(store, v) {
+  if (!store) {
+    return
+  }
+  let vv = Number(v)
+  if (vv !== vv) {
+    vv = 0.85
+  }
+  if (vv < 0) {
+    vv = 0
+  }
+  if (vv > 1.2) {
+    vv = 1.2
+  }
+  store.scratchVolume = vv
 }
 
 /** Master switch: when true, the UI suspends ALL visual draw loops (scope/meters/waveforms/playhead). */

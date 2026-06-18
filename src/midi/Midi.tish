@@ -1,0 +1,284 @@
+// MIDI input — Web MIDI keyboard + controller, ported clean (no app-specific deps) from the patterns in
+// ~/Projects/tish-audio. Two jobs: (1) keyboard NOTES audition the selected instrument live; (2) a CC/knob,
+// once MIDI-learned to a target, drives that control via `rt.emit` — the SAME gated, broadcast, round-tripping
+// TPL a UI drag emits, so a hardware move is multiplayer-native. Device + mappings persist locally (per
+// machine); the actions they trigger are TPL.
+
+/// Pure MIDI byte parser → a normalized event, or null. Status: 0x90 noteOn (vel 0 = noteOff), 0x80 noteOff,
+/// 0xB0 control change, 0xE0 pitch bend (14-bit). System messages (0xF0+) are ignored.
+export fn parseMidiBytes(bytes) {
+  if (!bytes || bytes.length < 1) {
+    return null
+  }
+  let b0 = bytes[0]
+  if ((b0 & 240) === 240) {
+    return null
+  }
+  let channel = b0 & 15
+  let cmd = b0 & 240
+  if (cmd === 144) {
+    if (bytes.length < 3) {
+      return null
+    }
+    let note = bytes[1]
+    let vel = bytes[2]
+    if (vel === 0) {
+      return { kind: "noteOff", channel: channel, note: note, velocity: 0 }
+    }
+    return { kind: "noteOn", channel: channel, note: note, velocity: vel }
+  }
+  if (cmd === 128) {
+    if (bytes.length < 3) {
+      return null
+    }
+    return { kind: "noteOff", channel: channel, note: bytes[1], velocity: bytes[2] }
+  }
+  if (cmd === 176) {
+    if (bytes.length < 3) {
+      return null
+    }
+    return { kind: "cc", channel: channel, controller: bytes[1], value: bytes[2] }
+  }
+  if (cmd === 224) {
+    if (bytes.length < 3) {
+      return null
+    }
+    return { kind: "pitchBend", channel: channel, value14: bytes[1] | (bytes[2] << 7) }
+  }
+  return null
+}
+
+/// Stable key for a CC source (channel + controller) — the mapping table is keyed by this.
+export fn ccKey(ev) {
+  return "cc:" + String(ev.channel) + ":" + String(ev.controller)
+}
+
+/// 0..127 → 0..1.
+export fn normalize01(value) {
+  let v = Number(value) / 127
+  if (v < 0) {
+    return 0
+  }
+  if (v > 1) {
+    return 1
+  }
+  return v
+}
+
+/// The curated set of MIDI-mappable targets (id → label). Each id is resolved to a `rt.emit` call by the
+/// App (keep the two in sync). Per-track gains are appended dynamically. Mapping these = a hardware knob
+/// drives a TPL edit (gated, broadcast, round-tripping) just like a UI drag.
+export fn midiTargetList(project) {
+  let out = [
+    { id: "bpm", label: "BPM" },
+    { id: "scratch", label: "Scratch (jog/pitch)" },
+    { id: "xfade_x", label: "Crossfade X" },
+    { id: "xfade_y", label: "Crossfade Y" },
+    { id: "master_lo", label: "Master EQ Lo" },
+    { id: "master_mid", label: "Master EQ Mid" },
+    { id: "master_hi", label: "Master EQ Hi" }
+  ]
+  if (project && project.channels) {
+    let i = 0
+    while (i < project.channels.length) {
+      let ch = project.channels[i]
+      out.push({ id: "track:" + ch.id, label: String(ch.name) + " gain" })
+      i = i + 1
+    }
+  }
+  return out
+}
+
+/// Resolve a mapped target's label (for the panel's mapping list). Falls back to the raw id.
+export fn midiTargetLabel(project, targetId) {
+  let list = midiTargetList(project)
+  let i = 0
+  while (i < list.length) {
+    if (list[i].id === targetId) {
+      return list[i].label
+    }
+    i = i + 1
+  }
+  return String(targetId)
+}
+
+let MIDI_MAP_KEY = "deckard.midi.mappings.v1"
+
+fn defaultBackend() {
+  if (typeof localStorage === "undefined") {
+    return { read: () => null, write: (s) => {} }
+  }
+  return {
+    read: () => {
+      try {
+        return localStorage.getItem(MIDI_MAP_KEY)
+      } catch (e) {
+        return null
+      }
+    },
+    write: (s) => {
+      try {
+        localStorage.setItem(MIDI_MAP_KEY, s)
+      } catch (e) {}
+    }
+  }
+}
+
+/// The MIDI controller store. deps:
+///   onNote(note, velocity)         — a keyboard note-on (play the selected instrument)
+///   onControl(targetId, value01)   — a mapped CC moved (drive the target via rt.emit)
+///   onChange()                     — state changed (re-render the panel)
+///   backend                        — { read, write } for mapping persistence (defaults to localStorage)
+export fn createMidiController(deps) {
+  let d = deps ? deps : {}
+  let backend = d.backend ? d.backend : defaultBackend()
+  let state = {
+    supported: false,
+    inputs: [],
+    connectedId: "",
+    learn: false,
+    pending: null,
+    mappings: {}
+  }
+  // restore persisted mappings
+  let raw = backend.read()
+  if (raw != null && String(raw).length > 0) {
+    try {
+      let m = JSON.parse(raw)
+      if (m && typeof m === "object") {
+        state.mappings = m
+      }
+    } catch (e) {}
+  }
+  let access = null
+  let connectedInput = null
+
+  fn notify() {
+    if (d.onChange) {
+      d.onChange()
+    }
+  }
+  fn persist() {
+    backend.write(JSON.stringify(state.mappings))
+  }
+
+  // A raw message from the connected input.
+  fn onMessage(e) {
+    let ev = parseMidiBytes(e.data)
+    if (!ev) {
+      return
+    }
+    if (ev.kind === "noteOn") {
+      if (d.onNote) {
+        d.onNote(ev.note, ev.velocity)
+      }
+      return
+    }
+    if (ev.kind === "cc") {
+      let key = ccKey(ev)
+      if (state.learn) {
+        // Capture this CC as the pending source; the panel then assigns it to a target.
+        state.pending = { key: key, channel: ev.channel, controller: ev.controller }
+        notify()
+        return
+      }
+      let target = state.mappings[key]
+      if (target != null && d.onControl) {
+        d.onControl(target, normalize01(ev.value))
+      }
+    }
+  }
+
+  fn refreshInputs() {
+    if (!access) {
+      return
+    }
+    let list = []
+    let it = access.inputs.values()
+    let step = it.next()
+    while (!step.done) {
+      let inp = step.value
+      list.push({ id: inp.id, name: inp.name ? inp.name : "MIDI input" })
+      step = it.next()
+    }
+    state.inputs = list
+    notify()
+  }
+
+  fn selectInput(id) {
+    if (connectedInput) {
+      connectedInput.onmidimessage = null
+      connectedInput = null
+    }
+    state.connectedId = id ? id : ""
+    if (!access || !id) {
+      notify()
+      return
+    }
+    let inp = access.inputs.get(id)
+    if (inp) {
+      inp.onmidimessage = onMessage
+      connectedInput = inp
+    }
+    notify()
+  }
+
+  fn requestAccess() {
+    if (typeof navigator === "undefined" || !navigator.requestMIDIAccess) {
+      state.supported = false
+      notify()
+      return
+    }
+    navigator.requestMIDIAccess({ sysex: false }).then((acc) => {
+      access = acc
+      state.supported = true
+      acc.onstatechange = () => {
+        refreshInputs()
+      }
+      refreshInputs()
+      // Auto-connect the first input if none chosen yet.
+      if ((!state.connectedId || state.connectedId === "") && state.inputs.length > 0) {
+        selectInput(state.inputs[0].id)
+      }
+    }, (err) => {
+      state.supported = false
+      notify()
+    })
+  }
+
+  fn setLearn(on) {
+    state.learn = on === true
+    if (!state.learn) {
+      state.pending = null
+    }
+    notify()
+  }
+  // Assign the pending (just-moved) CC to a target id. Stays in learn mode for the next binding.
+  fn bindPending(targetId) {
+    if (!state.pending || !targetId) {
+      return
+    }
+    state.mappings[state.pending.key] = targetId
+    state.pending = null
+    persist()
+    notify()
+  }
+  fn removeMapping(key) {
+    if (state.mappings[key] != null) {
+      delete state.mappings[key]
+      persist()
+      notify()
+    }
+  }
+
+  return {
+    state: () => state,
+    requestAccess: requestAccess,
+    selectInput: selectInput,
+    setLearn: setLearn,
+    bindPending: bindPending,
+    removeMapping: removeMapping,
+    // Test hook: feed a raw message as if from the device.
+    feed: (data) => onMessage({ data: data })
+  }
+}

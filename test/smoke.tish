@@ -4,7 +4,7 @@ import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
 import { emitProject, emitLivePlayback } from '../src/tpl/Emit.tish'
 import { applyTplSource, findChannelById } from '../src/tpl/Apply.tish'
 import { applyCoDjTplSource } from '../src/codj/Merge.tish'
-import { applyLaunchDirective, isLaunchDirective, launchSceneDirective, launchClipDirective, transportDirective, applyLaunchLinesFromSource, transportPlayDirective, transportPreviewDirective, cueDirective, throwDirective, isPrivateDirective } from '../src/codj/Launch.tish'
+import { applyLaunchDirective, isLaunchDirective, launchSceneDirective, launchClipDirective, transportDirective, applyLaunchLinesFromSource, transportPlayDirective, transportPreviewDirective, cueDirective, throwDirective, isPrivateDirective, fxDirective } from '../src/codj/Launch.tish'
 import { setTrackOwner } from '../src/codj/CoDjMeta.tish'
 import { coDjClockAlign, coDjShouldFollow, coDjClockPayload } from '../src/codj/Transport.tish'
 import { createTplLineStream, tplLineStreamPush } from '../src/tpl/Stream.tish'
@@ -16,7 +16,8 @@ import { lookupMacro, expandMacroBody } from '../src/tpl/Macros.tish'
 import { resizeChannelBars, setRackBars, rackBars } from '../src/model/RackBars.tish'
 import { ensureProjectSession, sessionWriteRackToSceneClip, loadSceneIntoRack, sessionArmScene, playbackClipForChannel, firstSongScene, nextSongScene, sceneHasSavedClip, sceneBarLength, armSceneWithOverrides, sceneSlotClipId, findClipOnChannel, loadSceneBarIntoRack, sessionWriteRackBarToSceneClip, sessionStopTrack, sessionTrackStopped, sessionEffectiveArmedClipId, songStart, songAdvance, hasExplicitSong, normalizeSongEntries, setSceneFollow, sceneFollow, hasFollowActions, resolveFollowAction, detRand01 } from '../src/model/Session.tish'
 import { toggleStep, clearAllSteps } from '../src/model/Edits.tish'
-import { secondsPerStep, stepsToScheduleInWindow, underrunsInBatch } from '../src/audio/Scheduler.tish'
+import { secondsPerStep, stepsToScheduleInWindow, underrunsInBatch, swingOffsetSec } from '../src/audio/Scheduler.tish'
+import { freshSetEnergy, freshActiveDecks, foldSetEnergyStep } from '../src/model/SetEnergy.tish'
 import { createSignals } from '../src/core/Signals.tish'
 import { createIngest } from '../src/core/Ingest.tish'
 import { fragmentForEdit, createEditor } from '../src/core/Edit.tish'
@@ -1043,6 +1044,39 @@ check("private: preview is private", isPrivateDirective("@ transport preview") =
 check("private: throw is NOT private (goes to main)", isPrivateDirective("@ throw 2") === false)
 check("private: transport play is NOT private (shared)", isPrivateDirective("@ transport play song") === false)
 check("private: scene launch is NOT private", isPrivateDirective("@ launch scene 0") === false)
+// Live FX throw directive (Phase 2): builds, detects, broadcasts (not private), master-gated + fires the hook.
+check("directive: fx echo on", fxDirective("echo", true, {}) === "@ fx echo on")
+check("directive: fx echo off", fxDirective("echo", false, {}) === "@ fx echo off")
+check("directive: fx echo with params", fxDirective("echo", true, { time: 0.4, fb: 0.5 }) === "@ fx echo on time 0.4 fb 0.5")
+check("detect: fx is a control directive", isLaunchDirective("@ fx echo on") === true)
+check("private: fx throw is NOT private (shared punch)", isPrivateDirective("@ fx echo on") === false)
+let fxRt = { fxFired: null, triggerMasterFx: (type, on, params) => { fxRt.fxFired = { type: type, on: on, params: params } } }
+let fxProj = loadDefaultDeckardProject().project
+check("fx: master applies + fires the audio hook", applyLaunchDirective(fxProj, fxRt, "@ fx echo on time 0.3 fb 0.4", "human", ["master_mixer"]) === true && fxRt.fxFired != null && fxRt.fxFired.type === "echo" && fxRt.fxFired.on === true && Math.abs(fxRt.fxFired.params.time - 0.3) < 1e-9 && Math.abs(fxRt.fxFired.params.fb - 0.4) < 1e-9)
+let fxRt2 = { fxFired: null, triggerMasterFx: (type, on, params) => { fxRt2.fxFired = { type: type, on: on } } }
+check("fx: off parses on=false", applyLaunchDirective(fxProj, fxRt2, "@ fx echo off", "human", ["master_mixer"]) === true && fxRt2.fxFired.on === false)
+let fxRt3 = { fxFired: null, triggerMasterFx: (type, on, params) => { fxRt3.fxFired = { type: type } } }
+check("fx: NON-master is gated (no fire)", applyLaunchDirective(fxProj, fxRt3, "@ fx echo on", "guest-2", ["performer"]) === true && fxRt3.fxFired === null)
+
+// Cue → Throw apply path (Phase 3). Default session has 4 scenes.
+let ctProj = loadDefaultDeckardProject().project
+let cueRt = { cued: null, onCueScene: (s) => { cueRt.cued = s } }
+check("cue: @ cue loads the scene into preview (no master needed)", applyLaunchDirective(ctProj, cueRt, "@ cue 2", "guest-9", ["performer"]) === true && cueRt.cued === 2)
+let cueRt2 = { cued: null, onCueScene: (s) => { cueRt2.cued = s } }
+check("cue: out-of-range scene is ignored", applyLaunchDirective(ctProj, cueRt2, "@ cue 99", "human", ["master_mixer"]) === true && cueRt2.cued === null)
+let throwRt = { thrown: null, cueScene: 1, onThrowScene: (s) => { throwRt.thrown = s } }
+check("throw: master commits the scene to main", applyLaunchDirective(ctProj, throwRt, "@ throw 1", "human", ["master_mixer"]) === true && throwRt.thrown === 1)
+let throwRt2 = { thrown: null, cueScene: 1, onThrowScene: (s) => { throwRt2.thrown = s } }
+check("throw: NON-master is gated (no commit)", applyLaunchDirective(ctProj, throwRt2, "@ throw 1", "guest-9", ["performer"]) === true && throwRt2.thrown === null)
+let throwRt3 = { thrown: null, cueScene: 3, onThrowScene: (s) => { throwRt3.thrown = s } }
+check("throw: no-scene throw falls back to rt.cueScene", applyLaunchDirective(ctProj, throwRt3, "@ throw", "human", ["master_mixer"]) === true && throwRt3.thrown === 3)
+// Un-cue: `@ cue off` calls rt.onUncue (no scene load).
+let uncueRt = { cued: null, uncued: false, onCueScene: (s) => { uncueRt.cued = s }, onUncue: () => { uncueRt.uncued = true } }
+check("cue: @ cue off un-cues (onUncue, not onCueScene)", applyLaunchDirective(ctProj, uncueRt, "@ cue off", "human", ["master_mixer"]) === true && uncueRt.uncued === true && uncueRt.cued === null)
+// FILTER FX throw routes type "filter" through the same gate.
+let filtRt = { fx: null, triggerMasterFx: (type, on, params) => { filtRt.fx = { type: type, on: on } } }
+check("fx: @ fx filter routes type 'filter'", applyLaunchDirective(ctProj, filtRt, "@ fx filter on", "human", ["master_mixer"]) === true && filtRt.fx != null && filtRt.fx.type === "filter" && filtRt.fx.on === true)
+check("fx: filter directive detected + not private", isLaunchDirective("@ fx filter on") === true && isPrivateDirective("@ fx filter on") === false)
 
 // 6d. Signal bus (rearch step 2): publish/subscribe, last-value replay, unsubscribe.
 let sig = createSignals()
@@ -1160,12 +1194,62 @@ let gp0 = findChannelById(projE, chId0).generatorParams
 check("edit-loop: adsr folds attack", gp0.attack != null && Math.abs(gp0.attack - 0.02) < 1e-6)
 check("edit-loop: adsr folds release", gp0.release != null && Math.abs(gp0.release - 0.9) < 1e-6)
 
+// ---- Undo / redo (Phase 4): inverse TPL re-ingested through the same gated door ----
+let uProj = loadDefaultDeckardProject().project
+let uCh = uProj.channels[0].id
+let uStore = { project: uProj, runtime: {} }
+let uEd = createEditor(uStore, createIngest(uStore).ingest, () => ctxLocal)
+let beforeGain = findChannelById(uProj, uCh).gain
+let beforeTpl = emitProject(uProj)
+check("undo: empty stacks initially", uEd.canUndo() === false && uEd.canRedo() === false)
+uEd.emit("track/" + uCh + "/mix/gain", 0.25)
+check("undo: edit applied + canUndo true", Math.abs(findChannelById(uProj, uCh).gain - 0.25) < 1e-6 && uEd.canUndo() === true)
+uEd.undo()
+check("undo: restores the prior value", Math.abs(findChannelById(uProj, uCh).gain - beforeGain) < 1e-6)
+check("undo: emitProject is byte-identical to before the edit (round-trip invariant)", emitProject(uProj) === beforeTpl)
+check("undo: canRedo true + canUndo false after undo", uEd.canRedo() === true && uEd.canUndo() === false)
+uEd.redo()
+check("redo: re-applies the edit", Math.abs(findChannelById(uProj, uCh).gain - 0.25) < 1e-6 && uEd.canUndo() === true)
+// Coalesce: a drag (consecutive same-address edits) collapses to ONE undo step back to the pre-drag value.
+let uProj2 = loadDefaultDeckardProject().project
+let uCh2 = uProj2.channels[0].id
+let uStore2 = { project: uProj2, runtime: {} }
+let uEd2 = createEditor(uStore2, createIngest(uStore2).ingest, () => ctxLocal)
+let preDrag = findChannelById(uProj2, uCh2).gain
+uEd2.emit("track/" + uCh2 + "/mix/gain", 0.6)
+uEd2.emit("track/" + uCh2 + "/mix/gain", 0.55)
+uEd2.emit("track/" + uCh2 + "/mix/gain", 0.5)
+uEd2.undo()
+check("undo: consecutive same-address edits coalesce to one step", Math.abs(findChannelById(uProj2, uCh2).gain - preDrag) < 1e-6 && uEd2.canUndo() === false)
+// Ownership: a non-owner's edit to a track they don't own is gated at ingest (so it never even applies).
+let uProj3 = loadDefaultDeckardProject().project
+let uCh3 = uProj3.channels[0].id
+let uStore3 = { project: uProj3, runtime: {} }
+let guestCtx = { actorId: "guest-7", skillIds: ["performer"] }
+let uEd3 = createEditor(uStore3, createIngest(uStore3).ingest, () => guestCtx)
+let ownGain = findChannelById(uProj3, uCh3).gain
+uEd3.emit("track/" + uCh3 + "/mix/gain", 0.1)
+check("undo/ownership: a non-owner edit is gated (no change → nothing to wrongly undo)", Math.abs(findChannelById(uProj3, uCh3).gain - ownGain) < 1e-6)
+// A no-op edit (same value) does not pollute the undo stack.
+let uProj4 = loadDefaultDeckardProject().project
+let uCh4 = uProj4.channels[0].id
+let uStore4 = { project: uProj4, runtime: {} }
+let uEd4 = createEditor(uStore4, createIngest(uStore4).ingest, () => ctxLocal)
+uEd4.emit("track/" + uCh4 + "/mix/gain", findChannelById(uProj4, uCh4).gain)
+check("undo: a no-op edit records nothing", uEd4.canUndo() === false)
+
 // 7. Lookahead scheduler helpers: self-correcting step advance, no accumulated drift.
 check("secondsPerStep: 120bpm = 0.125s per 16th", Math.abs(secondsPerStep(120) - 0.125) < 1e-9)
 check("secondsPerStep: clamps low bpm to 40", secondsPerStep(10) === secondsPerStep(40))
 check("secondsPerStep: clamps high bpm to 300", secondsPerStep(999) === secondsPerStep(300))
 // Normal cadence: scheduler just past a step, window 0.1s, 0.125s/step → schedules ~1 step ahead.
 let sp = secondsPerStep(120)
+// Swing: even (on-beat) steps unshifted; odd (off-beat) steps delayed by swing*sp*0.5; 0/clamped edge cases.
+check("swing: 0 swing = no offset on any step", swingOffsetSec(0, sp, 0) === 0 && swingOffsetSec(1, sp, 0) === 0)
+check("swing: even steps never shift", swingOffsetSec(0, sp, 0.5) === 0 && swingOffsetSec(2, sp, 0.5) === 0 && swingOffsetSec(4, sp, 1) === 0)
+check("swing: odd step delayed by swing*sp*0.5", Math.abs(swingOffsetSec(1, sp, 0.5) - (0.5 * sp * 0.5)) < 1e-12 && Math.abs(swingOffsetSec(3, sp, 0.6) - (0.6 * sp * 0.5)) < 1e-12)
+check("swing: clamps swing > 1 to a half-step max", Math.abs(swingOffsetSec(1, sp, 5) - (sp * 0.5)) < 1e-12)
+check("swing: negative swing clamps to 0", swingOffsetSec(1, sp, -1) === 0)
 let r1 = stepsToScheduleInWindow(0, 0.06, 0.0, 0.1, sp, 256)
 check("window: schedules the steps within lookahead", r1.items.length === 1 && r1.items[0].step === 0)
 check("window: advances cursor by one step", r1.nextStep === 1 && Math.abs(r1.nextSec - (0.06 + sp)) < 1e-9)
@@ -1196,6 +1280,56 @@ check("window: reached ~step 100 over 100 half-step ticks", stepC >= 38 && stepC
 // Catch-up burst is capped by maxBatch (clock jumped far ahead, e.g. tab resume).
 let rb = stepsToScheduleInWindow(0, 0.0, 100.0, 0.1, sp, 8)
 check("window: maxBatch caps a runaway catch-up", rb.items.length === 8)
+
+// ---- Set Recorder waveform accumulator (the de-jank: incremental per-deck energy fold, replaces the
+// per-render re-bucket + giant SVG path) -------------------------------------------------------------------
+console.log("=== Set Recorder energy accumulator ===")
+let seEn = freshSetEnergy()
+let seAct = freshActiveDecks()
+// busIndex -> deck: bus 0,1 on A; bus 2 on B; bus 3 on C.
+let seDob = ["A", "A", "B", "C"]
+// step 0: two A hits (vel 100 + 80) + one B hit (vel 64). A is new → newLane true.
+let nl0 = foldSetEnergyStep(seEn, seAct, seDob, 0, [
+  { busIndex: 0, vel: 100 }, { busIndex: 1, vel: 80 }, { busIndex: 2, vel: 64 }
+])
+check("setEnergy: first fold flags a new lane", nl0 === true)
+check("setEnergy: deck A step0 = summed velocity (100+80)", seEn.A["0"] === 180)
+check("setEnergy: deck B step0 = 64", seEn.B["0"] === 64)
+check("setEnergy: maxStep tracks the step", seEn.maxStep === 0)
+check("setEnergy: maxE is the running max bucket (180)", seEn.maxE === 180)
+check("setEnergy: totalNotes counts every trigger (3)", seEn.totalNotes === 3)
+check("setEnergy: only fired decks are active", seAct.A === true && seAct.B === true && seAct.C === false && seAct.D === false)
+// step 4: another A hit, same deck → NOT a new lane; vel NaN/0 sanitizes to 100.
+let nl1 = foldSetEnergyStep(seEn, seAct, seDob, 4, [{ busIndex: 0, vel: 0 }])
+check("setEnergy: re-firing an active deck is not a new lane", nl1 === false)
+check("setEnergy: vel<=0 sanitizes to 100", seEn.A["4"] === 100)
+check("setEnergy: maxStep advanced to 4", seEn.maxStep === 4)
+// step 4 deck C first sound → new lane; an off-roster bus (99) falls back to deck A (nothing dropped).
+let nl2 = foldSetEnergyStep(seEn, seAct, seDob, 4, [{ busIndex: 3, vel: 90 }, { busIndex: 99, vel: 50 }])
+check("setEnergy: a deck's first sound on a later step is a new lane", nl2 === true)
+check("setEnergy: deck C now active", seAct.C === true)
+check("setEnergy: off-roster bus falls back to deck A (not dropped)", seEn.A["4"] === 150)
+// fresh reset clears everything.
+let seEn2 = freshSetEnergy()
+let seAct2 = freshActiveDecks()
+check("setEnergy: freshSetEnergy resets buckets + aggregates", Object.keys(seEn2.A).length === 0 && seEn2.maxStep === 0 && seEn2.maxE === 1 && seEn2.totalNotes === 0)
+check("setEnergy: freshActiveDecks resets all flags", seAct2.A === false && seAct2.B === false && seAct2.C === false && seAct2.D === false)
+// rebuild-from-tape parity: folding the same tape twice into fresh maps yields identical energy.
+let tape2 = [
+  { step: 0, triggers: [{ busIndex: 0, vel: 100 }, { busIndex: 2, vel: 64 }] },
+  { step: 8, triggers: [{ busIndex: 1, vel: 70 }] }
+]
+let rA = freshSetEnergy()
+let rAact = freshActiveDecks()
+let rB = freshSetEnergy()
+let rBact = freshActiveDecks()
+let rIdx = 0
+while (rIdx < tape2.length) {
+  foldSetEnergyStep(rA, rAact, seDob, tape2[rIdx].step, tape2[rIdx].triggers)
+  foldSetEnergyStep(rB, rBact, seDob, tape2[rIdx].step, tape2[rIdx].triggers)
+  rIdx = rIdx + 1
+}
+check("setEnergy: rebuild is deterministic (same tape → same energy)", JSON.stringify(rA) === JSON.stringify(rB) && rA.maxStep === 8 && rA.totalNotes === 3)
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))

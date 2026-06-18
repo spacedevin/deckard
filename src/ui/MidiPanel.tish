@@ -1,0 +1,102 @@
+// MIDI strip (footer, right of the I/O Rack). Enable Web MIDI, pick an input, MIDI-learn a knob to a target.
+// A connected keyboard plays the SELECTED instrument; a learned CC drives its target via rt.emit (TPL → the
+// move broadcasts + round-trips like a UI drag). Mappings persist locally. `controller` = createMidiController.
+
+import { h, Fragment } from '@tishlang/lattish'
+import { midiTargetList, midiTargetLabel } from '../midi/Midi.tish'
+
+export fn MidiPanel(controller, project, midiGen) {
+  if (!controller) {
+    return null
+  }
+  let st = controller.state()
+  if (!st.supported && st.inputs.length === 0) {
+    // Not yet enabled (or unsupported): a single Enable button requests Web MIDI on a user gesture.
+    return (
+      <div class="midi-rack">
+        <span class="midi-rack-title">{"MIDI"}</span>
+        <button
+          type="button"
+          class="midi-enable"
+          title="Enable MIDI — connect a hardware keyboard / controller (Chrome / Edge). Notes play the selected instrument; learn a knob to map it."
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={() => controller.requestAccess()}
+        >
+          {"Enable"}
+        </button>
+      </div>
+    )
+  }
+
+  let inputOpts = [<option value="">{"— no input —"}</option>]
+  let i = 0
+  while (i < st.inputs.length) {
+    let inp = st.inputs[i]
+    inputOpts.push(<option value={inp.id} selected={inp.id === st.connectedId}>{inp.name}</option>)
+    i = i + 1
+  }
+
+  let targets = midiTargetList(project)
+  let targetOpts = [<option value="">{"— assign to… —"}</option>]
+  let ti = 0
+  while (ti < targets.length) {
+    targetOpts.push(<option value={targets[ti].id}>{targets[ti].label}</option>)
+    ti = ti + 1
+  }
+
+  // Mapping chips (key → target label) with a ✕ to remove.
+  let mapKeys = Object.keys(st.mappings)
+  let chips = []
+  let mi = 0
+  while (mi < mapKeys.length) {
+    let k = mapKeys[mi]
+    let label = midiTargetLabel(project, st.mappings[k])
+    let kk = k
+    chips.push(
+      <span class="midi-map-chip" title={String(k) + " → " + label}>
+        {label}
+        <button type="button" class="midi-map-x" title="Remove mapping" onclick={() => controller.removeMapping(kk)}>{"×"}</button>
+      </span>
+    )
+    mi = mi + 1
+  }
+
+  let connected = st.connectedId != null && st.connectedId !== ""
+  return (
+    <div class="midi-rack">
+      <span class="midi-rack-title">{"MIDI"}</span>
+      <span class={connected ? "midi-dot midi-dot-on" : "midi-dot"} title={connected ? "connected" : "no input"} />
+      <select
+        class="midi-select"
+        value={st.connectedId}
+        onmousedown={(e) => e.stopPropagation()}
+        onchange={(e) => controller.selectInput(e.target.value)}
+      >
+        {inputOpts}
+      </select>
+      <button
+        type="button"
+        class={st.learn ? "midi-learn midi-learn-on" : "midi-learn"}
+        title="MIDI-LEARN — turn on, move a knob/fader on your controller, then pick what it should control."
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={() => controller.setLearn(!st.learn)}
+      >
+        {st.learn ? "LEARN: ON" : "LEARN"}
+      </button>
+      {st.learn && st.pending ? (
+        <select
+          class="midi-select midi-assign"
+          value=""
+          title={"Got CC " + String(st.pending.controller) + " — assign it"}
+          onmousedown={(e) => e.stopPropagation()}
+          onchange={(e) => { if (e.target.value) { controller.bindPending(e.target.value) } }}
+        >
+          {targetOpts}
+        </select>
+      ) : null}
+      {st.learn && !st.pending ? <span class="midi-hint">{"move a knob…"}</span> : null}
+      {chips}
+      <span class="midi-kbd-hint" title="A connected keyboard plays the instrument selected in the INSTRUMENT panel">{"⌨ → selected"}</span>
+    </div>
+  )
+}
