@@ -4902,6 +4902,17 @@ input[type="range"]::-moz-range-thumb {
 .dk-jog-reload.dk-acc-c { color: var(--deck-c); } .dk-jog-reload.dk-acc-d { color: var(--deck-d); }
 .dk-jog-reload:hover { border-color: currentColor; }
 
+/* ---- Vinyl performance row (CUT / REV / BRK / SPIN) under the jog ---- */
+.dk-vinyl { display: flex; gap: 5px; justify-content: center; margin-top: 8px; }
+.dk-vinyl.dk-acc-a { --vacc: var(--deck-a); } .dk-vinyl.dk-acc-b { --vacc: var(--deck-b); }
+.dk-vinyl.dk-acc-c { --vacc: var(--deck-c); } .dk-vinyl.dk-acc-d { --vacc: var(--deck-d); }
+.dk-vinyl-btn { flex: 1 1 0; min-width: 0; padding: 5px 2px; border-radius: 5px; border: 1px solid #2a2a35;
+  background: #0d0d11; color: #8a8a92; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.06em;
+  cursor: pointer; touch-action: none; user-select: none; transition: color 0.08s, border-color 0.08s, background 0.08s; }
+.dk-vinyl-btn:hover { border-color: var(--vacc); color: #c8c8d0; }
+.dk-vinyl-btn:active, .dk-vinyl-btn.dk-vinyl-on { color: #0b0b0e; background: var(--vacc); border-color: var(--vacc);
+  box-shadow: 0 0 10px -1px var(--vacc); }
+
 /* ---- Contextual level preset bars (sequence / rack / session) ---- */
 .preset-bars-row { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 0.5rem; }
 .preset-bar { display: inline-flex; align-items: center; gap: 0.35rem; }

@@ -156,15 +156,19 @@ fn StemFader(entry, setProjectFromUI, touchMixer, project, rt, accentColor) {
       rt.emit("track/" + ch.id + "/mix/gain", p)
     }
   }
+  // Key the canvas + meter by the CHANNEL ID (stable), not the bus index (volatile across deck loads). The scope
+  // worker maps each canvas to an offscreen-canvas keyed by this id; an index-based id let a reused/re-indexed
+  // canvas keep a STALE registration after a deck load → the wrong deck's colour/data (e.g. deck-A blue showing
+  // on a deck-C stem). A per-channel key keeps the canvas↔channel↔worker-id binding 1:1 forever.
   return (
-    <div class="dk-fader">
+    <div class="dk-fader" key={"sf-" + ch.id}>
       <div class="dk-fader-name" title={ch.name}>{ch.name}</div>
       <div class="dk-fader-wave">
-        <canvas class={"dk-stem-wave dk-wave-" + String(entry.idx)} width="64" height="34" />
+        <canvas class={"dk-stem-wave dk-wave-" + ch.id} width="64" height="34" />
       </div>
       <div class="dk-lever">
         {vertLeverEl(g, acc, onSet)}
-        <div class={"dk-lever-meter dk-lvl-" + String(entry.idx)}>
+        <div class={"dk-lever-meter dk-lvl-" + ch.id}>
           <div class="dk-lever-meter-fill" style={{ background: acc }} />
         </div>
       </div>
@@ -279,17 +283,11 @@ fn DeckJog(deck, rt) {
         el.setPointerCapture(pid)
       } catch (errc) {}
     }
-    // Load this deck's loop the first time it's grabbed (cached after); duck the deck so the scratch replaces it.
-    if (rt && rt.scratchLoadDeckLoop && rt.scratchHasBuffer && !rt.scratchHasBuffer(deck)) {
-      rt.scratchLoadDeckLoop(deck)
-    }
-    if (rt && rt.scratchDuck) {
-      rt.scratchDuck(deck, true)
-    }
-    // Phase-lock the platter to the live beat-grid so the scratch starts where the music is (cached-buffer path;
-    // a freshly-loaded buffer is seeded in scratchLoadDeckLoop's load callback instead).
-    if (rt && rt.scratchSeekLive) {
-      rt.scratchSeekLive(deck)
+    // Engage the platter as the "jog" grab (loads the loop lazily + ducks + phase-locks on the FIRST grab of any
+    // kind). Sharing the engage/release refcount with CUT/REV/BRAKE lets you jog with one hand and cut with the
+    // other without the cut's release un-ducking the still-held jog.
+    if (rt && rt.scratchEngage) {
+      rt.scratchEngage(deck, "jog")
     }
     fn frame() {
       if (done) {
@@ -325,11 +323,9 @@ fn DeckJog(deck, rt) {
       }
       done = true
       el.__jogGrabbing = false
-      if (rt && rt.scratchRate) {
-        rt.scratchRate(deck, 0)
-      }
-      if (rt && rt.scratchDuck) {
-        rt.scratchDuck(deck, false)
+      // Release the "jog" grab — the platter stops + un-ducks only if no CUT/REV/BRAKE is still held.
+      if (rt && rt.scratchRelease) {
+        rt.scratchRelease(deck, "jog")
       }
       el.removeEventListener("pointermove", move)
       el.removeEventListener("pointerup", up)
@@ -371,6 +367,66 @@ fn DeckJog(deck, rt) {
   )
 }
 
+// A momentary HOLD button (pointer-capture so a release outside still fires): onDown on press, onUp on release;
+// lights via a CSS class while held. Used for the vinyl CUT / REVERSE / BRAKE moves.
+fn holdBtn(label, cls, title, onDown, onUp) {
+  fn down(e) {
+    if (e.preventDefault) {
+      e.preventDefault()
+    }
+    if (e.stopPropagation) {
+      e.stopPropagation()
+    }
+    let el = e.currentTarget
+    let pid = e.pointerId
+    if (el.setPointerCapture && pid != null) {
+      try {
+        el.setPointerCapture(pid)
+      } catch (errc) {}
+    }
+    el.classList.add("dk-vinyl-on")
+    let released = false
+    fn up() {
+      if (released) {
+        return
+      }
+      released = true
+      el.classList.remove("dk-vinyl-on")
+      onUp()
+      el.removeEventListener("pointerup", up)
+      el.removeEventListener("pointercancel", up)
+      el.removeEventListener("lostpointercapture", up)
+    }
+    el.addEventListener("pointerup", up)
+    el.addEventListener("pointercancel", up)
+    el.addEventListener("lostpointercapture", up)
+    onDown()
+  }
+  return (
+    <button type="button" class={cls} title={title} onpointerdown={down}>
+      {label}
+    </button>
+  )
+}
+
+// VINYL performance row — turntablist moves on this deck's scratch platter. CUT (hold to mute, the fader-cut
+// for transformer/chirp/stab — jog with one hand, cut with the other), REV (hold to play backward / censor),
+// BRK (hold = the vinyl power-down to a stop), SPIN (tap = the rewind spinback zip). All route through rt hooks.
+fn VinylRow(deck, rt) {
+  let suf = deck === "B" ? "b" : deck === "C" ? "c" : deck === "D" ? "d" : "a"
+  let acc = "dk-acc-" + suf
+  return (
+    <div class={"dk-vinyl " + acc}>
+      {holdBtn("CUT", "dk-vinyl-btn", "Cut deck " + deck + " — hold to mute sharply (tap rhythmically while jogging = transformer)", () => { if (rt && rt.scratchCut) { rt.scratchCut(deck, true) } }, () => { if (rt && rt.scratchCut) { rt.scratchCut(deck, false) } })}
+      {holdBtn("REV", "dk-vinyl-btn", "Reverse deck " + deck + " — hold to play backward (censor)", () => { if (rt && rt.scratchReverse) { rt.scratchReverse(deck, true) } }, () => { if (rt && rt.scratchReverse) { rt.scratchReverse(deck, false) } })}
+      {holdBtn("BRK", "dk-vinyl-btn", "Brake deck " + deck + " — hold to slow the record to a stop (release to bring it back)", () => { if (rt && rt.scratchBrake) { rt.scratchBrake(deck, true) } }, () => { if (rt && rt.scratchBrake) { rt.scratchBrake(deck, false) } })}
+      <button type="button" class="dk-vinyl-btn" title={"Spinback deck " + deck + " — the rewind zip"} onpointerdown={(e) => { if (e.stopPropagation) { e.stopPropagation() } }} onclick={() => { if (rt && rt.scratchSpinback) { rt.scratchSpinback(deck) } }}>
+        {"SPIN"}
+      </button>
+    </div>
+  )
+}
+
 // One of the 4 decks (A/B/C/D): coloured header + set picker + the per-TRACK stem faders + a jog platter. The
 // per-DECK mix controls (EQ knobs, CUE, deck volume) live in the centre DJ-mixer strip (DeckChannelStrip).
 fn DeckSlot(project, deck, setProjectFromUI, touchMixer, rt) {
@@ -398,6 +454,7 @@ fn DeckSlot(project, deck, setProjectFromUI, touchMixer, rt) {
       </div>
       <div class="dk-fader-row">{faders}</div>
       {empty ? null : DeckJog(deck, rt)}
+      {empty ? null : VinylRow(deck, rt)}
     </div>
   )
 }

@@ -414,6 +414,9 @@ let aahsRand = compileGeneratorToPatchLines("aahs", {}, null).join("\n")
 check("[patch] aahs conversion emits per-singer rand jitter", aahsRand.indexOf(" rand 2.5") >= 0)
 let aetherRand = compileGeneratorToPatchLines("aether", {}, null).join("\n")
 check("[patch] aether conversion emits LFO rand jitter", aetherRand.indexOf(" rand 0.6") >= 0 && aetherRand.indexOf(" rand 0.4") >= 0)
+// `tone` folds in odd harmonics (3rd/5th/7th) so the Tone knob is an obvious mellow↔reedy sweep — guard the
+// 5th + 7th partials so a future change can't silently flatten it back to a near-sine.
+check("[patch] aether tone emits 3rd/5th/7th odd harmonics (dramatic Tone)", aetherRand.indexOf("osc oh3 sine note ratio 3") >= 0 && aetherRand.indexOf("osc oh5 sine note ratio 5") >= 0 && aetherRand.indexOf("osc oh7 sine note ratio 7") >= 0)
 // System features: pan node, shaper curve type, and note*vel expression composites.
 let sysG = parsePatchGraph(["pan pL -0.6", "shaper sh1 amount 30 curve soft", "conn pL out 1"])
 let panNd = sysG.nodes[0]
@@ -430,6 +433,18 @@ let tineFull = compileGeneratorToPatchLines("tine", { drive: 0.4 }, null).join("
 check("[patch] tine emits stereo tremolo (two pan paths)", tineFull.indexOf("pan pL -0.6") >= 0 && tineFull.indexOf("pan pR 0.6") >= 0)
 check("[patch] tine emits soft drive curve", tineFull.indexOf("curve soft") >= 0)
 check("[patch] tine emits velocity-scaled FM spike (note*vel)", tineFull.indexOf("note*vel*") >= 0)
+// FM bark = velocity-decomposed: mf is the velocity-INDEPENDENT floor (note*<idx>, no vel), ms is the velocity
+// spike. Both decay to a real FLOOR (2 exp segments) so the bark stays bright through the attack on hard hits.
+check("[patch] tine FM floor path is velocity-independent (no vel in mfd)", tineFull.indexOf("env mfd.gain set 0 note*") >= 0 && tineFull.indexOf("env mfd.gain set 0 note*vel") < 0)
+let tineMsdLine = ""
+let tineLn = tineFull.split("\n")
+let tineLi = 0
+while (tineLi < tineLn.length) {
+  if (tineLn[tineLi].indexOf("env msd.gain") === 0) { tineMsdLine = tineLn[tineLi] }
+  tineLi = tineLi + 1
+}
+// Two exp segments = peak→floor→fade (the spike decays to a real floor, not to ~0 — keeps the bark bright).
+check("[patch] tine FM spike decays to a floor (two exp segments), not to ~0", tineMsdLine.indexOf("note*vel*") >= 0 && tineMsdLine.indexOf("exp") >= 0 && tineMsdLine.indexOf("exp") !== tineMsdLine.lastIndexOf("exp"))
 // `string` (Karplus-Strong plucked-string primitive) — the node kind that lets guitar reproduce faithfully.
 let strG = parsePatchGraph(["string s1 note tone 0.7 damping 0.3 decay 0.8 mute 0.1", "conn s1 out 1"])
 let strNd = strG.nodes[0]

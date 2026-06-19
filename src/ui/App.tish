@@ -17,7 +17,7 @@ import { createAudioDeviceSettings } from '../core/AudioDeviceSettings.tish'
 import { AudioRackPanel } from './AudioRackPanel.tish'
 import { MidiPanel } from './MidiPanel.tish'
 import { SongBrowser } from './SongBrowser.tish'
-import { loadScratchBuffer, setScratchRate, setScratchVolume, setScratchDucking, scratchHasBuffer, setScratchPos } from '../audio/Engine.tish'
+import { loadScratchBuffer, setScratchRate, setScratchVolume, setScratchDucking, scratchHasBuffer, setScratchPos, setScratchCut, scratchSpin } from '../audio/Engine.tish'
 import { renderDeckLoopToBuffer } from '../audio/Playback.tish'
 import { createMidiController } from '../midi/Midi.tish'
 import { transportTick } from '../audio/Playback.tish'
@@ -578,6 +578,12 @@ export fn App() {
         if (!e.repeat && r.onCueActive) {
           r.onCueActive()
         }
+      } else if (e.key === "v" || e.key === "V") {
+        // Hold V = CUT the actively-jogged deck — the two-handed transformer/chirp: jog with the mouse, cut
+        // with V. Targets r.activeScratchDeck (set when you grab a jog / vinyl move).
+        if (!e.repeat && r.scratchCut && r.activeScratchDeck) {
+          r.scratchCut(r.activeScratchDeck, true)
+        }
       }
     }
     fn onKeyUp(e) {
@@ -594,6 +600,8 @@ export fn App() {
         r.onFxThrow("echo", false)
       } else if ((e.key === "f" || e.key === "F") && r.onFxThrow) {
         r.onFxThrow("filter", false)
+      } else if ((e.key === "v" || e.key === "V") && r.scratchCut && r.activeScratchDeck) {
+        r.scratchCut(r.activeScratchDeck, false)
       }
     }
     window.addEventListener("keydown", onKey)
@@ -891,29 +899,34 @@ export fn App() {
         let deckLvl = { A: 0, B: 0, C: 0, D: 0 }
         let wi = 0
         while (wi < audioStore.buses.length) {
-          let cv = document.querySelector(".dk-wave-" + String(wi))
           let bus = audioStore.buses[wi]
+          let ch = (dpj && dpj.channels && dpj.channels[wi]) ? dpj.channels[wi] : null
           let lvl = bus && bus.analyser ? busPeakLevel(bus.analyser) : 0
-          let chDeck = (dpj && dpj.channels && dpj.channels[wi]) ? channelDeck(dpj, dpj.channels[wi]) : "A"
+          let chDeck = ch ? channelDeck(dpj, ch) : "A"
+          // Key the canvas/meter/worker-id by the CHANNEL ID (stable), not the bus index (which shifts on a deck
+          // load → a stale scope-worker registration painting the wrong deck's colour, the "loaded deck = blue
+          // waveforms" bug). The canvas carries class dk-wave-<ch.id>, matching DeckMixer's StemFader.
+          let wkey = ch ? ch.id : String(wi)
+          let cv = document.querySelector(".dk-wave-" + wkey)
           if (cv && bus && bus.analyser) {
             let col = deckWaveColorHex(chDeck)
-            if (sw != null && scopeRegister(cv, "wave-" + String(wi))) {
+            if (sw != null && scopeRegister(cv, "wave-" + wkey)) {
               let N = bus.analyser.fftSize
               let tb = new Uint8Array(N)
               bus.analyser.getByteTimeDomainData(tb)
-              frames.push({ id: "wave-" + String(wi), kind: "wave", color: col, data: tb })
+              frames.push({ id: "wave-" + wkey, kind: "wave", color: col, data: tb })
               bufs.push(tb.buffer)
             } else {
               drawMiniWave(cv, bus.analyser, col)
             }
           }
           // Drive the per-stem fader's segmented level meter from the same analyser (CSS var → fill height).
-          let meterEl = document.querySelector(".dk-lvl-" + String(wi))
+          let meterEl = document.querySelector(".dk-lvl-" + wkey)
           if (meterEl) {
             meterEl.style.setProperty("--lvl", String(lvl))
           }
           // Accumulate the deck's level (max across its channels) for the centre per-deck volume meters.
-          if (dpj && dpj.channels && dpj.channels[wi]) {
+          if (ch) {
             if (deckLvl[chDeck] != null && lvl > deckLvl[chDeck]) {
               deckLvl[chDeck] = lvl
             }
@@ -1902,6 +1915,89 @@ export fn App() {
     }
   }
 
+  // ---- VINYL PERFORMANCE: cut / reverse / brake / spinback, all on the per-deck scratch platter ----
+  // A per-deck SET of active "grabs" (jog/cut/rev/brake/spin). The platter stays engaged (deck ducked) while
+  // ANY grab is held and disengages only when the last lets go — so you can jog with one hand and CUT with the
+  // other (the transformer/chirp two-hand move) without the cut's release un-ducking the still-held jog.
+  if (!rt.scratchHold) {
+    rt.scratchHold = { A: {}, B: {}, C: {}, D: {} }
+  }
+  fn scratchHoldCount(deck) {
+    let h = rt.scratchHold[deck]
+    return h ? Object.keys(h).length : 0
+  }
+  rt.scratchEngage = (deck, gid) => {
+    let h = rt.scratchHold[deck]
+    if (!h) {
+      return
+    }
+    let first = scratchHoldCount(deck) === 0
+    h[gid] = true
+    rt.activeScratchDeck = deck
+    if (first) {
+      if (rt.scratchHasBuffer && !rt.scratchHasBuffer(deck)) {
+        rt.scratchLoadDeckLoop(deck)
+      }
+      rt.scratchDuck(deck, true)
+      rt.scratchSeekLive(deck)
+    }
+  }
+  rt.scratchRelease = (deck, gid) => {
+    let h = rt.scratchHold[deck]
+    if (!h) {
+      return
+    }
+    delete h[gid]
+    if (scratchHoldCount(deck) === 0) {
+      setScratchRate(audioStore, deck, 0)
+      setScratchCut(audioStore, deck, false)
+      rt.scratchDuck(deck, false)
+    }
+  }
+  // CUT — a sharp hold-to-mute gate on the scratch (one hand jogs, the other cuts → transformer / chirp / stab).
+  // Standalone (no jog held) it spins the platter at full-speed playback so cutting it cuts the deck's own sound.
+  rt.scratchCut = (deck, on) => {
+    if (on === true) {
+      rt.scratchEngage(deck, "cut")
+      if (rt.scratchHold[deck] && !rt.scratchHold[deck].jog) {
+        setScratchRate(audioStore, deck, 1)
+      }
+      setScratchCut(audioStore, deck, true)
+    } else {
+      setScratchCut(audioStore, deck, false)
+      rt.scratchRelease(deck, "cut")
+    }
+  }
+  // REVERSE / censor — hold to play the deck's loop backward; release resumes the deck forward.
+  rt.scratchReverse = (deck, on) => {
+    if (on === true) {
+      rt.scratchEngage(deck, "rev")
+      setScratchRate(audioStore, deck, -1)
+    } else {
+      rt.scratchRelease(deck, "rev")
+    }
+  }
+  // BRAKE — the vinyl power-down: the platter slows from full speed to a dead stop over ~0.5 s, then stays
+  // stopped while held; release brings the deck back. A hold.
+  rt.scratchBrake = (deck, on) => {
+    if (on === true) {
+      rt.scratchEngage(deck, "brake")
+      scratchSpin(audioStore, deck, 1, 0.5)
+    } else {
+      rt.scratchRelease(deck, "brake")
+    }
+  }
+  // SPINBACK — the rewind zip: a fast reverse decaying to a stop over ~0.35 s, then auto-resumes the deck. Tap.
+  rt.scratchSpinback = (deck) => {
+    rt.scratchEngage(deck, "spin")
+    scratchSpin(audioStore, deck, -10, 0.35)
+    if (typeof window !== "undefined" && window.setTimeout) {
+      window.setTimeout(() => {
+        rt.scratchRelease(deck, "spin")
+      }, 430)
+    }
+  }
+
   fn onBpmInput(e) {
     let v = Number(e.target.value)
     if (v >= 40 && v <= 240) {
@@ -2051,6 +2147,11 @@ export fn App() {
       li = li + 1
     }
     if (occupied.length === 0) {
+      // A Set captures DECK PLAYERS (the ghost-racing bundle), not the rack. With no decks loaded there's
+      // nothing to capture — say so instead of silently doing nothing (this read as "Save Set is broken").
+      if (typeof window !== "undefined" && window.alert) {
+        window.alert("Save Set captures the loaded DECKS (their racks, clips + arrangement). No decks are loaded right now — load an instrument onto a deck first, or use \"Save Station\" to save the whole workspace (instruments, sequences and all).")
+      }
       return
     }
     let nm = prompt("Save loaded decks as a Set (" + String(occupied.length) + " player" + (occupied.length === 1 ? "" : "s") + ")", "My Set")

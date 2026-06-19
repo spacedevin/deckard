@@ -956,6 +956,36 @@ export fn setScratchVolume(store, deck, v) {
   sl.volume = vv
 }
 
+/** Sharp CUT gate on deck `deck`'s scratch: on=true mutes its output with a fast (~0.4 ms) gain ramp, NOT the
+ *  slow rate slew — so a fader-style cut / transformer / chirp stays percussive. One hand jogs, the other cuts. */
+export fn setScratchCut(store, deck, on) {
+  let sl = scratchSlot(store, deck)
+  if (!sl || !sl.node) {
+    return
+  }
+  sl.node.port.postMessage({ type: "cut", on: on === true })
+}
+
+/** Timed rate ramp on deck `deck`'s scratch — overrides the jog and decays the rate to 0 over `durSec`:
+ *  BRAKE = a positive `rate` (the vinyl power-down, pitch falling to a stop); SPINBACK = a large negative
+ *  `rate` (the rewind zip). After the ramp the platter is stopped (rate 0, silent) until the next jog. */
+export fn scratchSpin(store, deck, rate, durSec) {
+  let sl = scratchSlot(store, deck)
+  if (!sl || !sl.node) {
+    return
+  }
+  let r = Number(rate)
+  if (r !== r) {
+    r = 0
+  }
+  let d = Number(durSec)
+  if (d !== d || d <= 0) {
+    d = 0.5
+  }
+  let sr = sl.node.context && sl.node.context.sampleRate ? sl.node.context.sampleRate : 44100
+  sl.node.port.postMessage({ type: "spin", rate: r, samples: Math.floor(sr * d) })
+}
+
 /** Master switch: when true, the UI suspends ALL visual draw loops (scope/meters/waveforms/playhead). */
 export fn setDrawDisabled(store, on) {
   if (store) {

@@ -70,7 +70,7 @@ export fn playAether(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   // (peak·(1+tremFactor) = v·0.52) rather than letting it overshoot on top. Combined with the 0.5 coreGain
   // below (so the two heterodyne sines sum to 1.0, not 2.0, when they phase-align at onset), a single stem
   // stays <= ~1 even at the loud/max-waver corner — no master-glue-comp slam.
-  let tremFactor = 0.06 + waver * 0.16
+  let tremFactor = 0.05 + waver * 0.32
   let peak = (v * 0.52) / (1 + tremFactor)
   amp.gain.setValueAtTime(0, t)
   amp.gain.linearRampToValueAtTime(peak, t + attack)
@@ -82,8 +82,10 @@ export fn playAether(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   // it stays mellow (never a buzzy synth lead).
   let lp = ctx.createBiquadFilter()
   lp.type = "lowpass"
-  let cutoff = 1400 + tone * 4200
-  if (cutoff > 9000) { cutoff = 9000 }
+  // `tone` opens the cutoff WIDE — from a dark, pure heterodyne sine (0) up to a bright, reedy, throaty voice
+  // (1) where the added odd harmonics speak. Wide range so the knob is an obvious dark↔bright sweep.
+  let cutoff = 700 + tone * 8000
+  if (cutoff > 13000) { cutoff = 13000 }
   lp.frequency.value = cutoff
   lp.Q.value = 0.4
   lp.connect(amp)
@@ -115,7 +117,7 @@ export fn playAether(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   vib.type = "sine"
   vib.frequency.value = vibHz
   let vibGain = ctx.createGain()
-  let vibDepth = 6 + waver * 30
+  let vibDepth = 5 + waver * 65
   vibGain.gain.setValueAtTime(vibDepth * 0.12, t)
   vibGain.gain.linearRampToValueAtTime(vibDepth, bloomAt)
   irregGain.connect(vibGain.gain)
@@ -134,7 +136,7 @@ export fn playAether(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
 
   // Heterodyne core: two sines a few cents apart. The slow beat between them is what keeps a "pure" tone
   // from sounding dead — it's the analog heart of the instrument. Both ride the glide + vibrato.
-  let beat = 4 + waver * 5
+  let beat = 3 + waver * 10
   let k = 0
   while (k < 2) {
     let osc = ctx.createOscillator()
@@ -149,20 +151,28 @@ export fn playAether(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
     k = k + 1
   }
 
-  // A faint 3rd-harmonic sine for the throaty, voice-like odd-harmonic color. `tone` folds it in; it
-  // glides and wavers with the fundamental so it stays fused into one voice, never a separate beep.
+  // `tone` folds in ODD HARMONICS (3rd + 5th) for the throaty, reedy, voice-like color — a pure sine at 0,
+  // a rich, almost-vocal tone at 1. They glide + waver with the fundamental so they fuse into one voice
+  // (never a separate beep). Gains are bold so Tone is an obvious mellow↔reedy sweep, not a faint tint.
   if (tone > 0.01) {
-    let h3 = ctx.createOscillator()
-    h3.type = "sine"
-    h3.frequency.setValueAtTime(startHz * 3, t)
-    h3.frequency.exponentialRampToValueAtTime(hz * 3, t + glideTime)
-    vibGain.connect(h3.detune)
-    let h3g = ctx.createGain()
-    h3g.gain.value = tone * 0.16
-    h3.connect(h3g)
-    h3g.connect(coreGain)
-    h3.start(t)
-    h3.stop(stop)
+    let partials = [[3, 0.6], [5, 0.45], [7, 0.28]]
+    let hpi = 0
+    while (hpi < partials.length) {
+      let mul = partials[hpi][0]
+      let pamp = partials[hpi][1]
+      let ho = ctx.createOscillator()
+      ho.type = "sine"
+      ho.frequency.setValueAtTime(startHz * mul, t)
+      ho.frequency.exponentialRampToValueAtTime(hz * mul, t + glideTime)
+      vibGain.connect(ho.detune)
+      let hg = ctx.createGain()
+      hg.gain.value = tone * pamp
+      ho.connect(hg)
+      hg.connect(coreGain)
+      ho.start(t)
+      ho.stop(stop)
+      hpi = hpi + 1
+    }
   }
 
   // Breath: a whisper of air noise bandpassed near the tone, swelling in with the note for organic warmth.
@@ -185,9 +195,9 @@ export fn playAether(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
     if (bpf < 200) { bpf = 200 }
     if (bpf > 9000) { bpf = 9000 }
     nbp.frequency.value = bpf
-    nbp.Q.value = 0.6
+    nbp.Q.value = 0.45
     let ng = ctx.createGain()
-    let nlevel = air * 0.09 * v
+    let nlevel = air * 0.8 * v
     ng.gain.setValueAtTime(0, t)
     ng.gain.linearRampToValueAtTime(nlevel, t + attack)
     ng.gain.setValueAtTime(nlevel, t + hold)

@@ -4,6 +4,12 @@
 // smoothing toward the target rate removes zipper noise. The buffer is a one-bar LOOP — the read position
 // WRAPS at both ends, so you can push it continuously forward or back like a loop scratch.
 //
+// Performance moves layered on top:
+//   • CUT gate — a SHARP per-sample gain gate (cut on/off) that is NOT slewed by the slow rate smoothing,
+//     so a fader-style cut/transformer/chirp stays percussive. Coefficient ~0.06 ≈ 0.4 ms: click-free but crisp.
+//   • SPIN — a timed rate ramp that OVERRIDES the jog: brake (rate +1 → 0 over ~0.5 s = the vinyl power-down)
+//     and spinback (rate −big → 0 over ~0.35 s = the rewind zip). After the ramp the platter is stopped (rate 0).
+//
 // Hand-written plain JS (Tish cannot express `class extends AudioWorkletProcessor`). Loaded via
 // audioContext.audioWorklet.addModule('/scratch-worklet.js') and served as a static file.
 class DeckardScratch extends AudioWorkletProcessor {
@@ -14,6 +20,11 @@ class DeckardScratch extends AudioWorkletProcessor {
     this._pos = 0;     // fractional read position in samples
     this._rate = 0;    // current smoothed rate (output-samples advanced per output-sample)
     this._target = 0;  // requested rate from the jog
+    this._cut = 1;     // current cut-gate gain (0 = muted, 1 = open)
+    this._cutTarget = 1;
+    this._spin = 0;    // remaining samples of a brake/spinback ramp (0 = inactive)
+    this._spinRate = 0;
+    this._spinStep = 0;
     this.port.onmessage = (e) => {
       const m = e.data;
       if (!m) return;
@@ -23,10 +34,24 @@ class DeckardScratch extends AudioWorkletProcessor {
         this._pos = 0;
         this._rate = 0;
         this._target = 0;
+        this._spin = 0;
+        this._cut = 1;
+        this._cutTarget = 1;
       } else if (m.type === 'rate') {
         this._target = m.rate;
+        this._spin = 0;          // a fresh jog cancels any in-flight brake/spinback
       } else if (m.type === 'pos') {
         if (this._len > 0) this._pos = Math.max(0, Math.min(1, m.pos)) * (this._len - 1);
+      } else if (m.type === 'cut') {
+        this._cutTarget = m.on ? 0 : 1;
+      } else if (m.type === 'spin') {
+        // Ramp the rate from m.rate down to 0 over m.samples (brake = +rate, spinback = −rate). Overrides the jog.
+        const samp = (m.samples | 0) > 1 ? (m.samples | 0) : 1;
+        this._spinRate = m.rate;
+        this._spin = samp;
+        this._spinStep = m.rate / samp;
+        this._cut = 1;
+        this._cutTarget = 1;
       }
     };
   }
@@ -40,8 +65,23 @@ class DeckardScratch extends AudioWorkletProcessor {
     }
     const len = this._len;
     for (let i = 0; i < n; i++) {
-      this._rate += (this._target - this._rate) * 0.12;
-      const r = this._rate;
+      // Sharp cut gate — its OWN fast smoothing, independent of the (slow) rate slew, so cuts stay crisp.
+      this._cut += (this._cutTarget - this._cut) * 0.06;
+      let r;
+      if (this._spin > 0) {
+        // Brake / spinback: the timed ramp drives the rate; the jog target is parked at a stop.
+        r = this._spinRate;
+        this._spinRate -= this._spinStep;
+        if ((this._spinStep > 0 && this._spinRate < 0) || (this._spinStep < 0 && this._spinRate > 0)) {
+          this._spinRate = 0;
+        }
+        this._spin -= 1;
+        this._rate = r;
+        this._target = 0;
+      } else {
+        this._rate += (this._target - this._rate) * 0.12;
+        r = this._rate;
+      }
       // not moving → silence (the needle is static).
       if (r > -0.0008 && r < 0.0008) { ch0[i] = 0; continue; }
       let p = this._pos;
@@ -51,7 +91,7 @@ class DeckardScratch extends AudioWorkletProcessor {
       const i0 = p | 0;
       const i1 = (i0 + 1) % len;
       const frac = p - i0;
-      ch0[i] = this._buf[i0] + (this._buf[i1] - this._buf[i0]) * frac;
+      ch0[i] = (this._buf[i0] + (this._buf[i1] - this._buf[i0]) * frac) * this._cut;
       this._pos = p + r;
     }
     for (let c = 1; c < out.length; c++) out[c].set(ch0);

@@ -102,9 +102,11 @@ export fn playAahs(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let mix = ctx.createGain()
   mix.gain.value = 0.5
   mix.connect(amp)
-  let bp1 = aahsFormant(ctx, f1, 5.0, prof.g1)
-  let bp2 = aahsFormant(ctx, f2, 7.0, prof.g2)
-  let bp3 = aahsFormant(ctx, f3, 4.0, prof.g3)
+  // Sharper formant resonances (higher Q) make each vowel's F1/F2/F3 stand out clearly, so aah↔ooh↔eeh is an
+  // obvious timbral change, not a subtle tint.
+  let bp1 = aahsFormant(ctx, f1, 7.5, prof.g1)
+  let bp2 = aahsFormant(ctx, f2, 9.5, prof.g2)
+  let bp3 = aahsFormant(ctx, f3, 5.0, prof.g3)
   bp1.connect(mix)
   bp2.connect(mix)
   bp3.connect(mix)
@@ -113,7 +115,7 @@ export fn playAahs(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   // closed vowels (ooh/mmm sit behind a veil). Keeps the raw saw buzz from being harsh.
   let lp = ctx.createBiquadFilter()
   lp.type = "lowpass"
-  let cutoff = (1400 + tone * 5200) * (0.55 + prof.hp * 0.9)
+  let cutoff = (1400 + tone * 5200) * (0.32 + prof.hp * 1.5)
   if (cutoff > 15000) { cutoff = 15000 }
   lp.Q.value = 0.6
   lp.frequency.value = cutoff
@@ -126,7 +128,7 @@ export fn playAahs(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   lfo.type = "sine"
   lfo.frequency.value = 4.7 + vibrato * 1.4
   let lfoGain = ctx.createGain()
-  let depth = vibrato * 16    // cents
+  let depth = vibrato * 42    // cents — a bold, obvious choir wobble at full
   // Clamp the swell-peak time so it never lands AFTER the hold point on short notes (Web Audio requires
   // monotonically increasing automation times).
   let vibPeakT = t + attack + 0.28
@@ -182,7 +184,7 @@ export fn playAahs(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
     // A second peaking node at F1 so the breath also carries the vowel's body, not just hiss.
     let nf1 = aahsFormant(ctx, f1, 3.0, 8)
     let ng = ctx.createGain()
-    let bpk = breath * 0.18 * v
+    let bpk = breath * 0.5 * v
     let bsus = bpk * 0.7
     // Clamp the attack-peak time so it never lands after the hold/settle point on short (staccato) notes —
     // Web Audio automation times must be monotonic, otherwise the events reorder and the breath misfires.

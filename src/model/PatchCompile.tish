@@ -494,11 +494,20 @@ fn tineLines(p) {
   let barkDecay = 0.12 + decay * 0.5
   let idxFloor = 0.6 + bark * 1.4
   let spikeCoef = 1.5 + bark * 7.5
-  // FM bark, split into a constant FLOOR index (sustains, purifies over the body) + a velocity-scaled attack
-  // SPIKE (the EP's velocity-brightness magic, expressible now via `note*vel`). At v=1 floor+spike = the live
-  // idxPeak exactly; at low v only the floor remains (soft = mellow, hard = bright metallic bark).
-  let floorBase = idxFloor * 0.425
-  let spikeFull = idxFloor * 0.575 + spikeCoef
+  // FM bark = the live modDepth index env, decomposed BY VELOCITY into two SAME-PHASE modulator paths (both at
+  // the note pitch, so they sum to one modulator). The grammar can't write `a + b*vel` in one breakpoint, so:
+  //   mf = the velocity-INDEPENDENT index: peak idxFloor → floor idxFloor*0.25 (over barkDecay) → fade.
+  //   ms = the velocity index:             peak spikeCoef*vel → floor idxFloor*0.35*vel (over barkDecay) → fade.
+  // Summed at the carrier they equal the live depth at EVERY velocity AND time: peak note*(idxFloor+spikeCoef*v)
+  // = note*idxPeak, floor note*idxFloor*(0.25+0.35v) = depthFloorHz. The OLD split let the spike collapse to ~0
+  // by the attack's end (it decayed to the FLOOR's value 0.001, not the real floor), so the metallic "bark" was
+  // ~0.6x too dull on hard hits — the EP's whole velocity-brightness magic. Now the spike decays to the floor.
+  let idxFloorQ = idxFloor * 0.25
+  // The velocity-scaled FM terms (the ms path) must use the LIVE's v=vel/127 scale, but the patch `vel` token is
+  // vel/100 — so multiply the velocity coefficients by VOL_COMP (=100/127). Without it the bark ran ~1.27x hot on
+  // soft hits (vel/100 > vel/127). The mf path is velocity-INDEPENDENT (note*idxFloor), so it needs no VOL_COMP.
+  let spikeC = spikeCoef * VOL_COMP
+  let idxFloorVc = idxFloor * 0.35 * VOL_COMP
   let lines = [
     "osc mf sine note",
     "gain mfd 1",
@@ -513,8 +522,8 @@ fn tineLines(p) {
     "conn msd c1.freq 1",
     "conn c1 c1g 1",
     "conn c1g a1 1",
-    "env mfd.gain set 0 note*" + f(floorBase) + " exp " + f(bodyDecay) + " 0.5",
-    "env msd.gain set 0 note*vel*" + f(spikeFull) + " exp " + f(barkDecay) + " 0.001"
+    "env mfd.gain set 0 note*" + f(idxFloor) + " exp " + f(barkDecay) + " note*" + f(idxFloorQ) + " exp " + f(bodyDecay) + " 0.5",
+    "env msd.gain set 0 note*vel*" + f(spikeC) + " exp " + f(barkDecay) + " note*vel*" + f(idxFloorVc) + " exp " + f(bodyDecay) + " 0.0001"
   ]
   // Tine PING: the inharmonic high-partial strike "tink", fast-decaying over the body. `tine` scales it. The
   // live ping is VELOCITY-scaled (and rides the amp env) → ~v²: soft hits read mellow/woody, hard hits bright.
@@ -573,9 +582,9 @@ fn aetherLines(p) {
   let swell = p.swell >= 0 && p.swell <= 1 ? p.swell : 0.45
   let startFactor = Math.pow(2, (0 - (1.5 + glide * 4)) / 12)
   let glideTime = 0.02 + glide * 0.5
-  let cutoff = Math.round(1400 + tone * 4200)
-  if (cutoff > 9000) {
-    cutoff = 9000
+  let cutoff = Math.round(700 + tone * 8000)
+  if (cutoff > 13000) {
+    cutoff = 13000
   }
   // A theremin SUSTAINS while the note is held (the volume hand), then releases — `set dur 1 … exp dur+release`
   // holds at full until note-off then fades. Two sines a few cents apart give the heterodyne beat. The
@@ -591,11 +600,11 @@ fn aetherLines(p) {
   // its swell instead of cutting off mid-rise (a truncated rise reads as a percussive pop). Express that exactly
   // in the patch via the `max()` grammar — `set max(dur,hold) 1 exp max(dur,hold)+release`.
   let hold = attack + 0.04
-  let beat = 4 + waver * 5
+  let beat = 3 + waver * 10
   let air = p.air >= 0 && p.air <= 1 ? p.air : 0.25
   let vibHz = 5 + waver * 1.4
-  let vibDepth = 6 + waver * 30
-  let tremFactor = 0.06 + waver * 0.16
+  let vibDepth = 5 + waver * 65
+  let tremFactor = 0.05 + waver * 0.32
   let outLevel = (VOL_COMP * 0.52) / (1 + tremFactor)
   // The waver BLOOMS IN (a player settling into the note) and BREATHES (a slow irregularity LFO re-modulates
   // its depth) — pinning the detune at a constant depth from t=0 made the patch shake during the glide instead
@@ -624,26 +633,36 @@ fn aetherLines(p) {
     "env o2.freq set 0 note*" + f(startFactor) + " exp " + f(glideTime) + " note",
     "env a1.gain set 0 0 lin " + f(attack) + " 1 set max(dur," + f(hold) + ") 1 exp max(dur," + f(hold) + ")+" + f(release) + " 0.0008"
   ]
+  // `tone` folds in ODD HARMONICS (3rd/5th/7th) for the throaty, reedy color — mirrors the live partial bank
+  // [[3,0.6],[5,0.45],[7,0.28]], each ×0.5 for the coreGain the fundamentals pass through. They glide + waver
+  // with the fundamental (vg → detune) so they fuse into one voice and the cutoff sweep above makes Tone bite.
   if (tone > 0.01) {
-    lines.push("osc o3 sine note ratio 3")
-    // ×0.5 to match the coreGain the fundamentals pass through (live h3 → h3g(tone*0.16) → coreGain(0.5));
-    // without it the 3rd harmonic was 2× too prominent vs the fundamentals (too buzzy on a sine-cored voice).
-    lines.push("conn o3 f1 " + f(tone * 0.16 * 0.5))
-    lines.push("conn vg o3.detune 1")
-    lines.push("env o3.freq set 0 note*" + f(startFactor * 3) + " exp " + f(glideTime) + " note*3")
+    let parts = [[3, 0.6], [5, 0.45], [7, 0.28]]
+    let api = 0
+    while (api < parts.length) {
+      let mul = parts[api][0]
+      let pa = parts[api][1]
+      let oid = "oh" + String(mul)
+      lines.push("osc " + oid + " sine note ratio " + f(mul))
+      lines.push("conn " + oid + " f1 " + f(tone * pa * 0.5))
+      lines.push("conn vg " + oid + ".detune 1")
+      lines.push("env " + oid + ".freq set 0 note*" + f(startFactor * mul) + " exp " + f(glideTime) + " note*" + f(mul))
+      api = api + 1
+    }
   }
   if (air > 0.01) {
     lines.push("noise nz")
-    lines.push("filter nbp bandpass q 0.6 freq 1200")
+    lines.push("filter nbp bandpass q 0.45 freq 1200")
     lines.push("gain ng 0")
     lines.push("conn nz nbp 1")
     lines.push("conn nbp ng 1")
-    // Route the breath INTO a1 (mirror the live ng.connect(amp)) so it ducks with the swell + carries the right
-    // level — NOT straight to `out` (which bypassed the swell and made the whisper ~1.7× too loud + un-ducked).
-    // Hold at the air level through the note (live holds at nlevel), then release.
+    // Route the breath INTO a1 (mirror the live ng.connect(amp)) so it ducks with the swell. Air is now a bold,
+    // obviously-breathy layer (live nlevel = air*0.8, broadened band Q 0.45). The live breath is velocity-SQUARED
+    // (nlevel has v AND it rides the amp env's v); the out conn supplies one v, so carry the other via `vel*`
+    // (×VOL_COMP converts the patch vel/100 → the live vel/127), exactly like the aahs breath.
     lines.push("conn ng a1 1")
     lines.push("env nbp.freq set 0 note*2")
-    lines.push("env ng.gain set 0 0 lin " + f(attack) + " " + f(air * 0.09) + " set max(dur," + f(hold) + ") " + f(air * 0.09) + " exp max(dur," + f(hold) + ")+" + f(release) + " 0.0008")
+    lines.push("env ng.gain set 0 0 lin " + f(attack) + " vel*" + f(air * 0.8 * VOL_COMP) + " set max(dur," + f(hold) + ") vel*" + f(air * 0.8 * VOL_COMP) + " exp max(dur," + f(hold) + ")+" + f(release) + " 0.0008")
   }
   return lines
 }
@@ -739,7 +758,7 @@ fn aahsLines(p) {
   if (voices > 7) { voices = 7 }
   if (voices < 2) { voices = 2 }
   let spread = 6 + ensemble * 22
-  let cutoff = Math.round((1400 + tone * 5200) * (0.55 + hpf * 0.9))
+  let cutoff = Math.round((1400 + tone * 5200) * (0.32 + hpf * 1.5))
   if (cutoff > 15000) { cutoff = 15000 }
   let attack = 0.14 + (1 - tone) * 0.12
   let release = 0.34 + (1 - tone) * 0.22
@@ -747,7 +766,7 @@ fn aahsLines(p) {
   // cutting mid-rise (the truncated rise is the pop/percussive blip). Express it exactly via the max() grammar.
   let hold = attack + 0.06
   let vibHz = 4.7 + vibrato * 1.4
-  let vibDepth = vibrato * 16
+  let vibDepth = vibrato * 42
   let lines = []
   let k = 0
   while (k < voices) {
@@ -760,9 +779,9 @@ fn aahsLines(p) {
   }
   lines.push("osc vib sine " + f(vibHz))
   lines.push("filter lp lowpass q 0.6 freq " + f(cutoff))
-  lines.push("filter bp1 peaking q 5 freq " + f(ff1))
-  lines.push("filter bp2 peaking q 7 freq " + f(ff2))
-  lines.push("filter bp3 peaking q 4 freq " + f(ff3))
+  lines.push("filter bp1 peaking q 7.5 freq " + f(ff1))
+  lines.push("filter bp2 peaking q 9.5 freq " + f(ff2))
+  lines.push("filter bp3 peaking q 5 freq " + f(ff3))
   lines.push("gain a1 0")
   // The choir vibrato BLOOMS IN after the soft legato attack (and fades on release) — it doesn't wobble at full
   // depth from the click-free onset. Route the LFO through an enveloped depth-gain `gvib` (depth stays in the
@@ -800,14 +819,15 @@ fn aahsLines(p) {
     lines.push("conn nf1 ng 1")
     // Route the breath INTO a1 (mirror the live ng.connect(amp)) so it inherits the amp env + the 0.5/voices
     // out attenuation — NOT straight to `out` (which bypassed it and made the breath ~8-11× too loud → hiss).
-    // Carry the breath level in this env (peak breath*0.18, sustain 0.7× like the live bsus).
+    // Carry the breath level in this env (peak breath*0.5, sustain 0.7× like the live bsus) — bold + obviously
+    // airy now, matching the live nlevel = breath*0.5*v.
     lines.push("conn ng a1 1")
     lines.push("env nf1.gain set 0 8")
-    // Breath scales as v² in the live voice (ng peak = breath*0.18*v AND the band re-passes through amp.gain
+    // Breath scales as v² in the live voice (ng peak = breath*0.5*v AND the band re-passes through amp.gain
     // = v*0.5/voices). The out conn applies only ONE v, so carry the OTHER velocity factor here via the `vel`
     // token (×VOL_COMP converts the patch's vel/100 → the live vel/127). Without it the breath was ~4× too
     // loud/hissy at vel32, 2× at vel64 — the worst remaining aahs artifact.
-    lines.push("env ng.gain set 0 0 lin " + f(attack) + " vel*" + f(breath * 0.18 * VOL_COMP) + " set max(dur," + f(hold) + ") vel*" + f(breath * 0.18 * 0.7 * VOL_COMP) + " exp max(dur," + f(hold) + ")+" + f(release) + " 0.0008")
+    lines.push("env ng.gain set 0 0 lin " + f(attack) + " vel*" + f(breath * 0.5 * VOL_COMP) + " set max(dur," + f(hold) + ") vel*" + f(breath * 0.5 * 0.7 * VOL_COMP) + " exp max(dur," + f(hold) + ")+" + f(release) + " 0.0008")
   }
   return lines
 }
