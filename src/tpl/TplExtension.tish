@@ -213,7 +213,7 @@ export fn parsePatchGraph(lines) {
     }
     let h = toks[0]
     if (h === "osc" && toks.length >= 2) {
-      let nd = { kind: "osc", id: String(toks[1]), wave: "sine", freqMode: "note", fixedHz: 0, ratio: 1, detune: 0 }
+      let nd = { kind: "osc", id: String(toks[1]), wave: "sine", freqMode: "note", fixedHz: 0, ratio: 1, detune: 0, rand: 0 }
       let idx = 2
       if (idx < toks.length) {
         let w = toks[idx]
@@ -236,12 +236,19 @@ export fn parsePatchGraph(lines) {
               nd.detune = Number(toks[idx + 1])
               idx = idx + 2
             } else {
-              if (isNumberToken(tk)) {
-                nd.freqMode = "fixed"
-                nd.fixedHz = Number(tk)
-                idx = idx + 1
+              // `rand <N>` — per-NOTE pitch jitter (humanize): ±N cents on a pitched osc (detune), or ±N Hz on a
+              // fixed-freq LFO. Lets a unison de-correlate + LFO rates vary per note like the live generators.
+              if (tk === "rand" && idx + 1 < toks.length) {
+                nd.rand = Number(toks[idx + 1])
+                idx = idx + 2
               } else {
-                idx = idx + 1
+                if (isNumberToken(tk)) {
+                  nd.freqMode = "fixed"
+                  nd.fixedHz = Number(tk)
+                  idx = idx + 1
+                } else {
+                  idx = idx + 1
+                }
               }
             }
           }
@@ -279,18 +286,32 @@ export fn parsePatchGraph(lines) {
           nodes.push(nd)
         } else {
           if (h === "shaper" && toks.length >= 2) {
-            let nd = { kind: "shaper", id: String(toks[1]), amount: 50 }
+            let nd = { kind: "shaper", id: String(toks[1]), amount: 50, curve: "hard" }
             let idx = 2
             while (idx + 1 < toks.length) {
               if (toks[idx] === "amount" || toks[idx] === "drive") {
                 nd.amount = Number(toks[idx + 1])
                 idx = idx + 2
               } else {
-                idx = idx + 1
+                if (toks[idx] === "curve") {
+                  nd.curve = String(toks[idx + 1])
+                  idx = idx + 2
+                } else {
+                  idx = idx + 1
+                }
               }
             }
             nodes.push(nd)
           } else {
+            if (h === "pan" && toks.length >= 2) {
+              // `pan <id> [position]` — a StereoPanner node (-1 left .. +1 right). conn an LFO to `<id>.pan`
+              // for an auto-pan tremolo.
+              let pos = 0
+              if (toks.length >= 3 && isNumberToken(toks[2])) {
+                pos = Number(toks[2])
+              }
+              nodes.push({ kind: "pan", id: String(toks[1]), pos: pos })
+            } else {
             if (h === "gain" && toks.length >= 2) {
               let val = 1
               if (toks.length >= 3 && isNumberToken(toks[2])) {
@@ -336,6 +357,7 @@ export fn parsePatchGraph(lines) {
                   }
                 }
               }
+            }
             }
           }
         }

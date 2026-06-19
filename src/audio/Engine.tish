@@ -353,28 +353,40 @@ export fn ensureAudio(project, store) {
   store.master = masterGain
   store.masterSum = masterSum
   store.masterEq = { lo: mLo, mid: mMid, hi: mHi }
-  // ---- Scratch deck: a worklet that reads a rendered one-shot buffer at a hand-driven (reversible) rate.
-  // Its output rides a chosen deck's crossfader gain (store.scratchDeck) so the 4-way fader CUTS it like a
-  // deck. scratchGain = scratchVolume × deck-crossfade-gain (reconciled in updateMixerFromProject). The node
-  // loads async; a buffer set before it's ready is queued in store.scratchPending.
-  store.scratchDeck = 0
-  store.scratchVolume = 0.85
-  store.scratchPending = null
-  store.scratchNode = null
-  let scratchGain = ctx.createGain()
-  scratchGain.gain.value = 0
-  scratchGain.connect(masterSum)
-  store.scratchGain = scratchGain
+  // ---- Per-deck scratch: each deck A/B/C/D gets its OWN turntable platter — a worklet reading THAT deck's
+  // rendered loop at a hand-driven (reversible) rate, into its own gain that rides the same deck's crossfader
+  // gain (so the 4-way fader cuts each scratch like its deck). One registered processor, four nodes; each loads
+  // async (a buffer set before its node is ready is queued in that slot's `pending`). Per-slot fields:
+  // { gain, node, pending, hasBuffer, volume, ducking } — `ducking` mutes the deck's LIVE channels while its
+  // platter is grabbed so the scratch REPLACES the deck (reconciled in updateMixerFromProject).
+  store.scratch = {}
+  let scDecks = ["A", "B", "C", "D"]
+  let sci = 0
+  while (sci < scDecks.length) {
+    let sg = ctx.createGain()
+    sg.gain.value = 0
+    sg.connect(masterSum)
+    store.scratch[scDecks[sci]] = { gain: sg, node: null, pending: null, hasBuffer: false, volume: 0.85, ducking: false }
+    sci = sci + 1
+  }
   if (typeof ctx.audioWorklet !== "undefined" && ctx.audioWorklet && ctx.audioWorklet.addModule) {
     let smod = ctx.audioWorklet.addModule("/scratch-worklet.js")
     if (smod && smod.then) {
       smod.then(() => {
-        let snode = new AudioWorkletNode(ctx, "deckard-scratch", { outputChannelCount: [2] })
-        snode.connect(scratchGain)
-        store.scratchNode = snode
-        if (store.scratchPending) {
-          snode.port.postMessage(store.scratchPending)
-          store.scratchPending = null
+        let sd2 = ["A", "B", "C", "D"]
+        let sj = 0
+        while (sj < sd2.length) {
+          let sl = store.scratch[sd2[sj]]
+          if (sl) {
+            let snode = new AudioWorkletNode(ctx, "deckard-scratch", { outputChannelCount: [2] })
+            snode.connect(sl.gain)
+            sl.node = snode
+            if (sl.pending) {
+              snode.port.postMessage(sl.pending)
+              sl.pending = null
+            }
+          }
+          sj = sj + 1
         }
       }, (e) => {})
     }
@@ -436,6 +448,16 @@ export fn resyncAllChannelBuses(project, store) {
     return
   }
   ensureActorMixerEntries(project)
+  // A bus resync means a deck's channels (and thus its loop) may have been swapped — invalidate every deck's
+  // scratch loop so the next jog grab re-renders the CURRENT loop instead of scratching the previous song.
+  if (store.scratch) {
+    let invD = ["A", "B", "C", "D"]
+    let ivi = 0
+    while (ivi < invD.length) {
+      invalidateScratchBuffer(store, invD[ivi])
+      ivi = ivi + 1
+    }
+  }
   if (!store.actorBuses) {
     store.actorBuses = {}
   }
@@ -504,13 +526,6 @@ export fn updateMixerFromProject(project, store, atBeat) {
   if (store.master) {
     store.master.gain.value = automationAt(mg2, gainBeat)
   }
-  // While the scratch platter is grabbed, DUCK its deck's live channels to silence so the scratch REPLACES
-  // the deck (you scratch the deck's loop instead of layering noise over the still-playing deck).
-  let scratchDuckLetter = null
-  if (store.scratchDucking) {
-    let sdix = store.scratchDeck != null ? store.scratchDeck : 0
-    scratchDuckLetter = sdix === 1 ? "B" : (sdix === 2 ? "C" : (sdix === 3 ? "D" : "A"))
-  }
   let mi = 0
   while (mi < project.channels.length) {
     let ch = project.channels[mi]
@@ -521,8 +536,13 @@ export fn updateMixerFromProject(project, store, atBeat) {
     let midFall = ch.eqMid != null ? ch.eqMid : 0
     let hiFall = ch.eqHi != null ? ch.eqHi : 0
     let deckMul = deckMainOutGainMultiplier(project, ch)
-    if (scratchDuckLetter != null && channelDeck(project, ch) === scratchDuckLetter) {
-      deckMul = 0
+    // While a deck's scratch platter is grabbed, DUCK that deck's live channels to silence so the scratch
+    // REPLACES the deck (you scratch its loop instead of layering noise over the still-playing deck).
+    if (store.scratch) {
+      let chScd = store.scratch[channelDeck(project, ch)]
+      if (chScd && chScd.ducking) {
+        deckMul = 0
+      }
     }
     if (live) {
       b.gainNode.gain.value =
@@ -581,11 +601,17 @@ export fn updateMixerFromProject(project, store, atBeat) {
   if (store.reverbIn && project.masterMixer) {
     store.reverbIn.gain.value = project.masterMixer.reverbEnabled === false ? 0 : 0.85
   }
-  // Scratch deck rides its assigned deck's crossfader gain — the 4-way fader cuts it like a deck.
-  if (store.scratchGain) {
-    let sd = store.scratchDeck != null ? store.scratchDeck : 0
-    let sv = store.scratchVolume != null ? store.scratchVolume : 0.85
-    store.scratchGain.gain.value = sv * deckCrossfadeGain(project, sd)
+  // Each deck's scratch rides ITS OWN deck's crossfader gain — the 4-way fader cuts each platter like its deck.
+  if (store.scratch) {
+    let sgDecks = ["A", "B", "C", "D"]
+    let sgi = 0
+    while (sgi < sgDecks.length) {
+      let sl = store.scratch[sgDecks[sgi]]
+      if (sl && sl.gain) {
+        sl.gain.gain.value = (sl.volume != null ? sl.volume : 0.85) * deckCrossfadeGain(project, sgi)
+      }
+      sgi = sgi + 1
+    }
   }
   if (store.actorBuses && project.actorMixer) {
     let lanes = collectActorLanes(project)
@@ -818,32 +844,85 @@ export fn setCueSyncOffset(store, ms) {
 
 // ---- Scratch deck (renderDeckLoopToBuffer lives in Playback.tish — it needs the sequencer) ------------
 
-/** Load a rendered buffer into the scratch worklet (queued if the node isn't ready yet). */
-export fn loadScratchBuffer(store, data) {
-  if (!store || !data) {
+/** Resolve one deck's scratch slot ({gain, node, pending, hasBuffer, volume, ducking}) or null. */
+fn scratchSlot(store, deck) {
+  if (!store || !store.scratch) {
+    return null
+  }
+  let sl = store.scratch[deck]
+  return sl != null ? sl : null
+}
+
+/** True once deck `deck`'s scratch buffer has been loaded (so a grab can duck + scratch instead of silence). */
+export fn scratchHasBuffer(store, deck) {
+  let sl = scratchSlot(store, deck)
+  return sl != null && sl.hasBuffer === true
+}
+
+/** Invalidate deck `deck`'s scratch loop (after its content changes) so the next grab re-renders a fresh loop
+ *  instead of scratching the previous song; a stale grab before that reload posts a null buffer = silence. */
+export fn invalidateScratchBuffer(store, deck) {
+  let sl = scratchSlot(store, deck)
+  if (!sl) {
     return
   }
-  store.scratchHasBuffer = true
+  sl.hasBuffer = false
+  sl.pending = null
+  if (sl.node) {
+    sl.node.port.postMessage({ type: "buffer", data: null })
+  }
+}
+
+/** Load deck `deck`'s rendered loop into its scratch worklet (queued if that node isn't ready yet). */
+export fn loadScratchBuffer(store, deck, data) {
+  let sl = scratchSlot(store, deck)
+  if (!sl || !data) {
+    return
+  }
+  sl.hasBuffer = true
   let msg = { type: "buffer", data: data }
-  if (store.scratchNode) {
-    store.scratchNode.port.postMessage(msg)
+  if (sl.node) {
+    sl.node.port.postMessage(msg)
   } else {
-    store.scratchPending = msg
+    sl.pending = msg
   }
 }
 
-/** While grabbed, the scratch DUCKS its deck's live channels so the scratch REPLACES the deck (not layers on
- *  top). Reconciled in updateMixerFromProject (channels on the scratch deck → gain 0 while ducking). */
-export fn setScratchDucking(store, on) {
-  if (!store) {
+/** While grabbed, deck `deck`'s scratch DUCKS that deck's live channels so the scratch REPLACES the deck (not
+ *  layers on top). Reconciled in updateMixerFromProject (channels on that deck → gain 0 while ducking). */
+export fn setScratchDucking(store, deck, on) {
+  let sl = scratchSlot(store, deck)
+  if (!sl) {
     return
   }
-  store.scratchDucking = on === true
+  sl.ducking = on === true
 }
 
-/** Live scratch rate: output-samples advanced per output-sample. Negative = reverse, 0 = silence. */
-export fn setScratchRate(store, rate) {
-  if (!store || !store.scratchNode) {
+/** Seek deck `deck`'s scratch read head to a fractional loop position (0..1). Used to PHASE-ALIGN the platter
+ *  to the live beat-grid on grab, so the scratch loop starts where the music actually is (not loop position 0)
+ *  and stays locked to the master clock. No-op if that deck's worklet node isn't ready yet. */
+export fn setScratchPos(store, deck, pos01) {
+  let sl = scratchSlot(store, deck)
+  if (!sl || !sl.node) {
+    return
+  }
+  let p = Number(pos01)
+  if (p !== p) {
+    p = 0
+  }
+  if (p < 0) {
+    p = 0
+  }
+  if (p > 1) {
+    p = 1
+  }
+  sl.node.port.postMessage({ type: "pos", pos: p })
+}
+
+/** Live scratch rate for deck `deck`: output-samples advanced per output-sample. Negative = reverse, 0 = silence. */
+export fn setScratchRate(store, deck, rate) {
+  let sl = scratchSlot(store, deck)
+  if (!sl || !sl.node) {
     return
   }
   let r = Number(rate)
@@ -856,23 +935,12 @@ export fn setScratchRate(store, rate) {
   if (r < -16) {
     r = -16
   }
-  store.scratchNode.port.postMessage({ type: "rate", rate: r })
+  sl.node.port.postMessage({ type: "rate", rate: r })
 }
 
-/** Which deck (0=A..3=D) the scratch rides for the crossfader cut. */
-export fn setScratchDeck(store, deckIndex) {
-  if (!store) {
-    return
-  }
-  let d = Math.floor(Number(deckIndex))
-  if (d < 0 || d > 3 || d !== d) {
-    d = 0
-  }
-  store.scratchDeck = d
-}
-
-export fn setScratchVolume(store, v) {
-  if (!store) {
+export fn setScratchVolume(store, deck, v) {
+  let sl = scratchSlot(store, deck)
+  if (!sl) {
     return
   }
   let vv = Number(v)
@@ -885,7 +953,7 @@ export fn setScratchVolume(store, v) {
   if (vv > 1.2) {
     vv = 1.2
   }
-  store.scratchVolume = vv
+  sl.volume = vv
 }
 
 /** Master switch: when true, the UI suspends ALL visual draw loops (scope/meters/waveforms/playhead). */

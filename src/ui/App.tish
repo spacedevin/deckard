@@ -17,8 +17,7 @@ import { createAudioDeviceSettings } from '../core/AudioDeviceSettings.tish'
 import { AudioRackPanel } from './AudioRackPanel.tish'
 import { MidiPanel } from './MidiPanel.tish'
 import { SongBrowser } from './SongBrowser.tish'
-import { ScratchPad } from './ScratchPad.tish'
-import { loadScratchBuffer, setScratchRate, setScratchDeck, setScratchVolume, setScratchDucking } from '../audio/Engine.tish'
+import { loadScratchBuffer, setScratchRate, setScratchVolume, setScratchDucking, scratchHasBuffer, setScratchPos } from '../audio/Engine.tish'
 import { renderDeckLoopToBuffer } from '../audio/Playback.tish'
 import { createMidiController } from '../midi/Midi.tish'
 import { transportTick } from '../audio/Playback.tish'
@@ -224,7 +223,6 @@ export fn App() {
   let [midiGen, setMidiGen] = useState(0)
   let [songBrowserOpen, setSongBrowserOpen] = useState(false)
   let [songQuery, setSongQuery] = useState("")
-  let [scratchOpen, setScratchOpen] = useState(false)
   let [scratchGen, setScratchGen] = useState(0)
   let [gridGen, setGridGen] = useState(0)
   let [deckMixRev, setDeckMixRev] = useState(0)
@@ -401,9 +399,10 @@ export fn App() {
     if (targetId === "bpm") {
       ed.emit("bpm", Math.round(40 + v01 * 200))
     } else if (targetId === "scratch") {
-      // A centered pitch fader / spring knob scrubs the scratch: 0.5 = stop, ends = ±max reverse/forward.
+      // A centered pitch fader / spring knob scrubs DECK A's scratch: 0.5 = stop, ends = ±max reverse/forward.
+      // (A controller scrubs one platter — deck A by convention; the on-screen jogs cover the rest.)
       if (rt.scratchRate) {
-        rt.scratchRate((v01 - 0.5) * 16)
+        rt.scratchRate("A", (v01 - 0.5) * 16)
       }
     } else if (targetId === "master_lo") {
       ed.emit("master/eq_lo", Math.round((-12 + v01 * 24) * 10) / 10)
@@ -1853,56 +1852,51 @@ export fn App() {
     }
     setProjectFromUI(project)
   }
-  // ---- Scratch deck. Renders the assigned DECK's pattern loop into a buffer (the deck's actual music), then
-  // the jog wheel drives the worklet's signed read-rate (reverse-capable). While grabbed it DUCKS that deck's
-  // live channels, so the scratch REPLACES the deck instead of layering noise on top. A local performance
-  // gesture (not streamed) — like the meters/preview. The output rides the deck's crossfader gain.
-  fn scratchDeckLetter() {
-    let sdix = audioStore.scratchDeck != null ? audioStore.scratchDeck : 0
-    return sdix === 1 ? "B" : (sdix === 2 ? "C" : (sdix === 3 ? "D" : "A"))
-  }
-  rt.scratchLoadDeckLoop = () => {
+  // ---- Per-deck scratch (CDJ-style: each deck A/B/C/D has its own jog platter). Each renders ITS OWN pattern
+  // loop into ITS OWN worklet, and grabbing a deck's wheel drives that deck's signed read-rate + ducks that
+  // deck's live channels (so the scratch REPLACES the deck). Local performance gestures (not streamed) — like
+  // the meters/preview. Each platter's output rides its deck's crossfader gain. `deck` is the letter "A".."D".
+  rt.scratchLoadDeckLoop = (deck) => {
     ensureAudio(project, audioStore)
-    let deck = scratchDeckLetter()
     let pr = renderDeckLoopToBuffer(project, deck, 1)
     if (pr && pr.then) {
       pr.then((res) => {
         if (res && res.data) {
-          loadScratchBuffer(audioStore, res.data)
-          rt.scratchLoaded = "Deck " + deck
-          setScratchGen((x) => x + 1)
-        } else {
-          rt.scratchLoaded = "Deck " + deck + " — empty"
+          loadScratchBuffer(audioStore, deck, res.data)
+          // Phase-align the freshly-loaded loop to where the deck is on the grid (the buffer load resets the
+          // read head to 0, so seed it AFTER) — so a grab on the first touch is already locked to the beat.
+          rt.scratchSeekLive(deck)
           setScratchGen((x) => x + 1)
         }
       }, (e) => {})
-    } else {
-      rt.scratchLoaded = "Deck " + deck + " — empty"
-      setScratchGen((x) => x + 1)
     }
   }
-  rt.scratchRate = (rate) => setScratchRate(audioStore, rate)
-  rt.scratchSetDeck = (d) => {
-    setScratchDeck(audioStore, d)
-    if (rt.scheduleDeckMix) {
-      rt.scheduleDeckMix()
-    }
-    // Picking a deck re-grabs THAT deck's loop, so the platter always scratches the selected deck's music.
-    rt.scratchLoadDeckLoop()
-  }
-  rt.scratchSetVolume = (v) => {
-    setScratchVolume(audioStore, v)
-    if (rt.scheduleDeckMix) {
-      rt.scheduleDeckMix()
-    }
-  }
-  // Grab/release the platter: duck the deck's live output while scratching so the scratch replaces it.
-  // Only ducks if a buffer is loaded (else releasing the deck to silence would just mute it).
-  rt.scratchDuck = (on) => {
-    if (on && !audioStore.scratchHasBuffer) {
+  // Seek a deck's platter to the LIVE beat phase (bar-relative 0..1) so the scratch loop starts where the music
+  // actually is and stays locked to the master clock. Only meaningful while playing (a stopped deck has no grid
+  // position — leave the read head at 0). perfStep is the live cumulative grid step; % 16 = position in the bar.
+  rt.scratchSeekLive = (deck) => {
+    if (!rt.playing) {
       return
     }
-    setScratchDucking(audioStore, on)
+    let ps = typeof rt.perfStep === "number" ? rt.perfStep : 0
+    let phase = (ps % 16) / 16
+    if (phase < 0) {
+      phase = phase + 1
+    }
+    setScratchPos(audioStore, deck, phase)
+  }
+  rt.scratchRate = (deck, rate) => setScratchRate(audioStore, deck, rate)
+  rt.scratchSetVolume = (deck, v) => {
+    setScratchVolume(audioStore, deck, v)
+    if (rt.scheduleDeckMix) {
+      rt.scheduleDeckMix()
+    }
+  }
+  // True once a deck's loop is loaded — the jog uses this to load lazily on first grab (then it's cached).
+  rt.scratchHasBuffer = (deck) => scratchHasBuffer(audioStore, deck)
+  // Grab/release a deck's platter: duck that deck's live output while scratching so the scratch replaces it.
+  rt.scratchDuck = (deck, on) => {
+    setScratchDucking(audioStore, deck, on)
     if (rt.scheduleDeckMix) {
       rt.scheduleDeckMix()
     }
@@ -2283,7 +2277,6 @@ export fn App() {
       )}
       <div class="set-presets" key={"sp-" + String(setListGenKey)}>
         <button type="button" class="songs-open-btn" title="Browse the song library — load a full song (kit + patterns) onto any deck" onclick={() => setSongBrowserOpen(true)}>{"♫ SONGS"}</button>
-        <button type="button" class="songs-open-btn scratch-open-btn" title="Scratch pad — grab a deck's loop and scratch it on the jog wheel (the deck ducks while you rub)" onclick={() => { setScratchOpen(true); if (rt.scratchLoadDeckLoop) { rt.scratchLoadDeckLoop() } }}>{"▤ SCRATCH"}</button>
         <span class="transport-div" />
         <span class="set-presets-label">{"STATION"}</span>
         <select
@@ -2365,6 +2358,5 @@ export fn App() {
       <span class="daw-foot-meta">{"TPL: docs/TPL_GRAMMAR.md · ARCH: docs/ARCHITECTURE.md · DEV_NODE: AETHER_LABS"}</span>
     </footer>
     {songBrowserOpen ? SongBrowser(project, rt, () => setSongBrowserOpen(false), songQuery, setSongQuery) : null}
-    {scratchOpen ? ScratchPad(rt, project, () => setScratchOpen(false), rt.scratchLoaded, audioStore.scratchDeck, audioStore.scratchVolume) : null}
   </div>
 }

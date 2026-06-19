@@ -241,8 +241,138 @@ fn DeckSetPicker(project, deck, setProjectFromUI, touchMixer, rt) {
   )
 }
 
-// One of the 4 decks (A/B/C/D): coloured header + set picker + the per-TRACK stem faders. The per-DECK
-// controls (EQ knobs, CUE, deck volume) live in the centre DJ-mixer strip (DeckChannelStrip), not here.
+// Per-deck JOG PLATTER (CDJ-style). Grabbing the wheel scratches THIS deck's rendered loop (lazy-loaded on
+// first grab, cached) and DUCKS this deck's live channels so the scratch replaces it; releasing restores the
+// deck. Hook-free (pure props + direct-DOM marker rotation) so it's safe inside the direct-call DeckSlot. All
+// audio goes through rt.scratch* hooks — no audio-node access here. ⟳ re-grabs the loop after a pattern edit.
+fn DeckJog(deck, rt) {
+  let suf = deck === "B" ? "b" : deck === "C" ? "c" : deck === "D" ? "d" : "a"
+  let acc = "dk-acc-" + suf
+  fn angleOf(e, el) {
+    let r = el.getBoundingClientRect()
+    let cx = r.left + r.width / 2
+    let cy = r.top + r.height / 2
+    return Math.atan2(e.clientY - cy, e.clientX - cx)
+  }
+  // POINTER-CAPTURE based so a release OUTSIDE the window still tears down — otherwise the deck stays ducked
+  // (hard mute) and the rAF loop leaks forever. Teardown routes through ONE idempotent up() reachable from
+  // pointerup / pointercancel / lostpointercapture / window blur; a per-element guard stops a second grab from
+  // stacking another loop.
+  fn onWheelDown(e) {
+    if (e.preventDefault) {
+      e.preventDefault()
+    }
+    let el = e.currentTarget
+    if (el.__jogGrabbing) {
+      return
+    }
+    el.__jogGrabbing = true
+    let marker = el.querySelector ? el.querySelector(".dk-jog-marker") : null
+    let done = false
+    let lastAngle = angleOf(e, el)
+    let accum = 0
+    let rot = 0
+    let GAIN = 7
+    let pid = e.pointerId
+    if (el.setPointerCapture && pid != null) {
+      try {
+        el.setPointerCapture(pid)
+      } catch (errc) {}
+    }
+    // Load this deck's loop the first time it's grabbed (cached after); duck the deck so the scratch replaces it.
+    if (rt && rt.scratchLoadDeckLoop && rt.scratchHasBuffer && !rt.scratchHasBuffer(deck)) {
+      rt.scratchLoadDeckLoop(deck)
+    }
+    if (rt && rt.scratchDuck) {
+      rt.scratchDuck(deck, true)
+    }
+    // Phase-lock the platter to the live beat-grid so the scratch starts where the music is (cached-buffer path;
+    // a freshly-loaded buffer is seeded in scratchLoadDeckLoop's load callback instead).
+    if (rt && rt.scratchSeekLive) {
+      rt.scratchSeekLive(deck)
+    }
+    fn frame() {
+      if (done) {
+        return
+      }
+      let rate = accum * GAIN
+      accum = 0
+      if (rt && rt.scratchRate) {
+        rt.scratchRate(deck, rate)
+      }
+      requestAnimationFrame(frame)
+    }
+    requestAnimationFrame(frame)
+    fn move(ev) {
+      let a = angleOf(ev, el)
+      let d = a - lastAngle
+      if (d > Math.PI) {
+        d = d - 2 * Math.PI
+      }
+      if (d < 0 - Math.PI) {
+        d = d + 2 * Math.PI
+      }
+      accum = accum + d
+      lastAngle = a
+      rot = rot + d
+      if (marker) {
+        marker.style.transform = "translateX(-50%) rotate(" + String(rot) + "rad)"
+      }
+    }
+    fn up() {
+      if (done) {
+        return
+      }
+      done = true
+      el.__jogGrabbing = false
+      if (rt && rt.scratchRate) {
+        rt.scratchRate(deck, 0)
+      }
+      if (rt && rt.scratchDuck) {
+        rt.scratchDuck(deck, false)
+      }
+      el.removeEventListener("pointermove", move)
+      el.removeEventListener("pointerup", up)
+      el.removeEventListener("pointercancel", up)
+      el.removeEventListener("lostpointercapture", up)
+      if (typeof window !== "undefined") {
+        window.removeEventListener("blur", up)
+      }
+      if (el.releasePointerCapture && pid != null) {
+        try {
+          el.releasePointerCapture(pid)
+        } catch (errr) {}
+      }
+    }
+    el.addEventListener("pointermove", move)
+    el.addEventListener("pointerup", up)
+    el.addEventListener("pointercancel", up)
+    el.addEventListener("lostpointercapture", up)
+    if (typeof window !== "undefined") {
+      window.addEventListener("blur", up)
+    }
+  }
+  return (
+    <div class="dk-jog">
+      <div class={"dk-jog-wheel " + acc} onpointerdown={onWheelDown} title={"Scratch deck " + deck + " — grab + rub (forward, back, reverse). No movement = silence; the deck ducks while you hold it."}>
+        <div class="dk-jog-marker" />
+        <div class="dk-jog-hub" />
+      </div>
+      <button
+        type="button"
+        class={"dk-jog-reload " + acc}
+        title={"Re-grab deck " + deck + "'s current loop (do this after you change its pattern)"}
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={() => { if (rt && rt.scratchLoadDeckLoop) { rt.scratchLoadDeckLoop(deck) } }}
+      >
+        {"⟳"}
+      </button>
+    </div>
+  )
+}
+
+// One of the 4 decks (A/B/C/D): coloured header + set picker + the per-TRACK stem faders + a jog platter. The
+// per-DECK mix controls (EQ knobs, CUE, deck volume) live in the centre DJ-mixer strip (DeckChannelStrip).
 fn DeckSlot(project, deck, setProjectFromUI, touchMixer, rt) {
   ensureDeckEq(project)
   let suf = deck === "B" ? "b" : deck === "C" ? "c" : deck === "D" ? "d" : "a"
@@ -267,6 +397,7 @@ fn DeckSlot(project, deck, setProjectFromUI, touchMixer, rt) {
         {DeckSetPicker(project, deck, setProjectFromUI, touchMixer, rt)}
       </div>
       <div class="dk-fader-row">{faders}</div>
+      {empty ? null : DeckJog(deck, rt)}
     </div>
   )
 }

@@ -18,6 +18,8 @@ import { applyCueRouting } from '../src/audio/Engine.tish'
 import { levelPresetList, addLevelPreset, findLevelPreset, removeLevelPreset } from '../src/model/LevelPresets.tish'
 import { compileGeneratorToPatchLines, canCompileToPatch } from '../src/model/PatchCompile.tish'
 import { parsePatchGraph } from '../src/tpl/TplExtension.tish'
+import { patchGraphToLines } from '../src/tpl/PatchGraph.tish'
+import { resolveExpr } from '../src/generators/Patch.tish'
 import { parseMidiBytes, ccKey, normalize01, createMidiController, midiTargetList } from '../src/midi/Midi.tish'
 
 let pass = 0
@@ -400,6 +402,58 @@ check("[patch] tine drive=0 (no shaper) valid", validatePatchVoice(compileGenera
 check("[patch] guitar drive=0 (no shaper) valid", validatePatchVoice(compileGeneratorToPatchLines("guitar", { drive: 0 }, null)) === "")
 check("[patch] arco cello variation valid", validatePatchVoice(compileGeneratorToPatchLines("arco", { voice: "cello" }, null)) === "")
 check("[patch] canCompileToPatch covers all rebuilt voices", canCompileToPatch("tine") && canCompileToPatch("halo") && canCompileToPatch("aahs") && canCompileToPatch("aether") && canCompileToPatch("guitar") && canCompileToPatch("arco"))
+// `rand` (per-note pitch jitter / humanize) parses, round-trips, and is emitted by the conversions.
+let randG = parsePatchGraph(["osc o0 sawtooth note detune 5 rand 2.5", "osc lfo sine 5.5 rand 0.6", "conn o0 out 1"])
+let randOsc = randG.nodes[0]
+let randLfo = randG.nodes[1]
+check("[patch] rand parses on a pitched osc (detune + rand)", randOsc.detune === 5 && randOsc.rand === 2.5)
+check("[patch] rand parses on a fixed LFO", randLfo.freqMode === "fixed" && randLfo.fixedHz === 5.5 && randLfo.rand === 0.6)
+let randRT = patchGraphToLines(randG)
+check("[patch] rand round-trips through emit", String(randRT).indexOf("rand 2.5") >= 0 && String(randRT).indexOf("rand 0.6") >= 0)
+let aahsRand = compileGeneratorToPatchLines("aahs", {}, null).join("\n")
+check("[patch] aahs conversion emits per-singer rand jitter", aahsRand.indexOf(" rand 2.5") >= 0)
+let aetherRand = compileGeneratorToPatchLines("aether", {}, null).join("\n")
+check("[patch] aether conversion emits LFO rand jitter", aetherRand.indexOf(" rand 0.6") >= 0 && aetherRand.indexOf(" rand 0.4") >= 0)
+// System features: pan node, shaper curve type, and note*vel expression composites.
+let sysG = parsePatchGraph(["pan pL -0.6", "shaper sh1 amount 30 curve soft", "conn pL out 1"])
+let panNd = sysG.nodes[0]
+let shNd = sysG.nodes[1]
+check("[patch] pan node parses (kind + position)", panNd.kind === "pan" && panNd.pos === -0.6)
+check("[patch] shaper curve type parses", shNd.kind === "shaper" && shNd.amount === 30 && shNd.curve === "soft")
+let sysRT = String(patchGraphToLines(sysG))
+check("[patch] pan + shaper-curve round-trip through emit", sysRT.indexOf("pan pL -0.6") >= 0 && sysRT.indexOf("curve soft") >= 0)
+// Negative conn weight (anti-phase tremolo) survives parse.
+let negG = parsePatchGraph(["osc lfo sine 5", "gain g1 1", "conn lfo g1.gain -0.15", "conn g1 out 1"])
+check("[patch] negative conn weight parses (anti-phase)", negG.conns[0].vol === -0.15 && negG.conns[0].dstParam === "gain")
+// Tine now emits the full suitcase tremolo (two panned paths) + soft drive + velocity-scaled FM (note*vel).
+let tineFull = compileGeneratorToPatchLines("tine", { drive: 0.4 }, null).join("\n")
+check("[patch] tine emits stereo tremolo (two pan paths)", tineFull.indexOf("pan pL -0.6") >= 0 && tineFull.indexOf("pan pR 0.6") >= 0)
+check("[patch] tine emits soft drive curve", tineFull.indexOf("curve soft") >= 0)
+check("[patch] tine emits velocity-scaled FM spike (note*vel)", tineFull.indexOf("note*vel*") >= 0)
+// resolveExpr runs for EVERY patch env value at play time (not exercised by the structural graph tests), so
+// verify the rewritten evaluator: all existing forms unchanged + the new product chains. (note=200, dur=2, v=0.8)
+fn rxClose(a, b) { return Math.abs(a - b) < 0.0001 }
+check("[patch] resolveExpr: plain number", rxClose(resolveExpr("0.5", 200, 2, 0.8), 0.5))
+check("[patch] resolveExpr: negative number", rxClose(resolveExpr("-4.5", 200, 2, 0.8), -4.5))
+check("[patch] resolveExpr: note", rxClose(resolveExpr("note", 200, 2, 0.8), 200))
+check("[patch] resolveExpr: note*2", rxClose(resolveExpr("note*2", 200, 2, 0.8), 400))
+check("[patch] resolveExpr: note*0.425", rxClose(resolveExpr("note*0.425", 200, 2, 0.8), 85))
+check("[patch] resolveExpr: dur+0.34", rxClose(resolveExpr("dur+0.34", 200, 2, 0.8), 2.34))
+check("[patch] resolveExpr: dur-0.1", rxClose(resolveExpr("dur-0.1", 200, 2, 0.8), 1.9))
+check("[patch] resolveExpr: vel", rxClose(resolveExpr("vel", 200, 2, 0.8), 0.8))
+check("[patch] resolveExpr: vel*0.18", rxClose(resolveExpr("vel*0.18", 200, 2, 0.8), 0.144))
+check("[patch] resolveExpr: note*vel (composite)", rxClose(resolveExpr("note*vel", 200, 2, 0.8), 160))
+check("[patch] resolveExpr: note*vel*4.2 (chain)", rxClose(resolveExpr("note*vel*4.2", 200, 2, 0.8), 672))
+check("[patch] resolveExpr: 0.5*vel (number-led)", rxClose(resolveExpr("0.5*vel", 200, 2, 0.8), 0.4))
+check("[patch] resolveExpr: note*3 (3rd-harmonic glide)", rxClose(resolveExpr("note*3", 200, 2, 0.8), 600))
+check("[patch] resolveExpr: bad token → 0", rxClose(resolveExpr("garbage", 200, 2, 0.8), 0))
+// max()/min() — the staccato hold clamp (short note dur=0.1 < 0.31 → holds to 0.31; long note dur=2 → stays 2).
+check("[patch] resolveExpr: max(dur,0.31) short note", rxClose(resolveExpr("max(dur,0.31)", 200, 0.1, 0.8), 0.31))
+check("[patch] resolveExpr: max(dur,0.31) long note", rxClose(resolveExpr("max(dur,0.31)", 200, 2, 0.8), 2))
+check("[patch] resolveExpr: max(dur,0.31)+0.24 (release end)", rxClose(resolveExpr("max(dur,0.31)+0.24", 200, 0.1, 0.8), 0.55))
+check("[patch] resolveExpr: min(0.48,max(dur,0.26)) nested short", rxClose(resolveExpr("min(0.48,max(dur,0.26))", 200, 0.1, 0.8), 0.26))
+check("[patch] resolveExpr: min(0.48,max(dur,0.26)) nested long", rxClose(resolveExpr("min(0.48,max(dur,0.26))", 200, 2, 0.8), 0.48))
+check("[patch] resolveExpr: min(dur,0.5)", rxClose(resolveExpr("min(dur,0.5)", 200, 2, 0.8), 0.5))
 
 console.log("=== MIDI (parse + learn/map flow + persistence) ===")
 let mNoteOn = parseMidiBytes([144, 60, 100])

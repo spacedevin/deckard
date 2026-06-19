@@ -26,6 +26,9 @@ fn oscLine(nd) {
   if (nd.detune != null && Math.abs(nd.detune) > 0.00001) {
     s = s + " detune " + formatTplFloat(nd.detune)
   }
+  if (nd.rand != null && nd.rand > 0.00001) {
+    s = s + " rand " + formatTplFloat(nd.rand)
+  }
   return s
 }
 
@@ -49,7 +52,14 @@ fn nodeLine(nd) {
     return filterLine(nd)
   }
   if (nd.kind === "shaper") {
-    return "shaper " + nd.id + " amount " + formatTplFloat(nd.amount != null ? nd.amount : 50)
+    let ss = "shaper " + nd.id + " amount " + formatTplFloat(nd.amount != null ? nd.amount : 50)
+    if (nd.curve != null && nd.curve !== "hard" && String(nd.curve).length > 0) {
+      ss = ss + " curve " + String(nd.curve)
+    }
+    return ss
+  }
+  if (nd.kind === "pan") {
+    return "pan " + nd.id + " " + formatTplFloat(nd.pos != null ? nd.pos : 0)
   }
   if (nd.kind === "gain") {
     return "gain " + nd.id + " " + formatTplFloat(nd.value != null ? nd.value : 1)
