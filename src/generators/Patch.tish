@@ -17,6 +17,7 @@ fn makeDistortionCurve(amount, curveType) {
   let n = 1024
   let curve = new Float32Array(n)
   let soft = curveType === "soft" || curveType === "tube"
+  let guitar = curveType === "guitar"
   let deg = Math.PI / 180
   let i = 0
   while (i < n) {
@@ -24,11 +25,70 @@ fn makeDistortionCurve(amount, curveType) {
     if (soft) {
       curve[i] = ((1 + k) * x) / (1 + k * Math.abs(x))
     } else {
-      curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x))
+      if (guitar) {
+        // The live electric-guitar pickup/amp grit (Guitar.tish guitarDriveCurve), k = drive*100. Warmer and
+        // less bright than the default hard clip — matches the plucked-string voice's body.
+        curve[i] = ((3 + k) * x * 0.6) / (Math.PI + k * Math.abs(x))
+      } else {
+        curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x))
+      }
     }
     i = i + 1
   }
   return curve
+}
+
+// Karplus-Strong plucked-string render — IDENTICAL math to playGuitar (Guitar.tish): a one-period noise burst
+// (brightness-shaped by `tone`) excites a digital string = a delay line of `pN` samples fed back through a
+// damping lowpass. The full decay rings out INSIDE the buffer (length = ringSec), so the caller plays it as a
+// one-shot (loop=false) and must size voiceDur ≥ ringSec. Per-trigger Math.random is a LOCAL synthesis detail
+// (same precedent as the `noise` node / `rand` token), not streamed — peers differing in micro-timbre is fine,
+// the TPL transmits the `string` node + params. A real feedback DelayNode can't do this: a node inside a Web
+// Audio cycle is forced to ≥1 render quantum (128 samp) of latency → max fundamental ≈ sr/128 ≈ 344 Hz, far
+// below guitar pitch; the buffer render has no such ceiling (pN = round(sr/hz), only Nyquist-limited).
+fn makeStringBuffer(ctx, hz, tone, damping, decayP, mute) {
+  let sr = ctx.sampleRate
+  let f = hz > 20 ? hz : 20
+  let to = tone >= 0 && tone <= 1 ? tone : 0.5
+  let dp = decayP >= 0 && decayP <= 1 ? decayP : 0.6
+  let dm = damping >= 0 && damping <= 1 ? damping : 0.4
+  let mu = mute >= 0 && mute <= 1 ? mute : 0
+  let decayGain = 0.985 + dp * 0.0145 - mu * 0.012
+  if (decayGain > 0.9997) {
+    decayGain = 0.9997
+  }
+  let ringSec = (0.4 + dp * 2.1) * (1 - mu * 0.8)
+  let pN = Math.round(sr / f)
+  if (pN < 2) {
+    pN = 2
+  }
+  let len = Math.floor(sr * ringSec)
+  if (len < pN + 4) {
+    len = pN + 4
+  }
+  let buf = ctx.createBuffer(1, len, sr)
+  let data = buf.getChannelData(0)
+  // Excitation: one period of noise, brightness-shaped by `tone` via a one-pole lowpass.
+  let lp = 1 - to * 0.9
+  let prev = 0
+  let i = 0
+  while (i < pN) {
+    let white = Math.random() * 2 - 1
+    prev = prev + lp * (white - prev)
+    data[i] = prev
+    i = i + 1
+  }
+  // KS loop: y[n] = decayGain * (b0*y[n-N] + b1*y[n-N-1]); damping sets the lowpass split.
+  let b1 = dm * 0.5
+  let b0 = 1 - b1
+  let j = pN
+  while (j < len) {
+    let a = data[j - pN]
+    let bb = j - pN - 1 >= 0 ? data[j - pN - 1] : a
+    data[j] = decayGain * (b0 * a + b1 * bb)
+    j = j + 1
+  }
+  return { buffer: buf, ringSec: ringSec }
 }
 
 fn makeNoiseBuffer(ctx) {
@@ -265,6 +325,19 @@ export fn playPatch(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
         byId[nd.id] = src
         noiseList.push(src)
       } else {
+      if (nd.kind === "string") {
+        // KS plucked string: render the full ring into a one-shot buffer (loop=false — the decay is IN the
+        // buffer, re-triggering would re-pluck). Render at UNIT amplitude — velocity/conn weight are applied
+        // ONCE downstream by the conn machinery (cn.vol * v), never baked in (would square velocity). Stash
+        // _ringSec so voiceDur honors the ring even for a bare `string` node with no `dur` line.
+        let ks = makeStringBuffer(ctx, note, nd.tone, nd.damping, nd.decay, nd.mute)
+        let src = ctx.createBufferSource()
+        src.buffer = ks.buffer
+        src.loop = false
+        nd._ringSec = ks.ringSec
+        byId[nd.id] = src
+        noiseList.push(src)
+      } else {
         if (nd.kind === "filter") {
           let f = ctx.createBiquadFilter()
           f.type = nd.ftype
@@ -299,6 +372,7 @@ export fn playPatch(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
             }
           }
         }
+      }
       }
     }
     i = i + 1
@@ -352,6 +426,18 @@ export fn playPatch(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
       }
     }
     ei = ei + 1
+  }
+
+  // A `string` (KS) node's decay rings out INSIDE its buffer (length ringSec), not via an env — so lift maxEnd
+  // to the longest string ring so a bare `string` with no `dur` line isn't truncated by tStop/the declick fade.
+  // (The compiled guitar voice ALSO sets graph.dur = ringSec, so both layers agree.)
+  let si = 0
+  while (si < graph.nodes.length) {
+    let snd = graph.nodes[si]
+    if (snd._ringSec != null && snd._ringSec > maxEnd) {
+      maxEnd = snd._ringSec
+    }
+    si = si + 1
   }
 
   // Stop time + a short output fade window (declick): a hard osc start/stop or an instantaneous gain

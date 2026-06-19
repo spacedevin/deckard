@@ -48,6 +48,17 @@ fn nodeLine(nd) {
   if (nd.kind === "noise") {
     return "noise " + nd.id
   }
+  if (nd.kind === "string") {
+    // Always emit tone/damping/decay (round-trip fixpoint); mute only when non-zero.
+    let st = "string " + nd.id + " note"
+    st = st + " tone " + formatTplFloat(nd.tone != null ? nd.tone : 0.5)
+    st = st + " damping " + formatTplFloat(nd.damping != null ? nd.damping : 0.4)
+    st = st + " decay " + formatTplFloat(nd.decay != null ? nd.decay : 0.6)
+    if (nd.mute != null && nd.mute > 0.00001) {
+      st = st + " mute " + formatTplFloat(nd.mute)
+    }
+    return st
+  }
   if (nd.kind === "filter") {
     return filterLine(nd)
   }
@@ -167,6 +178,9 @@ fn defaultNodeForKind(kind, id) {
   if (kind === "noise") {
     return { kind: "noise", id: id }
   }
+  if (kind === "string") {
+    return { kind: "string", id: id, tone: 0.5, damping: 0.4, decay: 0.6, mute: 0 }
+  }
   if (kind === "filter") {
     return { kind: "filter", id: id, ftype: "lowpass", q: 0.7, freq: 1200 }
   }
@@ -182,6 +196,9 @@ fn prefixForKind(kind) {
   }
   if (kind === "noise") {
     return "n"
+  }
+  if (kind === "string") {
+    return "st"
   }
   if (kind === "filter") {
     return "f"

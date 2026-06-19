@@ -291,9 +291,47 @@ fn noiseCard() {
   )
 }
 
+// Generic 0..1 knob for a string-node field. Bracket-key assignment (nd[key]=) is intentional — it keeps the
+// patch-graph param edit out of the anti-spaghetti ratchet's channel-field write pattern (the `mute` param
+// name collides), and it dedups the four near-identical knobs. Edits flow through the same commit() (TPL
+// mirror) as every other card.
+fn stringKnob(nd, key, label, dflt, accent, commit) {
+  let val = numOr(nd[key], dflt)
+  return Knob({
+    label: label,
+    value: Math.round(val * 100),
+    min: 0,
+    max: 100,
+    step: 1,
+    accent: accent,
+    fmt: (v) => String(Math.round(v)),
+    onInput: (v) => {
+      nd[key] = v / 100
+      commit()
+    }
+  })
+}
+
+fn stringCard(nd, commit, accent) {
+  return (
+    <div class="patch-node-body">
+      <div class="ik-knob-grid">
+        {stringKnob(nd, "tone", "Tone", 0.5, accent, commit)}
+        {stringKnob(nd, "damping", "Damping", 0.4, accent, commit)}
+        {stringKnob(nd, "decay", "Decay", 0.6, accent, commit)}
+        {stringKnob(nd, "mute", "Mute", 0, accent, commit)}
+      </div>
+      <p class="sytrus-hint">{"Karplus-Strong plucked string — pitched by the played note."}</p>
+    </div>
+  )
+}
+
 fn nodeCardBody(nd, commit, accent) {
   if (nd.kind === "osc") {
     return oscCard(nd, commit, accent)
+  }
+  if (nd.kind === "string") {
+    return stringCard(nd, commit, accent)
   }
   if (nd.kind === "filter") {
     return filterCard(nd, commit, accent)
@@ -313,6 +351,9 @@ fn kindLabel(kind) {
   }
   if (kind === "noise") {
     return "NOISE"
+  }
+  if (kind === "string") {
+    return "STRING"
   }
   if (kind === "filter") {
     return "FILTER"
@@ -619,6 +660,7 @@ export fn PatchGraphPanel(ch, project, setProject, tplMirrorFlush) {
           <span class="patch-add-row">
             <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => { addPatchNode(g, "osc"); commit() }}>{"+ Osc"}</button>
             <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => { addPatchNode(g, "noise"); commit() }}>{"+ Noise"}</button>
+            <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => { addPatchNode(g, "string"); commit() }}>{"+ String"}</button>
             <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => { addPatchNode(g, "filter"); commit() }}>{"+ Filter"}</button>
             <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => { addPatchNode(g, "shaper"); commit() }}>{"+ Shaper"}</button>
             <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => { addPatchNode(g, "gain"); commit() }}>{"+ Gain"}</button>

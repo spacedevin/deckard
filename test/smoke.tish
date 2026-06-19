@@ -481,9 +481,9 @@ check("arp+chord: chord rippled up (40→44→47) with rising offsets + short no
 let arpDown = expandTriggerNotes({ id: "z2", generatorId: "basicOsc", chord: "major", arp: "down" }, 40, 0.3)
 check("arp down: reversed order (47→44→40)", arpDown[0].pitch === 47 && arpDown[2].pitch === 40)
 check("arp without a chord: nothing to arpeggiate (single note)", expandTriggerNotes({ id: "z3", chord: "off", arp: "up" }, 40, 0.3).length === 1)
-// guitar → patch: a plucky subtractive approximation (KS can't be a patch graph), not a generic saw
+// guitar → patch: the REAL Karplus-Strong string primitive (not a saw approximation) → body lowpass → amp.
 let gtrPatchG = parsePatchGraph(compileGeneratorToPatchLines("guitar", { tone: 0.5, decay: 0.6, drive: 0.3, body: 3000 }, null))
-check("guitar→patch: plucky saw→lowpass→amp with a pluck envelope", gtrPatchG.nodes.some(n => n.kind === "osc" && n.wave === "sawtooth") && gtrPatchG.nodes.some(n => n.kind === "filter") && gtrPatchG.envs.some(e => e.node === "a1"))
+check("guitar→patch: KS string→lowpass→amp (no saw approximation)", gtrPatchG.nodes.some(n => n.kind === "string") && !gtrPatchG.nodes.some(n => n.kind === "osc") && gtrPatchG.nodes.some(n => n.kind === "filter") && gtrPatchG.envs.some(e => e.node === "a1") && gtrPatchG.dur != null)
 // matrixFm → patch: the operator/matrix graph reduces to oscillators + FM-routed connections + envelopes.
 // Factory Matrix FM patch bank (Sytrus-style) — every patch must parse into a valid graph: >=2 operators,
 // at least one route to out, and every mod/route references an operator that exists (no dangling ids).

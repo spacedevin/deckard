@@ -377,41 +377,46 @@ fn matrixFmLines(graph) {
   return lines
 }
 
-// Guitar is a Karplus-Strong physical model — a delay-line feedback that the patch node set CAN'T
-// express. This is a plucky subtractive APPROXIMATION (saw → driven lowpass with a fast pluck envelope),
-// so switching guitar→patch lands on something guitar-ish rather than a generic sustained saw.
+// Guitar = the EXACT live Karplus-Strong plucked string, now expressible in TPL via the `string` primitive
+// (the old subtractive saw approximation could never match the comb-rich plucked spectrum — it was the
+// furthest-off patch voice). The `string` node renders the same KS buffer playGuitar does; the rest of the
+// live chain (drive → body lowpass → flat-top amp) is plain patch nodes. The ring/decay lives INSIDE the
+// string buffer, so the amp env is a FLAT-TOP gate (attack → hold at 1 → 60ms release), NOT an exp — an exp
+// would DOUBLE the decay. `dur <ringSec>` sizes voiceDur so the ring isn't truncated.
 fn guitarLines(p) {
   let tone = p.tone >= 0 && p.tone <= 1 ? p.tone : 0.5
   let decayP = p.decay >= 0 && p.decay <= 1 ? p.decay : 0.6
+  let damping = p.damping >= 0 && p.damping <= 1 ? p.damping : 0.4
   let drive = p.drive != null ? p.drive : 0.25
   let mute = p.mute >= 0 && p.mute <= 1 ? p.mute : 0
   let body = p.body != null && p.body > 0 ? p.body : 3500
   let bodyHz = body * (1 - mute * 0.5)
-  // `tone` shapes the live string EXCITATION (not the body filter); fold it into a mild cutoff lift so it
-  // still does something. The live body filter is a gentle Q 0.9 rolloff at a CONSTANT cutoff — no sweep.
-  let cut = bodyHz * (0.8 + tone * 0.6)
-  if (cut > 16000) {
-    cut = 16000
+  let ringSec = (0.4 + decayP * 2.1) * (1 - mute * 0.8)
+  let relStart = ringSec - 0.06
+  if (relStart < 0.005) {
+    relStart = 0.005
   }
-  // The live Karplus-Strong string rings ~ringSec as a continuous decay; match that length, and the live
-  // amp peaks at v*0.7 (so the output conn is VOL_COMP * 0.7, not full VOL_COMP — it was ~1.43x too loud).
-  let ampDecay = (0.4 + decayP * 2.1) * (1 - mute * 0.8)
-  if (ampDecay < 0.12) {
-    ampDecay = 0.12
-  }
-  let lines = ["osc o1 sawtooth note", "filter f1 lowpass q 0.9 freq " + f(cut), "gain a1 0"]
+  // tone/damping/decay/mute shape the KS string itself (excitation brightness, loop damping, ring length);
+  // the body lowpass at a CONSTANT bodyHz (Q 0.9) is the live cab/body rolloff — no tone sweep on it.
+  let lines = [
+    "string s1 note tone " + f(tone) + " damping " + f(damping) + " decay " + f(decayP) + " mute " + f(mute),
+    "filter f1 lowpass q 0.9 freq " + f(bodyHz),
+    "gain a1 0"
+  ]
   if (drive > 0) {
-    // SOFT (tube) curve fed at ~half level — the old hard curve (k=drive*120) crushed the saw to ~0.35 (quiet
-    // + dull); soft + a 0.5 in-gain gives warmth without the heavy attenuation.
-    lines.push("shaper sh1 amount " + f(drive * 60) + " curve soft")
-    lines.push("conn o1 sh1 0.5")
+    // The live pickup/amp grit: the `guitar` waveshaper curve (k = amount, = drive*100) at FULL input gain.
+    lines.push("shaper sh1 amount " + f(drive * 100) + " curve guitar")
+    lines.push("conn s1 sh1 1")
     lines.push("conn sh1 f1 1")
   } else {
-    lines.push("conn o1 f1 1")
+    lines.push("conn s1 f1 1")
   }
   lines.push("conn f1 a1 1")
-  lines.push("conn a1 out " + f(VOL_COMP * 0.42))
-  lines.push("env a1.gain set 0 0 lin 0.004 1 exp " + f(ampDecay) + " 0.001")
+  // Live amp peaks at v*0.7; the out conn applies v once, so carry the 0.7 here (× VOL_COMP). The KS buffer
+  // is rendered at unit amplitude, so no double-velocity.
+  lines.push("conn a1 out " + f(VOL_COMP * 0.7))
+  lines.push("env a1.gain set 0 0 lin 0.004 1 set " + f(relStart) + " 1 lin " + f(ringSec) + " 0")
+  lines.push("dur " + f(ringSec))
   return lines
 }
 

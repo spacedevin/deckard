@@ -212,6 +212,40 @@ export fn parsePatchGraph(lines) {
       continue
     }
     let h = toks[0]
+    if (h === "string" && toks.length >= 2) {
+      // `string <id> [note] [tone <t>] [damping <d>] [decay <p>] [mute <m>]` — a Karplus-Strong plucked string.
+      // Pitched by the PLAYED note only (quantized at build via pN=round(sr/hz)); not modulatable, so no
+      // ratio/detune/fixedHz. tone/damping/decay/mute are 0..1. `note` is an accepted no-op readability marker.
+      let snd = { kind: "string", id: String(toks[1]), tone: 0.5, damping: 0.4, decay: 0.6, mute: 0 }
+      let sidx = 2
+      while (sidx < toks.length) {
+        let stk = toks[sidx]
+        if (stk === "tone" && sidx + 1 < toks.length) {
+          snd.tone = Number(toks[sidx + 1])
+          sidx = sidx + 2
+        } else {
+          if (stk === "damping" && sidx + 1 < toks.length) {
+            snd.damping = Number(toks[sidx + 1])
+            sidx = sidx + 2
+          } else {
+            if (stk === "decay" && sidx + 1 < toks.length) {
+              snd.decay = Number(toks[sidx + 1])
+              sidx = sidx + 2
+            } else {
+              if (stk === "mute" && sidx + 1 < toks.length) {
+                snd.mute = Number(toks[sidx + 1])
+                sidx = sidx + 2
+              } else {
+                sidx = sidx + 1
+              }
+            }
+          }
+        }
+      }
+      nodes.push(snd)
+      li = li + 1
+      continue
+    }
     if (h === "osc" && toks.length >= 2) {
       let nd = { kind: "osc", id: String(toks[1]), wave: "sine", freqMode: "note", fixedHz: 0, ratio: 1, detune: 0, rand: 0 }
       let idx = 2

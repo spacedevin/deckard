@@ -430,6 +430,23 @@ let tineFull = compileGeneratorToPatchLines("tine", { drive: 0.4 }, null).join("
 check("[patch] tine emits stereo tremolo (two pan paths)", tineFull.indexOf("pan pL -0.6") >= 0 && tineFull.indexOf("pan pR 0.6") >= 0)
 check("[patch] tine emits soft drive curve", tineFull.indexOf("curve soft") >= 0)
 check("[patch] tine emits velocity-scaled FM spike (note*vel)", tineFull.indexOf("note*vel*") >= 0)
+// `string` (Karplus-Strong plucked-string primitive) — the node kind that lets guitar reproduce faithfully.
+let strG = parsePatchGraph(["string s1 note tone 0.7 damping 0.3 decay 0.8 mute 0.1", "conn s1 out 1"])
+let strNd = strG.nodes[0]
+check("[patch] string node parses (kind + tone/damping/decay/mute)", strNd.kind === "string" && strNd.tone === 0.7 && strNd.damping === 0.3 && strNd.decay === 0.8 && strNd.mute === 0.1)
+let strRT = patchGraphToLines(strG)
+check("[patch] string round-trips through emit (params preserved)", String(strRT).indexOf("string s1") >= 0 && String(strRT).indexOf("tone 0.7") >= 0 && String(strRT).indexOf("damping 0.3") >= 0 && String(strRT).indexOf("decay 0.8") >= 0 && String(strRT).indexOf("mute 0.1") >= 0)
+// emit→parse→emit fixpoint — the node must survive a full round-trip or the sound is lost on the wire.
+let strFixG = parsePatchGraph(strRT)
+let strFixNd = strFixG.nodes[0]
+check("[patch] string parse/emit is a fixpoint", strFixNd.kind === "string" && strFixNd.tone === 0.7 && strFixNd.decay === 0.8 && String(patchGraphToLines(strFixG)).indexOf("string s1") >= 0)
+// guitar now compiles to a REAL KS string (not a saw), a FLAT-TOP amp env (no exp double-decay), and a dur line.
+let gtrC = compileGeneratorToPatchLines("guitar", {}, null).join("\n")
+check("[patch] guitar compiles to a string node (not a saw approximation)", gtrC.indexOf("string s1") >= 0 && gtrC.indexOf("osc o1 sawtooth") < 0)
+check("[patch] guitar amp env is flat-top (no exp double-decay)", gtrC.indexOf("exp") < 0 && gtrC.indexOf("lin 0.004 1") >= 0)
+check("[patch] guitar emits dur = ringSec (KS ring not truncated)", gtrC.indexOf("dur ") >= 0)
+check("[patch] guitar drive uses the guitar curve at full input gain", gtrC.indexOf("curve guitar") >= 0 && gtrC.indexOf("conn s1 sh1 1") >= 0)
+check("[patch] guitar out level carries v*0.7 (not the old quiet 0.42)", gtrC.indexOf("conn a1 out 0.55") >= 0)
 // resolveExpr runs for EVERY patch env value at play time (not exercised by the structural graph tests), so
 // verify the rewritten evaluator: all existing forms unchanged + the new product chains. (note=200, dur=2, v=0.8)
 fn rxClose(a, b) { return Math.abs(a - b) < 0.0001 }
