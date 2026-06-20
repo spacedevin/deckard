@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Audio Speech & Vocal Sequencer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+        }
+        
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Custom Range Slider */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #3b82f6;
+            cursor: pointer;
+            margin-top: -6px;
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+            transition: transform 0.1s;
+        }
+        input[type=range]::-webkit-slider-thumb:active {
+            transform: scale(1.2);
+        }
+        input[type=range].accent-pink::-webkit-slider-thumb {
+            background: #ec4899;
+            box-shadow: 0 0 10px rgba(236, 72, 153, 0.5);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #334155;
+            border-radius: 2px;
+        }
+        input[type=range]:focus {
+            outline: none;
+        }
+
+        /* Sequencer Custom Scrollbar */
+        .seq-scroll::-webkit-scrollbar {
+            height: 8px;
+        }
+        .seq-scroll::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.5);
+            border-radius: 4px;
+        }
+        .seq-scroll::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 4px;
+        }
+        .seq-scroll::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+
+        /* Active cell animation */
+        .cell-active {
+            background: linear-gradient(to top, #3b82f6, #a855f7);
+            box-shadow: 0 0 12px rgba(168, 85, 247, 0.6);
+            border-color: transparent !important;
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 pb-12">
+
+    <div class="max-w-6xl mx-auto space-y-6">
+        
+        <!-- Header -->
+        <div class="text-center mb-8 pt-4">
+            <h1 class="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 mb-3">
+                Vocal Synthesis Studio
+            </h1>
+            <p class="text-slate-400">Explore Formant synthesis, TTS, and sequence your own robotic choir.</p>
+        </div>
+
+        <!-- Top Panels (Original Features) -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Panel 1: Raw Web Audio API (Formant Synthesis) -->
+            <div class="glass-panel rounded-2xl p-6 shadow-xl flex flex-col">
+                <div class="flex items-center gap-3 mb-4 border-b border-slate-700 pb-4">
+                    <div class="bg-purple-500/20 p-3 rounded-lg text-purple-400">
+                        <i class="fas fa-wave-square text-xl"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-xl font-bold text-purple-300">1. Formant Synth</h2>
+                        <p class="text-xs text-slate-400">Raw oscillators mimicking human vocal cords</p>
+                    </div>
+                </div>
+
+                <div class="flex-grow space-y-6">
+                    <div>
+                        <label class="block text-sm font-semibold mb-2 text-slate-300">Individual Vowels</label>
+                        <div class="grid grid-cols-5 gap-2">
+                            <button onclick="playVowel('A')" class="bg-slate-700 hover:bg-purple-600 transition-colors py-2 rounded font-bold shadow-md">Ah</button>
+                            <button onclick="playVowel('E')" class="bg-slate-700 hover:bg-purple-600 transition-colors py-2 rounded font-bold shadow-md">Eh</button>
+                            <button onclick="playVowel('I')" class="bg-slate-700 hover:bg-purple-600 transition-colors py-2 rounded font-bold shadow-md">Ee</button>
+                            <button onclick="playVowel('O')" class="bg-slate-700 hover:bg-purple-600 transition-colors py-2 rounded font-bold shadow-md">Oh</button>
+                            <button onclick="playVowel('U')" class="bg-slate-700 hover:bg-purple-600 transition-colors py-2 rounded font-bold shadow-md">Oo</button>
+                        </div>
+                    </div>
+                    <div class="bg-slate-800/50 p-4 rounded-lg space-y-4 border border-slate-700/50">
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span>Vocal Pitch (Hz)</span>
+                                <span id="pitchValue" class="text-purple-400 font-mono">120 Hz</span>
+                            </div>
+                            <input type="range" id="pitchSlider" min="50" max="400" value="120" oninput="updatePitch(this.value)">
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm">Humanize (Vibrato)</span>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="vibratoToggle" class="sr-only peer" checked>
+                                <div class="w-11 h-6 bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-500"></div>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Panel 2: Web Speech API (Modern TTS) -->
+            <div class="glass-panel rounded-2xl p-6 shadow-xl flex flex-col">
+                <div class="flex items-center gap-3 mb-4 border-b border-slate-700 pb-4">
+                    <div class="bg-blue-500/20 p-3 rounded-lg text-blue-400">
+                        <i class="fas fa-comment-dots text-xl"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-xl font-bold text-blue-300">2. Web Speech API</h2>
+                        <p class="text-xs text-slate-400">Native OS Text-to-Speech Engine</p>
+                    </div>
+                </div>
+
+                <div class="flex-grow space-y-4">
+                    <div class="space-y-2">
+                        <select id="voiceSelect" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-2 text-sm focus:outline-none focus:border-blue-500 text-white">
+                            <option>Loading voices...</option>
+                        </select>
+                    </div>
+                    <div class="space-y-2">
+                        <textarea id="ttsInput" rows="2" class="w-full bg-slate-800 border border-slate-600 rounded-lg p-3 text-sm focus:outline-none focus:border-blue-500 resize-none text-white">Hello there! This is modern synthesized speech.</textarea>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span class="text-slate-400">Rate</span>
+                                <span id="rateValue" class="text-blue-400 font-mono">1.0</span>
+                            </div>
+                            <input type="range" id="rateSlider" min="0.5" max="2" step="0.1" value="1" oninput="document.getElementById('rateValue').innerText = this.value">
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span class="text-slate-400">Pitch</span>
+                                <span id="ttsPitchValue" class="text-blue-400 font-mono">1.0</span>
+                            </div>
+                            <input type="range" id="ttsPitchSlider" min="0" max="2" step="0.1" value="1" oninput="document.getElementById('ttsPitchValue').innerText = this.value">
+                        </div>
+                    </div>
+                    <button id="ttsButton" onclick="speakTTS()" class="w-full bg-blue-600 hover:bg-blue-500 transition-colors py-3 rounded-lg font-bold shadow-lg shadow-blue-500/30 flex items-center justify-center gap-2 mt-4">
+                        <i class="fas fa-play"></i> Synthesize
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- NEW: Panel 3: Vocal Step Sequencer -->
+        <div class="glass-panel rounded-2xl p-6 shadow-2xl border border-pink-500/30 relative overflow-hidden">
+            <!-- Background Glow -->
+            <div class="absolute top-0 right-0 w-64 h-64 bg-pink-500/10 rounded-full blur-3xl -z-10 pointer-events-none"></div>
+
+            <div class="flex flex-col md:flex-row md:items-center justify-between mb-4 border-b border-slate-700 pb-4 gap-4">
+                <div class="flex items-center gap-3">
+                    <div class="bg-pink-500/20 p-3 rounded-lg text-pink-400">
+                        <i class="fas fa-sliders-h text-xl"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-xl font-bold text-pink-300">3. Vocal Piano Roll & Sequencer</h2>
+                        <p class="text-xs text-slate-400">Sequence notes with deep expression & humanization</p>
+                    </div>
+                </div>
+                
+                <div class="flex items-center gap-3">
+                    <button id="playSeqBtn" onclick="toggleSequencer()" class="bg-pink-600 hover:bg-pink-500 text-white px-8 py-2.5 rounded-lg font-bold flex items-center gap-2 shadow-lg shadow-pink-500/30 transition-all">
+                        <i class="fas fa-play"></i> <span id="playSeqText">Play Sequence</span>
+                    </button>
+                    <button onclick="clearSequence()" class="bg-slate-800 hover:bg-red-900/50 text-slate-300 px-4 py-2.5 rounded-lg font-bold border border-slate-600 hover:border-red-500 transition-colors" title="Clear Grid">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Global Sequencer & Expression Controls -->
+            <div class="bg-slate-800/40 p-5 rounded-xl border border-slate-700/50 mb-6 space-y-5 shadow-inner">
+                
+                <!-- Row 1: Engine, Tempo, Lyrics -->
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div>
+                        <div class="flex justify-between text-sm mb-1 text-slate-300">
+                            <span>Tempo</span>
+                            <span id="bpmValue" class="text-pink-400 font-mono font-bold">120 BPM</span>
+                        </div>
+                        <input type="range" id="bpmSlider" min="60" max="240" value="120" oninput="updateBPM(this.value)" class="accent-pink">
+                    </div>
+                    <div>
+                        <div class="text-sm text-slate-300 mb-1">Audio Engine</div>
+                        <select id="engineSelect" class="bg-slate-900 border border-slate-600 rounded-lg p-1.5 text-sm focus:outline-none focus:border-pink-500 text-white w-full">
+                            <option value="formant">🎵 Formant Synth (Expressive)</option>
+                            <option value="tts">🗣️ TTS Engine (Experimental)</option>
+                        </select>
+                    </div>
+                    <div class="md:col-span-2">
+                        <div class="text-sm text-slate-300 mb-1 flex justify-between">
+                            <span>Quick Lyrics (Space separated)</span>
+                        </div>
+                        <div class="flex gap-2">
+                            <input type="text" id="lyricsInput" value="we are the ro bots in the web" class="flex-grow bg-slate-900 border border-slate-600 rounded-lg p-1.5 text-sm focus:outline-none focus:border-pink-500 text-white font-mono placeholder-slate-500">
+                            <button onclick="applyLyrics()" class="bg-slate-700 hover:bg-slate-600 px-4 py-1.5 rounded-lg text-sm font-semibold border border-slate-500 transition-colors">Apply</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Row 2: Expression & Articulation -->
+                <div class="pt-4 border-t border-slate-700">
+                    <div class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3"><i class="fas fa-wave-square mr-1"></i> Articulation & Humanization (Formant Engine)</div>
+                    <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+                        <!-- Release / Sustain -->
+                        <div>
+                            <div class="flex justify-between text-xs mb-1 text-slate-400">
+                                <span>Release (Sustain)</span>
+                                <span id="valRelease" class="font-mono">0.1s</span>
+                            </div>
+                            <input type="range" id="slRelease" min="0" max="1" step="0.05" value="0.1" class="accent-pink" oninput="document.getElementById('valRelease').innerText = this.value + 's'">
+                        </div>
+                        <!-- Portamento / Glide -->
+                        <div>
+                            <div class="flex justify-between text-xs mb-1 text-slate-400">
+                                <span>Portamento (Glide)</span>
+                                <span id="valGlide" class="font-mono">0.05s</span>
+                            </div>
+                            <input type="range" id="slGlide" min="0" max="0.3" step="0.01" value="0.05" class="accent-pink" oninput="document.getElementById('valGlide').innerText = this.value + 's'">
+                        </div>
+                        <!-- Vibrato Depth -->
+                        <div>
+                            <div class="flex justify-between text-xs mb-1 text-slate-400">
+                                <span>Vibrato Depth</span>
+                                <span id="valVibDepth" class="font-mono">3%</span>
+                            </div>
+                            <input type="range" id="slVibDepth" min="0" max="0.1" step="0.01" value="0.03" class="accent-pink" oninput="document.getElementById('valVibDepth').innerText = Math.round(this.value * 100) + '%'">
+                        </div>
+                        <!-- Vibrato Rate -->
+                        <div>
+                            <div class="flex justify-between text-xs mb-1 text-slate-400">
+                                <span>Vibrato Rate</span>
+                                <span id="valVibRate" class="font-mono">5.5 Hz</span>
+                            </div>
+                            <input type="range" id="slVibRate" min="1" max="12" step="0.5" value="5.5" class="accent-pink" oninput="document.getElementById('valVibRate').innerText = this.value + ' Hz'">
+                        </div>
+                        <!-- Humanize -->
+                        <div>
+                            <div class="flex justify-between text-xs mb-1 text-slate-400">
+                                <span class="text-pink-300">Humanize</span>
+                                <span id="valHumanize" class="font-mono text-pink-300">20%</span>
+                            </div>
+                            <input type="range" id="slHumanize" min="0" max="1" step="0.05" value="0.2" class="accent-pink" oninput="document.getElementById('valHumanize').innerText = Math.round(this.value * 100) + '%'">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- The Grid Area -->
+            <div class="bg-slate-900 rounded-xl p-4 border border-slate-700 overflow-x-auto seq-scroll shadow-inner">
+                <div id="sequencer-grid" class="flex gap-1 min-w-max pb-2">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Application Logic -->
+    <script>
+        // =========================================================================
+        // CORE AUDIO SETUP
+        // =========================================================================
+        let audioCtx;
+        function initAudioContext() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        // =========================================================================
+        // PART 1: Web Audio API Formant Synthesizer
+        // =========================================================================
+        let basePitch = 120; 
+        const VOWEL_FORMANTS = {
+            'A': [730, 1090, 2440], 
+            'E': [530, 1840, 2480], 
+            'I': [240, 2400, 3200], 
+            'O': [570,  840, 2410], 
+            'U': [300,  870, 2240]  
+        };
+
+        function updatePitch(val) {
+            basePitch = parseInt(val);
+            document.getElementById('pitchValue').innerText = basePitch + ' Hz';
+        }
+
+        // Basic call for the top panel buttons
+        function playVowel(vowelStr) {
+            const useVib = document.getElementById('vibratoToggle').checked;
+            playFormantFreq(vowelStr, basePitch, 0.5, audioCtx ? audioCtx.currentTime : 0, {
+                release: 0.1,
+                vibDepth: useVib ? 0.03 : 0,
+                vibRate: 5.5,
+                glide: 0,
+                lastFreq: basePitch
+            });
+        }
+
+        // Enhanced Engine for both single buttons and Sequencer with Expression params
+        function playFormantFreq(vowelStr, freq, duration, startTime, opts = {}) {
+            initAudioContext();
+            
+            const formants = VOWEL_FORMANTS[vowelStr] || VOWEL_FORMANTS['A'];
+            
+            // Extract expression options with fallbacks
+            const release = opts.release !== undefined ? parseFloat(opts.release) : 0.05;
+            const vibDepth = opts.vibDepth !== undefined ? parseFloat(opts.vibDepth) : 0;
+            const vibRate = opts.vibRate !== undefined ? parseFloat(opts.vibRate) : 5.5;
+            const glideTime = opts.glide !== undefined ? parseFloat(opts.glide) : 0;
+            const lastFreq = opts.lastFreq !== undefined ? parseFloat(opts.lastFreq) : freq;
+
+            const glottis = audioCtx.createOscillator();
+            glottis.type = 'sawtooth';
+            
+            // Portamento / Glide Implementation
+            if (glideTime > 0 && lastFreq > 0) {
+                // Start at the previous note's frequency
+                glottis.frequency.setValueAtTime(lastFreq, startTime);
+                // Slide exponentially to the new frequency
+                glottis.frequency.setTargetAtTime(freq, startTime, glideTime / 3); 
+            } else {
+                glottis.frequency.setValueAtTime(freq, startTime);
+            }
+
+            // Vibrato Implementation
+            let vibratoOsc;
+            if (vibDepth > 0) {
+                vibratoOsc = audioCtx.createOscillator();
+                vibratoOsc.frequency.value = vibRate; 
+                const vibratoGain = audioCtx.createGain();
+                vibratoGain.gain.value = freq * vibDepth; // Modulation depth based on base frequency
+                
+                vibratoOsc.connect(vibratoGain);
+                vibratoGain.connect(glottis.frequency);
+                
+                vibratoOsc.start(startTime);
+                // Stop vibrato when the release tail ends
+                vibratoOsc.stop(startTime + duration + release);
+            }
+
+            const masterGain = audioCtx.createGain();
+            
+            // Envelope (Attack, Sustain, Release)
+            masterGain.gain.setValueAtTime(0, startTime);
+            masterGain.gain.linearRampToValueAtTime(1, startTime + 0.05); // Quick attack
+            masterGain.gain.setValueAtTime(1, startTime + duration - 0.02); // Hold
+            masterGain.gain.linearRampToValueAtTime(0, startTime + duration + release); // Release tail
+
+            const qValue = 12; 
+            const gains = [1.0, 0.4, 0.1]; // Formant amplitude ratios
+
+            // Route through 3 parallel bandpass filters
+            formants.forEach((fFreq, index) => {
+                const filter = audioCtx.createBiquadFilter();
+                filter.type = 'bandpass';
+                filter.frequency.value = fFreq;
+                filter.Q.value = qValue;
+
+                const filterGain = audioCtx.createGain();
+                filterGain.gain.value = gains[index];
+
+                glottis.connect(filter);
+                filter.connect(filterGain);
+                filterGain.connect(masterGain);
+            });
+
+            masterGain.connect(audioCtx.destination);
+            glottis.start(startTime);
+            // Stop oscillator after release tail finishes
+            glottis.stop(startTime + duration + release);
+        }
+
+        // =========================================================================
+        // PART 2: Web Speech API (Modern Text-To-Speech)
+        // =========================================================================
+        let speechSynth = window.speechSynthesis;
+        let voices = [];
+        const voiceSelect = document.getElementById('voiceSelect');
+
+        function populateVoiceList() {
+            voices = speechSynth.getVoices();
+            voiceSelect.innerHTML = '';
+            
+            if(voices.length === 0) {
+                voiceSelect.innerHTML = '<option>No voices found</option>';
+                return;
+            }
+
+            const preferredVoices = voices.filter(v => v.lang.startsWith('en-')).sort((a, b) => {
+                if (a.name.includes('Google') || a.name.includes('Premium')) return -1;
+                return 1;
+            });
+
+            const voicesToUse = preferredVoices.length > 0 ? preferredVoices : voices;
+
+            voicesToUse.forEach((voice, i) => {
+                const option = document.createElement('option');
+                option.textContent = `${voice.name} (${voice.lang})`;
+                option.setAttribute('data-name', voice.name);
+                voiceSelect.appendChild(option);
+            });
+        }
+
+        populateVoiceList();
+        if (speechSynthesis.onvoiceschanged !== undefined) {
+            speechSynthesis.onvoiceschanged = populateVoiceList;
+        }
+
+        function speakTTS() {
+            if (speechSynth.speaking) speechSynth.cancel();
+            const textInput = document.getElementById('ttsInput').value;
+            fireTTS(textInput, document.getElementById('ttsPitchSlider').value, document.getElementById('rateSlider').value, true);
+        }
+
+        function fireTTS(text, pitch, rate, updateUI) {
+            if (text === '') return;
+            const utterThis = new SpeechSynthesisUtterance(text);
+            const selectedName = voiceSelect.selectedOptions[0]?.getAttribute('data-name');
+            utterThis.voice = voices.find(v => v.name === selectedName) || voices[0];
+            utterThis.rate = rate;
+            utterThis.pitch = pitch;
+            
+            if (updateUI) {
+                const btn = document.getElementById('ttsButton');
+                const originalHtml = '<i class="fas fa-play"></i> Synthesize';
+                btn.innerHTML = '<i class="fas fa-volume-up"></i> Speaking...';
+                utterThis.onend = () => btn.innerHTML = originalHtml;
+                utterThis.onerror = () => btn.innerHTML = originalHtml;
+            }
+            speechSynth.speak(utterThis);
+        }
+
+
+        // =========================================================================
+        // PART 3: VOCAL PIANO ROLL & STEP SEQUENCER
+        // =========================================================================
+        
+        const NUM_STEPS = 16;
+        const seqNotes = [
+            { name: 'C5', freq: 523.25 },
+            { name: 'B4', freq: 493.88 },
+            { name: 'A#4',freq: 466.16 },
+            { name: 'A4', freq: 440.00 },
+            { name: 'G#4',freq: 415.30 },
+            { name: 'G4', freq: 392.00 },
+            { name: 'F#4',freq: 369.99 },
+            { name: 'F4', freq: 349.23 },
+            { name: 'E4', freq: 329.63 },
+            { name: 'D#4',freq: 311.13 },
+            { name: 'D4', freq: 293.66 },
+            { name: 'C#4',freq: 277.18 },
+            { name: 'C4', freq: 261.63 }
+        ];
+
+        // Sequence State
+        let sequenceData = Array(NUM_STEPS).fill(null).map(() => ({ active: false, noteIndex: -1, lyric: '' }));
+        
+        let seqBPM = 120;
+        let isPlaying = false;
+        let currentStep = 0;
+        let nextNoteTime = 0.0;
+        let seqTimerID;
+        let lastPlayedFreq = 0; // Tracks the last sung pitch for Portamento/Glide
+
+        // Build the Grid HTML
+        function buildGrid() {
+            const grid = document.getElementById('sequencer-grid');
+            grid.innerHTML = '';
+
+            // Row Labels
+            let labelsHtml = `<div class="flex flex-col gap-1 w-8 flex-shrink-0 pt-6">`;
+            seqNotes.forEach(n => {
+                const isBlackKey = n.name.includes('#');
+                labelsHtml += `<div class="h-8 text-[10px] font-mono font-bold flex items-center justify-end pr-2 ${isBlackKey ? 'text-slate-500' : 'text-slate-300'}">${n.name}</div>`;
+            });
+            labelsHtml += `<div class="h-10 text-[10px] flex items-end justify-end pr-2 text-pink-400">LYRIC</div></div>`;
+            grid.innerHTML += labelsHtml;
+
+            // Step Columns
+            for (let col = 0; col < NUM_STEPS; col++) {
+                let colHtml = `
+                    <div class="step-col flex flex-col gap-1 w-12 sm:w-14 flex-shrink-0 transition-colors rounded-lg p-1 border border-transparent" id="step-col-${col}">
+                        <div class="text-[10px] text-center text-slate-500 font-mono mb-1">${col + 1}</div>
+                `;
+                
+                // Note cells
+                seqNotes.forEach((n, row) => {
+                    const isBlackKey = n.name.includes('#');
+                    const bgClass = isBlackKey ? 'bg-slate-800 border-slate-700' : 'bg-slate-700 border-slate-600';
+                    colHtml += `
+                        <div class="h-8 rounded cursor-pointer border hover:border-pink-500 transition-all cell-${col}-${row} ${bgClass}" 
+                             onclick="toggleCell(${col}, ${row})"></div>
+                    `;
+                });
+
+                // Lyric Input
+                colHtml += `
+                        <input type="text" class="h-8 w-full mt-1 bg-slate-900 border border-slate-600 rounded text-[10px] text-center focus:outline-none focus:border-pink-500 text-white font-mono placeholder-slate-600" 
+                               placeholder="..." id="lyric-input-${col}" onchange="updateLyric(${col}, this.value)">
+                    </div>
+                `;
+                grid.innerHTML += colHtml;
+            }
+
+            // Pre-fill a cool demo sequence
+            const demoSeq = [
+                { s: 0, n: 12, l: 'we' },
+                { s: 2, n: 12, l: 'are' },
+                { s: 4, n: 8,  l: 'the' },
+                { s: 6, n: 5,  l: 'ro' },
+                { s: 7, n: 5,  l: 'bots' },
+                { s: 10,n: 3,  l: 'in' },
+                { s: 12,n: 8,  l: 'the' },
+                { s: 14,n: 10, l: 'web' },
+            ];
+            demoSeq.forEach(d => {
+                toggleCell(d.s, d.n);
+                document.getElementById(`lyric-input-${d.s}`).value = d.l;
+                updateLyric(d.s, d.l);
+            });
+        }
+
+        function toggleCell(col, row) {
+            const step = sequenceData[col];
+            
+            if (step.active && step.noteIndex !== -1) {
+                document.querySelector(`.cell-${col}-${step.noteIndex}`).classList.remove('cell-active');
+            }
+
+            if (step.active && step.noteIndex === row) {
+                step.active = false;
+                step.noteIndex = -1;
+            } else {
+                step.active = true;
+                step.noteIndex = row;
+                document.querySelector(`.cell-${col}-${row}`).classList.add('cell-active');
+                
+                // Audition
+                if (!isPlaying) {
+                    const freq = seqNotes[row].freq;
+                    const engine = document.getElementById('engineSelect').value;
+                    const l = step.lyric || 'A';
+                    if (engine === 'formant') {
+                        playFormantFreq(extractVowel(l), freq, 0.3, audioCtx ? audioCtx.currentTime : 0, {
+                            release: document.getElementById('slRelease').value,
+                            vibDepth: document.getElementById('slVibDepth').value,
+                            vibRate: document.getElementById('slVibRate').value,
+                            glide: 0,
+                            lastFreq: freq
+                        });
+                    } else {
+                        const p = Math.max(0, Math.min(2, freq / 261.63));
+                        fireTTS(l || 'beep', p, 1.5, false);
+                    }
+                }
+            }
+        }
+
+        function updateLyric(col, val) {
+            sequenceData[col].lyric = val.trim();
+        }
+
+        function applyLyrics() {
+            const text = document.getElementById('lyricsInput').value;
+            const words = text.split(/[\s,]+/).filter(w => w.length > 0);
+            
+            let wordIdx = 0;
+            for (let i = 0; i < NUM_STEPS; i++) {
+                if (sequenceData[i].active && wordIdx < words.length) {
+                    const word = words[wordIdx];
+                    document.getElementById(`lyric-input-${i}`).value = word;
+                    sequenceData[i].lyric = word;
+                    wordIdx++;
+                }
+            }
+        }
+
+        function clearSequence() {
+            sequenceData.forEach((step, col) => {
+                if (step.active && step.noteIndex !== -1) {
+                    document.querySelector(`.cell-${col}-${step.noteIndex}`).classList.remove('cell-active');
+                }
+                step.active = false;
+                step.noteIndex = -1;
+                step.lyric = '';
+                document.getElementById(`lyric-input-${col}`).value = '';
+            });
+        }
+
+        function updateBPM(val) {
+            seqBPM = parseInt(val);
+            document.getElementById('bpmValue').innerText = seqBPM + ' BPM';
+        }
+
+        function extractVowel(text) {
+            const t = text.toLowerCase();
+            if (t.includes('a')) return 'A';
+            if (t.includes('e')) return 'E';
+            if (t.includes('i') || t.includes('y')) return 'I';
+            if (t.includes('o')) return 'O';
+            if (t.includes('u')) return 'U';
+            return 'A'; 
+        }
+
+        // Scheduler Functions
+        function nextNote() {
+            const secondsPerBeat = 60.0 / seqBPM;
+            nextNoteTime += 0.25 * secondsPerBeat; // 16th note timing
+            currentStep++;
+            if (currentStep >= NUM_STEPS) currentStep = 0;
+        }
+
+        function scheduleNote(stepNumber, time) {
+            // UI visual sync
+            const timeToPlay = time - audioCtx.currentTime;
+            const msToPlay = Math.max(0, timeToPlay * 1000);
+            
+            setTimeout(() => {
+                document.querySelectorAll('.step-col').forEach(el => {
+                    el.classList.remove('bg-pink-500/20', 'border-pink-500/50');
+                    el.classList.add('border-transparent');
+                });
+                const col = document.getElementById(`step-col-${stepNumber}`);
+                col.classList.remove('border-transparent');
+                col.classList.add('bg-pink-500/20', 'border-pink-500/50');
+            }, msToPlay);
+
+            const step = sequenceData[stepNumber];
+            if (step.active && step.noteIndex !== -1) {
+                const note = seqNotes[step.noteIndex];
+                const engine = document.getElementById('engineSelect').value;
+                const lyric = step.lyric || (engine === 'formant' ? 'A' : 'da');
+                
+                // HUMANIZE parameters
+                const humanizeLvl = parseFloat(document.getElementById('slHumanize').value);
+                let actualFreq = note.freq;
+                let actualTime = time;
+
+                if (humanizeLvl > 0) {
+                    // Pitch drift: up to +/- 1.5% off pitch based on slider
+                    actualFreq = actualFreq * (1 + (Math.random() * 2 - 1) * 0.015 * humanizeLvl);
+                    // Timing drift (Swing/Groove): up to +/- 20ms early or late
+                    actualTime = time + ((Math.random() * 2 - 1) * 0.02 * humanizeLvl);
+                }
+
+                if (engine === 'formant') {
+                    const vowel = extractVowel(lyric);
+                    // Base duration is approx one 16th note
+                    const duration = (60.0 / seqBPM) * 0.22; 
+                    
+                    const expressionOpts = {
+                        release: document.getElementById('slRelease').value,
+                        glide: document.getElementById('slGlide').value,
+                        vibDepth: document.getElementById('slVibDepth').value,
+                        vibRate: document.getElementById('slVibRate').value,
+                        lastFreq: lastPlayedFreq || actualFreq // Fallback to current if it's the first note
+                    };
+
+                    playFormantFreq(vowel, actualFreq, duration, actualTime, expressionOpts);
+                    lastPlayedFreq = actualFreq; // Save for the next note's glide
+                } else {
+                    // TTS Fallback
+                    setTimeout(() => {
+                        let pitchParam = Math.max(0, Math.min(2, actualFreq / 261.63));
+                        if (humanizeLvl > 0) pitchParam += (Math.random() * 0.1 - 0.05) * humanizeLvl;
+                        
+                        if(speechSynth.speaking) speechSynth.cancel();
+                        fireTTS(lyric, pitchParam, 2.0, false);
+                    }, Math.max(0, (actualTime - audioCtx.currentTime) * 1000));
+                }
+            }
+        }
+
+        function scheduler() {
+            const scheduleAheadTime = 0.1; 
+            while (nextNoteTime < audioCtx.currentTime + scheduleAheadTime) {
+                scheduleNote(currentStep, nextNoteTime);
+                nextNote();
+            }
+            seqTimerID = setTimeout(scheduler, 25.0);
+        }
+
+        function toggleSequencer() {
+            initAudioContext();
+            const btn = document.getElementById('playSeqBtn');
+            const txt = document.getElementById('playSeqText');
+
+            if (isPlaying) {
+                // Stop
+                isPlaying = false;
+                clearTimeout(seqTimerID);
+                txt.innerText = "Play Sequence";
+                btn.classList.replace('bg-slate-600', 'bg-pink-600');
+                btn.classList.replace('hover:bg-slate-500', 'hover:bg-pink-500');
+                btn.innerHTML = `<i class="fas fa-play"></i> <span id="playSeqText">Play Sequence</span>`;
+                
+                document.querySelectorAll('.step-col').forEach(el => {
+                    el.classList.remove('bg-pink-500/20', 'border-pink-500/50');
+                    el.classList.add('border-transparent');
+                });
+                lastPlayedFreq = 0; // Reset glide
+            } else {
+                // Start
+                isPlaying = true;
+                currentStep = 0;
+                lastPlayedFreq = 0; // Reset glide on new playback
+                nextNoteTime = audioCtx.currentTime + 0.05;
+                txt.innerText = "Stop Sequence";
+                btn.classList.replace('bg-pink-600', 'bg-slate-600');
+                btn.classList.replace('hover:bg-pink-500', 'hover:bg-slate-500');
+                btn.innerHTML = `<i class="fas fa-stop"></i> <span id="playSeqText">Stop Sequence</span>`;
+                scheduler();
+            }
+        }
+
+        // Initialize on load
+        window.addEventListener('DOMContentLoaded', buildGrid);
+
+    </script>
+</body>
+</html>
