@@ -21,6 +21,11 @@ import { parsePatchGraph } from '../src/tpl/TplExtension.tish'
 import { patchGraphToLines } from '../src/tpl/PatchGraph.tish'
 import { resolveExpr } from '../src/generators/Patch.tish'
 import { parseMidiBytes, ccKey, normalize01, createMidiController, midiTargetList } from '../src/midi/Midi.tish'
+import { fragmentForEdit } from '../src/core/Edit.tish'
+import { snapToScale, parseScaleRoot, scaleIntervals, projectSnapPitch } from '../src/model/Scale.tish'
+import { rotatePattern, euclidSteps, reseedSteps, mutateSteps, humanizeSteps, sprinkleProbability, cloneSteps16 } from '../src/model/Generative.tish'
+import { defaultAutoParam, autoNorm, autoDenorm, autoLaneValues, channelAutoPoints } from '../src/model/AutoParams.tish'
+import { generatorChannelAtBeat } from '../src/audio/ParamAtBeat.tish'
 
 let pass = 0
 let fail = 0
@@ -544,6 +549,471 @@ check("[midi] removeMapping clears it", ctl.state().mappings["cc:0:7"] == null)
 // The mappable target list includes the globals + a per-channel gain for every track.
 let mtl = midiTargetList(loadDefaultDeckardProject().project)
 check("[midi] target list has globals + per-track gains", mtl.some(t => t.id === "bpm") && mtl.some(t => t.id === "xfade_x") && mtl.some(t => String(t.id).indexOf("track:") === 0))
+
+// ===================================================================================================
+// Per-step PARAMETER LOCKS — velocity / probability / ratchet / nudge round-trip + the player's deterministic
+// probability gate, ratchet sub-hit expansion, and nudge micro-timing offset.
+// ===================================================================================================
+console.log("")
+console.log("=== Per-step parameter locks ===")
+
+let pl = loadDefaultDeckardProject().project
+let plC = pl.channels[0]
+let plName = plC.name
+let plId = plC.id
+
+// Author p-locks via direct model mutation (what the UI does), then prove they round-trip through emit→apply.
+plC.steps[0].on = true
+plC.steps[4].on = true
+plC.steps[8].on = true
+plC.steps[12].on = true
+plC.steps[0].vel = 120
+plC.steps[4].vel = 70
+plC.steps[4].prob = 0.5
+plC.steps[8].ratchet = 3
+plC.steps[12].nudge = 0.25
+plC.steps[12].vel = 90
+
+let plTpl = emitProject(pl)
+check("[plock] emit includes step_vel lane when velocity deviates", plTpl.indexOf("step_vel ") >= 0)
+check("[plock] emit includes step_prob lane", plTpl.indexOf("step_prob ") >= 0)
+check("[plock] emit includes step_ratchet lane", plTpl.indexOf("step_ratchet ") >= 0)
+check("[plock] emit includes step_nudge lane", plTpl.indexOf("step_nudge ") >= 0)
+
+// A round-trip: re-apply the emitted TPL onto a fresh project → the locks reappear exactly.
+let pl2 = loadDefaultDeckardProject().project
+applyTplSource(pl2, plTpl)
+let c2 = findChannelById(pl2, plId)
+check("[plock] velocity round-trips (step 0 = 120)", c2.steps[0].vel === 120)
+check("[plock] velocity round-trips (step 4 = 70)", c2.steps[4].vel === 70)
+check("[plock] probability round-trips (step 4 = 0.5)", Math.abs(c2.steps[4].prob - 0.5) < 1e-6)
+check("[plock] ratchet round-trips (step 8 = 3)", c2.steps[8].ratchet === 3)
+check("[plock] nudge round-trips (step 12 = 0.25)", Math.abs(c2.steps[12].nudge - 0.25) < 1e-6)
+check("[plock] non-locked steps keep defaults (step 0 prob = 1)", Math.abs(c2.steps[0].prob - 1) < 1e-6)
+
+// emitProject is idempotent with the locks present (the canonical-fold invariant).
+check("[plock] emit is stable across a round-trip (byte-identical)", emitProject(pl2) === plTpl)
+
+// A clean pattern (no deviations) emits NO lanes — keeps default patterns terse.
+let plClean = loadDefaultDeckardProject().project
+let cleanTpl = emitProject(plClean)
+check("[plock] a default-velocity pattern emits no step_vel lane", cleanTpl.indexOf("step_vel") < 0)
+
+// ---- player: deterministic probability gate (same seed+step ⇒ same fire/skip on every client) ----
+// Build a single-channel project with one always-considered step at prob 0.5; sweep many bars and confirm
+// the fire pattern is reproducible (two independent runs agree) and that prob 0 never fires / prob 1 always.
+// Rack-pattern playback (monitor the editing buffer directly, no session arming) ⇒ rt.playMode "sequence".
+let seqRt = { playMode: "sequence" }
+let pp = emptyProjectShell()
+pp.bpm = 120
+pp.songSeed = 7
+applyTplSource(pp, "tpl 1\ntrack Coin id plk_coin gen basic_osc\n  step_pitch 60\n  steps x . . . . . . . . . . . . . . .\n  step_prob 0.5 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1\n")
+fn firesAt(proj, g) {
+  let tg = stepTriggers(proj, seqRt, g)
+  let any = false
+  let i = 0
+  while (i < tg.length) {
+    if (tg[i].beat === g * 0.25) {
+      any = true
+    }
+    i = i + 1
+  }
+  return any
+}
+// Two independent passes over step 0 across 32 bars must agree (deterministic) and NOT be all-same (it's 50%).
+let firedA = []
+let firedB = []
+let bar = 0
+while (bar < 32) {
+  let g = bar * 16
+  firedA.push(firesAt(pp, g))
+  firedB.push(firesAt(pp, g))
+  bar = bar + 1
+}
+let agree = true
+let mixed = false
+let first = firedA[0]
+let k = 0
+while (k < firedA.length) {
+  if (firedA[k] !== firedB[k]) {
+    agree = false
+  }
+  if (firedA[k] !== first) {
+    mixed = true
+  }
+  k = k + 1
+}
+check("[plock] probability gate is DETERMINISTIC (two passes agree)", agree)
+check("[plock] a 0.5 step both fires and skips across bars (not stuck)", mixed)
+
+// prob 0 → never; prob 1 → always (over the same sweep).
+let ppNever = emptyProjectShell()
+ppNever.bpm = 120
+applyTplSource(ppNever, "tpl 1\ntrack N id plk_never gen basic_osc\n  step_pitch 60\n  steps x . . . . . . . . . . . . . . .\n  step_prob 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1\n")
+let neverFired = false
+let b2 = 0
+while (b2 < 16) {
+  if (firesAt(ppNever, b2 * 16)) {
+    neverFired = true
+  }
+  b2 = b2 + 1
+}
+check("[plock] prob 0 never fires", !neverFired)
+
+// ---- player: ratchet expands to R evenly-spaced sub-hits within the step ----
+let ppr = emptyProjectShell()
+ppr.bpm = 120
+applyTplSource(ppr, "tpl 1\ntrack R id plk_rat gen basic_osc\n  step_pitch 60\n  steps x . . . . . . . . . . . . . . .\n  step_ratchet 4 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1\n")
+let rtg = stepTriggers(ppr, seqRt, 0)
+check("[plock] ratchet 4 → 4 sub-hits at step 0", rtg.length === 4)
+// They are evenly spaced by stepSec/4 (= 60/120/4/4 = 0.03125s) starting at offset 0.
+let stepSec = 60 / 120 / 4
+let okSpacing = rtg.length === 4
+let ri = 0
+while (ri < rtg.length) {
+  let want = ri * stepSec / 4
+  if (Math.abs(rtg[ri].noteOffset - want) > 1e-6) {
+    okSpacing = false
+  }
+  ri = ri + 1
+}
+check("[plock] ratchet sub-hits are evenly spaced (stepSec/4 apart)", okSpacing)
+
+// ---- player: nudge offsets the hit time by a fraction of a step ----
+let ppn = emptyProjectShell()
+ppn.bpm = 120
+applyTplSource(ppn, "tpl 1\ntrack Nu id plk_nudge gen basic_osc\n  step_pitch 60\n  steps x . . . . . . . . . . . . . . .\n  step_nudge 0.25 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n")
+let ntg = stepTriggers(ppn, seqRt, 0)
+check("[plock] nudge 0.25 shifts the hit by stepSec/4", ntg.length === 1 && Math.abs(ntg[0].noteOffset - stepSec * 0.25) < 1e-6)
+
+// ---- the UI's live-edit path: emit("track/<id>/pattern", stepsArray) → a complete gated pattern statement ----
+let pe = loadDefaultDeckardProject().project
+let peC = pe.channels[0]
+// Build a fresh (non-mutating) steps array carrying a velocity + a probability lock, like the grid handler does.
+let arr = []
+let ai = 0
+while (ai < 16) {
+  let s = peC.steps[ai]
+  arr.push({ on: s.on, vel: s.vel, prob: s.prob, ratchet: s.ratchet, nudge: s.nudge })
+  ai = ai + 1
+}
+arr[0].on = true
+arr[0].vel = 64
+arr[2].on = true
+arr[2].prob = 0.25
+let frag = fragmentForEdit(pe, "track/" + peC.id + "/pattern", arr)
+check("[plock] pattern fragment carries the steps line", frag.indexOf("\n  steps ") >= 0)
+check("[plock] pattern fragment carries step_vel", frag.indexOf("step_vel ") >= 0)
+check("[plock] pattern fragment carries step_prob", frag.indexOf("step_prob ") >= 0)
+// Apply it onto a different project → the locks land on the channel.
+let pe2 = loadDefaultDeckardProject().project
+applyTplSource(pe2, "tpl 1\n" + frag + "\n")
+let pe2c = findChannelById(pe2, peC.id)
+check("[plock] pattern emit applies velocity (step 0 = 64)", pe2c.steps[0].vel === 64)
+check("[plock] pattern emit applies probability (step 2 = 0.25)", Math.abs(pe2c.steps[2].prob - 0.25) < 1e-6)
+check("[plock] pattern emit applies on/off (step 2 on)", pe2c.steps[2].on === true)
+
+// Multi-bar preservation: a pattern edit on a 2-bar channel must NOT collapse it to 1 bar.
+let pe3 = loadDefaultDeckardProject().project
+let pe3c = pe3.channels[0]
+pe3c.patternBars = 2
+let frag3 = fragmentForEdit(pe3, "track/" + pe3c.id + "/pattern", arr)
+check("[plock] pattern fragment preserves the `* N` loop for multi-bar channels", frag3.indexOf(" * 2") >= 0)
+applyTplSource(pe3, "tpl 1\n" + frag3 + "\n")
+check("[plock] multi-bar channel stays 2 bars after a pattern edit", findChannelById(pe3, pe3c.id).patternBars === 2)
+
+// ===================================================================================================
+// SCALE LOCK — root parsing, snap math, TPL round-trip, the player snap, and the edit address.
+// ===================================================================================================
+console.log("")
+console.log("=== Scale lock ===")
+
+check("[scale] parseScaleRoot note names", parseScaleRoot("C") === 0 && parseScaleRoot("A") === 9 && parseScaleRoot("F#") === 6 && parseScaleRoot("Bb") === 10)
+check("[scale] parseScaleRoot pitch-class numbers", parseScaleRoot("0") === 0 && parseScaleRoot("7") === 7 && parseScaleRoot("11") === 11)
+check("[scale] parseScaleRoot rejects junk", parseScaleRoot("zz") == null && parseScaleRoot("13") == null)
+
+fn pitchInScale(pitch, root, mode) {
+  let ivs = scaleIntervals(mode)
+  let rel = ((Math.round(pitch) - root) % 12 + 12) % 12
+  let k = 0
+  while (k < ivs.length) {
+    if (ivs[k] === rel) {
+      return true
+    }
+    k = k + 1
+  }
+  return false
+}
+
+// C minor = C D Eb F G Ab Bb. A D#(63) is OUT → snaps to D(62) or E(64); nearest is D(62) [tie-down anyway].
+check("[scale] in-scale pitch unchanged (C minor, D=62)", snapToScale(62, 0, "minor") === 62)
+let scSnap61 = snapToScale(61, 0, "minor")
+check("[scale] out-of-scale snaps to nearest (C minor, 61→60 or 62)", scSnap61 === 60 || scSnap61 === 62)
+let scSnap73 = snapToScale(73, 0, "minor")
+check("[scale] octave preserved (C minor, 73→ in [71..75])", scSnap73 >= 71 && scSnap73 <= 75)
+check("[scale] chromatic = no-op", snapToScale(61, 0, "chromatic") === 61)
+// Every snapped pitch is a scale degree.
+let scAll12 = true
+let scP12 = 60
+while (scP12 < 72) {
+  if (!pitchInScale(snapToScale(scP12, 0, "major"), 0, "major")) {
+    scAll12 = false
+  }
+  scP12 = scP12 + 1
+}
+check("[scale] all 12 pitches land in C major", scAll12)
+
+// TPL round-trip: emit → re-apply keeps the scale; `scale off` clears it.
+let sc = loadDefaultDeckardProject().project
+sc.scaleRoot = 9
+sc.scaleMode = "dorian"
+let scTpl = emitProject(sc)
+check("[scale] emit writes `scale A dorian`", scTpl.indexOf("scale A dorian") >= 0)
+let sc2 = loadDefaultDeckardProject().project
+applyTplSource(sc2, scTpl)
+check("[scale] round-trips root + mode", sc2.scaleRoot === 9 && sc2.scaleMode === "dorian")
+applyTplSource(sc2, "tpl 1\nscale off\n")
+check("[scale] `scale off` clears the lock", sc2.scaleRoot == null && sc2.scaleMode == null)
+let scClean = emitProject(loadDefaultDeckardProject().project)
+check("[scale] no scale line when inactive", scClean.indexOf("scale ") < 0)
+
+// projectSnapPitch honors the active lock (and is a no-op when off).
+check("[scale] projectSnapPitch no-op when inactive", projectSnapPitch(loadDefaultDeckardProject().project, 61) === 61)
+let scP = loadDefaultDeckardProject().project
+scP.scaleRoot = 0
+scP.scaleMode = "minor"
+check("[scale] projectSnapPitch snaps when active", scP.scaleRoot != null && projectSnapPitch(scP, 61) !== 61)
+
+// The player honors the lock: a melodic note off-scale comes out snapped.
+let scPlay = emptyProjectShell()
+scPlay.bpm = 120
+scPlay.scaleRoot = 0
+scPlay.scaleMode = "major"
+applyTplSource(scPlay, "tpl 1\ntrack Lead id sc_lead gen basic_osc\n  step_pitch 61\n  steps x . . . . . . . . . . . . . . .\n")
+let scSeqRt = { playMode: "sequence" }
+let scTrig = stepTriggers(scPlay, scSeqRt, 0)
+check("[scale] player snaps the step pitch (61 → in C major)", scTrig.length >= 1 && pitchInScale(scTrig[0].pitch, 0, "major"))
+
+// Edit address: emit("scale", {root, mode}) / "off".
+let scEd = loadDefaultDeckardProject().project
+let scSetVal = { root: 3, mode: "phrygian" }
+let scFrag = fragmentForEdit(scEd, "scale", scSetVal)
+check("[scale] fragmentForEdit builds `scale D# phrygian`", scFrag === "scale D# phrygian")
+check("[scale] fragmentForEdit off", fragmentForEdit(scEd, "scale", "off") === "scale off")
+
+// ===================================================================================================
+// GENERATIVE row mode — pure pattern transforms (seeded rng for determinism), emitted through the door.
+// ===================================================================================================
+console.log("")
+console.log("=== Generative row mode ===")
+
+// A deterministic LCG so the tests are reproducible (the UI passes Math.random; results are emitted concrete).
+let genSeed = 99
+fn genRng() {
+  genSeed = (genSeed * 1103515245 + 12345) % 2147483648
+  return genSeed / 2147483648
+}
+fn countOn(steps) {
+  let c = 0
+  let i = 0
+  while (i < steps.length) {
+    if (steps[i].on === true) {
+      c = c + 1
+    }
+    i = i + 1
+  }
+  return c
+}
+
+// euclidSteps: right hit count, 16 long, fresh objects with all lock fields.
+let g4 = euclidSteps(4, 0, null)
+check("[gen] euclidSteps(4) → 16 steps", g4.length === 16)
+check("[gen] euclidSteps(4) → 4 hits", countOn(g4) === 4)
+check("[gen] euclidSteps step carries lock fields", g4[0].prob === 1 && g4[0].ratchet === 1 && g4[0].nudge === 0)
+check("[gen] euclidSteps(0) clears (0 hits)", countOn(euclidSteps(0, 0, null)) === 0)
+
+// rotatePattern shifts.
+let genRot = rotatePattern([true, false, false, false], 1)
+check("[gen] rotatePattern shifts by 1", genRot[1] === true && genRot[0] === false)
+
+// euclidSteps preserves the prev array's locks on steps that stay on (here every step on → all kept).
+let prevLocked = cloneSteps16(null)
+prevLocked[0].vel = 55
+let gKept = euclidSteps(16, 0, prevLocked)
+check("[gen] euclidSteps keeps prior lock where step stays on", gKept[0].vel === 55)
+
+// reseed: deterministic with a seeded rng (two identical seeds → identical), density in 3..8.
+genSeed = 99
+let rs1 = reseedSteps(genRng, null)
+genSeed = 99
+let rs2 = reseedSteps(genRng, null)
+let rsSame = rs1.length === rs2.length
+let rk = 0
+while (rk < rs1.length) {
+  if (rs1[rk].on !== rs2[rk].on || rs1[rk].vel !== rs2[rk].vel) {
+    rsSame = false
+  }
+  rk = rk + 1
+}
+check("[gen] reseed is deterministic for a fixed seed", rsSame)
+check("[gen] reseed density in 3..8", countOn(rs1) >= 3 && countOn(rs1) <= 8)
+
+// mutate: returns a fresh array (input untouched), changes at least one step.
+let baseM = euclidSteps(4, 0, null)
+let baseOnBefore = countOn(baseM)
+genSeed = 7
+let mut = mutateSteps(baseM, genRng, 0.25)
+check("[gen] mutate does not mutate the input array", countOn(baseM) === baseOnBefore)
+let mutDiff = false
+let mk = 0
+while (mk < 16) {
+  if (mut[mk].on !== baseM[mk].on) {
+    mutDiff = true
+  }
+  mk = mk + 1
+}
+check("[gen] mutate changes the pattern", mutDiff)
+
+// humanize: only ON steps' velocity changes, stays in 1..127, off steps untouched.
+let baseH = euclidSteps(8, 0, null)
+genSeed = 3
+let hum = humanizeSteps(baseH, genRng, 20)
+let humOk = true
+let hk = 0
+while (hk < 16) {
+  if (hum[hk].on === true) {
+    if (hum[hk].vel < 1 || hum[hk].vel > 127) {
+      humOk = false
+    }
+  }
+  hk = hk + 1
+}
+check("[gen] humanize velocities stay in 1..127", humOk)
+
+// sprinkle: some off-beat ON steps get prob < 1; downbeats (every 4th) stay certain.
+let baseP = euclidSteps(16, 0, null)
+genSeed = 42
+let spr = sprinkleProbability(baseP, genRng, 1)
+check("[gen] sprinkle leaves downbeats certain", spr[0].prob === 1 && spr[4].prob === 1 && spr[8].prob === 1 && spr[12].prob === 1)
+let anyProb = false
+let pk2 = 0
+while (pk2 < 16) {
+  if (spr[pk2].prob < 1) {
+    anyProb = true
+  }
+  pk2 = pk2 + 1
+}
+check("[gen] sprinkle adds sub-1 probability to off-beats", anyProb)
+
+// The generated pattern round-trips through the pattern door (emit → apply keeps hits + locks).
+let genProj = loadDefaultDeckardProject().project
+let genCh = genProj.channels[0]
+let genArr = sprinkleProbability(euclidSteps(5, 2, null), genRng, 1)
+let genFrag = fragmentForEdit(genProj, "track/" + genCh.id + "/pattern", genArr)
+let genProj2 = loadDefaultDeckardProject().project
+applyTplSource(genProj2, "tpl 1\n" + genFrag + "\n")
+let genCh2 = findChannelById(genProj2, genCh.id)
+check("[gen] generated pattern round-trips hit count", countOn(genCh2.steps) === countOn(genArr))
+
+// ===================================================================================================
+// DRAWABLE AUTOMATION LANES — value mapping, target selection, emit→apply round-trip, beat-accurate playback.
+// ===================================================================================================
+console.log("")
+console.log("=== Automation lanes ===")
+
+check("[auto] defaultAutoParam(pad) = cutoff", defaultAutoParam("pad") != null && defaultAutoParam("pad").key === "cutoff")
+check("[auto] defaultAutoParam(drumSynth) is a param", defaultAutoParam("drumSynth") != null)
+check("[auto] patch/macro voice = no auto param", defaultAutoParam("patch") == null && defaultAutoParam("matrixFm") == null)
+
+// Linear norm/denorm round-trips.
+check("[auto] linear norm 0.5 of 0..1", Math.abs(autoNorm(0.5, 0, 1, false) - 0.5) < 1e-9)
+check("[auto] linear denorm round-trip", Math.abs(autoDenorm(autoNorm(0.3, 0, 1, false), 0, 1, false) - 0.3) < 1e-9)
+// Log mapping: midpoint of 150..9000 (log) is the geometric mean (~1162), NOT the arithmetic mean.
+let logMid = autoDenorm(0.5, 150, 9000, true)
+check("[auto] log midpoint ≈ geometric mean", Math.abs(logMid - Math.sqrt(150 * 9000)) < 1)
+check("[auto] log denorm round-trip", Math.abs(autoDenorm(autoNorm(2200, 150, 9000, true), 150, 9000, true) - 2200) < 1)
+check("[auto] norm clamps out-of-range", autoNorm(99999, 150, 9000, true) === 1 && autoNorm(1, 150, 9000, true) === 0)
+
+// Emit a 16-point cutoff curve through the edit door → apply → it lands as a paramAutomation + plays back.
+let auP = loadDefaultDeckardProject().project
+let auCh = auP.channels[0]
+let curve = []
+let ci2 = 0
+while (ci2 < 16) {
+  curve.push(500 + ci2 * 200)
+  ci2 = ci2 + 1
+}
+let auFrag = fragmentForEdit(auP, "auto/" + auCh.id + "/cutoff", curve)
+check("[auto] fragment is an `auto … gen cutoff` block", auFrag.indexOf("auto " + auCh.id + " gen cutoff") === 0)
+check("[auto] fragment has a point at beat 0.25", auFrag.indexOf("\n  0.25 700") >= 0)
+let auP2 = loadDefaultDeckardProject().project
+applyTplSource(auP2, "tpl 1\n" + auFrag + "\n")
+let auPts = channelAutoPoints(auP2, auCh.id, "cutoff")
+check("[auto] applied as a paramAutomation (16 points)", auPts != null && auPts.length === 16)
+let auCh2 = findChannelById(auP2, auCh.id)
+let gAt0 = generatorChannelAtBeat(auP2, auCh2, 0)
+let gAt1 = generatorChannelAtBeat(auP2, auCh2, 0.25)
+check("[auto] playback reads the curve at beat 0 (=500)", Math.abs(gAt0.generatorParams.cutoff - 500) < 1e-6)
+check("[auto] playback reads the curve at beat 0.25 (=700)", Math.abs(gAt1.generatorParams.cutoff - 700) < 1e-6)
+
+// autoLaneValues reads it back as 16 step-aligned values (and is flat at the current value when no automation).
+let auVals = autoLaneValues(auP2, auCh2, "cutoff")
+check("[auto] autoLaneValues reads 16 values back", auVals.length === 16 && Math.abs(auVals[1] - 700) < 1e-6)
+let auFlat = autoLaneValues(loadDefaultDeckardProject().project, auCh, "cutoff")
+check("[auto] autoLaneValues flat (all equal) when no automation", auFlat.length === 16 && auFlat[0] === auFlat[15])
+
+// Round-trips through emitProject (the auto block survives a full serialize→reapply).
+let auEmit = emitProject(auP2)
+check("[auto] emitProject includes the auto block", auEmit.indexOf("auto " + auCh.id + " gen cutoff") >= 0)
+let auP3 = loadDefaultDeckardProject().project
+applyTplSource(auP3, auEmit)
+check("[auto] auto curve survives a full round-trip", channelAutoPoints(auP3, auCh.id, "cutoff") != null)
+
+// ===================================================================================================
+// PROJECTIONAL step toggle — a 1-bar grid click goes through the pattern door (broadcasts + round-trips),
+// flipping ONLY the clicked step and preserving every other step's on/off + locks. Mirrors emitStepToggle.
+// ===================================================================================================
+console.log("")
+console.log("=== Projectional step toggle ===")
+
+let tgP = loadDefaultDeckardProject().project
+let tgCh = tgP.channels[0]
+// seed a known pattern + a couple of locks so we can prove they survive a toggle elsewhere.
+tgCh.steps[0].on = true
+tgCh.steps[0].vel = 111
+tgCh.steps[2].on = true
+tgCh.steps[2].prob = 0.5
+tgCh.steps[5].on = false
+fn buildToggleArr(ch, idx, forceOff) {
+  let arr = []
+  let i = 0
+  while (i < ch.steps.length) {
+    let s = ch.steps[i]
+    arr.push({ on: s.on === true, vel: s.vel != null ? s.vel : 100, prob: s.prob != null ? s.prob : 1, ratchet: s.ratchet != null ? s.ratchet : 1, nudge: s.nudge != null ? s.nudge : 0 })
+    i = i + 1
+  }
+  arr[idx].on = forceOff ? false : !(arr[idx].on === true)
+  return arr
+}
+// Toggle step 5 ON via the door.
+let tgFrag = fragmentForEdit(tgP, "track/" + tgCh.id + "/pattern", buildToggleArr(tgCh, 5, false))
+let tgP2 = loadDefaultDeckardProject().project
+let tgC0 = tgP2.channels[0]
+tgC0.steps[0].on = true
+tgC0.steps[0].vel = 111
+tgC0.steps[2].on = true
+tgC0.steps[2].prob = 0.5
+applyTplSource(tgP2, "tpl 1\n" + tgFrag + "\n")
+let tgAfter = findChannelById(tgP2, tgCh.id)
+check("[toggle] clicked step flips on (step 5)", tgAfter.steps[5].on === true)
+check("[toggle] other steps unchanged (step 0 still on)", tgAfter.steps[0].on === true)
+check("[toggle] velocity lock preserved (step 0 = 111)", tgAfter.steps[0].vel === 111)
+check("[toggle] probability lock preserved (step 2 = 0.5)", Math.abs(tgAfter.steps[2].prob - 0.5) < 1e-6)
+// Right-click clear forces off even if already off (idempotent).
+let tgClr = fragmentForEdit(tgP, "track/" + tgCh.id + "/pattern", buildToggleArr(tgCh, 0, true))
+let tgP3 = loadDefaultDeckardProject().project
+applyTplSource(tgP3, "tpl 1\n" + tgClr + "\n")
+check("[toggle] clear forces a step off", findChannelById(tgP3, tgCh.id).steps[0].on === false)
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))

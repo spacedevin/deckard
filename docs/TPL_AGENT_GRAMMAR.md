@@ -16,8 +16,14 @@ track <DisplayName> id <unique_id> gen <generator>
   step_pitch <midi>   (base MIDI pitch for step hits when no piano notes; default 36)
   …generator lines…
   steps <16 x/. tokens> | steps euclid <hits> <steps>
+  step_vel <16 ints 1-127>      (optional per-step velocity lock)
+  step_prob <16 floats 0-1>     (optional per-step probability — seeded, deterministic across peers)
+  step_ratchet <16 ints 1-8>    (optional per-step sub-hits)
+  step_nudge <16 floats -0.5..0.5>  (optional per-step micro-timing, fraction of a step)
   note <midi> <startBeat> <durBeats> v <velocity 0-127, default 100>   (repeat)
 ```
+
+Per-step locks ride parallel lanes after `steps` (emit only when a step deviates from default). See [TPL_GRAMMAR.md § Per-step parameter locks](TPL_GRAMMAR.md#per-step-parameter-locks).
 
 ## Generators
 
@@ -40,4 +46,5 @@ Live **control directives** (`@ launch`/`transport`/`cue`/`throw`/`fx`/`deck`) a
 
 - Use **lane-unique** track `id` (e.g. `ai-a_hat`).
 - Prefer **euclid** or **steps** patterns that **complement** human density (space vs fill).
-- You may **stream `tpl.line`** incrementally — each line is decoded progressively (a track sounds the moment its `track …` arrives, the pattern fills as `steps …` streams). **Master-scope lines** (`bpm`, `auto`, `transpose`, `master_mix`, `actor_mix`, `clip`, `session_*`) require the **`master_mixer`** skill and are **skipped** for agent lanes lacking it.
+- You may **stream `tpl.line`** incrementally — each line is decoded progressively (a track sounds the moment its `track …` arrives, the pattern fills as `steps …` streams). **Master-scope lines** (`bpm`, `swing`, `scale`, `auto`, `transpose`, `master_mix`, `actor_mix`, `clip`, `session_*`) require the **`master_mixer`** skill and are **skipped** for agent lanes lacking it.
+- `scale <root> <mode>` / `scale off` — global key constraint (folds every melodic pitch onto the scale, live). See [TPL_GRAMMAR.md § Global](TPL_GRAMMAR.md#global).

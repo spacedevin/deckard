@@ -30,6 +30,8 @@ Must appear before track-specific lines (recommended first non-comment line).
 | Line | Effect |
 |------|--------|
 | `bpm <number>` | Project tempo (40–300). |
+| `swing <0..1>` | Global shuffle on the off-beat 16ths (0 = straight). |
+| `scale <root> <mode>` | **Scale lock** — constrain every triggered melodic pitch to a key/scale, live. `root` = note name (`C`, `F#`, `Bb`) or pitch-class `0..11`; `mode` ∈ `major minor dorian phrygian lydian mixolydian locrian harmonic_minor melodic_minor pentatonic_major pentatonic_minor blues`. `scale off` (or `none`/`chromatic`) clears it. Master-gated global (like `bpm`); snaps deterministically so co-DJ peers + offline renders agree. Off by default. |
 | `@ perf_step <n>` | **Stream / Co-DJ only**: schedule this patch for host perf step `n` (16th-note index). Ignored by Song parser except as no-op. JSON `effectivePerfStep` on `tpl.block` overrides this line. |
 
 ## Track block
@@ -97,7 +99,7 @@ Literal:
 steps x . . . x . . . x . . . x . . .
 ```
 
-`x`, `X`, `1` = on; `.`, `0` = off. Optional velocity per step (future): `step 3 v 90`.
+`x`, `X`, `1` = on; `.`, `0` = off.
 
 Euclidean (fills 16 steps):
 
@@ -106,6 +108,27 @@ steps euclid <hits> <len>
 ```
 
 Example: `steps euclid 5 16` — five hits distributed across 16 steps.
+
+#### Per-step parameter locks
+
+Four optional **parallel lanes** ride directly after `steps`, each carrying up to 16 values aligned to the step grid. A lane is **emitted only if some step deviates from its default**, so plain patterns stay terse. A bare `steps` line resets all locks to default; the lanes (emitted right after) restore the deviations.
+
+```
+steps        x . . . x . . . x . . . x . . .
+step_vel     120 100 100 100 70 100 100 100 100 100 100 100 90 100 100 100
+step_prob    1 1 1 1 0.5 1 1 1 1 1 1 1 1 1 1 1
+step_ratchet 1 1 1 1 1 1 1 1 3 1 1 1 1 1 1 1
+step_nudge   0 0 0 0 0 0 0 0 0 0 0 0 0.25 0 0 0
+```
+
+| Lane | Range (default) | Effect |
+|------|-----------------|--------|
+| `step_vel` | `1..127` (100) | Velocity — modeled, played, and round-tripped. |
+| `step_prob` | `0..1` (1) | Chance the step fires. **Seeded** (`hash(globalStep, busIndex, song_seed)`) so every co-DJ client + every offline re-render rolls identically, yet a sub-1 step varies bar-to-bar. |
+| `step_ratchet` | `1..8` (1) | Sub-hits — the step retriggers `R` evenly-spaced times, each shortened to `dur/R`. |
+| `step_nudge` | `-0.5..0.5` (0) | Micro-timing — shifts the hit by that fraction of a step (− = earlier, + = later). |
+
+Locks apply to **boolean step rows only** (single-note / melodic tracks carry their own per-note velocity via `note`). In the UI they're the **⇅ LOCKS** lane editor under each step row (drag to set, double-click resets) plus the velocity bar drawn inside each lit step. Every edit re-emits the whole pattern through the one gated `track/<id>/pattern` write door, so it broadcasts to peers and round-trips like any other statement.
 
 ### Notes (piano roll)
 

@@ -8,9 +8,11 @@ import { toggleStep, clearStep, setChannelMute, setChannelSolo, promoteChannelTo
 import { syncMainClipFromChannel } from '../../model/Session.tish'
 import { generatorLabelById } from '../../generators/Registry.tish'
 import { tplLoopSkipsChannel } from '../../tpl/LoopState.tish'
-import { applyStepsEuclid } from '../../tpl/Apply.tish'
 import { setRackBars } from '../../model/RackBars.tish'
 import { channelDeck, channelDeckColor } from '../../model/DeckRouting.tish'
+import { scaleRootNames, scaleModeNames } from '../../model/Scale.tish'
+import { euclidSteps, reseedSteps, mutateSteps, humanizeSteps, sprinkleProbability } from '../../model/Generative.tish'
+import { defaultAutoParam, autoLaneValues, autoNorm, autoDenorm } from '../../model/AutoParams.tish'
 import { ensureCoDjMeta, setMasterLock } from '../../codj/CoDjMeta.tish'
 import { pianoRowsForChannel } from './PianoGrid.tish'
 import { PanelHeader } from '../PresetBar.tish'
@@ -72,6 +74,29 @@ fn deckClass(project, ch) {
   return "sg-deck-" + channelDeckColor(project, ch)
 }
 
+// Compact label for the SCALE mode dropdown (the grammar tokens are verbose).
+fn scaleModeLabel(m) {
+  if (m === "major") {
+    return "major"
+  }
+  if (m === "minor") {
+    return "minor"
+  }
+  if (m === "harmonic_minor") {
+    return "harm min"
+  }
+  if (m === "melodic_minor") {
+    return "mel min"
+  }
+  if (m === "pentatonic_major") {
+    return "penta maj"
+  }
+  if (m === "pentatonic_minor") {
+    return "penta min"
+  }
+  return m
+}
+
 // A melodic channel whose notes all share ONE pitch plays like a normal step sequencer locked to that
 // note. Returns the pitch (remembered on ch.soloNotePitch so it survives emptying), or null when the
 // channel carries a real (multi-pitch) melody — those still open the piano roll for editing.
@@ -111,6 +136,346 @@ fn noteIdxAtStep(ch, pitch, step) {
   return -1
 }
 
+// ---- Per-step PARAMETER LOCKS (velocity / probability / ratchet / nudge) --------------------------------
+// Live + multiplayer-safe: every lock edit re-emits the WHOLE pattern as ONE TPL statement through
+// rt.emit("track/<id>/pattern", stepsArray) — the same gated, broadcast, round-trip door a fader uses. No
+// direct model mutation (the grid stays a pure TPL client; the anti-spaghetti ratchet stays clean).
+fn lockLaneCfg(field) {
+  if (field === "vel") {
+    return { label: "VEL", lo: 1, hi: 127, dflt: 100, bip: false }
+  }
+  if (field === "prob") {
+    return { label: "PRB", lo: 0, hi: 1, dflt: 1, bip: false }
+  }
+  if (field === "ratchet") {
+    return { label: "RCH", lo: 1, hi: 8, dflt: 1, bip: false }
+  }
+  return { label: "NDG", lo: -0.5, hi: 0.5, dflt: 0, bip: true }
+}
+
+fn quantizeLock(field, v) {
+  if (field === "vel") {
+    let n = Math.round(v)
+    return n < 1 ? 1 : (n > 127 ? 127 : n)
+  }
+  if (field === "ratchet") {
+    let n = Math.round(v)
+    return n < 1 ? 1 : (n > 8 ? 8 : n)
+  }
+  if (field === "prob") {
+    let n = Math.round(v * 20) / 20
+    return n < 0 ? 0 : (n > 1 ? 1 : n)
+  }
+  let n = Math.round(v * 20) / 20
+  return n < -0.5 ? -0.5 : (n > 0.5 ? 0.5 : n)
+}
+
+fn stepLockVal(st, field) {
+  if (!st || st[field] == null) {
+    return lockLaneCfg(field).dflt
+  }
+  return st[field]
+}
+
+// Clone the channel's steps (NEVER mutate the project) with one cell's field replaced, then emit the pattern.
+fn emitStepLock(rt, project, chIdx, stepIdx, field, value) {
+  if (!rt || !rt.emit) {
+    return
+  }
+  let ch = project.channels[chIdx]
+  if (!ch || !ch.steps) {
+    return
+  }
+  let arr = []
+  let i = 0
+  while (i < ch.steps.length) {
+    let s = ch.steps[i]
+    arr.push({
+      on: s.on === true,
+      vel: s.vel != null ? s.vel : 100,
+      prob: s.prob != null ? s.prob : 1,
+      ratchet: s.ratchet != null ? s.ratchet : 1,
+      nudge: s.nudge != null ? s.nudge : 0
+    })
+    i = i + 1
+  }
+  if (stepIdx >= 0 && stepIdx < arr.length) {
+    arr[stepIdx][field] = value
+  }
+  rt.emit("track/" + ch.id + "/pattern", arr)
+}
+
+// Projectional step toggle: flip (or force-off) one step and emit the WHOLE pattern through the gated door,
+// so a grid click becomes a real TPL statement that round-trips to the editor AND broadcasts to co-DJ peers
+// (the old toggleStep path mutated locally + never reached ingest, so peers never saw step edits). Returns
+// false when it can't take the projectional path (multi-bar pattern — the `steps` emit is bar-1 only — so the
+// caller falls back to the legacy direct edit).
+fn emitStepToggle(rt, project, chIdx, stepIdx, forceOff) {
+  if (!rt || !rt.emit) {
+    return false
+  }
+  let ch = project.channels[chIdx]
+  if (!ch || !ch.steps || stepIdx < 0 || stepIdx >= 16) {
+    return false
+  }
+  let arr = []
+  let i = 0
+  while (i < ch.steps.length) {
+    let s = ch.steps[i]
+    arr.push({
+      on: s.on === true,
+      vel: s.vel != null ? s.vel : 100,
+      prob: s.prob != null ? s.prob : 1,
+      ratchet: s.ratchet != null ? s.ratchet : 1,
+      nudge: s.nudge != null ? s.nudge : 0
+    })
+    i = i + 1
+  }
+  arr[stepIdx].on = forceOff ? false : !(arr[stepIdx].on === true)
+  rt.emit("track/" + ch.id + "/pattern", arr)
+  return true
+}
+
+// Generative row mode: a whole-pattern transform (euclid / reseed / mutate / humanize / sprinkle) emitted
+// through the SAME gated pattern door, so the generated pattern broadcasts to peers + round-trips. Generation
+// runs once here (Math.random) and peers receive the realized steps — no per-client divergence.
+fn emitGenerated(rt, project, chIdx, arr) {
+  if (!rt || !rt.emit || arr == null) {
+    return
+  }
+  let ch = project.channels[chIdx]
+  if (!ch) {
+    return
+  }
+  rt.emit("track/" + ch.id + "/pattern", arr)
+  if (rt.bumpGrid) {
+    rt.bumpGrid()
+  }
+}
+
+// Vertical drag on a lock-lane cell: top = max, bottom = min. Coalesced (only emits when the quantized value
+// changes) so a drag is a handful of pattern statements, not one per pixel.
+fn lockCellDown(e, rt, project, chIdx, stepIdx, field) {
+  e.stopPropagation()
+  if (e.preventDefault) {
+    e.preventDefault()
+  }
+  let cell = e.currentTarget
+  let cfg = lockLaneCfg(field)
+  let last = null
+  fn applyAt(clientY) {
+    let r = cell.getBoundingClientRect()
+    let py = r.height > 0 ? (clientY - r.top) / r.height : 0
+    if (py < 0) {
+      py = 0
+    }
+    if (py > 1) {
+      py = 1
+    }
+    let v = quantizeLock(field, cfg.lo + (1 - py) * (cfg.hi - cfg.lo))
+    if (v !== last) {
+      last = v
+      emitStepLock(rt, project, chIdx, stepIdx, field, v)
+    }
+  }
+  applyAt(e.clientY)
+  fn onMove(ev) {
+    applyAt(ev.clientY)
+  }
+  fn onUp() {
+    document.removeEventListener("mousemove", onMove)
+    document.removeEventListener("mouseup", onUp)
+  }
+  document.addEventListener("mousemove", onMove)
+  document.addEventListener("mouseup", onUp)
+}
+
+fn LockLaneCell(project, chIdx, i, field, rt, st) {
+  let cfg = lockLaneCfg(field)
+  let v = stepLockVal(st, field)
+  let frac = (v - cfg.lo) / (cfg.hi - cfg.lo)
+  if (frac < 0) {
+    frac = 0
+  }
+  if (frac > 1) {
+    frac = 1
+  }
+  let on = st && st.on === true
+  let cls = "sg-lk-cell sg-col-" + String(i)
+  if (i % 4 === 0) {
+    cls = cls + " sg-beat"
+  }
+  if (!on) {
+    cls = cls + " sg-lk-dim"
+  }
+  let pct = Math.round(frac * 100)
+  let fill = null
+  if (cfg.bip) {
+    let top = pct >= 50 ? (100 - pct) : 50
+    let barH = pct >= 50 ? (pct - 50) : (50 - pct)
+    fill = <div class="sg-lk-fill sg-lk-bip" style={{ top: String(top) + "%", height: String(barH) + "%" }} />
+  } else {
+    fill = <div class="sg-lk-fill" style={{ height: String(pct) + "%" }} />
+  }
+  return (
+    <div
+      class={cls}
+      title={cfg.label + " · step " + String(i + 1) + " — drag to set, double-click resets"}
+      onmousedown={(e) => lockCellDown(e, rt, project, chIdx, i, field)}
+      ondblclick={() => emitStepLock(rt, project, chIdx, i, field, cfg.dflt)}
+    >
+      {cfg.bip ? <div class="sg-lk-mid" /> : null}
+      {fill}
+    </div>
+  )
+}
+
+fn lockLaneRow(project, ch, chIdx, field, rt) {
+  let cells = []
+  let i = 0
+  while (i < 16) {
+    cells.push(LockLaneCell(project, chIdx, i, field, rt, ch.steps[i]))
+    i = i + 1
+  }
+  let cfg = lockLaneCfg(field)
+  return (
+    <div class={"sg-row sg-lk-row " + deckClass(project, ch)} key={"lk-" + ch.id + "-" + field}>
+      <div class="sg-gutter sg-lk-gutter">
+        <span class="sg-lk-label">{cfg.label}</span>
+      </div>
+      <div class="sg-cells sg-lk-cells">{cells}</div>
+    </div>
+  )
+}
+
+fn lockLanesForChannel(project, ch, chIdx, rt) {
+  return [
+    lockLaneRow(project, ch, chIdx, "vel", rt),
+    lockLaneRow(project, ch, chIdx, "prob", rt),
+    lockLaneRow(project, ch, chIdx, "ratchet", rt),
+    lockLaneRow(project, ch, chIdx, "nudge", rt)
+  ]
+}
+
+// ---- Drawable param AUTOMATION lane (step-aligned, like the lock lanes) ---------------------------------
+// 16 columns = beats 0,0.25,…,3.75 of bar 1; vertical drag sets the param value at that beat. Re-emits the
+// whole 16-point curve as an `auto <id> gen <param>` block (master-gated). Playback applies it beat-accurately
+// via generatorChannelAtBeat. bumpGrid is called explicitly (an `auto` edit doesn't touch the channel slice).
+fn autoCellDown(e, rt, project, ch, stepIdx, spec, curValues) {
+  e.stopPropagation()
+  if (e.preventDefault) {
+    e.preventDefault()
+  }
+  let cell = e.currentTarget
+  let last = null
+  fn applyAt(clientY) {
+    let r = cell.getBoundingClientRect()
+    let py = r.height > 0 ? (clientY - r.top) / r.height : 0
+    if (py < 0) {
+      py = 0
+    }
+    if (py > 1) {
+      py = 1
+    }
+    let val = autoDenorm(1 - py, spec.min, spec.max, spec.log)
+    let rounded = Math.round(val * 1000)
+    if (rounded !== last) {
+      last = rounded
+      let arr = []
+      let k = 0
+      while (k < 16) {
+        arr.push(k === stepIdx ? val : (k < curValues.length ? curValues[k] : spec.min))
+        k = k + 1
+      }
+      if (rt && rt.emit) {
+        rt.emit("auto/" + ch.id + "/" + spec.key, arr)
+        if (rt.bumpGrid) {
+          rt.bumpGrid()
+        }
+      }
+    }
+  }
+  applyAt(e.clientY)
+  fn onMove(ev) {
+    applyAt(ev.clientY)
+  }
+  fn onUp() {
+    document.removeEventListener("mousemove", onMove)
+    document.removeEventListener("mouseup", onUp)
+  }
+  document.addEventListener("mousemove", onMove)
+  document.addEventListener("mouseup", onUp)
+}
+
+fn autoLaneCell(project, ch, i, spec, rt, curValues) {
+  let v = i < curValues.length ? curValues[i] : spec.min
+  let frac = autoNorm(v, spec.min, spec.max, spec.log)
+  let pct = Math.round(frac * 100)
+  let cls = "sg-lk-cell sg-auto-cell sg-col-" + String(i)
+  if (i % 4 === 0) {
+    cls = cls + " sg-beat"
+  }
+  return (
+    <div
+      class={cls}
+      title={spec.label + " · step " + String(i + 1) + " — drag to draw the curve"}
+      onmousedown={(e) => autoCellDown(e, rt, project, ch, i, spec, curValues)}
+    >
+      <div class="sg-lk-fill sg-auto-fill" style={{ height: String(pct) + "%" }} />
+    </div>
+  )
+}
+
+fn autoLaneRow(project, ch, chIdx, rt) {
+  let gid = ch.generatorId ? ch.generatorId : "basicOsc"
+  let spec = defaultAutoParam(gid)
+  if (!spec) {
+    return null
+  }
+  let vals = autoLaneValues(project, ch, spec.key)
+  let cells = []
+  let i = 0
+  while (i < 16) {
+    cells.push(autoLaneCell(project, ch, i, spec, rt, vals))
+    i = i + 1
+  }
+  return (
+    <div class={"sg-row sg-lk-row sg-auto-row " + deckClass(project, ch)} key={"auto-" + ch.id}>
+      <div class="sg-gutter sg-lk-gutter">
+        <span class="sg-lk-label sg-auto-label">{"∿ " + spec.label}</span>
+      </div>
+      <div class="sg-cells sg-lk-cells">{cells}</div>
+    </div>
+  )
+}
+
+// Velocity bar + lock markers drawn INSIDE a lit boolean step (so the pattern reads its dynamics at a glance).
+fn stepLockOverlay(st) {
+  if (!st) {
+    return null
+  }
+  let vel = st.vel != null ? st.vel : 100
+  let velPct = Math.round((vel / 127) * 100)
+  if (velPct < 8) {
+    velPct = 8
+  }
+  let prob = st.prob != null ? st.prob : 1
+  let ratchet = st.ratchet != null ? Math.floor(st.ratchet) : 1
+  let nudge = st.nudge != null ? st.nudge : 0
+  let marks = []
+  marks.push(<div class="sg-vel-fill" style={{ height: String(velPct) + "%" }} key="vf" />)
+  if (prob < 0.999) {
+    marks.push(<div class="sg-mk sg-mk-prob" style={{ opacity: String(0.25 + prob * 0.75) }} key="pb" />)
+  }
+  if (ratchet > 1) {
+    marks.push(<div class="sg-mk sg-mk-rch" key="rc">{String(ratchet)}</div>)
+  }
+  if (nudge > 0.001 || nudge < -0.001) {
+    marks.push(<div class={nudge < 0 ? "sg-mk sg-mk-ndg sg-mk-ndg-l" : "sg-mk sg-mk-ndg sg-mk-ndg-r"} key="nd" />)
+  }
+  return marks
+}
+
 // soloPitch != null → single-note channel: toggle a note of that pitch (plays like a step sequencer).
 // melodic (and no soloPitch) → real melody: click opens the piano roll. else → drum step toggle.
 fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh, rt, viewBar, soloPitch) {
@@ -121,6 +486,9 @@ fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh,
   }
   if (melodic && !single) {
     cls = cls + " sg-melodic"
+  }
+  if (on && !melodic && !single) {
+    cls = cls + " sg-velcell"
   }
   if (i % 4 === 0) {
     cls = cls + " sg-beat"
@@ -156,6 +524,11 @@ fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh,
           }
           return
         }
+        // 1-bar (the common case): toggle PROJECTIONALLY through the pattern door (round-trips to TPL +
+        // broadcasts to peers). Multi-bar falls back to the legacy direct edit (the `steps` emit is bar-1 only).
+        if (nbars <= 1 && emitStepToggle(rt, project, chIdx, absStep, false)) {
+          return
+        }
         promoteChannelToBars(c, nbars)
         toggleStep(c, absStep)
         syncMainClipFromChannel(c)
@@ -180,12 +553,17 @@ fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh,
         if (melodic) {
           return
         }
+        if (nbars <= 1 && emitStepToggle(rt, project, chIdx, absStep, true)) {
+          return
+        }
         promoteChannelToBars(c, nbars)
         clearStep(c, absStep)
         syncMainClipFromChannel(c)
         setProjectFromUI(project)
       }}
-    />
+    >
+      {(on && !melodic && !single) ? stepLockOverlay(ch.steps[absStep]) : null}
+    </button>
   )
 }
 
@@ -224,6 +602,13 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
   }
   let deckBadge = channelDeck(project, ch)
   let expanded = rt != null && rt.gridExpanded != null && rt.gridExpanded[ch.id] === true
+  // Per-step locks only apply to pure boolean-STEP channels (single-note/melodic tracks play via the note
+  // path, which carries its own velocity and ignores ch.steps locks) — so only offer the toggle there.
+  let stepChannel = !hasNotes && solo == null
+  let locksOpen = rt != null && rt.gridLocks != null && rt.gridLocks[ch.id] === true
+  // Automation lane is offered for any channel whose (simple) generator exposes a sweepable param.
+  let autoCapable = defaultAutoParam(ch.generatorId ? ch.generatorId : "basicOsc") != null
+  let autoOpen = rt != null && rt.gridAuto != null && rt.gridAuto[ch.id] === true
   return (
     <div class={rowCls}>
       <div class="sg-gutter">
@@ -307,6 +692,48 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
           >
             {"L"}
           </button>
+          {stepChannel ? (
+            <button
+              type="button"
+              class={locksOpen ? "sg-tog sg-tog-lck sg-tog-lck-on" : "sg-tog sg-tog-lck"}
+              title="Per-step locks — velocity · probability · ratchet · nudge (drag the lanes below)"
+              onclick={(e) => {
+                e.stopPropagation()
+                if (rt) {
+                  if (!rt.gridLocks) {
+                    rt.gridLocks = {}
+                  }
+                  rt.gridLocks[ch.id] = !(rt.gridLocks[ch.id] === true)
+                  if (rt.bumpGrid) {
+                    rt.bumpGrid()
+                  }
+                }
+              }}
+            >
+              {"⇅"}
+            </button>
+          ) : null}
+          {autoCapable ? (
+            <button
+              type="button"
+              class={autoOpen ? "sg-tog sg-tog-auto sg-tog-auto-on" : "sg-tog sg-tog-auto"}
+              title="Automation lane — draw a parameter curve over the bar (master only)"
+              onclick={(e) => {
+                e.stopPropagation()
+                if (rt) {
+                  if (!rt.gridAuto) {
+                    rt.gridAuto = {}
+                  }
+                  rt.gridAuto[ch.id] = !(rt.gridAuto[ch.id] === true)
+                  if (rt.bumpGrid) {
+                    rt.bumpGrid()
+                  }
+                }
+              }}
+            >
+              {"∿"}
+            </button>
+          ) : null}
         </div>
       </div>
       <div class="sg-cells">{cells}</div>
@@ -424,6 +851,27 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
   let swingPct = Math.round(swingVal * 100)
   let swingDown = Math.round(Math.max(0, swingVal - 0.05) * 100) / 100
   let swingUp = Math.round(Math.min(0.6, swingVal + 0.05) * 100) / 100
+  // Scale lock — a global key constraint that folds every triggered melodic pitch onto the chosen scale at
+  // play time (live: change it and the whole session conforms next step). Edits via rt.emit("scale", …).
+  let scaleActive = project != null && project.scaleRoot != null && project.scaleMode != null && project.scaleMode !== "" && project.scaleMode !== "off"
+  let scaleCurRoot = scaleActive ? Math.floor(project.scaleRoot) : 0
+  let scaleCurMode = scaleActive ? project.scaleMode : "off"
+  let scRootNames = scaleRootNames()
+  let scModeNames = scaleModeNames()
+  let scaleRootOpts = []
+  let sri = 0
+  while (sri < scRootNames.length) {
+    scaleRootOpts.push(<option value={String(sri)} selected={scaleCurRoot === sri}>{scRootNames[sri]}</option>)
+    sri = sri + 1
+  }
+  let scaleModeOpts = []
+  scaleModeOpts.push(<option value="off" selected={!scaleActive}>{"off"}</option>)
+  let smi = 0
+  while (smi < scModeNames.length) {
+    let smn = scModeNames[smi]
+    scaleModeOpts.push(<option value={smn} selected={scaleActive && scaleCurMode === smn}>{scaleModeLabel(smn)}</option>)
+    smi = smi + 1
+  }
   let viewBar = 0
   if (rt != null && rt.gridViewBar != null) {
     viewBar = Math.floor(rt.gridViewBar)
@@ -466,6 +914,25 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
       while (k < prows.length) {
         rows.push(prows[k])
         k = k + 1
+      }
+    }
+    // Per-step lock lanes (velocity / probability / ratchet / nudge) under boolean-step channels.
+    let locksOpen = rt != null && rt.gridLocks != null && rt.gridLocks[ch.id] === true
+    let isStepCh = (!ch.pianoNotes || ch.pianoNotes.length === 0) && singleNotePitch(ch) == null
+    if (locksOpen && isStepCh) {
+      let lrows = lockLanesForChannel(project, ch, ci, rt)
+      let lk = 0
+      while (lk < lrows.length) {
+        rows.push(lrows[lk])
+        lk = lk + 1
+      }
+    }
+    // Drawable automation lane (any channel whose generator exposes a sweepable param).
+    let autoOpen = rt != null && rt.gridAuto != null && rt.gridAuto[ch.id] === true
+    if (autoOpen) {
+      let arow = autoLaneRow(project, ch, ci, rt)
+      if (arow != null) {
+        rows.push(arow)
       }
     }
     ci = ci + 1
@@ -518,21 +985,20 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
   // Euclidean fill for the selected channel — moved here from the instrument (it edits `steps`,
   // which is the rack's pattern, not the sound).
   let selCh = (selectedCh >= 0 && selectedCh < project.channels.length) ? project.channels[selectedCh] : null
+  // Generative row mode applies to the SELECTED channel's STEP pattern only (melodic/single tracks use notes).
+  let selStepCh = selCh != null && (!selCh.pianoNotes || selCh.pianoNotes.length === 0) && singleNotePitch(selCh) == null
   let euclidRow = null
-  if (selCh) {
+  if (selCh && selStepCh) {
     let pills = []
+    // OFF clears the row (emit an all-off pattern, keeping the locks structure).
     pills.push(
       <button
         type="button"
         class={(!selCh.euclid || selCh.euclid === 0) ? "sg-euclid-pill sg-euclid-on" : "sg-euclid-pill"}
+        title="Clear the pattern"
         onclick={() => {
-          let si = 0
-          while (si < 16) {
-            selCh.steps[si].on = false
-            si = si + 1
-          }
           selCh.euclid = 0
-          setProjectFromUI(project)
+          emitGenerated(rt, project, selectedCh, euclidSteps(0, 0, selCh.steps))
         }}
       >
         {"Off"}
@@ -545,10 +1011,10 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
         <button
           type="button"
           class={selCh.euclid === ek ? "sg-euclid-pill sg-euclid-on" : "sg-euclid-pill"}
+          title={"Euclidean " + String(ek) + " hits across 16"}
           onclick={() => {
-            applyStepsEuclid(selCh, hits, 16)
             selCh.euclid = hits
-            setProjectFromUI(project)
+            emitGenerated(rt, project, selectedCh, euclidSteps(hits, 0, selCh.steps))
           }}
         >
           {String(ek)}
@@ -561,6 +1027,51 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
         <span class="sg-euclid-label">{"EUCLID"}</span>
         <span class="sg-euclid-target">{selCh.name}</span>
         <div class="sg-euclid-pills">{pills}</div>
+        <span class="sg-euclid-sep">{"·"}</span>
+        <span class="sg-euclid-label sg-gen-label">{"GEN"}</span>
+        <div class="sg-euclid-pills">
+          <button
+            type="button"
+            class="sg-gen-btn sg-gen-reseed"
+            title="RESEED — a fresh random pattern (new density + rotation, humanized). Broadcasts to peers."
+            onclick={() => {
+              selCh.euclid = 0
+              emitGenerated(rt, project, selectedCh, reseedSteps(Math.random, selCh.steps))
+            }}
+          >
+            {"⟳ RESEED"}
+          </button>
+          <button
+            type="button"
+            class="sg-gen-btn"
+            title="MUTATE — flip a few steps + jitter velocities (evolve the current pattern)."
+            onclick={() => {
+              emitGenerated(rt, project, selectedCh, mutateSteps(selCh.steps, Math.random, 0.18))
+            }}
+          >
+            {"MUTATE"}
+          </button>
+          <button
+            type="button"
+            class="sg-gen-btn"
+            title="HUMANIZE — jitter the velocity of every hit so it breathes."
+            onclick={() => {
+              emitGenerated(rt, project, selectedCh, humanizeSteps(selCh.steps, Math.random, 22))
+            }}
+          >
+            {"HUMAN"}
+          </button>
+          <button
+            type="button"
+            class="sg-gen-btn"
+            title="PROB — sprinkle probability onto off-beat hits so the pattern varies every loop (seeded, peers agree)."
+            onclick={() => {
+              emitGenerated(rt, project, selectedCh, sprinkleProbability(selCh.steps, Math.random, 0.5))
+            }}
+          >
+            {"PROB"}
+          </button>
+        </div>
       </div>
     )
   }
@@ -636,6 +1147,44 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
         >
           {"+"}
         </button>
+        <span class="sg-barpager-sep">{"·"}</span>
+        <span class={scaleActive ? "sg-barpager-label sg-scale-lit" : "sg-barpager-label"} title="Scale lock — constrain every melodic note to a key/scale, live. 'off' = chromatic.">{"SCALE"}</span>
+        <select
+          class="sg-scale-sel"
+          title="Root note"
+          disabled={!scaleActive}
+          onchange={(e) => {
+            if (rt && rt.emit) {
+              let v = { root: Number(e.target.value), mode: scaleCurMode }
+              rt.emit("scale", v)
+              if (rt.bumpGrid) {
+                rt.bumpGrid()
+              }
+            }
+          }}
+        >
+          {scaleRootOpts}
+        </select>
+        <select
+          class={scaleActive ? "sg-scale-sel sg-scale-sel-lit" : "sg-scale-sel"}
+          title="Scale / mode ('off' = no constraint)"
+          onchange={(e) => {
+            if (rt && rt.emit) {
+              let m = e.target.value
+              if (m === "off") {
+                rt.emit("scale", "off")
+              } else {
+                let v = { root: scaleCurRoot, mode: m }
+                rt.emit("scale", v)
+              }
+              if (rt.bumpGrid) {
+                rt.bumpGrid()
+              }
+            }
+          }}
+        >
+          {scaleModeOpts}
+        </select>
       </div>
       <div class="sg-grid" onwheel={(e) => handleBarWheel(e, rt, gridBars)}>{rows}</div>
       <div class="sg-ruler">

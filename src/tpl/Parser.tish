@@ -1,4 +1,5 @@
 import { normalizeGeneratorId } from './RegistryMap.tish'
+import { parseScaleRoot } from '../model/Scale.tish'
 
 export fn tokenize(text) {
   let t = text.trim()
@@ -47,6 +48,8 @@ export fn parseProgram(source) {
   let xfade = null
   let mainDeck = null
   let swing = null
+  let scaleRoot = null
+  let scaleMode = null
   let songEntries = null
   let followEntries = null
   let currentClip = null
@@ -266,6 +269,21 @@ export fn parseProgram(source) {
       }
       continue
     }
+    // Global SCALE LOCK: `scale <root> <mode>` (e.g. `scale C minor`) or `scale off`. Root = note name or
+    // pitch-class 0..11; mode = one of scaleModeNames(). A magic root of -1 in the result means "off".
+    if (head === "scale") {
+      if (toks.length >= 2 && (toks[1] === "off" || toks[1] === "none" || toks[1] === "chromatic")) {
+        scaleRoot = -1
+        scaleMode = "off"
+      } else if (toks.length >= 3) {
+        let pr = parseScaleRoot(toks[1])
+        if (pr != null) {
+          scaleRoot = pr
+          scaleMode = toks[2]
+        }
+      }
+      continue
+    }
     if (head === "macro" && toks.length >= 2) {
       currentClip = null
       currentTrack = null
@@ -440,6 +458,8 @@ export fn parseProgram(source) {
     xfade: xfade,
     mainDeck: mainDeck,
     swing: swing,
+    scaleRoot: scaleRoot,
+    scaleMode: scaleMode,
     errors: errors
   }
 }

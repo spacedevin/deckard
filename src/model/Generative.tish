@@ -1,0 +1,123 @@
+// Generative pattern helpers: pure transforms over a 16-step array of {on,vel,prob,ratchet,nudge}. They take
+// an injected `rng` (a () -> 0..1 fn) so they're deterministic in tests; the UI passes Math.random and emits
+// the CONCRETE result through the TPL pattern door — so generation runs once on the actor's machine and peers
+// receive the realized steps (no per-client divergence). Euclid distribution keeps the output musical, not noise.
+
+import { euclideanPattern } from '../tpl/Euclidean.tish'
+import { cloneStep, makeStep } from './Project.tish'
+
+// Rotate a boolean pattern by `rot` steps (positive = shift later in time).
+export fn rotatePattern(pat, rot) {
+  let n = pat.length
+  if (n === 0) {
+    return pat
+  }
+  let r = ((Math.floor(rot) % n) + n) % n
+  let out = []
+  let i = 0
+  while (i < n) {
+    out.push(pat[(i - r + n) % n])
+    i = i + 1
+  }
+  return out
+}
+
+// 16 fresh step objects (never the project's) — carrying prev's per-step locks where present.
+export fn cloneSteps16(steps) {
+  let out = []
+  let i = 0
+  while (i < 16) {
+    if (steps && steps[i]) {
+      out.push(cloneStep(steps[i]))
+    } else {
+      out.push(makeStep(false, 100))
+    }
+    i = i + 1
+  }
+  return out
+}
+
+// Apply a boolean on-pattern onto a 16-step array, KEEPING each step's existing locks (vel/prob/…) — only
+// on/off changes. `prev` supplies the locks; null = all defaults.
+export fn stepsFromBools(bools, prev) {
+  let out = cloneSteps16(prev)
+  let i = 0
+  while (i < 16) {
+    out[i].on = (i < bools.length) ? (bools[i] === true) : false
+    i = i + 1
+  }
+  return out
+}
+
+// Jitter the velocity of every ON step by ±depth (so hits breathe instead of being mechanically uniform).
+export fn humanizeSteps(steps, rng, depth) {
+  let out = cloneSteps16(steps)
+  let i = 0
+  while (i < 16) {
+    if (out[i].on === true) {
+      let base = out[i].vel != null ? out[i].vel : 100
+      let v = base + Math.round((rng() * 2 - 1) * depth)
+      if (v < 1) {
+        v = 1
+      }
+      if (v > 127) {
+        v = 127
+      }
+      out[i].vel = v
+    }
+    i = i + 1
+  }
+  return out
+}
+
+// Euclid(hits) with a rotation → a 16-step array (preserving prev's locks on the steps that stay).
+export fn euclidSteps(hits, rotation, prev) {
+  let pat = euclideanPattern(hits, 16)
+  if (rotation && rotation !== 0) {
+    pat = rotatePattern(pat, rotation)
+  }
+  return stepsFromBools(pat, prev)
+}
+
+// RESEED: a fresh euclid pattern at a random density (3..8 hits) + rotation, lightly humanized. A whole new
+// idea on the same row — the "give me another" button.
+export fn reseedSteps(rng, prev) {
+  let hits = 3 + Math.floor(rng() * 6)
+  let rot = Math.floor(rng() * 16)
+  let steps = euclidSteps(hits, rot, null)
+  return humanizeSteps(steps, rng, 16)
+}
+
+// MUTATE: flip ~`amount` of the 16 steps (toggle) + give freshly-on steps a random velocity — a small, musical
+// nudge away from the current pattern (evolve, don't replace).
+export fn mutateSteps(steps, rng, amount) {
+  let out = cloneSteps16(steps)
+  let flips = Math.max(1, Math.round(16 * amount))
+  let f = 0
+  while (f < flips) {
+    let idx = Math.floor(rng() * 16)
+    if (idx >= 0 && idx < 16) {
+      out[idx].on = !(out[idx].on === true)
+      if (out[idx].on === true) {
+        out[idx].vel = 70 + Math.floor(rng() * 50)
+      }
+    }
+    f = f + 1
+  }
+  return out
+}
+
+// SPRINKLE PROBABILITY: set ~`fraction` of the off-beat ON steps to a sub-1 probability, so the pattern varies
+// each loop at play time (pairs with the seeded probability gate). Downbeats (every 4th) stay certain.
+export fn sprinkleProbability(steps, rng, fraction) {
+  let out = cloneSteps16(steps)
+  let lvls = [0.4, 0.5, 0.6, 0.7, 0.8]
+  let i = 0
+  while (i < 16) {
+    if (out[i].on === true && i % 4 !== 0 && rng() < fraction) {
+      out[i].prob = lvls[Math.floor(rng() * lvls.length)]
+    }
+    i = i + 1
+  }
+  return out
+}

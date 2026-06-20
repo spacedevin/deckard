@@ -1,7 +1,7 @@
 // Session / clip launcher: named patterns per track, grid of scenes (columns).
 // Channel rack + piano still edit ch.steps / ch.pianoNotes; main clip mirrors for emit + playback.
 
-import { makeStep } from './Project.tish'
+import { makeStep, cloneStep } from './Project.tish'
 import { promoteChannelToBars } from './Edits.tish'
 
 // --- single-bar copy helpers (for "load/save 1 bar" into the currently-viewed bar) ---
@@ -74,7 +74,7 @@ fn copyBarSteps(destSteps, destBar, srcSteps, srcBar) {
   let i = 0
   while (i < 16) {
     let s = srcLen > 0 ? srcSteps[(srcBar * 16 + i) % srcLen] : null
-    destSteps[destBar * 16 + i] = makeStep(s ? s.on : false, s && s.vel != null ? s.vel : 100)
+    destSteps[destBar * 16 + i] = cloneStep(s)
     i = i + 1
   }
 }
@@ -105,7 +105,7 @@ fn tileStepsToBars(steps, bars) {
   let i = 0
   while (i < want) {
     let s = steps && steps.length > 0 ? steps[i % steps.length] : null
-    out.push(makeStep(s ? s.on : false, s && s.vel != null ? s.vel : 100))
+    out.push(cloneStep(s))
     i = i + 1
   }
   return out
@@ -119,8 +119,7 @@ export fn copySteps16FromChannel(ch) {
   let out = []
   let si = 0
   while (si < 16) {
-    let st = ch.steps[si]
-    out.push(makeStep(st.on, st.vel != null ? st.vel : 100))
+    out.push(cloneStep(ch.steps[si]))
     si = si + 1
   }
   return out
@@ -138,8 +137,7 @@ export fn stepsForClip(ch, bars) {
   let out = []
   let i = 0
   while (i < want) {
-    let st = src[i % n]
-    out.push(makeStep(st.on, st.vel != null ? st.vel : 100))
+    out.push(cloneStep(src[i % n]))
     i = i + 1
   }
   return out
@@ -155,7 +153,7 @@ export fn tileStepsPattern(base16, bars) {
   while (bi < b) {
     let si = 0
     while (si < 16) {
-      out.push(makeStep(base16[si].on, base16[si].vel))
+      out.push(cloneStep(base16[si]))
       si = si + 1
     }
     bi = bi + 1
@@ -775,7 +773,7 @@ export fn loadSceneIntoRack(project, sceneIdx) {
       let ns = []
       let si = 0
       while (si < clip.steps.length) {
-        ns.push(makeStep(clip.steps[si].on, clip.steps[si].vel != null ? clip.steps[si].vel : 100))
+        ns.push(cloneStep(clip.steps[si]))
         si = si + 1
       }
       ch.steps = ns
@@ -859,7 +857,7 @@ export fn sessionWriteRackBarToSceneClip(project, sceneIdx, barIdx) {
     let i = 0
     while (i < 16) {
       let st = stepsLen > 0 ? ch.steps[(srcBar * 16 + i) % stepsLen] : null
-      oneSteps.push(makeStep(st ? st.on : false, st && st.vel != null ? st.vel : 100))
+      oneSteps.push(cloneStep(st))
       i = i + 1
     }
     // Notes the rack actually SHOWS in the viewed bar — those that START there (mirrors the piano roll),
@@ -1340,12 +1338,7 @@ export fn normalizeClipStepLength(clip) {
   let base = []
   let si = 0
   while (si < 16) {
-    let st = clip.steps[si]
-    if (!st) {
-      base.push(makeStep(false, 100))
-    } else {
-      base.push(makeStep(st.on, st.vel != null ? st.vel : 100))
-    }
+    base.push(cloneStep(clip.steps[si]))
     si = si + 1
   }
   clip.steps = tileStepsPattern(base, b)

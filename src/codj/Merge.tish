@@ -89,6 +89,16 @@ export fn applyCoDjTplSource(project, source, actorId, authorId, currentPerfStep
       project.swing = sw < 0 ? 0 : (sw > 1 ? 1 : sw)
     }
   }
+  // Scale lock is a master-gated global (like bpm/swing) — folds onto every client's pitch snap.
+  if (canMaster && parsed.scaleRoot !== null && parsed.scaleRoot !== undefined) {
+    if (parsed.scaleRoot < 0 || parsed.scaleMode === "off") {
+      project.scaleRoot = null
+      project.scaleMode = null
+    } else {
+      project.scaleRoot = Math.floor(parsed.scaleRoot)
+      project.scaleMode = parsed.scaleMode
+    }
+  }
   let userMacros = parsed.macros ? parsed.macros : {}
   let ti = 0
   while (ti < parsed.tracks.length) {

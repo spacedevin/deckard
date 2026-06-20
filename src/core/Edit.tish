@@ -5,8 +5,10 @@
 // same door peers and the agent use. This is how "the UI is just a TPL client" becomes literal.
 
 import { formatTplFloat } from '../tpl/Format.tish'
-import { generatorIdToTpl } from '../tpl/Emit.tish'
+import { generatorIdToTpl, stepLaneLine } from '../tpl/Emit.tish'
 import { findChannelById } from '../tpl/Apply.tish'
+import { scaleRootNames } from '../model/Scale.tish'
+import { camelToSnake } from '../tpl/RegistryMap.tish'
 
 fn f(v) {
   return formatTplFloat(Number(v))
@@ -16,6 +18,15 @@ fn trackHeader(ch) {
   let gid = ch.generatorId ? ch.generatorId : "basicOsc"
   let genTok = (ch.macroName != null) ? ch.macroName : generatorIdToTpl(gid)
   let s = "track " + ch.name + " id " + ch.id + " gen " + genTok
+  // Preserve the pattern length (`* N`) — applyTrackBody re-reads it on every body apply and would otherwise
+  // reset a multi-bar channel to 1 bar on ANY incremental edit (mix/fx/pattern). Mirrors emitProject's order
+  // (loop count before macro overrides).
+  if (ch.patternBars != null) {
+    let pn = Math.floor(Number(ch.patternBars))
+    if (pn >= 2 && pn === pn) {
+      s = s + " * " + String(pn)
+    }
+  }
   // CRITICAL: a macro re-expands from this header on apply, so the overrides MUST ride along — otherwise
   // any fx/voice/mix edit re-emits a bare `gen <macro>` and resets the macro to its defaults (the
   // "change cutoff → bass becomes unrecognizable, no way back" bug).
@@ -152,6 +163,34 @@ export fn fragmentForEdit(project, address, value) {
   if (head === "main_deck") {
     return "main_deck " + (value === "local" ? "local" : "live")
   }
+  // Drawable param automation: address auto/<channelId>/<camelParam>, value = 16 step-aligned values
+  // (beats 0,0.25,…,3.75). Emits a top-level `auto <id> gen <snake_param>` block — applyAutos merges/replaces
+  // that one param's curve (master-gated, like all `auto`). The lane re-emits the whole 16-point curve.
+  if (head === "auto" && parts.length >= 3) {
+    let cid = parts[1]
+    let prm = camelToSnake(parts[2])
+    let vals = Array.isArray(value) ? value : []
+    let o = "auto " + cid + " gen " + prm
+    let ai = 0
+    while (ai < 16) {
+      let av = ai < vals.length ? Number(vals[ai]) : 0
+      o = o + "\n  " + f(ai * 0.25) + " " + f(av)
+      ai = ai + 1
+    }
+    return o
+  }
+  // Scale lock: value = {root: 0..11, mode: name} to set, or "off"/null to clear.
+  if (head === "scale") {
+    if (value == null || value === "off" || (value && (value.mode === "off" || value.root == null))) {
+      return "scale off"
+    }
+    let rn = scaleRootNames()
+    let pc = Math.floor(Number(value.root))
+    if (pc < 0 || pc > 11 || pc !== pc) {
+      return "scale off"
+    }
+    return "scale " + rn[pc] + " " + String(value.mode)
+  }
   if (head === "xfade") {
     let x = 0.5
     let y = 0.5
@@ -213,6 +252,18 @@ export fn fragmentForEdit(project, address, value) {
     if (section === "steps") {
       return hdr + "\n" + stepsLine(value)
     }
+    // The WHOLE pattern as one statement: on/off + the 4 per-step parameter-lock lanes. `value` is the
+    // channel's full steps array ({on,vel,prob,ratchet,nudge}). Used by the step grid's live lock editing
+    // (velocity drag, prob/ratchet/nudge lanes) so a single cell change re-emits a complete, gated,
+    // broadcast, round-trip-safe pattern — no direct model mutation (the UI stays a pure TPL client).
+    if (section === "pattern") {
+      let o = hdr + "\n" + stepsLine(value) + "\n"
+      o = o + stepLaneLine(value, "step_vel", "vel", 100, true)
+      o = o + stepLaneLine(value, "step_prob", "prob", 1, false)
+      o = o + stepLaneLine(value, "step_ratchet", "ratchet", 1, true)
+      o = o + stepLaneLine(value, "step_nudge", "nudge", 0, false)
+      return o
+    }
   }
   return ""
 }
@@ -231,6 +282,12 @@ export fn readAddr(project, address) {
   }
   if (head === "swing") {
     return project.swing != null ? project.swing : 0
+  }
+  if (head === "scale") {
+    if (project.scaleRoot == null || project.scaleMode == null) {
+      return "off"
+    }
+    return { root: project.scaleRoot, mode: project.scaleMode }
   }
   if (head === "xfade") {
     let x = project.transportCrossfade != null ? project.transportCrossfade : 0.5

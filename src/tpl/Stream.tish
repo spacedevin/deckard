@@ -53,7 +53,8 @@ fn isStandaloneTopLevel(head) {
     head === "session_slot" ||
     head === "xfade" ||
     head === "main_deck" ||
-    head === "swing"
+    head === "swing" ||
+    head === "scale"
   )
 }
 

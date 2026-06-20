@@ -3,8 +3,26 @@
 import { defaultParamsForGeneratorId } from '../generators/Registry.tish'
 import { matrixFmFactoryInstrumentPresets } from './MatrixFmPresets.tish'
 
+// A step carries its on/off + PER-STEP PARAMETER LOCKS: vel (1..127), prob (0..1 chance it fires — seeded so
+// every client agrees), ratchet (1..8 sub-hits within the step), nudge (−0.5..0.5 of a step, micro-timing).
+// Defaults = a plain full-velocity, always-firing, single hit on the grid (so old projects are unchanged).
 export fn makeStep(on, vel) {
-  return { on: on, vel: vel }
+  return { on: on, vel: vel, prob: 1, ratchet: 1, nudge: 0 }
+}
+
+// Full copy of a step INCLUDING its p-locks — used wherever steps are duplicated (clip sync, tiling) so the
+// locks ride along instead of being reset to defaults. Tolerates legacy steps missing the lock fields.
+export fn cloneStep(st) {
+  if (!st) {
+    return makeStep(false, 100)
+  }
+  return {
+    on: st.on === true,
+    vel: st.vel != null ? st.vel : 100,
+    prob: st.prob != null ? st.prob : 1,
+    ratchet: st.ratchet != null ? st.ratchet : 1,
+    nudge: st.nudge != null ? st.nudge : 0
+  }
 }
 
 export fn makeSteps16() {

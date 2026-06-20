@@ -3691,6 +3691,8 @@ input[type="range"]::-moz-range-thumb {
   background: #0d0d11;
   cursor: pointer;
   padding: 0;
+  position: relative;
+  overflow: hidden;
   transition: background 90ms, box-shadow 90ms, transform 60ms;
 }
 .sg-cell.sg-beat {
@@ -3780,6 +3782,183 @@ input[type="range"]::-moz-range-thumb {
   background: var(--row-accent);
   border-color: var(--row-accent);
   box-shadow: 0 0 9px var(--row-glow);
+}
+/* A lit boolean step shows a velocity-scaled fill: the cell base dims to a faint accent, the bright bar
+   below rises to vel/127 — so the whole row reads its dynamics at a glance. */
+.sg-cell.sg-on.sg-velcell {
+  background: color-mix(in srgb, var(--row-accent) 24%, #0d0d11);
+}
+.sg-vel-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--row-accent);
+  box-shadow: 0 0 7px var(--row-glow);
+  pointer-events: none;
+}
+.sg-cell.sg-col-active .sg-vel-fill {
+  background: #ffffff;
+  box-shadow: none;
+}
+/* Lock markers inside a lit step: probability dot (top-left, fades with the odds), ratchet count (top-right),
+   nudge tick (left = early, right = late). */
+.sg-mk {
+  position: absolute;
+  pointer-events: none;
+  z-index: 2;
+}
+.sg-mk-prob {
+  top: 2px;
+  left: 2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.85);
+}
+.sg-mk-rch {
+  top: 0;
+  right: 2px;
+  font-size: 8px;
+  line-height: 10px;
+  font-weight: 700;
+  color: #0b0b0f;
+  text-shadow: 0 0 2px rgba(255, 255, 255, 0.9);
+}
+.sg-mk-ndg {
+  bottom: 2px;
+  width: 0;
+  height: 0;
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+}
+.sg-mk-ndg-l {
+  left: 1px;
+  border-right: 4px solid rgba(255, 255, 255, 0.9);
+}
+.sg-mk-ndg-r {
+  right: 1px;
+  border-left: 4px solid rgba(255, 255, 255, 0.9);
+}
+
+/* ---- Per-step lock LANES (drag-to-edit, under the step row) ---- */
+.sg-lk-row {
+  margin-top: 2px;
+  opacity: 0.96;
+}
+.sg-lk-gutter {
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 10px;
+}
+.sg-lk-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--row-accent);
+  opacity: 0.85;
+}
+.sg-lk-cells {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+.sg-lk-cell {
+  flex: 1;
+  height: 18px;
+  border: 1px solid #16161b;
+  border-radius: 2px;
+  background: #0c0c10;
+  position: relative;
+  overflow: hidden;
+  cursor: ns-resize;
+}
+.sg-lk-cell.sg-beat {
+  background: #121218;
+}
+.sg-lk-cell.sg-lk-dim {
+  opacity: 0.35;
+}
+.sg-lk-cell:hover {
+  border-color: var(--row-accent);
+}
+.sg-lk-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--row-accent);
+  opacity: 0.85;
+  pointer-events: none;
+}
+.sg-lk-fill.sg-lk-bip {
+  bottom: auto;
+}
+.sg-lk-mid {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.18);
+  pointer-events: none;
+}
+.sg-tog-lck {
+  color: #8a8aa0;
+}
+.sg-tog-lck-on {
+  background: var(--row-accent);
+  border-color: var(--row-accent);
+  color: #0b0b0f;
+  box-shadow: 0 0 8px var(--row-glow);
+}
+.sg-scale-lit {
+  color: #7df0c0;
+  text-shadow: 0 0 6px rgba(125, 240, 192, 0.5);
+}
+/* Automation lane — a warm amber curve, distinct from the cool lock lanes. */
+.sg-tog-auto {
+  color: #e0a85a;
+}
+.sg-tog-auto-on {
+  background: #e0a85a;
+  border-color: #e0a85a;
+  color: #1a1206;
+  box-shadow: 0 0 8px rgba(224, 168, 90, 0.5);
+}
+.sg-auto-label {
+  color: #e0a85a;
+}
+.sg-auto-cell {
+  height: 26px;
+  cursor: ns-resize;
+}
+.sg-auto-fill {
+  background: linear-gradient(to top, #c07a2a, #f0c070);
+  opacity: 0.9;
+}
+.sg-auto-cell:hover {
+  border-color: #e0a85a;
+}
+.sg-scale-sel {
+  height: 22px;
+  background: #121218;
+  color: #d6d6e6;
+  border: 1px solid #2a2a35;
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 0 4px;
+  cursor: pointer;
+}
+.sg-scale-sel:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.sg-scale-sel-lit {
+  border-color: #2bd49a;
+  color: #aef5d6;
+  box-shadow: 0 0 6px rgba(43, 212, 154, 0.35);
 }
 .sg-cell.sg-melodic.sg-on {
   background: transparent;
@@ -5125,6 +5304,14 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer; }
 .sg-euclid-pill.sg-euclid-on { border-color: var(--accent-warm, #e8945c); color: var(--accent-warm, #e8945c);
   background: rgba(232, 148, 92, 0.12); }
+.sg-euclid-sep { color: var(--muted); opacity: 0.5; }
+.sg-gen-label { color: #c08bf0; }
+.sg-gen-btn { font-family: inherit; font-size: 0.62rem; font-weight: 600; padding: 0.18rem 0.5rem; border-radius: 4px;
+  border: 1px solid #3a2a4a; background: rgba(150, 90, 220, 0.12); color: #d7b8f5; cursor: pointer;
+  transition: background 90ms, border-color 90ms, box-shadow 90ms; }
+.sg-gen-btn:hover { border-color: #a06be0; box-shadow: 0 0 8px rgba(160, 107, 224, 0.4); }
+.sg-gen-btn:active { transform: translateY(1px); }
+.sg-gen-reseed { background: rgba(160, 107, 224, 0.2); border-color: #7a4bd0; color: #ecd9ff; }
 
 /* ---- TPL Playback / Playlist timeline (the recorded TPL stream over time) ------------------------- */
 .seq-session-wrap { display: flex; flex-direction: column; gap: 10px; }

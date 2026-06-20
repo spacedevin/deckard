@@ -71,6 +71,11 @@ export fn applyStepsLiteral(ch, toks, startIdx) {
     }
     ch.steps[si].on = on
     ch.steps[si].vel = vel
+    // A bare `steps` line resets the p-locks to defaults; the parallel step_vel/prob/ratchet/nudge lines
+    // (emitted right after) restore any deviations. Keeps round-trip + re-apply-over-existing predictable.
+    ch.steps[si].prob = 1
+    ch.steps[si].ratchet = 1
+    ch.steps[si].nudge = 0
     si = si + 1
   }
 }
@@ -97,7 +102,43 @@ export fn applyStepsEuclid(ch, hits, len) {
   while (fi < 16) {
     ch.steps[fi].on = full[fi]
     ch.steps[fi].vel = 100
+    ch.steps[fi].prob = 1
+    ch.steps[fi].ratchet = 1
+    ch.steps[fi].nudge = 0
     fi = fi + 1
+  }
+}
+
+// A per-step LANE: `step_vel 100 90 …` / `step_prob 1 .5 …` / `step_ratchet 1 2 …` / `step_nudge 0 .1 …` —
+// up to 16 numeric values aligned to the step grid, each written to steps[i][field], clamped to [lo,hi] (and
+// floored if isInt). Missing/short tokens fall back to dflt. Parallel to `steps`, emitted right after it.
+export fn applyStepLane(ch, toks, field, dflt, lo, hi, isInt) {
+  if (!ch.steps) {
+    return
+  }
+  let si = 0
+  while (si < 16) {
+    let ti = 1 + si
+    let v = dflt
+    if (ti < toks.length) {
+      let n = Number(toks[ti])
+      if (n === n) {
+        v = n
+      }
+    }
+    if (isInt) {
+      v = Math.floor(v)
+    }
+    if (v < lo) {
+      v = lo
+    }
+    if (v > hi) {
+      v = hi
+    }
+    if (ch.steps[si]) {
+      ch.steps[si][field] = v
+    }
+    si = si + 1
   }
 }
 
@@ -280,6 +321,14 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
         } else {
           applyStepsLiteral(ch, t, 1)
         }
+      } else if (h === "step_vel") {
+        applyStepLane(ch, t, "vel", 100, 1, 127, true)
+      } else if (h === "step_prob") {
+        applyStepLane(ch, t, "prob", 1, 0, 1, false)
+      } else if (h === "step_ratchet") {
+        applyStepLane(ch, t, "ratchet", 1, 1, 8, true)
+      } else if (h === "step_nudge") {
+        applyStepLane(ch, t, "nudge", 0, -0.5, 0.5, false)
       } else {
         if (h === "note") {
           if (t.length >= 6 && t[4] === "v") {
@@ -905,6 +954,15 @@ export fn applyParsed(project, parsed) {
     let sw = Number(parsed.swing)
     if (sw === sw) {
       project.swing = sw < 0 ? 0 : (sw > 1 ? 1 : sw)
+    }
+  }
+  if (parsed.scaleRoot !== null && parsed.scaleRoot !== undefined) {
+    if (parsed.scaleRoot < 0 || parsed.scaleMode === "off") {
+      project.scaleRoot = null
+      project.scaleMode = null
+    } else {
+      project.scaleRoot = Math.floor(parsed.scaleRoot)
+      project.scaleMode = parsed.scaleMode
     }
   }
   let userMacros = parsed.macros ? parsed.macros : {}

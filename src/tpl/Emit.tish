@@ -3,6 +3,45 @@ import { camelToSnake } from './RegistryMap.tish'
 import { mixParamToTpl } from '../audio/MixerAutomation.tish'
 import { collectActorLanes } from '../model/MixerRouting.tish'
 import { syncAllMainClipsFromChannels, ensureProjectSession, playbackClipForChannel } from '../model/Session.tish'
+import { scaleRootNames } from '../model/Scale.tish'
+
+// Emit a per-step LANE (step_vel/step_prob/step_ratchet/step_nudge) only when SOME step deviates from the
+// default — a plain pattern stays terse. Ints emit floored; floats via formatTplFloat (trimmed, signed).
+export fn stepLaneLine(steps, label, field, dflt, isInt) {
+  if (!steps) {
+    return ""
+  }
+  let any = false
+  let i = 0
+  while (i < 16) {
+    let v = (steps[i] && steps[i][field] != null) ? Number(steps[i][field]) : dflt
+    if (isInt) {
+      if (Math.floor(v) !== Math.floor(dflt)) {
+        any = true
+      }
+    } else {
+      if (Math.abs(v - dflt) > 0.0005) {
+        any = true
+      }
+    }
+    i = i + 1
+  }
+  if (!any) {
+    return ""
+  }
+  let o = "  " + label
+  let j = 0
+  while (j < 16) {
+    let v = (steps[j] && steps[j][field] != null) ? Number(steps[j][field]) : dflt
+    if (isInt) {
+      o = o + " " + String(Math.floor(v))
+    } else {
+      o = o + " " + formatTplFloat(v)
+    }
+    j = j + 1
+  }
+  return o + "\n"
+}
 
 export fn generatorIdToTpl(id) {
   if (id === "noiseBurst") {
@@ -48,6 +87,14 @@ export fn emitProjectInner(project, skipSync) {
   }
   if (project.swing != null && Number(project.swing) > 0.0001) {
     o = o + "swing " + formatTplFloat(project.swing) + "\n"
+  }
+  // Scale lock (global key constraint) — root pitch-class name + mode.
+  if (project.scaleRoot != null && project.scaleMode != null && project.scaleMode !== "" && project.scaleMode !== "off") {
+    let rn = scaleRootNames()
+    let pc = Math.floor(Number(project.scaleRoot))
+    if (pc >= 0 && pc <= 11) {
+      o = o + "scale " + rn[pc] + " " + String(project.scaleMode) + "\n"
+    }
   }
   o = o + "\n"
 
@@ -247,6 +294,11 @@ export fn emitProjectInner(project, skipSync) {
         si = si + 1
       }
       o = o + "\n"
+      // Per-step parameter locks ride parallel lanes right after `steps` (each omitted if all-default).
+      o = o + stepLaneLine(ch.steps, "step_vel", "vel", 100, true)
+      o = o + stepLaneLine(ch.steps, "step_prob", "prob", 1, false)
+      o = o + stepLaneLine(ch.steps, "step_ratchet", "ratchet", 1, true)
+      o = o + stepLaneLine(ch.steps, "step_nudge", "nudge", 0, false)
     }
 
     let ni = 0

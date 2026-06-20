@@ -5,6 +5,7 @@ import { expandTriggerNotes } from './NoteExpand.tish'
 import { tplLoopOnBarBoundary, tplLoopSkipsChannel } from '../tpl/LoopState.tish'
 import { playbackClipForChannel, clipPatternSpanSteps } from '../model/Session.tish'
 import { channelDeck } from '../model/DeckRouting.tish'
+import { projectSnapPitch } from '../model/Scale.tish'
 
 /**
  * PURE note selection: which notes fire at `globalStep`, given ONLY the fold (project) + the performance
@@ -14,6 +15,15 @@ import { channelDeck } from '../model/DeckRouting.tish'
  * a host and guest hear EXACTLY the same thing (identical fold + step ⇒ identical triggers). It advances
  * rt.arpState / tpl-loop state exactly like playback, so callers must invoke it once per played step.
  */
+// Deterministic 0..1 from (globalStep, busIndex, seed). The PROBABILITY p-lock gates a step on this value, so
+// every client (and every offline re-render) rolls IDENTICALLY — the seed rides project.songSeed in the shared
+// stream, and globalStep is cumulative so a 50% step varies bar-to-bar instead of being stuck on/off. Classic
+// fract(sin·k) hash: no integer overflow (stays in double range), uniform enough for a per-step coin flip.
+export fn stepRand01(step, bus, seed) {
+  let x = Math.sin((step + 1) * 12.9898 + (bus + 1) * 78.233 + (seed + 1) * 37.719) * 43758.5453
+  return x - Math.floor(x)
+}
+
 export fn stepTriggers(project, rt, globalStep) {
   tplLoopOnBarBoundary(project, globalStep, rt)
   let out = []
@@ -57,7 +67,7 @@ export fn stepTriggers(project, rt, globalStep) {
         let noteStep = Math.floor(n.startBeat * 4 + 0.0001)
         if (noteStep >= 0 && noteStep < patSpan && stepInSpan === noteStep) {
           let sec = (n.durBeats * 60) / project.bpm
-          let notes = expandTriggerNotes(ch, n.pitch, sec)
+          let notes = expandTriggerNotes(ch, projectSnapPitch(project, n.pitch), sec)
           let pk = 0
           while (pk < notes.length) {
             out.push({ busIndex: bi, pitch: notes[pk].pitch, vel: n.vel, durSec: notes[pk].dur, beat: n.startBeat, noteOffset: notes[pk].offset })
@@ -74,8 +84,18 @@ export fn stepTriggers(project, rt, globalStep) {
       // either pinned bar-1's pitch or, with the naive span fix, silenced bars 2+ entirely).
       let rlen = (useSteps && useSteps.length >= 1) ? useSteps.length : 16
       let stepInRhythm = globalStep % rlen
-      if (useSteps && stepInRhythm < useSteps.length && useSteps[stepInRhythm].on) {
-        let dur = sixteenthSeconds(project.bpm) * 0.85
+      let st = (useSteps && stepInRhythm < useSteps.length) ? useSteps[stepInRhythm] : null
+      let fires = st != null && st.on
+      // PROBABILITY p-lock: a sub-1 chance gates the hit, seeded so every client agrees (see stepRand01).
+      if (fires && st.prob != null && st.prob < 0.999) {
+        let seed = project.songSeed != null ? Math.floor(project.songSeed) : 0
+        if (stepRand01(globalStep, bi, seed) >= st.prob) {
+          fires = false
+        }
+      }
+      if (fires) {
+        let stepSec = sixteenthSeconds(project.bpm)
+        let dur = stepSec * 0.85
         let basePitch = ch.stepPitch
         if (ch.stepPitchByBar) {
           let barIdx = Math.floor(globalStep / 16) % nbars
@@ -83,11 +103,23 @@ export fn stepTriggers(project, rt, globalStep) {
             basePitch = ch.stepPitchByBar[barIdx]
           }
         }
-        let notes = expandTriggerNotes(ch, basePitch, dur)
-        let pk = 0
-        while (pk < notes.length) {
-          out.push({ busIndex: bi, pitch: notes[pk].pitch, vel: useSteps[stepInRhythm].vel, durSec: notes[pk].dur, beat: globalStep * 0.25, noteOffset: notes[pk].offset })
-          pk = pk + 1
+        // NUDGE p-lock: micro-timing as a fraction of a step (added to noteOffset → tWhen). RATCHET p-lock:
+        // R evenly-spaced sub-hits filling the step (each shortened to dur/R so they don't overlap).
+        let nudgeSec = (st.nudge != null ? st.nudge : 0) * stepSec
+        let ratchet = (st.ratchet != null && st.ratchet >= 1) ? Math.floor(st.ratchet) : 1
+        if (ratchet > 8) {
+          ratchet = 8
+        }
+        let notes = expandTriggerNotes(ch, projectSnapPitch(project, basePitch), ratchet > 1 ? dur / ratchet : dur)
+        let rj = 0
+        while (rj < ratchet) {
+          let ratSec = ratchet > 1 ? (rj * stepSec / ratchet) : 0
+          let pk = 0
+          while (pk < notes.length) {
+            out.push({ busIndex: bi, pitch: notes[pk].pitch, vel: st.vel, durSec: notes[pk].dur, beat: globalStep * 0.25, noteOffset: notes[pk].offset + nudgeSec + ratSec })
+            pk = pk + 1
+          }
+          rj = rj + 1
         }
       }
     }

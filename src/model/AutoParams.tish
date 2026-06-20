@@ -1,0 +1,129 @@
+// Drawable automation — which generator param a channel can sweep, its display range, and the 0..1↔value
+// mapping the step-aligned lane uses. Only SIMPLE generators (that read generatorParams at note time via
+// generatorChannelAtBeat) are automatable here; patch/macro voices read a graph, so they return [] (no lane).
+
+import { automationAt } from '../schedule/Engine.tish'
+
+// Continuous, numeric params worth sweeping, per generator (first = the default the lane drives in v1).
+export fn automatableParams(generatorId) {
+  if (generatorId === "pad") {
+    return [{ key: "cutoff", label: "CUTOFF", min: 150, max: 9000, log: true }, { key: "decay", label: "DECAY", min: 0.02, max: 3, log: true }]
+  }
+  if (generatorId === "fmTone") {
+    return [{ key: "modIndex", label: "FM IDX", min: 0, max: 24, log: false }, { key: "decay", label: "DECAY", min: 0.02, max: 2, log: true }]
+  }
+  if (generatorId === "noiseBurst") {
+    return [{ key: "tone", label: "TONE", min: 0, max: 1, log: false }, { key: "decay", label: "DECAY", min: 0.01, max: 1, log: true }]
+  }
+  if (generatorId === "guitar") {
+    return [{ key: "tone", label: "TONE", min: 0, max: 1, log: false }, { key: "drive", label: "DRIVE", min: 0, max: 1, log: false }]
+  }
+  if (generatorId === "clap") {
+    return [{ key: "tone", label: "TONE", min: 0, max: 1, log: false }]
+  }
+  if (generatorId === "drumSynth") {
+    return [{ key: "decay", label: "DECAY", min: 0.02, max: 1.2, log: true }, { key: "drive", label: "DRIVE", min: 0, max: 1, log: false }]
+  }
+  if (generatorId === "bell") {
+    return [{ key: "decay", label: "DECAY", min: 0.1, max: 3, log: true }]
+  }
+  if (generatorId === "basicOsc") {
+    return [{ key: "decay", label: "DECAY", min: 0.02, max: 1, log: true }]
+  }
+  // matrixFm / patch / macro / unknown → not automatable through the generatorParams path.
+  return []
+}
+
+// The lane's default target for a channel (or null if the generator isn't automatable here).
+export fn defaultAutoParam(generatorId) {
+  let ps = automatableParams(generatorId)
+  if (ps.length === 0) {
+    return null
+  }
+  return ps[0]
+}
+
+export fn autoParamSpec(generatorId, key) {
+  let ps = automatableParams(generatorId)
+  let i = 0
+  while (i < ps.length) {
+    if (ps[i].key === key) {
+      return ps[i]
+    }
+    i = i + 1
+  }
+  return null
+}
+
+// value → 0..1 within [min,max] (log when the range spans decades). Clamped.
+export fn autoNorm(value, min, max, log) {
+  let v = Number(value)
+  if (v !== v) {
+    v = min
+  }
+  let n = 0
+  if (log && min > 0 && max > min) {
+    n = (Math.log(v < min ? min : v) - Math.log(min)) / (Math.log(max) - Math.log(min))
+  } else if (max > min) {
+    n = (v - min) / (max - min)
+  }
+  if (n < 0) {
+    n = 0
+  }
+  if (n > 1) {
+    n = 1
+  }
+  return n
+}
+
+// 0..1 → value within [min,max] (log or linear).
+export fn autoDenorm(norm, min, max, log) {
+  let n = Number(norm)
+  if (n !== n) {
+    n = 0
+  }
+  if (n < 0) {
+    n = 0
+  }
+  if (n > 1) {
+    n = 1
+  }
+  if (log && min > 0 && max > min) {
+    return Math.exp(Math.log(min) + n * (Math.log(max) - Math.log(min)))
+  }
+  return min + n * (max - min)
+}
+
+// Find a channel's automation points for a param (or null).
+export fn channelAutoPoints(project, channelId, param) {
+  if (!project || !project.paramAutomations) {
+    return null
+  }
+  let i = 0
+  while (i < project.paramAutomations.length) {
+    let pa = project.paramAutomations[i]
+    if (pa.channelId === channelId && pa.param === param && pa.points && pa.points.length > 0) {
+      return pa.points
+    }
+    i = i + 1
+  }
+  return null
+}
+
+// Read the lane as 16 step-aligned values (beats 0,0.25,…,3.75): sample existing automation, else flat at
+// the channel's current param value.
+export fn autoLaneValues(project, ch, param) {
+  let pts = channelAutoPoints(project, ch.id, param)
+  let cur = (ch.generatorParams && ch.generatorParams[param] != null) ? Number(ch.generatorParams[param]) : 0
+  let out = []
+  let i = 0
+  while (i < 16) {
+    if (pts) {
+      out.push(automationAt(pts, i * 0.25))
+    } else {
+      out.push(cur)
+    }
+    i = i + 1
+  }
+  return out
+}
