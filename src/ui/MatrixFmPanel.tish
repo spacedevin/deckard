@@ -17,7 +17,8 @@ import {
 } from '../tpl/MatrixFmGraph.tish'
 import { parseGenBlock, defaultMatrixFmRawLines } from '../tpl/TplExtension.tish'
 import { matrixFmPatches } from '../model/MatrixFmPresets.tish'
-import { Knob, accentForGenerator, matrixFmSvgDataUrl, matrixFmLucideIconSvg } from './InstrumentKit.tish'
+import { Knob, accentForGenerator, matrixFmSvgDataUrl, matrixFmLucideIconSvg, isKnobDragging, selOpt } from './InstrumentKit.tish'
+import { emitInstrumentModuleTpl } from '../core/Levels.tish'
 
 fn numOr(x, def) {
   if (typeof x === "number" && x === x) {
@@ -163,7 +164,165 @@ fn matrixFmOpWavePicker(waveVal, oidCopy, g, commit) {
   return <div class="sytrus-wave-ic-row">{btns}</div>
 }
 
-export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
+// Pure: which FILTERS reach `out` — directly, or through another filter (filter→filter resolved to a
+// fixpoint). Exported for tests + the flow cues.
+export fn matrixFiltersReachingOut(g) {
+  let routes = g.routes ? g.routes : []
+  let fOut = {}
+  let pass = 0
+  while (pass < 8) {
+    let i = 0
+    while (i < routes.length) {
+      let r = routes[i]
+      if (r.srcKind === "filter") {
+        let reaches = false
+        if (r.dstKind === "out") {
+          reaches = true
+        } else if (r.dstKind === "filter" && fOut[r.dstId] === true) {
+          reaches = true
+        }
+        if (reaches) {
+          fOut[r.srcId] = true
+        }
+      }
+      i = i + 1
+    }
+    pass = pass + 1
+  }
+  return fOut
+}
+
+// Pure: which operators are AUDIBLE — route to `out` directly, or through a filter that reaches out. If there
+// are no routes, the engine defaults the first op to out, so mirror that. Exported for tests + the flow cues.
+export fn matrixOpsReachingOut(g, opIds) {
+  let out = {}
+  let routes = g.routes ? g.routes : []
+  if (routes.length === 0) {
+    if (opIds.length > 0) {
+      out[opIds[0]] = true
+    }
+    return out
+  }
+  let fOut = matrixFiltersReachingOut(g)
+  let j = 0
+  while (j < routes.length) {
+    let r = routes[j]
+    if (r.srcKind === "op") {
+      if (r.dstKind === "out") {
+        out[r.srcId] = true
+      } else if (r.dstKind === "filter" && fOut[r.dstId] === true) {
+        out[r.srcId] = true
+      }
+    }
+    j = j + 1
+  }
+  return out
+}
+
+// Compact signal-flow strip — the WHOLE chain on one row: op boxes, then filter boxes, then OUT (left→right).
+// ABOVE the row: FM/RM modulation arcs (op→op, dot at the modulated end). BELOW the row: the ROUTING bus as
+// arcs (op→filter / op→out / filter→out) — so the filter+routing stage is visible, and a filter with no route
+// onward shows as un-lit (a dead end). Lit boxes reach OUT. Positions are computed → pure/testable.
+fn matrixFlowStrip(g, opIds, filterIds, reachOut, filterReach) {
+  let nOp = opIds.length
+  if (nOp === 0) {
+    return null
+  }
+  let nF = filterIds.length
+  let padL = 16
+  let gap = 54
+  let boxW = 30
+  let boxH = 24
+  let rowY = 48
+  let boxTop = rowY - boxH / 2
+  let boxBot = rowY + boxH / 2
+  let nodeX = {}
+  let idx = 0
+  let oi = 0
+  while (oi < nOp) {
+    nodeX["op:" + opIds[oi]] = padL + idx * gap
+    idx = idx + 1
+    oi = oi + 1
+  }
+  let fi = 0
+  while (fi < nF) {
+    nodeX["f:" + filterIds[fi]] = padL + idx * gap
+    idx = idx + 1
+    fi = fi + 1
+  }
+  nodeX["out"] = padL + idx * gap
+  let w = padL + idx * gap + boxW + 10
+  let hgt = 100
+  // FM/RM modulation arcs (above the row).
+  let arcs = []
+  let mods = g.mods ? g.mods : []
+  let mi = 0
+  while (mi < mods.length) {
+    let md = mods[mi]
+    let amt = md.amount != null ? md.amount : 0
+    let sx = nodeX["op:" + md.src]
+    let dx = nodeX["op:" + md.dst]
+    if (amt > 0.0001 && sx != null && dx != null && md.src !== md.dst) {
+      let x1 = sx + boxW / 2
+      let x2 = dx + boxW / 2
+      let lift = 18 + Math.abs(x2 - x1) * 0.16
+      let midx = (x1 + x2) / 2
+      let cls = md.type === "rm" ? "mfm-arc mfm-arc-rm" : "mfm-arc mfm-arc-fm"
+      arcs.push(<path class={cls} d={"M " + String(Math.round(x1)) + " " + String(boxTop) + " Q " + String(Math.round(midx)) + " " + String(Math.round(boxTop - lift)) + " " + String(Math.round(x2)) + " " + String(boxTop)} key={"a" + String(mi)} />)
+      arcs.push(<circle class={md.type === "rm" ? "mfm-dot mfm-dot-rm" : "mfm-dot mfm-dot-fm"} cx={String(Math.round(x2))} cy={String(Math.round(boxTop))} r="2.6" key={"ad" + String(mi)} />)
+    }
+    mi = mi + 1
+  }
+  // Routing bus arcs (below the row): op/filter → filter/out.
+  let routeLines = []
+  let routes = g.routes ? g.routes : []
+  let ri = 0
+  while (ri < routes.length) {
+    let r = routes[ri]
+    let sKey = (r.srcKind === "filter" ? "f:" : "op:") + r.srcId
+    let dKey = r.dstKind === "out" ? "out" : ("f:" + r.dstId)
+    if (nodeX[sKey] != null && nodeX[dKey] != null) {
+      let x1 = nodeX[sKey] + boxW / 2
+      let x2 = nodeX[dKey] + boxW / 2
+      let dip = 16 + Math.abs(x2 - x1) * 0.1
+      let midx = (x1 + x2) / 2
+      routeLines.push(<path class="mfm-route-line" d={"M " + String(Math.round(x1)) + " " + String(boxBot) + " Q " + String(Math.round(midx)) + " " + String(Math.round(boxBot + dip)) + " " + String(Math.round(x2)) + " " + String(boxBot)} key={"rl" + String(ri)} />)
+    }
+    ri = ri + 1
+  }
+  // Nodes.
+  let nodes = []
+  let nk = 0
+  while (nk < nOp) {
+    let id = opIds[nk]
+    let cls = reachOut[id] === true ? "mfm-op mfm-op-on" : "mfm-op"
+    nodes.push(<rect class={cls} x={String(nodeX["op:" + id])} y={String(boxTop)} width={String(boxW)} height={String(boxH)} rx="4" key={"n" + id} />)
+    nodes.push(<text class="mfm-op-lbl" x={String(nodeX["op:" + id] + boxW / 2)} y={String(rowY + 3)} key={"nl" + id}>{id}</text>)
+    nk = nk + 1
+  }
+  let fk = 0
+  while (fk < nF) {
+    let fid = filterIds[fk]
+    let fcls = filterReach[fid] === true ? "mfm-filter mfm-filter-on" : "mfm-filter"
+    nodes.push(<rect class={fcls} x={String(nodeX["f:" + fid])} y={String(boxTop)} width={String(boxW)} height={String(boxH)} rx="4" key={"fn" + fid} />)
+    nodes.push(<text class="mfm-filter-lbl" x={String(nodeX["f:" + fid] + boxW / 2)} y={String(rowY + 3)} key={"fl" + fid}>{"F" + fid}</text>)
+    fk = fk + 1
+  }
+  return (
+    <svg class="mfm-flow" viewBox={"0 0 " + String(w) + " " + String(hgt)} preserveAspectRatio="xMinYMid meet">
+      {arcs}
+      {routeLines}
+      {nodes}
+      <rect class="mfm-out" x={String(nodeX["out"])} y={String(boxTop)} width="40" height={String(boxH)} rx="4" />
+      <text class="mfm-out-lbl" x={String(nodeX["out"] + 20)} y={String(rowY + 3)}>{"OUT"}</text>
+    </svg>
+  )
+}
+
+// mayEdit gates authoring: when false (a co-DJ track you don't own / master-locked) the panel is read-only —
+// commit() no-ops and the body gets `instr-readonly` (pointer-events:none) so no control can fire.
+export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
+  let canEdit = mayEdit !== false
   if (
     !ch.generatorSpec ||
     ch.generatorSpec.kind !== "matrixFm" ||
@@ -194,18 +353,95 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
     g.routes = []
   }
 
-  fn commit() {
-    syncMatrixFmSpecFromGraph(spec)
-    setProject(project)
-    if (tplMirrorFlush) {
+  // Undo snapshot of the gen_block before the current edit — re-synced at rest, FROZEN while a knob drags (so
+  // the captured "before" is pre-drag). Same scheme as the patch editor.
+  if (rt && canEdit) {
+    if (!rt._genSnap) {
+      rt._genSnap = {}
+    }
+    if (!isKnobDragging()) {
+      rt._genSnap[ch.id] = emitInstrumentModuleTpl(project, ch.id, "gen")
+    }
+  }
+
+  // Broadcast the whole matrix gen_block through the gated `gen` ingest door — peers + round-trip + UNDOABLE +
+  // MERGES (preserves steps/mix). The matrix knobs commit() on EVERY onInput (per pixel), and ingest swaps
+  // ch.generatorSpec.graph; doing that mid-drag would orphan the knobs (and re-parse per pixel). So the
+  // broadcast is DEFERRED: a trailing timer that keeps re-deferring WHILE any knob is dragging, firing the one
+  // broadcast only once the gesture settles. (Previously matrix edits only mirrored locally — never broadcast.)
+  // Unique per-gesture coalesce token (on rt, shared with the patch editor) → each gesture is its OWN undo step
+  // (not one giant per-channel step).
+  fn nextGenToken() {
+    if (rt == null) {
+      return "0"
+    }
+    rt._genTokenSeq = (rt._genTokenSeq != null ? rt._genTokenSeq : 0) + 1
+    return String(rt._genTokenSeq)
+  }
+  fn broadcastFor(chId, inv) {
+    if (rt == null) {
+      return
+    }
+    let fwd = emitInstrumentModuleTpl(project, chId, "gen")
+    if (rt.directiveUndoable) {
+      rt.directiveUndoable(fwd, inv, "genblock:" + chId + ":" + nextGenToken())
+    } else if (rt.directive) {
+      rt.directive(fwd)
+    } else if (tplMirrorFlush) {
       tplMirrorFlush()
     }
+  }
+  // Per-CHANNEL pending broadcast (keyed, not a single global slot): a commit for one channel/edit can never
+  // silently cancel another's. If a DIFFERENT edit is already pending on this channel, flush it first rather
+  // than drop it. Within one drag every commit shares the frozen snapshot, so prev.inv === inv → just re-defer.
+  fn scheduleBroadcast(chId, inv) {
+    if (rt == null || typeof setTimeout === "undefined") {
+      if (tplMirrorFlush) {
+        tplMirrorFlush()
+      }
+      return
+    }
+    if (rt._mtxPending == null) {
+      rt._mtxPending = {}
+    }
+    let prev = rt._mtxPending[chId]
+    if (prev != null && prev.timer != null) {
+      clearTimeout(prev.timer)
+      if (prev.inv !== inv) {
+        broadcastFor(chId, prev.inv)
+      }
+    }
+    let tmr = setTimeout(() => {
+      if (isKnobDragging()) {
+        scheduleBroadcast(chId, inv)
+        return
+      }
+      rt._mtxPending[chId] = null
+      broadcastFor(chId, inv)
+    }, 110)
+    rt._mtxPending[chId] = { timer: tmr, inv: inv }
+  }
+  fn commit() {
+    if (!canEdit) {
+      return
+    }
+    // Capture the inverse (pre-edit block) synchronously, BEFORE setProject re-syncs the snapshot.
+    let inv = (rt != null && rt._genSnap != null) ? rt._genSnap[ch.id] : null
+    syncMatrixFmSpecFromGraph(spec)
+    setProject(project)
+    scheduleBroadcast(ch.id, inv)
+  }
+  let mfmOwner = "another player"
+  if (project.coDjMeta && project.coDjMeta.tracks && project.coDjMeta.tracks[ch.id] && project.coDjMeta.tracks[ch.id].ownerActorId != null) {
+    mfmOwner = String(project.coDjMeta.tracks[ch.id].ownerActorId)
   }
 
   let accent = accentForGenerator("matrixFm")
 
   let opIds = sortedStringKeys(g.ops)
   let filterIds = sortedStringKeys(g.filters)
+  let reachOut = matrixOpsReachingOut(g, opIds)
+  let filterReach = matrixFiltersReachingOut(g)
 
   let opHeaderCells = []
   let hi = 0
@@ -243,8 +479,9 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
         let rmV = findModAmount(g, "rm", src, dst)
         let srcCopy = src
         let dstCopy = dst
+        let cellActive = fmV > 0.0001 || rmV > 0.0001
         rowCells.push(
-          <td class="sytrus-matrix-cell" key={dst + "_" + src}>
+          <td class={cellActive ? "sytrus-matrix-cell sytrus-matrix-active" : "sytrus-matrix-cell"} key={dst + "_" + src}>
             <div class="sytrus-mod-pair">
               <label class="sytrus-mod-lbl">
                 {"FM"}
@@ -309,9 +546,10 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
     let rr = numOr(ev.r, 0.12)
     let oidCopy = oid
     opStrips.push(
-      <div class="sytrus-op-card" key={"op" + oid}>
+      <div class={reachOut[oid] === true ? "sytrus-op-card sytrus-op-audible" : "sytrus-op-card"} key={"op" + oid}>
         <div class="sytrus-op-card-top">
           <span class="sytrus-op-badge">{"OP " + oid}</span>
+          {reachOut[oid] === true ? <span class="sytrus-op-out-tag">{"→ OUT"}</span> : null}
           <div class="sytrus-op-card-mid">
             {matrixFmOpWavePicker(wv, oidCopy, g, commit)}
             {Knob({
@@ -440,10 +678,10 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
               commit()
             }}
           >
-            <option value="lp12">{"LP 12dB"}</option>
-            <option value="lp24">{"LP 24dB"}</option>
-            <option value="hp12">{"HP 12dB"}</option>
-            <option value="hp24">{"HP 24dB"}</option>
+            {selOpt("lp12", "LP 12dB", ftype, "ft-lp12-" + fid)}
+            {selOpt("lp24", "LP 24dB", ftype, "ft-lp24-" + fid)}
+            {selOpt("hp12", "HP 12dB", ftype, "ft-hp12-" + fid)}
+            {selOpt("hp24", "HP 24dB", ftype, "ft-hp24-" + fid)}
           </select>
           <button
             type="button"
@@ -602,8 +840,8 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
             commit()
           }}
         >
-          <option value="op">{"op"}</option>
-          <option value="filter">{"filter"}</option>
+          {selOpt("op", "op", sk, "rsk-op-" + ridx)}
+          {selOpt("filter", "filter", sk, "rsk-flt-" + ridx)}
         </select>
         <select
           class="sytrus-route-sel"
@@ -615,7 +853,7 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
             commit()
           }}
         >
-          {routeIdOptions(sk, opIds, filterIds)}
+          {routeIdOptions(sk, opIds, filterIds, rt.srcId)}
         </select>
         <span class="sytrus-route-arrow">{"→"}</span>
         <select
@@ -635,8 +873,8 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
             commit()
           }}
         >
-          <option value="filter">{"filter"}</option>
-          <option value="out">{"main"}</option>
+          {selOpt("filter", "filter", dk, "rdk-flt-" + ridx)}
+          {selOpt("out", "main", dk, "rdk-out-" + ridx)}
         </select>
         <select
           class="sytrus-route-sel"
@@ -649,7 +887,7 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
             commit()
           }}
         >
-          {filterIdOptions(filterIds)}
+          {filterIdOptions(filterIds, rt.dstId ? rt.dstId : filterIds.length > 0 ? filterIds[0] : "1")}
         </select>
         <label class="sytrus-route-vol">
           {Knob({
@@ -709,11 +947,15 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
   }
 
   return (
-    <div class="sytrus-panel">
+    <div class={canEdit ? "sytrus-panel" : "sytrus-panel instr-readonly-host"}>
+      {canEdit ? null : (
+        <div class="instr-locked-hint">{"🔒 owned by " + mfmOwner + " — read only"}</div>
+      )}
       <div class="sytrus-panel-head">
         <div class="sytrus-panel-head-l">
           <span class="sytrus-panel-title">{"MATRIX FM"}</span>
           <span class="sytrus-panel-sub">{"operators · modulation · filters · bus"}</span>
+          {canEdit ? null : <span class="instr-lock-tag">{"read only"}</span>}
         </div>
         <select
           class="sytrus-patch-select"
@@ -728,6 +970,14 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
           {patchOpts}
         </select>
       </div>
+
+      <section class="sytrus-section mfm-flow-section">
+        <div class="sytrus-section-h">
+          <span>{"Signal flow"}</span>
+          <span class="sytrus-section-hint">{"arcs = modulation · lit boxes reach OUT"}</span>
+        </div>
+        <div class="mfm-flow-wrap">{matrixFlowStrip(g, opIds, filterIds, reachOut, filterReach)}</div>
+      </section>
 
       <div class="sytrus-row sytrus-row-top">
       <section class="sytrus-section">
@@ -822,54 +1072,42 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush) {
   )
 }
 
-fn routeIdOptions(kind, opIds, filterIds) {
+fn routeIdOptions(kind, opIds, filterIds, cur) {
   let opts = []
   if (kind === "filter") {
     let fi = 0
     while (fi < filterIds.length) {
       let id = filterIds[fi]
-      opts.push(
-        <option value={id} key={"roidf" + id}>
-          {id}
-        </option>
-      )
+      opts.push(selOpt(id, id, cur, "roidf" + id))
       fi = fi + 1
     }
     if (opts.length === 0) {
-      opts.push(<option value="1">{"1"}</option>)
+      opts.push(selOpt("1", "1", cur, "roidf1"))
     }
   } else {
     let oi = 0
     while (oi < opIds.length) {
       let id = opIds[oi]
-      opts.push(
-        <option value={id} key={"roido" + id}>
-          {id}
-        </option>
-      )
+      opts.push(selOpt(id, id, cur, "roido" + id))
       oi = oi + 1
     }
     if (opts.length === 0) {
-      opts.push(<option value="1">{"1"}</option>)
+      opts.push(selOpt("1", "1", cur, "roido1"))
     }
   }
   return opts
 }
 
-fn filterIdOptions(filterIds) {
+fn filterIdOptions(filterIds, cur) {
   let opts = []
   let fi = 0
   while (fi < filterIds.length) {
     let id = filterIds[fi]
-    opts.push(
-      <option value={id} key={"fdst" + id}>
-        {id}
-      </option>
-    )
+    opts.push(selOpt(id, id, cur, "fdst" + id))
     fi = fi + 1
   }
   if (opts.length === 0) {
-    opts.push(<option value="1">{"1"}</option>)
+    opts.push(selOpt("1", "1", cur, "fdst1"))
   }
   return opts
 }

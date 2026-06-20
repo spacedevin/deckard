@@ -1,0 +1,26 @@
+import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
+import { findChannelById } from '../src/tpl/Apply.tish'
+import { applyCoDjTplSource } from '../src/codj/Merge.tish'
+import { emitInstrumentModuleTpl } from '../src/core/Levels.tish'
+import { matrixFmFactoryInstrumentPresets } from '../src/model/MatrixFmPresets.tish'
+import { syncMatrixFmSpecFromGraph, sortedStringKeys } from '../src/tpl/MatrixFmGraph.tish'
+
+let p = loadDefaultDeckardProject().project
+let ch = p.channels[0]
+let T = ch.id
+let preset = matrixFmFactoryInstrumentPresets()[0]
+ch.generatorId = preset.generatorId
+ch.generatorSpec = preset.generatorSpec
+ch.generatorParams = preset.generatorParams
+
+let g = findChannelById(p, T).generatorSpec.graph
+let op0 = sortedStringKeys(g.ops)[0]
+g.ops[op0].ratio = 7.77
+syncMatrixFmSpecFromGraph(findChannelById(p, T).generatorSpec)
+console.log("after mutate, ratio=" + String(findChannelById(p, T).generatorSpec.graph.ops[op0].ratio))
+
+// Now directly re-ingest a gen_block with ratio 1.
+let inv = "tpl 1\ntrack Kick id " + T + " gen matrixFm\n  gen_block matrix_fm\n    op 1 wave sine ratio 1\n    op 2 wave saw ratio 0.5\n  end gen_block\n"
+applyCoDjTplSource(p, inv, "me", "me", 0, [])
+console.log("after re-ingest ratio-1 gen_block, ratio=" + String(findChannelById(p, T).generatorSpec.graph.ops[op0].ratio))
+console.log("op count after=" + String(sortedStringKeys(findChannelById(p, T).generatorSpec.graph.ops).length))

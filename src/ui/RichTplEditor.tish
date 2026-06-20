@@ -1,0 +1,89 @@
+// Reusable syntax-highlighted TPL editor — the SAME transparent-textarea-over-highlighted-<pre> mechanism the
+// main TPL editor (CodeDebugView) uses, extracted so every "Raw" TPL surface gets syntax highlighting.
+//
+// A vdom element can't host a contentEditable/highlight stack cleanly, so (like the main editor) we render a
+// slot <div> and imperatively mount the pre+textarea into it AFTER paint, persisting the pair on rt._richEd[slotId]
+// so a re-render doesn't recreate it (keeping focus/cursor) and re-appending it if the vdom cleared the slot.
+// onCommit(text) fires on blur (matching the old <textarea onchange> commit semantics — partial TPL while typing
+// would error, so we commit on settle, not per keystroke). The <pre> re-highlights live on every keystroke.
+
+import { h } from '@tishlang/lattish'
+import { tplDocumentToHighlightHtml } from '../tpl/SongEditorHighlight.tish'
+
+// Syntax highlight only — no playback step / no "recently applied" flash (those are song-editor specific).
+fn highlightFragment(src) {
+  return tplDocumentToHighlightHtml(src, -1, false, 0, 0)
+}
+
+fn attachRichEditor(rt, slotId, value, onCommit) {
+  if (typeof document === "undefined" || !document.getElementById) {
+    return
+  }
+  let slot = document.getElementById(slotId)
+  if (slot == null) {
+    return
+  }
+  if (rt._richEd == null) {
+    rt._richEd = {}
+  }
+  let st = rt._richEd[slotId]
+  if (st != null) {
+    // Already mounted — re-append if the vdom diff cleared the slot, and refresh the value when not focused
+    // (so an external change to the underlying TPL is reflected; while focused we leave the user's edit alone).
+    if (!slot.contains(st.wrap)) {
+      slot.innerHTML = ""
+      slot.appendChild(st.wrap)
+    }
+    if (document.activeElement !== st.ta && st.ta.value !== value) {
+      st.ta.value = value
+      st.pre.innerHTML = highlightFragment(value)
+    }
+    st.onCommit = onCommit
+    return
+  }
+  let wrap = document.createElement("div")
+  wrap.className = "rich-tpl-stack tpl-song-mirror-stack"
+  let pre = document.createElement("pre")
+  pre.className = "tpl-song-highlight-layer"
+  pre.setAttribute("aria-hidden", "true")
+  let ta = document.createElement("textarea")
+  ta.className = "tpl-song-input-layer"
+  ta.setAttribute("spellcheck", "false")
+  ta.value = value
+  pre.innerHTML = highlightFragment(value)
+  let state = { wrap: wrap, pre: pre, ta: ta, onCommit: onCommit }
+  ta.oninput = () => {
+    pre.innerHTML = highlightFragment(ta.value)
+  }
+  ta.onscroll = () => {
+    pre.scrollTop = ta.scrollTop
+    pre.scrollLeft = ta.scrollLeft
+  }
+  ta.onchange = () => {
+    if (state.onCommit) {
+      state.onCommit(ta.value)
+    }
+  }
+  // Don't let a click in the editor start a card drag / collapse.
+  ta.onmousedown = (e) => {
+    if (e.stopPropagation) {
+      e.stopPropagation()
+    }
+  }
+  wrap.appendChild(pre)
+  wrap.appendChild(ta)
+  slot.innerHTML = ""
+  slot.appendChild(wrap)
+  rt._richEd[slotId] = state
+}
+
+// Render the editor. slotId must be STABLE per logical editor (e.g. channel+module) so the textarea persists.
+// onCommit(text) fires on blur.
+export fn RichTplEditor(rt, slotId, value, onCommit) {
+  if (rt != null && typeof setTimeout !== "undefined") {
+    setTimeout(() => {
+      attachRichEditor(rt, slotId, value, onCommit)
+    }, 0)
+  }
+  return <div class="rich-tpl-slot" id={slotId} />
+}

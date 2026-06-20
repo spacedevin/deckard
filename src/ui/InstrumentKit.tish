@@ -4,6 +4,27 @@
 
 import { h } from '@tishlang/lattish'
 
+/// One <option> with `selected` set ONLY on the matching one. REQUIRED because the Lattish vdom mounts element
+/// props BEFORE appending children, so `<select value=X>` runs `el.value=X` while the select has zero options →
+/// the assignment is dropped and the select shows its FIRST option on initial mount. Marking the chosen option
+/// `selected` makes the browser pick it regardless of order. The attribute must be CONDITIONALLY present (only
+/// when matching) — a boolean `selected={false}` would still `setAttribute("selected","false")` (present ⇒
+/// selected) at mount. Used by every patch / matrix dropdown whose value can differ from its first option.
+export fn selOpt(value, label, cur, key) {
+  if (String(value) === String(cur)) {
+    return (
+      <option value={value} selected="selected" key={key}>
+        {label}
+      </option>
+    )
+  }
+  return (
+    <option value={value} key={key}>
+      {label}
+    </option>
+  )
+}
+
 /// Encode an SVG markup string as a data: URL (img src / CSS background). Lives here (the shared kit)
 /// so both WaveIconPicker and MatrixFmPanel use one copy — keeping the import graph acyclic.
 export fn matrixFmSvgDataUrl(svgMarkup) {
@@ -146,9 +167,19 @@ fn knobClamp(v, min, max) {
   return v
 }
 
+// Global "is any knob being dragged" flag — set on pointer/touch down, cleared on up. Consumers (the patch /
+// matrix editors) use it to FREEZE their per-channel undo snapshot during a drag (so the captured "before"
+// state is the pre-drag value, not a mid-drag one) without wiring a per-knob gesture hook.
+let knobDragging = false
+export fn isKnobDragging() {
+  return knobDragging
+}
+
 /**
- * Rotary knob. opts: { label, value, min, max, step?, fmt?, onInput, accent?, detents? }.
+ * Rotary knob. opts: { label, value, min, max, step?, fmt?, onInput, onCommit?, accent?, detents? }.
  * Vertical drag = change (up increases). onInput(newValue) fires continuously during the drag.
+ * onCommit(finalValue) fires ONCE at the end of a gesture (mouseup/touchend, or per wheel tick) — the
+ * "this edit is final" signal for consumers that persist/broadcast on settle rather than per pixel.
  * detents: when >= 2, draws that many evenly-spaced position dots around the dial (the current
  * one lit in the accent colour) instead of the plain moving indicator — used for stepped selectors
  * (octave / arp / chord). Scroll-wheel steps one detent at a time (only when detents is set).
@@ -201,9 +232,11 @@ export fn Knob(opts) {
   // emit-coalescing are identical; each binds its own move/up pair on document (touch needs the
   // `.ik-knob-dial { touch-action: none }` rule so the drag doesn't scroll the page).
   fn startDrag(startY) {
+    knobDragging = true
     let startV = v
     let range = max - min
     let lastEmit = startV
+    let didChange = false
     fn onMove(ev) {
       let cy2 = ev.clientY != null ? ev.clientY : (ev.touches != null && ev.touches.length > 0 ? ev.touches[0].clientY : startY)
       let dy = startY - cy2
@@ -215,21 +248,34 @@ export fn Knob(opts) {
       // re-emit (and re-broadcast) the same value every move.
       if (nv !== lastEmit) {
         lastEmit = nv
+        didChange = true
         if (opts.onInput) {
           opts.onInput(nv)
         }
       }
     }
     fn onUp() {
+      knobDragging = false
       document.removeEventListener("mousemove", onMove)
       document.removeEventListener("mouseup", onUp)
       document.removeEventListener("touchmove", onMove)
       document.removeEventListener("touchend", onUp)
+      // touchcancel/pointercancel fire INSTEAD of touchend when the OS interrupts a gesture — without these the
+      // global knobDragging flag would stick true and stall the patch/matrix deferred broadcasts + snapshot.
+      document.removeEventListener("touchcancel", onUp)
+      document.removeEventListener("pointercancel", onUp)
+      // Fire onCommit ONCE at the end of the gesture (not per move) — the "this edit is final" signal a
+      // consumer uses to persist/broadcast without doing it per pixel. Only when the value actually moved.
+      if (didChange && opts.onCommit) {
+        opts.onCommit(lastEmit)
+      }
     }
     document.addEventListener("mousemove", onMove)
     document.addEventListener("mouseup", onUp)
     document.addEventListener("touchmove", onMove)
     document.addEventListener("touchend", onUp)
+    document.addEventListener("touchcancel", onUp)
+    document.addEventListener("pointercancel", onUp)
   }
 
   fn onDown(e) {
@@ -272,8 +318,14 @@ export fn Knob(opts) {
     let dir = e.deltaY < 0 ? 1 : -1
     let nv = knobClamp(v + dir * stepV, min, max)
     // At a boundary the clamp pins nv to the current value — skip the redundant gated emit/broadcast.
-    if (nv !== v && opts.onInput) {
-      opts.onInput(nv)
+    if (nv !== v) {
+      if (opts.onInput) {
+        opts.onInput(nv)
+      }
+      // A wheel tick is a discrete, self-contained edit → commit it immediately.
+      if (opts.onCommit) {
+        opts.onCommit(nv)
+      }
     }
   }
 

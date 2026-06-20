@@ -187,6 +187,9 @@ fn defaultNodeForKind(kind, id) {
   if (kind === "shaper") {
     return { kind: "shaper", id: id, amount: 50 }
   }
+  if (kind === "pan") {
+    return { kind: "pan", id: id, pos: 0 }
+  }
   return { kind: "gain", id: id, value: 1 }
 }
 
@@ -205,6 +208,9 @@ fn prefixForKind(kind) {
   }
   if (kind === "shaper") {
     return "s"
+  }
+  if (kind === "pan") {
+    return "p"
   }
   return "g"
 }
@@ -249,6 +255,12 @@ export fn removePatchNode(graph, id) {
 export fn addPatchConn(graph) {
   let src = graph.nodes.length > 0 ? graph.nodes[0].id : "o1"
   graph.conns.push({ src: src, dst: "out", dstParam: null, vol: 1 })
+}
+
+// Add an output route FROM a specific node (used by the per-card inline routing — each module owns
+// its outgoing connections instead of one global connection list).
+export fn addPatchConnFrom(graph, srcId) {
+  graph.conns.push({ src: srcId, dst: "out", dstParam: null, vol: 1 })
 }
 
 export fn removePatchConnAt(graph, index) {

@@ -3,9 +3,9 @@
 import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
 import { emitProject, emitLivePlayback } from '../src/tpl/Emit.tish'
 import { applyTplSource, findChannelById } from '../src/tpl/Apply.tish'
-import { applyCoDjTplSource } from '../src/codj/Merge.tish'
+import { applyCoDjTplSource, actorMayEditTrack } from '../src/codj/Merge.tish'
 import { applyLaunchDirective, isLaunchDirective, launchSceneDirective, launchClipDirective, transportDirective, applyLaunchLinesFromSource, transportPlayDirective, transportPreviewDirective, cueDirective, throwDirective, isPrivateDirective, fxDirective, deckMoveDirective } from '../src/codj/Launch.tish'
-import { setTrackOwner } from '../src/codj/CoDjMeta.tish'
+import { setTrackOwner, ensureCoDjMeta } from '../src/codj/CoDjMeta.tish'
 import { coDjClockAlign, coDjShouldFollow, coDjClockPayload } from '../src/codj/Transport.tish'
 import { createTplLineStream, tplLineStreamPush } from '../src/tpl/Stream.tish'
 import { coDjLineAllowedForSkills } from '../src/codj/Skills.tish'
@@ -34,6 +34,11 @@ import { h } from '@tishlang/lattish'
 import { StepGridPanel } from '../src/ui/grid/StepGrid.tish'
 import { Knob } from '../src/ui/InstrumentKit.tish'
 import { octaveKnob, selectorKnob } from '../src/ui/InstrumentStack.tish'
+import { PatchGraphPanel, cablePathD, cableKindFor } from '../src/ui/PatchGraphPanel.tish'
+import { syncMatrixFmSpecFromGraph } from '../src/tpl/MatrixFmGraph.tish'
+import { MatrixFmPanel, matrixOpsReachingOut, matrixFiltersReachingOut } from '../src/ui/MatrixFmPanel.tish'
+import { RichTplEditor } from '../src/ui/RichTplEditor.tish'
+import { tplDocumentToHighlightHtml } from '../src/tpl/SongEditorHighlight.tish'
 
 let pass = 0
 let fail = 0
@@ -1248,6 +1253,136 @@ uEd2.emit("track/" + uCh2 + "/mix/gain", 0.55)
 uEd2.emit("track/" + uCh2 + "/mix/gain", 0.5)
 uEd2.undo()
 check("undo: consecutive same-address edits coalesce to one step", Math.abs(findChannelById(uProj2, uCh2).gain - preDrag) < 1e-6 && uEd2.canUndo() === false)
+// Instrument adjustments (gen/<param>) are now undoable — the "undo doesn't work on instrument adjustments" fix.
+let uGp = loadDefaultDeckardProject().project
+let uGch = uGp.channels[0]
+uGch.generatorId = "basicOsc"
+uGch.generatorParams = defaultParamsForGeneratorId("basicOsc")
+let uGstore = { project: uGp, runtime: {} }
+let uGed = createEditor(uGstore, createIngest(uGstore).ingest, () => ctxLocal)
+let uGbeforeDecay = uGp.channels[0].generatorParams.decay
+let uGbeforeWave = uGp.channels[0].generatorParams.waveform
+uGed.emit("track/" + uGch.id + "/gen/decay", 0.5)
+check("undo: a generator-param edit applies + is undoable", Math.abs(uGp.channels[0].generatorParams.decay - 0.5) < 1e-6 && uGed.canUndo() === true)
+uGed.undo()
+check("undo: a generator-param edit restores the prior value", Math.abs(uGp.channels[0].generatorParams.decay - uGbeforeDecay) < 1e-6)
+uGed.redo()
+check("redo: re-applies the generator-param edit", Math.abs(uGp.channels[0].generatorParams.decay - 0.5) < 1e-6)
+// a string gen param (waveform) round-trips through undo too
+uGed.emit("track/" + uGch.id + "/gen/waveform", "square")
+uGed.undo()
+check("undo: a string generator-param (waveform) restores its prior value", uGp.channels[0].generatorParams.waveform === uGbeforeWave)
+// the ADSR knobs emit gen/attack etc. → also undoable now
+let uGbeforeAtk = uGp.channels[0].generatorParams.attack
+uGed.emit("track/" + uGch.id + "/gen/attack", 0.5)
+uGed.undo()
+check("undo: an ADSR knob (gen/attack) restores its prior value", Math.abs(uGp.channels[0].generatorParams.attack - uGbeforeAtk) < 1e-6)
+// editing a param the generator does NOT have must NOT be pushed (no bogus `gen <p> undefined` inverse).
+let uGnp = loadDefaultDeckardProject().project
+let uGnpCh = uGnp.channels[0]
+uGnpCh.generatorId = "basicOsc"
+uGnpCh.generatorParams = defaultParamsForGeneratorId("basicOsc")
+let uGnpStore = { project: uGnp, runtime: {} }
+let uGnpEd = createEditor(uGnpStore, createIngest(uGnpStore).ingest, () => ctxLocal)
+uGnpEd.emit("track/" + uGnpCh.id + "/gen/ratio", 3.5)
+check("undo: editing a param the generator lacks is NOT pushed (no bogus inverse)", uGnpEd.canUndo() === false)
+// Guard sanity: a falsy-but-valid value (boolean mute, value false) is still recorded by the `!= null` guard.
+let uMp = loadDefaultDeckardProject().project
+let uMch = uMp.channels[0]
+let uMstore = { project: uMp, runtime: {} }
+let uMed = createEditor(uMstore, createIngest(uMstore).ingest, () => ctxLocal)
+let uMbefore = uMp.channels[0].mute === true
+uMed.emit("track/" + uMch.id + "/mix/mute", !uMbefore)
+check("undo: a boolean edit (mute) is recorded (falsy values not skipped)", uMed.canUndo() === true)
+uMed.undo()
+check("undo: a boolean edit restores its prior value", (uMp.channels[0].mute === true) === uMbefore)
+
+// Patch + matrix MODULE edits are undoable (via directiveUndoable + the gen_block snapshot) — "add undo for those too".
+let uPB = loadDefaultDeckardProject().project
+let uPBch = uPB.channels[0]
+uPBch.generatorId = "patch"
+uPBch.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "gain a1 1", "conn o1 a1 1", "conn a1 out 1"])
+let uPBstore = { project: uPB, runtime: {} }
+let uPBed = createEditor(uPBstore, createIngest(uPBstore).ingest, () => ctxLocal)
+let uPBsnap = emitInstrumentModuleTpl(uPB, uPBch.id, "gen")
+uPBch.generatorSpec.graph.nodes[0].wave = "square"
+syncPatchSpecFromGraph(uPBch.generatorSpec)
+uPBed.directiveUndoable(emitInstrumentModuleTpl(uPB, uPBch.id, "gen"), uPBsnap, "genblock:" + uPBch.id)
+check("undo: a patch module edit is undoable", uPB.channels[0].generatorSpec.graph.nodes[0].wave === "square" && uPBed.canUndo() === true)
+uPBed.undo()
+check("undo: a patch module edit restores the prior gen_block", uPB.channels[0].generatorSpec.graph.nodes[0].wave === "sine")
+uPBed.redo()
+check("redo: re-applies the patch module edit", uPB.channels[0].generatorSpec.graph.nodes[0].wave === "square")
+
+let uMx = loadDefaultDeckardProject().project
+let uMxch = uMx.channels[0]
+uMxch.generatorId = "matrixFm"
+uMxch.generatorSpec = parseGenBlock("matrix_fm", matrixFmPatches()[0].lines)
+let uMxGen = emitInstrumentModuleTpl(uMx, uMxch.id, "gen")
+check("matrix gen door keeps op/mod/route (no corruption)", uMxGen.indexOf("op 1") >= 0 && uMxGen.indexOf("mod ") >= 0 && uMxGen.indexOf("route ") >= 0)
+let uMxSteps = []
+let uMxsi = 0
+while (uMxsi < 16) {
+  uMxSteps.push({ on: uMxsi === 0, vel: 100 })
+  uMxsi = uMxsi + 1
+}
+uMxch.steps = uMxSteps
+let uMxStore = { project: uMx, runtime: {} }
+let uMxEd = createEditor(uMxStore, createIngest(uMxStore).ingest, () => ctxLocal)
+let uMxSnap = emitInstrumentModuleTpl(uMx, uMxch.id, "gen")
+let uMxBeforeRatio = uMxch.generatorSpec.graph.ops["1"].ratio
+uMxch.generatorSpec.graph.ops["1"].ratio = 4.0
+syncMatrixFmSpecFromGraph(uMxch.generatorSpec)
+uMxEd.directiveUndoable(emitInstrumentModuleTpl(uMx, uMxch.id, "gen"), uMxSnap, "genblock:" + uMxch.id)
+check("undo: a matrix module edit is undoable + merges (steps kept)", Math.abs(uMx.channels[0].generatorSpec.graph.ops["1"].ratio - 4.0) < 1e-6 && uMx.channels[0].steps.filter(s => s.on).length === 1 && uMxEd.canUndo() === true)
+uMxEd.undo()
+check("undo: a matrix module edit restores the prior gen_block", Math.abs(uMx.channels[0].generatorSpec.graph.ops["1"].ratio - uMxBeforeRatio) < 1e-6)
+
+// Sequencer + deck routing are now undoable (readAddr extended to pattern/steps/notes/deck — they emit but
+// weren't being captured because the track branch required a 4th param part).
+let uSq = loadDefaultDeckardProject().project
+let uSqCh = uSq.channels[0]
+let uSqSteps = []
+let uSqi = 0
+while (uSqi < 16) {
+  uSqSteps.push({ on: uSqi === 0, vel: 100, prob: 1, ratchet: 1, nudge: 0 })
+  uSqi = uSqi + 1
+}
+uSqCh.steps = uSqSteps
+let uSqStore = { project: uSq, runtime: {} }
+let uSqEd = createEditor(uSqStore, createIngest(uSqStore).ingest, () => ctxLocal)
+let uSqArr = uSqCh.steps.map(s => ({ on: s.on, vel: s.vel, prob: s.prob, ratchet: s.ratchet, nudge: s.nudge }))
+uSqArr[4].on = true
+uSqEd.emit("track/" + uSqCh.id + "/pattern", uSqArr)
+check("undo: a sequencer step edit is undoable", findChannelById(uSq, uSqCh.id).steps.filter(s => s.on).length === 2 && uSqEd.canUndo() === true)
+uSqEd.undo()
+check("undo: a sequencer step edit restores the prior pattern", findChannelById(uSq, uSqCh.id).steps.filter(s => s.on).length === 1)
+let uDkBefore = findChannelById(uSq, uSqCh.id).deck
+uSqEd.emit("track/" + uSqCh.id + "/deck", { deck: "B", slot: 1 })
+check("undo: a deck-routing edit is undoable", findChannelById(uSq, uSqCh.id).deck === "B" && uSqEd.canUndo() === true)
+uSqEd.undo()
+check("undo: a deck-routing edit restores the prior deck", findChannelById(uSq, uSqCh.id).deck === uDkBefore)
+
+// Per-gesture undo: two distinct patch module edits are TWO undo steps (unique token), not coalesced into one.
+let uPg = loadDefaultDeckardProject().project
+let uPgCh = uPg.channels[0]
+uPgCh.generatorId = "patch"
+uPgCh.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "gain a1 1", "conn o1 a1 1", "conn a1 out 1"])
+let uPgStore = { project: uPg, runtime: {} }
+let uPgEd = createEditor(uPgStore, createIngest(uPgStore).ingest, () => ctxLocal)
+let uPgRt = { _genTokenSeq: 0 }
+let uPgSnap1 = emitInstrumentModuleTpl(uPg, uPgCh.id, "gen")
+uPgCh.generatorSpec.graph.nodes[0].wave = "square"
+syncPatchSpecFromGraph(uPgCh.generatorSpec)
+uPgEd.directiveUndoable(emitInstrumentModuleTpl(uPg, uPgCh.id, "gen"), uPgSnap1, "genblock:" + uPgCh.id + ":1")
+let uPgSnap2 = emitInstrumentModuleTpl(uPg, uPgCh.id, "gen")
+uPgCh.generatorSpec.graph.nodes[1].value = 0.5
+syncPatchSpecFromGraph(uPgCh.generatorSpec)
+uPgEd.directiveUndoable(emitInstrumentModuleTpl(uPg, uPgCh.id, "gen"), uPgSnap2, "genblock:" + uPgCh.id + ":2")
+uPgEd.undo()
+check("undo: two distinct module gestures are two undo steps (gain reverts, wave stays)", Math.abs(uPg.channels[0].generatorSpec.graph.nodes[1].value - 1) < 1e-6 && uPg.channels[0].generatorSpec.graph.nodes[0].wave === "square" && uPgEd.canUndo() === true)
+uPgEd.undo()
+check("undo: the second undo reverts the first gesture too (wave back to sine)", uPg.channels[0].generatorSpec.graph.nodes[0].wave === "sine")
 // Ownership: a non-owner's edit to a track they don't own is gated at ingest (so it never even applies).
 let uProj3 = loadDefaultDeckardProject().project
 let uCh3 = uProj3.channels[0].id
@@ -1520,6 +1655,344 @@ check("octaveKnob: wheel-up emits the numeric octave via voice/octave", pkOct.le
 // Touch parity: the dial wires BOTH mouse and touch drag entry points (the pills it replaced were tappable).
 let pkTouchSvg = pkFindTag(Knob({ value: 1, min: 0, max: 4, step: 1, detents: 5, onInput: () => {} }), "svg")
 check("knob: dial wires both onmousedown and ontouchstart (touch drag restored)", typeof pkTouchSvg.props.onmousedown === "function" && typeof pkTouchSvg.props.ontouchstart === "function")
+
+// ---- Modular patch: gen-block emit fidelity + pan node + decomposed-card render ----
+// (1) The `gen` module slice must keep EVERY patch line — string/pan/dur were silently dropped before,
+// which would corrupt a multiplayer broadcast (the new patch cards emit through this exact door).
+let pgP = loadDefaultDeckardProject().project
+let pgCh = pgP.channels[0]
+pgCh.generatorId = "patch"
+pgCh.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "string st1 note tone 0.5 damping 0.4 decay 0.6", "pan p1 0.3", "gain a1 1", "conn o1 a1 1", "conn a1 p1 1", "conn p1 out 1", "dur 0.5"])
+let pgEmit = emitInstrumentModuleTpl(pgP, pgCh.id, "gen")
+check("patch gen emit: keeps the string node (was dropped)", pgEmit.indexOf("string st1") >= 0)
+check("patch gen emit: keeps the pan node (was dropped)", pgEmit.indexOf("pan p1") >= 0)
+check("patch gen emit: keeps the dur line (was dropped)", pgEmit.indexOf("dur 0.5") >= 0)
+
+// (2) addPatchNode("pan") creates a real pan node (it used to fall through to gain) + round-trips.
+let pgG = parsePatchGraph(defaultPatchRawLines())
+let pgPanId = addPatchNode(pgG, "pan")
+let pgPanNode = pgG.nodes.filter(n => n.id === pgPanId)[0]
+check("addPatchNode pan: creates a pan node (not gain)", pgPanNode != null && pgPanNode.kind === "pan")
+let pgLines = patchGraphToLines(pgG)
+check("pan node round-trips through a `pan` line", pgLines.some(l => l.indexOf("pan " + pgPanId) >= 0))
+check("pan node re-parses as kind pan", parsePatchGraph(pgLines).nodes.filter(n => n.id === pgPanId)[0].kind === "pan")
+
+// (3) PatchGraphPanel renders one card PER MODULE (decomposed), no h-shadow / render crash.
+fn pgCountClass(node, cls, acc) {
+  if (node == null) {
+    return acc
+  }
+  if (Array.isArray(node)) {
+    let pgi = 0
+    while (pgi < node.length) {
+      pgCountClass(node[pgi], cls, acc)
+      pgi = pgi + 1
+    }
+    return acc
+  }
+  if (typeof node !== "object") {
+    return acc
+  }
+  if (pkClass(node).split(" ").indexOf(cls) >= 0) {
+    acc.count = acc.count + 1
+  }
+  if (node.children != null) {
+    pgCountClass(node.children, cls, acc)
+  }
+  return acc
+}
+let pgRP = loadDefaultDeckardProject().project
+let pgRCh = pgRP.channels[0]
+pgRCh.generatorId = "patch"
+pgRCh.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "string st1 note", "filter f1 lowpass q 0.7 freq 1800", "shaper s1 amount 50", "gain a1 1", "pan p1 0", "conn o1 f1 1", "conn f1 a1 1", "conn a1 p1 1", "conn p1 out 1", "env a1.gain set 0 0 lin 0.01 0.9", "dur 0.5"])
+let pgVnode = null
+let pgOk = false
+try {
+  pgVnode = PatchGraphPanel(pgRCh, pgRP, () => {}, { directive: () => {} })
+  pgOk = pgVnode != null
+} catch (pgErr) {
+  console.log("  (patch panel threw: " + String(pgErr) + ")")
+  pgOk = false
+}
+check("UI: PatchGraphPanel renders the decomposed cards (no crash / h-shadow)", pgOk)
+check("UI: PatchGraphPanel renders one card per module (6 nodes + 1 env = 7)", pgCountClass(pgVnode, "patch-mod", { count: 0 }).count === 7)
+
+// (4) The patch broadcast emits a gen-ONLY fragment through the ingest door on every edit — it MUST merge
+// (preserve the channel's steps + mix), not replace the whole track. This is the data-loss guard.
+let pgMP = loadDefaultDeckardProject().project
+let pgMch = pgMP.channels[0]
+pgMch.generatorId = "patch"
+pgMch.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "gain a1 1", "conn o1 a1 1", "conn a1 out 1"])
+let pgFreshSteps = []
+let pgsi = 0
+while (pgsi < 16) {
+  pgFreshSteps.push({ on: pgsi === 0 || pgsi === 8, vel: 100 })
+  pgsi = pgsi + 1
+}
+pgMch.steps = pgFreshSteps
+pgMch.gain = 0.42
+let pgGenFrag = emitInstrumentModuleTpl(pgMP, pgMch.id, "gen")
+applyCoDjTplSource(pgMP, "tpl 1\n" + pgGenFrag + "\n", "host", "host", 0, ["add_track", "pattern_steps", "master"])
+let pgMch2 = pgMP.channels[0]
+check("patch broadcast MERGES: steps preserved (not wiped by a gen edit)", pgMch2.steps.filter(s => s.on).length === 2)
+check("patch broadcast MERGES: mix gain preserved", Math.abs(pgMch2.gain - 0.42) < 0.001)
+check("patch broadcast MERGES: gen still patch with the osc node", pgMch2.generatorId === "patch" && pgMch2.generatorSpec.raw.join(" ").indexOf("osc o1") >= 0)
+
+// (5) Review fixes: broadcast fires on COMMIT (discrete edit / drag-end), not on render; orphan conns are
+// visible + removable; Knob onCommit fires on a wheel tick.
+fn pgFindClass(node, cls) {
+  if (node == null || typeof node !== "object") {
+    return null
+  }
+  if (Array.isArray(node)) {
+    let pfci = 0
+    while (pfci < node.length) {
+      let pfcr = pgFindClass(node[pfci], cls)
+      if (pfcr != null) {
+        return pfcr
+      }
+      pfci = pfci + 1
+    }
+    return null
+  }
+  if (pkClass(node).split(" ").indexOf(cls) >= 0) {
+    return node
+  }
+  if (node.children != null) {
+    return pgFindClass(node.children, cls)
+  }
+  return null
+}
+let pgOdir = []
+let pgOP = loadDefaultDeckardProject().project
+let pgOCh = pgOP.channels[0]
+pgOCh.generatorId = "patch"
+pgOCh.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "gain a1 1", "conn o1 a1 1", "conn a1 out 1", "conn ghost out 0.8"])
+let pgOvnode = PatchGraphPanel(pgOCh, pgOP, () => {}, { directive: (s) => pgOdir.push(s) })
+check("patch: render alone does NOT broadcast (no directive on mount)", pgOdir.length === 0)
+let pgOrph = pgFindClass(pgOvnode, "patch-orphan-route")
+check("patch: an orphan conn (src not a live node) is shown in an Unrouted row", pgOrph != null)
+pkFindTag(pgOrph, "button").props.onclick()
+check("patch: removing an orphan conn broadcasts + drops it", pgOdir.length === 1 && pgOCh.generatorSpec.graph.conns.filter(c => c.src === "ghost").length === 0)
+let pgNodesBefore = pgOCh.generatorSpec.graph.nodes.length
+pkFindTag(pgFindClass(pgOvnode, "patch-palette"), "button").props.onclick()
+check("patch: a palette add broadcasts + adds a node", pgOdir.length === 2 && pgOCh.generatorSpec.graph.nodes.length === pgNodesBefore + 1)
+
+// Knob onCommit: a wheel tick fires both onInput AND onCommit (the drag path fires onCommit only on settle).
+let pkWi = []
+let pkWc = []
+let pkWK = Knob({ value: 1, min: 0, max: 4, step: 1, detents: 5, onInput: (v) => pkWi.push(v), onCommit: (v) => pkWc.push(v) })
+pkFindTag(pkWK, "svg").props.onwheel({ deltaY: -1, preventDefault: () => {} })
+check("knob: a wheel tick fires onInput AND onCommit once each", pkWi.length === 1 && pkWc.length === 1 && pkWi[0] === 2 && pkWc[0] === 2)
+
+// (6) Ownership gate: a read-only patch panel (mayEdit=false) shows the lock and authors NOTHING.
+let pgLdir = []
+let pgLP = loadDefaultDeckardProject().project
+let pgLCh = pgLP.channels[0]
+pgLCh.generatorId = "patch"
+pgLCh.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "gain a1 1", "conn o1 a1 1", "conn a1 out 1"])
+let pgLvnode = PatchGraphPanel(pgLCh, pgLP, () => {}, { directive: (s) => pgLdir.push(s) }, false)
+check("patch read-only: renders the lock banner", pgFindClass(pgLvnode, "instr-locked-hint") != null)
+check("patch read-only: editable region marked instr-readonly", pgFindClass(pgLvnode, "instr-readonly") != null)
+let pgLnodesBefore = pgLCh.generatorSpec.graph.nodes.length
+pkFindTag(pgFindClass(pgLvnode, "patch-palette"), "button").props.onclick()
+check("patch read-only: a palette click neither broadcasts nor mutates", pgLdir.length === 0 && pgLCh.generatorSpec.graph.nodes.length === pgLnodesBefore)
+
+let pgUdir = []
+let pgUP = loadDefaultDeckardProject().project
+let pgUCh = pgUP.channels[0]
+pgUCh.generatorId = "patch"
+pgUCh.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "gain a1 1", "conn o1 a1 1", "conn a1 out 1"])
+let pgUvnode = PatchGraphPanel(pgUCh, pgUP, () => {}, { directive: (s) => pgUdir.push(s) }, true)
+check("patch owner: no lock banner when mayEdit", pgFindClass(pgUvnode, "instr-locked-hint") == null)
+let pgUnodesBefore = pgUCh.generatorSpec.graph.nodes.length
+pkFindTag(pgFindClass(pgUvnode, "patch-palette"), "button").props.onclick()
+check("patch owner: a palette click broadcasts + mutates", pgUdir.length === 1 && pgUCh.generatorSpec.graph.nodes.length === pgUnodesBefore + 1)
+
+// (7) Ownership resolution (the value voiceDesigner computes): solo "human" owns its tracks; a non-owner is denied.
+let pgAP = loadDefaultDeckardProject().project
+ensureCoDjMeta(pgAP)
+let pgAchId = pgAP.channels[0].id
+check("ownership: solo 'human' may edit its own track", actorMayEditTrack(pgAP, pgAchId, "human", false) === true)
+setTrackOwner(pgAP, pgAchId, "agent-2", "agent-2")
+check("ownership: a non-owner is denied", actorMayEditTrack(pgAP, pgAchId, "human", false) === false)
+check("ownership: the new owner may edit", actorMayEditTrack(pgAP, pgAchId, "agent-2", false) === true)
+
+// (8) MatrixFmPanel renders read-only without crashing (gated the same way; signature gained mayEdit).
+let pgMxP = loadDefaultDeckardProject().project
+let pgMxCh = pgMxP.channels[0]
+pgMxCh.generatorId = "matrixFm"
+pgMxCh.generatorSpec = parseGenBlock("matrix_fm", defaultMatrixFmRawLines())
+let pgMxOk = false
+let pgMxVnode = null
+try {
+  pgMxVnode = MatrixFmPanel(pgMxCh, pgMxP, () => {}, () => {}, false)
+  pgMxOk = pgMxVnode != null
+} catch (pgMxErr) {
+  console.log("  (matrix panel threw: " + String(pgMxErr) + ")")
+  pgMxOk = false
+}
+check("UI: MatrixFmPanel renders read-only (no crash) + shows the lock", pgMxOk && pgFindClass(pgMxVnode, "instr-locked-hint") != null)
+
+// (9) Signal-flow cables: pure geometry + the overlay/sink/anchor DOM the imperative layer measures against.
+let pgCab = cablePathD(10, 20, 110, 70)
+check("cablePathD: starts at (x1,y1)", pgCab.indexOf("M 10 20") === 0)
+check("cablePathD: ends at (x2,y2)", pgCab.indexOf("110 70") === pgCab.length - 6)
+check("cableKindFor: out route is 'out'", cableKindFor({ dst: "out" }) === "out" && cableKindFor({ dst: "reverb" }) === "out")
+check("cableKindFor: a param route is 'mod'", cableKindFor({ dst: "f1", dstParam: "freq" }) === "mod")
+check("cableKindFor: a plain audio route is 'audio'", cableKindFor({ dst: "f1", dstParam: null }) === "audio")
+
+fn pgFindId(node, id) {
+  if (node == null || typeof node !== "object") {
+    return null
+  }
+  if (Array.isArray(node)) {
+    let pii = 0
+    while (pii < node.length) {
+      let pir = pgFindId(node[pii], id)
+      if (pir != null) {
+        return pir
+      }
+      pii = pii + 1
+    }
+    return null
+  }
+  if (node.props != null && node.props.id === id) {
+    return node
+  }
+  if (node.children != null) {
+    return pgFindId(node.children, id)
+  }
+  return null
+}
+let pgCabP = loadDefaultDeckardProject().project
+let pgCabCh = pgCabP.channels[0]
+pgCabCh.generatorId = "patch"
+pgCabCh.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "gain a1 1", "conn o1 a1 1", "conn a1 out 1"])
+let pgCabV = PatchGraphPanel(pgCabCh, pgCabP, () => {}, { directive: () => {} }, true)
+check("cables: the SVG overlay renders", pgFindClass(pgCabV, "patch-cables") != null)
+check("cables: an OUT sink renders for cables to land on", pgFindId(pgCabV, "pmsink-out") != null)
+check("cables: node cards carry a stable anchor id (pmnode-o1)", pgFindId(pgCabV, "pmnode-o1") != null)
+check("cables: route rows carry a stable anchor id (pmroute-0)", pgFindId(pgCabV, "pmroute-0") != null)
+
+// (10) Patch View ↔ Edit toggle: defaults to View (root class hides the wiring chrome); Edit reveals it.
+let pgTgP = loadDefaultDeckardProject().project
+let pgTgCh = pgTgP.channels[0]
+pgTgCh.generatorId = "patch"
+pgTgCh.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "gain a1 1", "conn o1 a1 1", "conn a1 out 1"])
+let pgViewV = PatchGraphPanel(pgTgCh, pgTgP, () => {}, { directive: () => {} }, true)
+check("patch: defaults to View mode (root class patch-view)", pgViewV.props.class.indexOf("patch-view") >= 0)
+check("patch: View shows a compact route dest label", pgFindClass(pgViewV, "patch-route-dst-lbl") != null)
+check("patch: View shows the View/Edit toggle for an owner", pgFindClass(pgViewV, "patch-mode-toggle") != null)
+let pgEditV = PatchGraphPanel(pgTgCh, pgTgP, () => {}, { directive: () => {}, patchEditMode: true }, true)
+check("patch: Edit mode sets root class patch-edit", pgEditV.props.class.indexOf("patch-edit") >= 0)
+let pgRoV = PatchGraphPanel(pgTgCh, pgTgP, () => {}, { directive: () => {}, patchEditMode: true }, false)
+check("patch: a non-owner has no View/Edit toggle + stays in View", pgFindClass(pgRoV, "patch-mode-toggle") == null && pgRoV.props.class.indexOf("patch-view") >= 0)
+
+// (11) Matrix FM flow cues: pure reachability + highlighted cells / audible-op marks / flow strip render.
+let pgRA = matrixOpsReachingOut({ routes: [] }, ["1", "2", "3"])
+check("matrix reach: no routes → first op is audible", pgRA["1"] === true && pgRA["2"] !== true)
+let pgRB = matrixOpsReachingOut({ routes: [{ srcKind: "op", srcId: "2", dstKind: "out" }] }, ["1", "2"])
+check("matrix reach: op→out marks that op audible", pgRB["2"] === true && pgRB["1"] !== true)
+let pgRC = matrixOpsReachingOut({ routes: [{ srcKind: "op", srcId: "1", dstKind: "filter", dstId: "1" }, { srcKind: "filter", srcId: "1", dstKind: "out" }] }, ["1"])
+check("matrix reach: op→filter→out marks the op audible", pgRC["1"] === true)
+let pgRD = matrixOpsReachingOut({ routes: [{ srcKind: "op", srcId: "1", dstKind: "filter", dstId: "1" }] }, ["1"])
+check("matrix reach: op→filter (filter not routed out) → NOT audible", pgRD["1"] !== true)
+
+let pgFmP = loadDefaultDeckardProject().project
+let pgFmCh = pgFmP.channels[0]
+pgFmCh.generatorId = "matrixFm"
+pgFmCh.generatorSpec = parseGenBlock("matrix_fm", matrixFmPatches()[0].lines)
+let pgFmV = MatrixFmPanel(pgFmCh, pgFmP, () => {}, () => {}, true)
+check("matrix: the signal-flow strip renders", pgFindClass(pgFmV, "mfm-flow") != null)
+check("matrix: an audible op is marked (→ OUT)", pgFindClass(pgFmV, "sytrus-op-out-tag") != null)
+check("matrix: an active modulation cell is highlighted", pgFindClass(pgFmV, "sytrus-matrix-active") != null)
+check("matrix: the flow strip shows filter nodes", pgFindClass(pgFmV, "mfm-filter") != null)
+check("matrix: the flow strip draws the routing bus (op→filter→out)", pgFindClass(pgFmV, "mfm-route-line") != null)
+// filter reachability: filter→out is audible; a filter with no route onward is a dead end.
+let pgFR1 = matrixFiltersReachingOut({ routes: [{ srcKind: "filter", srcId: "1", dstKind: "out" }] })
+check("matrix filter reach: filter→out reaches out", pgFR1["1"] === true)
+let pgFR2 = matrixFiltersReachingOut({ routes: [{ srcKind: "op", srcId: "1", dstKind: "filter", dstId: "1" }] })
+check("matrix filter reach: a filter with no route onward is a dead end", pgFR2["1"] !== true)
+let pgFR3 = matrixFiltersReachingOut({ routes: [{ srcKind: "filter", srcId: "1", dstKind: "filter", dstId: "2" }, { srcKind: "filter", srcId: "2", dstKind: "out" }] })
+check("matrix filter reach: filter→filter→out chain resolves", pgFR3["1"] === true && pgFR3["2"] === true)
+
+// (11) Reusable rich TPL editor (RichTplEditor) — the module "Raw" views reuse the main editor's highlighter.
+let reProj = loadDefaultDeckardProject().project
+let reCh = reProj.channels[0]
+let reGenTpl = emitInstrumentModuleTpl(reProj, reCh.id, "gen")
+// Same highlighter the main TPL editor uses, run on a real module gen fragment → produces keyword spans.
+let reHl = tplDocumentToHighlightHtml(reGenTpl, -1, false, 0, 0)
+check("rich editor: the shared highlighter marks up a real module gen fragment", typeof reHl === "string" && reHl.indexOf("tpl-hl-kw") >= 0)
+check("rich editor: highlighting wraps the source verbatim (no token loss)", reHl.indexOf("<span") >= 0)
+// The component renders a STABLE slot div carrying the editor id (the imperative pre+textarea mount into it).
+let reSlotId = "rawed-" + reCh.id + "-gen"
+let reSlot = RichTplEditor({ directive: () => {} }, reSlotId, reGenTpl, () => {})
+let reSlotNode = pgFindClass(reSlot, "rich-tpl-slot")
+check("rich editor: renders a slot div with the given stable id", reSlotNode != null && reSlotNode.props.id === reSlotId)
+// Headless (no document) the deferred attach is a no-op — calling it twice must not throw or duplicate state.
+let reSlot2 = RichTplEditor({ directive: () => {} }, reSlotId, reGenTpl, () => {})
+check("rich editor: a second render is idempotent (returns the slot, no crash)", pgFindClass(reSlot2, "rich-tpl-slot") != null)
+
+// (12) Patch ENV dropdowns + envelope cables (matrixFm→patch). The Lattish vdom mounts a <select value=X>
+// before its <option> children, so without a `selected` attribute the select falls back to its FIRST option on
+// mount — the "every ENV dropdown shows op1" bug. selOpt marks the matching option selected. (This asserts the
+// fix is WIRED in the vnode; the DOM mount artifact itself is verified in the browser.)
+fn pgSelectedOptionValues(node, acc) {
+  if (node == null || typeof node !== "object") {
+    return acc
+  }
+  if (Array.isArray(node)) {
+    let psi = 0
+    while (psi < node.length) {
+      pgSelectedOptionValues(node[psi], acc)
+      psi = psi + 1
+    }
+    return acc
+  }
+  if (node.tag === "option" && node.props != null && node.props.selected === "selected") {
+    acc.push(String(node.props.value))
+  }
+  if (node.children != null) {
+    pgSelectedOptionValues(node.children, acc)
+  }
+  return acc
+}
+let peP = loadDefaultDeckardProject().project
+let peCh = peP.channels[0]
+peCh.generatorId = "patch"
+// Build the spec the way the app does — parseGenBlock("patch", lines) carries a non-empty `raw` (an empty raw
+// makes the panel discard the spec and load the default starter patch).
+let peLines = compileGeneratorToPatchLines("matrixFm", {}, parseGenBlock("matrix_fm", defaultMatrixFmRawLines()))
+peCh.generatorSpec = parseGenBlock("patch", peLines)
+let peGraph = peCh.generatorSpec.graph
+let peV = PatchGraphPanel(peCh, peP, () => {}, { directive: () => {} }, true)
+let peSel = pgSelectedOptionValues(peV, [])
+let peEnvNodes = peGraph.envs.map(e => e.node)
+check("patch env: compiled matrixFm has >=3 envs targeting non-op nodes (eg/fmg)", peEnvNodes.length >= 3 && peEnvNodes.indexOf("eg1") >= 0)
+let peAllSel = true
+let pei = 0
+while (pei < peEnvNodes.length) {
+  if (peSel.indexOf(peEnvNodes[pei]) < 0) {
+    peAllSel = false
+  }
+  pei = pei + 1
+}
+check("patch env select: every env's target-node option is marked selected (no fallback to the first node)", peAllSel)
+check("patch env select: 'gain' param option is marked selected", peSel.indexOf("gain") >= 0)
+check("patch env select: a non-first seg type (lin) from the compiled env is selected", peSel.indexOf("lin") >= 0)
+check("patch env cable: env card carries a pmenv-<idx> anchor for the cable layer", pgFindId(peV, "pmenv-0") != null)
+// the target nodes the env cables resolve to are live node cards (pmnode-<id>) → the cable has both endpoints
+check("patch env cable: env target node has a pmnode anchor to land on", pgFindId(peV, "pmnode-eg1") != null)
+
+// Matrix FM dropdowns share the same selOpt fix (filter type + route src/dst kind/id). A render that marks ANY
+// option selected proves it's wired — before the fix NO option carried a `selected` attr (set would be empty).
+let meP = loadDefaultDeckardProject().project
+let meCh = meP.channels[0]
+meCh.generatorId = "matrixFm"
+meCh.generatorSpec = parseGenBlock("matrix_fm", matrixFmPatches()[0].lines)
+let meV = MatrixFmPanel(meCh, meP, () => {}, () => {}, true)
+check("matrix dropdowns: render marks options selected (selOpt wired — no silent fallback to the first option)", pgSelectedOptionValues(meV, []).length >= 1)
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))

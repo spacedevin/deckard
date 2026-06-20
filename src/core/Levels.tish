@@ -18,7 +18,9 @@ import { tokenize } from '../tpl/Parser.tish'
 import { findChannelById } from '../tpl/Apply.tish'
 
 // Body keywords that describe the SOUND (instrument) vs the PATTERN (sequence). gen_block children
-// (conn/env/filter/shaper/gain/end) ride with the sound. `deck` routing belongs to neither slice.
+// (osc/noise/string/filter/shaper/gain/pan/conn/env/dur/end) ride with the sound. `deck` routing belongs
+// to neither slice. NOTE: every patch gen_block node/line token MUST be listed here (firstToken-matched),
+// else that line is dropped from a sound slice — silently corrupting the patch (e.g. string/pan/dur).
 let SOUND_KEYS = {}
 SOUND_KEYS["mix"] = true
 SOUND_KEYS["fx"] = true
@@ -34,6 +36,12 @@ SOUND_KEYS["env"] = true
 SOUND_KEYS["filter"] = true
 SOUND_KEYS["shaper"] = true
 SOUND_KEYS["gain"] = true
+SOUND_KEYS["string"] = true
+SOUND_KEYS["pan"] = true
+SOUND_KEYS["dur"] = true
+SOUND_KEYS["op"] = true
+SOUND_KEYS["mod"] = true
+SOUND_KEYS["route"] = true
 SOUND_KEYS["end"] = true
 
 let PATTERN_KEYS = {}
@@ -232,8 +240,11 @@ export fn levelList() {
 
 // Per-module slices of one channel's instrument — the "break it down to standard patch/TPL" view behind
 // each module's Designer⇄Raw toggle. Each is a strict subset of the instrument slice, by TPL keyword:
-//   gen  → the generator: gen/adsr/osc/fm/noise + the whole gen_block (osc/conn/env/filter/shaper/gain)
+//   gen  → the generator: gen/adsr/osc/fm/noise + the whole gen_block
+//          (osc/noise/string/filter/shaper/gain/pan/conn/env/dur)
 //   voice→ the `voice` line (octave/arp/chord)        fx → the `fx` line (cutoff/res/drive/lfo/reverb)
+// Every patch gen_block line token MUST be listed (firstToken-matched) or that line is dropped from the
+// slice — silently corrupting the patch on a Raw view / module broadcast (e.g. string/pan/dur nodes).
 let MODULE_GEN_KEYS = {}
 MODULE_GEN_KEYS["gen"] = true
 MODULE_GEN_KEYS["adsr"] = true
@@ -246,6 +257,12 @@ MODULE_GEN_KEYS["env"] = true
 MODULE_GEN_KEYS["filter"] = true
 MODULE_GEN_KEYS["shaper"] = true
 MODULE_GEN_KEYS["gain"] = true
+MODULE_GEN_KEYS["string"] = true
+MODULE_GEN_KEYS["pan"] = true
+MODULE_GEN_KEYS["dur"] = true
+MODULE_GEN_KEYS["op"] = true
+MODULE_GEN_KEYS["mod"] = true
+MODULE_GEN_KEYS["route"] = true
 MODULE_GEN_KEYS["end"] = true
 
 let MODULE_VOICE_KEYS = {}

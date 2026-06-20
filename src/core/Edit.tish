@@ -8,7 +8,7 @@ import { formatTplFloat } from '../tpl/Format.tish'
 import { generatorIdToTpl, stepLaneLine, noteLine } from '../tpl/Emit.tish'
 import { findChannelById } from '../tpl/Apply.tish'
 import { scaleRootNames } from '../model/Scale.tish'
-import { camelToSnake } from '../tpl/RegistryMap.tish'
+import { camelToSnake, paramKeyToCamel } from '../tpl/RegistryMap.tish'
 
 fn f(v) {
   return formatTplFloat(Number(v))
@@ -290,7 +290,8 @@ export fn fragmentForEdit(project, address, value) {
 /**
  * Read the CURRENT scalar at an undoable address (the same fields fragmentForEdit re-emits), so the inverse
  * of an edit is `fragmentForEdit(project, address, readAddr(...))` — the owning statement as it stands now.
- * Returns `undefined` for addresses that aren't cleanly reversible (gen/adsr/deck/steps/launch_quant/…) —
+ * Covers the reversible scalar addresses (mix/fx/voice/gen/master/actor/bpm/swing/scale/xfade). Returns
+ * `undefined` for addresses that aren't cleanly reversible (deck/steps/launch_quant/patch+matrix directives/…) —
  * those are simply not pushed onto the undo stack ("undo only in places").
  */
 export fn readAddr(project, address) {
@@ -313,6 +314,12 @@ export fn readAddr(project, address) {
     let y = project.transportCrossfadeY != null ? project.transportCrossfadeY : 0.5
     return [x, y]
   }
+  if (head === "launch_quant") {
+    return project.launchQuant != null ? Math.floor(project.launchQuant) : undefined
+  }
+  if (head === "main_deck") {
+    return project.transportMainDeck === "local" ? "local" : "live"
+  }
   if (head === "master" && parts.length >= 2) {
     let mm = project.masterMixer ? project.masterMixer : {}
     let p = parts[1]
@@ -334,13 +341,14 @@ export fn readAddr(project, address) {
     if (p === "solo") { return am.solo === true }
     return undefined
   }
-  if (head === "track" && parts.length >= 4) {
+  if (head === "track" && parts.length >= 3) {
     let ch = findChannelById(project, parts[1])
     if (!ch) {
       return undefined
     }
     let section = parts[2]
-    let p = parts[3]
+    // mix/fx/voice/gen carry a 4th param part; steps/pattern/notes/deck are section-only (3 parts).
+    let p = parts.length >= 4 ? parts[3] : null
     if (section === "mix") {
       if (p === "gain") { return ch.gain != null ? ch.gain : 0.85 }
       if (p === "pan") { return ch.pan != null ? ch.pan : 0 }
@@ -362,6 +370,45 @@ export fn readAddr(project, address) {
       if (p === "octave") { return ch.octave != null ? Math.floor(ch.octave) : 0 }
       if (p === "arp") { return (ch.arp != null && ch.arp !== "") ? ch.arp : "off" }
       if (p === "chord") { return (ch.chord != null && ch.chord !== "") ? ch.chord : "off" }
+    }
+    // Generator params (every instrument knob: waveform/ratio/cutoff/attack/decay/sustain/release/…) — the
+    // current value lives in ch.generatorParams keyed CAMEL-case; the address param is TPL snake_case. Returning
+    // it makes instrument adjustments undoable (they emit through gen/<param> like a fader, but weren't reversible
+    // before). undefined (param never set) just isn't pushed — the panel seeds defaults so it's normally present.
+    if (section === "gen") {
+      if (!ch.generatorParams) {
+        return undefined
+      }
+      let cur = ch.generatorParams[paramKeyToCamel(p)]
+      // Return ONLY a real number or non-empty string. A param the generator doesn't have reads back as a
+      // missing key — NOT reversible, so it must not be pushed (else the inverse is a bogus `gen <p> undefined`).
+      // The `typeof` guard is deliberate: lattish's null/undefined equality is unreliable for a missing key, so
+      // returning the raw value (or testing it with ==/=== null) leaks the missing param onto the undo stack.
+      if (typeof cur === "number" && cur === cur) {
+        return cur
+      }
+      if (typeof cur === "string" && cur.length > 0) {
+        return cur
+      }
+      return undefined
+    }
+    // Sequencer steps + the whole pattern (steps + the 4 lock lanes): value is the channel's steps array, so the
+    // inverse is the pre-edit array re-emitted. These ARE undoable now (they emit through the pattern/steps door
+    // but readAddr was missing them, so step toggles / velocity drags weren't being captured).
+    if (section === "steps" || section === "pattern") {
+      return Array.isArray(ch.steps) ? ch.steps : undefined
+    }
+    // Piano-roll notes: value is the whole pianoNotes array (empty → notes_clear). [] is a valid inverse.
+    if (section === "notes") {
+      return Array.isArray(ch.pianoNotes) ? ch.pianoNotes : []
+    }
+    // Deck routing ({deck, slot}).
+    if (section === "deck") {
+      let dk = { deck: ch.deck != null ? ch.deck : "live" }
+      if (ch.deckSlot != null) {
+        dk.slot = ch.deckSlot
+      }
+      return dk
     }
     return undefined
   }
@@ -400,8 +447,11 @@ export fn createEditor(store, ingest, ctxProvider) {
       return null
     }
     // Capture the inverse (the owning line as it stands now) BEFORE applying — only for reversible addresses.
+    // `!= null` (loose) skips BOTH null and undefined: readAddr returns nothing for non-reversible addresses,
+    // and in lattish a `return undefined` reads back as null (and a missing object key is null too), so a
+    // strict `!== undefined` would wrongly record a bogus inverse for those.
     let old = readAddr(store.project, address)
-    if (old !== undefined) {
+    if (old != null) {
       let inverse = fragmentForEdit(store.project, address, old)
       if (inverse !== "" && inverse !== frag) {
         record(address, inverse, frag)
@@ -411,6 +461,20 @@ export fn createEditor(store, ingest, ctxProvider) {
   }
   fn directive(line) {
     return ingest(String(line), ctxProvider ? ctxProvider() : null)
+  }
+  // Like directive(), but RECORDS an undo step: forward = the line to ingest now, inverse = the same statement
+  // as it stood BEFORE this edit (the caller captures it, since a coarse directive — e.g. a whole gen_block —
+  // has no readAddr inverse). Consecutive edits sharing coalesceAddr collapse to one undo step (a knob drag).
+  // Used by the patch / matrix editors so module edits broadcast AND undo, just like a fader.
+  fn directiveUndoable(forwardLine, inverseLine, coalesceAddr) {
+    let fwd = String(forwardLine)
+    if (inverseLine != null) {
+      let inv = String(inverseLine)
+      if (inv !== "" && inv !== fwd) {
+        record(coalesceAddr != null ? coalesceAddr : "directive", inv, fwd)
+      }
+    }
+    return ingest(fwd, ctxProvider ? ctxProvider() : null)
   }
   fn undo() {
     if (undoStack.length === 0) {
@@ -436,5 +500,5 @@ export fn createEditor(store, ingest, ctxProvider) {
   fn canRedo() {
     return redoStack.length > 0
   }
-  return { emit: emit, directive: directive, undo: undo, redo: redo, canUndo: canUndo, canRedo: canRedo }
+  return { emit: emit, directive: directive, directiveUndoable: directiveUndoable, undo: undo, redo: redo, canUndo: canUndo, canRedo: canRedo }
 }

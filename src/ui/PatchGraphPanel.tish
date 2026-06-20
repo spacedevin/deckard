@@ -1,19 +1,31 @@
-// Generic modular-patch editor: edits any `gen_block patch` graph (nodes / connections / envelopes)
-// visually. The universal counterpart to MatrixFmPanel — where that is welded to the FM op-matrix
-// model, this edits the free-form graph that Patch.tish plays: osc/noise/filter/shaper/gain wired by
-// `conn` lines with breakpoint envelopes on any AudioParam. Round-trips through parsePatchGraph ↔
-// patchGraphToLines, so every edit is plain TPL (streamable, multiplayer, agent-readable).
+// Modular patch editor — DECOMPOSED into per-module cards. Each node (osc / noise / string / filter /
+// shaper / gain / pan) is its own card with a header, body knobs, and INLINE output routing (each module
+// owns where its signal goes), plus envelope cards. The universal counterpart to MatrixFmPanel, editing the
+// free-form graph that Patch.tish plays.
+//
+// Edit model (two verbs):
+//   edit.live()   — mutate is already applied; sync graph→raw + setProject for INSTANT local feedback. No
+//                   broadcast, no ingest, so the live graph object is never swapped. Used during a knob drag.
+//   edit.commit() — live() + broadcast the whole gen_block through the gated `gen` ingest door
+//                   (rt.directive(emitInstrumentModuleTpl)). Used at a settle point: knob onCommit
+//                   (drag end / wheel tick) and every discrete edit (select / add / remove).
+// Why split: ingest re-parses the gen_block and REPLACES ch.generatorSpec.graph; doing that mid-drag would
+// orphan the knob's closed-over graph (a paused drag would lose its resumed edits). Committing only at the
+// gesture's end keeps the swap out of any in-flight drag. The broadcast reaches peers + round-trips and
+// MERGES (the gen-only fragment preserves the channel's steps/mix). NOTE: a patch-module edit is broadcast
+// but is NOT on the undo stack (the undo stack covers rt.emit addresses, not directives) — unlike a fader.
 
 import { h } from '@tishlang/lattish'
 import { normalizeBasicOscWaveform } from '../generators/Registry.tish'
 import { parseGenBlock } from '../tpl/TplExtension.tish'
-import { Knob, accentForGenerator, WaveIconPicker } from './InstrumentKit.tish'
+import { emitInstrumentModuleTpl } from '../core/Levels.tish'
+import { Knob, accentForGenerator, WaveIconPicker, isKnobDragging, selOpt } from './InstrumentKit.tish'
 import {
   syncPatchSpecFromGraph,
   defaultPatchRawLines,
   addPatchNode,
   removePatchNode,
-  addPatchConn,
+  addPatchConnFrom,
   removePatchConnAt,
   addPatchEnv,
   removePatchEnvAt,
@@ -57,54 +69,69 @@ fn nodeIdList(g) {
   return ids
 }
 
-fn nodeIdOptions(ids, keyPrefix) {
+fn hasNode(g, id) {
+  let i = 0
+  while (i < g.nodes.length) {
+    if (g.nodes[i].id === id) {
+      return true
+    }
+    i = i + 1
+  }
+  return false
+}
+
+// Destination options for a route FROM `selfId`: every OTHER node + the fixed sinks out / reverb. `curDst`
+// is kept as an option even if it equals selfId, so an existing self-loop value still matches (no blank).
+fn destOptions(ids, selfId, curDst, keyPrefix) {
   let opts = []
   let i = 0
   while (i < ids.length) {
     let id = ids[i]
-    opts.push(
-      <option value={id} key={keyPrefix + id}>
-        {id}
-      </option>
-    )
+    if (id !== selfId || id === curDst) {
+      opts.push(selOpt(id, id === selfId ? id + " (self)" : id, curDst, keyPrefix + id))
+    }
     i = i + 1
   }
+  opts.push(selOpt("out", "out", curDst, keyPrefix + "out"))
+  opts.push(selOpt("reverb", "reverb", curDst, keyPrefix + "reverb"))
   return opts
 }
 
-fn paramOptions(keyPrefix, includeBlank) {
+fn paramOptions(keyPrefix, includeBlank, cur) {
   let opts = []
   if (includeBlank) {
-    opts.push(
-      <option value="" key={keyPrefix + "none"}>
-        {"signal"}
-      </option>
-    )
+    opts.push(selOpt("", "signal", cur, keyPrefix + "none"))
   }
-  let choices = ["gain", "freq", "detune", "q"]
+  let choices = ["gain", "freq", "detune", "q", "pan"]
   let i = 0
   while (i < choices.length) {
-    opts.push(
-      <option value={choices[i]} key={keyPrefix + choices[i]}>
-        {choices[i]}
-      </option>
-    )
+    opts.push(selOpt(choices[i], choices[i], cur, keyPrefix + choices[i]))
     i = i + 1
   }
   return opts
 }
 
-// Oscillator wave shape — the same vendored Lucide wave-shape icons the Matrix FM designer uses
-// (via the shared WaveIconPicker), so the modular patch editor speaks one visual language.
-fn patchWaveTiles(nd, commit, accent) {
+fn nodeOptions(ids, keyPrefix, cur) {
+  let opts = []
+  let i = 0
+  while (i < ids.length) {
+    let id = ids[i]
+    opts.push(selOpt(id, id, cur, keyPrefix + id))
+    i = i + 1
+  }
+  return opts
+}
+
+// Oscillator wave shape — the same vendored Lucide wave-shape icons the Matrix FM designer uses.
+fn patchWaveTiles(nd, edit, accent) {
   let cur = normalizeBasicOscWaveform(nd.wave)
   return WaveIconPicker(cur, (w) => {
     nd.wave = w
-    commit()
+    edit.commit()
   }, { accent: accent })
 }
 
-fn oscCard(nd, commit, accent) {
+fn oscCard(nd, edit, accent) {
   let mode = nd.freqMode === "fixed" ? "fixed" : "note"
   let ratio = numOr(nd.ratio, 1)
   let fixedHz = numOr(nd.fixedHz, 220)
@@ -121,8 +148,9 @@ fn oscCard(nd, commit, accent) {
       fmt: (sl) => String(sliderToFreq(sl)) + " Hz",
       onInput: (sl) => {
         nd.fixedHz = sliderToFreq(sl)
-        commit()
-      }
+        edit.live()
+      },
+      onCommit: () => edit.commit()
     })
   } else {
     freqCtrl = Knob({
@@ -135,13 +163,14 @@ fn oscCard(nd, commit, accent) {
       fmt: (v) => "×" + String(Math.round(v) / 100),
       onInput: (v) => {
         nd.ratio = v / 100
-        commit()
-      }
+        edit.live()
+      },
+      onCommit: () => edit.commit()
     })
   }
   return (
     <div class="patch-node-body">
-      {patchWaveTiles(nd, commit, accent)}
+      {patchWaveTiles(nd, edit, accent)}
       <label class="gen-row">
         {"Pitch "}
         <select
@@ -151,11 +180,11 @@ fn oscCard(nd, commit, accent) {
           onclick={(e) => e.stopPropagation()}
           onchange={(e) => {
             nd.freqMode = e.target.value === "fixed" ? "fixed" : "note"
-            commit()
+            edit.commit()
           }}
         >
-          <option value="note">{"Note"}</option>
-          <option value="fixed">{"Fixed Hz"}</option>
+          {selOpt("note", "Note", mode, "fm-note")}
+          {selOpt("fixed", "Fixed Hz", mode, "fm-fixed")}
         </select>
       </label>
       <div class="ik-knob-grid">
@@ -170,15 +199,16 @@ fn oscCard(nd, commit, accent) {
           fmt: (v) => String(Math.round(v)) + "¢",
           onInput: (v) => {
             nd.detune = v
-            commit()
-          }
+            edit.live()
+          },
+          onCommit: () => edit.commit()
         })}
       </div>
     </div>
   )
 }
 
-fn filterCard(nd, commit, accent) {
+fn filterCard(nd, edit, accent) {
   let q = numOr(nd.q, 0.7)
   let freq = numOr(nd.freq, 1200)
   return (
@@ -192,17 +222,17 @@ fn filterCard(nd, commit, accent) {
           onclick={(e) => e.stopPropagation()}
           onchange={(e) => {
             nd.ftype = e.target.value
-            commit()
+            edit.commit()
           }}
         >
-          <option value="lowpass">{"Lowpass"}</option>
-          <option value="highpass">{"Highpass"}</option>
-          <option value="bandpass">{"Bandpass"}</option>
-          <option value="notch">{"Notch"}</option>
-          <option value="peaking">{"Peaking"}</option>
-          <option value="lowshelf">{"Low shelf"}</option>
-          <option value="highshelf">{"High shelf"}</option>
-          <option value="allpass">{"Allpass"}</option>
+          {selOpt("lowpass", "Lowpass", nd.ftype ? nd.ftype : "lowpass", "ft-lp")}
+          {selOpt("highpass", "Highpass", nd.ftype ? nd.ftype : "lowpass", "ft-hp")}
+          {selOpt("bandpass", "Bandpass", nd.ftype ? nd.ftype : "lowpass", "ft-bp")}
+          {selOpt("notch", "Notch", nd.ftype ? nd.ftype : "lowpass", "ft-no")}
+          {selOpt("peaking", "Peaking", nd.ftype ? nd.ftype : "lowpass", "ft-pk")}
+          {selOpt("lowshelf", "Low shelf", nd.ftype ? nd.ftype : "lowpass", "ft-ls")}
+          {selOpt("highshelf", "High shelf", nd.ftype ? nd.ftype : "lowpass", "ft-hs")}
+          {selOpt("allpass", "Allpass", nd.ftype ? nd.ftype : "lowpass", "ft-ap")}
         </select>
       </label>
       <div class="ik-knob-grid">
@@ -216,8 +246,9 @@ fn filterCard(nd, commit, accent) {
           fmt: (sl) => String(sliderToFreq(sl)) + " Hz",
           onInput: (sl) => {
             nd.freq = sliderToFreq(sl)
-            commit()
-          }
+            edit.live()
+          },
+          onCommit: () => edit.commit()
         })}
         {Knob({
           label: "Q",
@@ -229,15 +260,16 @@ fn filterCard(nd, commit, accent) {
           fmt: (v) => String(Math.round(v) / 100),
           onInput: (v) => {
             nd.q = v / 100
-            commit()
-          }
+            edit.live()
+          },
+          onCommit: () => edit.commit()
         })}
       </div>
     </div>
   )
 }
 
-fn shaperCard(nd, commit, accent) {
+fn shaperCard(nd, edit, accent) {
   let amount = numOr(nd.amount, 50)
   return (
     <div class="patch-node-body">
@@ -252,15 +284,16 @@ fn shaperCard(nd, commit, accent) {
           fmt: (v) => String(Math.round(v)),
           onInput: (v) => {
             nd.amount = v
-            commit()
-          }
+            edit.live()
+          },
+          onCommit: () => edit.commit()
         })}
       </div>
     </div>
   )
 }
 
-fn gainCard(nd, commit, accent) {
+fn gainCard(nd, edit, accent) {
   let value = numOr(nd.value, 1)
   return (
     <div class="patch-node-body">
@@ -275,8 +308,39 @@ fn gainCard(nd, commit, accent) {
           fmt: (v) => String(Math.round(v) / 100),
           onInput: (v) => {
             nd.value = v / 100
-            commit()
-          }
+            edit.live()
+          },
+          onCommit: () => edit.commit()
+        })}
+      </div>
+    </div>
+  )
+}
+
+fn panCard(nd, edit, accent) {
+  let pos = numOr(nd.pos, 0)
+  return (
+    <div class="patch-node-body">
+      <div class="ik-knob-grid">
+        {Knob({
+          label: "Pan",
+          value: Math.round(pos * 100),
+          min: -100,
+          max: 100,
+          step: 1,
+          accent: accent,
+          fmt: (v) => {
+            let p = Math.round(v)
+            if (p === 0) {
+              return "C"
+            }
+            return p < 0 ? "L" + String(-p) : "R" + String(p)
+          },
+          onInput: (v) => {
+            nd.pos = v / 100
+            edit.live()
+          },
+          onCommit: () => edit.commit()
         })}
       </div>
     </div>
@@ -291,11 +355,9 @@ fn noiseCard() {
   )
 }
 
-// Generic 0..1 knob for a string-node field. Bracket-key assignment (nd[key]=) is intentional — it keeps the
-// patch-graph param edit out of the anti-spaghetti ratchet's channel-field write pattern (the `mute` param
-// name collides), and it dedups the four near-identical knobs. Edits flow through the same commit() (TPL
-// mirror) as every other card.
-fn stringKnob(nd, key, label, dflt, accent, commit) {
+// Generic 0..1 knob for a string-node field. Bracket-key assignment (nd[key]=) is intentional — keeps the
+// patch-graph param edit out of the anti-spaghetti ratchet's channel-field write pattern and dedups the knobs.
+fn stringKnob(nd, key, label, dflt, accent, edit) {
   let val = numOr(nd[key], dflt)
   return Knob({
     label: label,
@@ -307,40 +369,44 @@ fn stringKnob(nd, key, label, dflt, accent, commit) {
     fmt: (v) => String(Math.round(v)),
     onInput: (v) => {
       nd[key] = v / 100
-      commit()
-    }
+      edit.live()
+    },
+    onCommit: () => edit.commit()
   })
 }
 
-fn stringCard(nd, commit, accent) {
+fn stringCard(nd, edit, accent) {
   return (
     <div class="patch-node-body">
       <div class="ik-knob-grid">
-        {stringKnob(nd, "tone", "Tone", 0.5, accent, commit)}
-        {stringKnob(nd, "damping", "Damping", 0.4, accent, commit)}
-        {stringKnob(nd, "decay", "Decay", 0.6, accent, commit)}
-        {stringKnob(nd, "mute", "Mute", 0, accent, commit)}
+        {stringKnob(nd, "tone", "Tone", 0.5, accent, edit)}
+        {stringKnob(nd, "damping", "Damping", 0.4, accent, edit)}
+        {stringKnob(nd, "decay", "Decay", 0.6, accent, edit)}
+        {stringKnob(nd, "mute", "Mute", 0, accent, edit)}
       </div>
       <p class="sytrus-hint">{"Karplus-Strong plucked string — pitched by the played note."}</p>
     </div>
   )
 }
 
-fn nodeCardBody(nd, commit, accent) {
+fn nodeCardBody(nd, edit, accent) {
   if (nd.kind === "osc") {
-    return oscCard(nd, commit, accent)
+    return oscCard(nd, edit, accent)
   }
   if (nd.kind === "string") {
-    return stringCard(nd, commit, accent)
+    return stringCard(nd, edit, accent)
   }
   if (nd.kind === "filter") {
-    return filterCard(nd, commit, accent)
+    return filterCard(nd, edit, accent)
   }
   if (nd.kind === "shaper") {
-    return shaperCard(nd, commit, accent)
+    return shaperCard(nd, edit, accent)
   }
   if (nd.kind === "gain") {
-    return gainCard(nd, commit, accent)
+    return gainCard(nd, edit, accent)
+  }
+  if (nd.kind === "pan") {
+    return panCard(nd, edit, accent)
   }
   return noiseCard()
 }
@@ -361,10 +427,450 @@ fn kindLabel(kind) {
   if (kind === "shaper") {
     return "SHAPER"
   }
+  if (kind === "pan") {
+    return "PAN"
+  }
   return "GAIN"
 }
 
-export fn PatchGraphPanel(ch, project, setProject, tplMirrorFlush) {
+// One outgoing route (dest · optional param · vol · remove). `dstOpts` lets a self-loop value still match.
+fn routeRow(g, cidx, ids, accent, edit) {
+  let cn = g.conns[cidx]
+  let isNodeDst = cn.dst !== "out" && cn.dst !== "reverb"
+  return (
+    <div class="patch-route" id={"pmroute-" + String(cidx)} key={"rt" + String(cidx)}>
+      <span class="patch-route-arrow">{"→"}</span>
+      <span class="patch-route-dst-lbl">{cn.dst + (cn.dstParam ? "." + cn.dstParam : "")}</span>
+      <select
+        class="sytrus-route-sel"
+        value={cn.dst}
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={(e) => e.stopPropagation()}
+        onchange={(e) => {
+          let nv = e.target.value
+          g.conns[cidx].dst = nv
+          if (nv === "out" || nv === "reverb") {
+            g.conns[cidx].dstParam = null
+          }
+          edit.commit()
+        }}
+      >
+        {destOptions(ids, cn.src, cn.dst, "rd" + cidx)}
+      </select>
+      {isNodeDst ? (
+        <select
+          class="sytrus-route-sel patch-route-param"
+          value={cn.dstParam ? cn.dstParam : ""}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={(e) => e.stopPropagation()}
+          onchange={(e) => {
+            let pv = e.target.value
+            g.conns[cidx].dstParam = pv === "" ? null : pv
+            edit.commit()
+          }}
+        >
+          {paramOptions("rp" + cidx, true, cn.dstParam ? cn.dstParam : "")}
+        </select>
+      ) : null}
+      <span class="patch-route-vol">
+        {Knob({
+          label: "Vol",
+          value: Math.round(numOr(cn.vol, 1) * 100),
+          min: 0,
+          max: 200,
+          step: 1,
+          accent: accent,
+          size: "xs",
+          fmt: (v) => String(Math.round(v) / 100),
+          onInput: (v) => {
+            g.conns[cidx].vol = v / 100
+            edit.live()
+          },
+          onCommit: () => edit.commit()
+        })}
+      </span>
+      <button
+        type="button"
+        class="sytrus-icon-btn"
+        title={"Remove route"}
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={() => {
+          removePatchConnAt(g, cidx)
+          edit.commit()
+        }}
+      >
+        {"×"}
+      </button>
+    </div>
+  )
+}
+
+// Indices of every conn whose source is this node — its outgoing routes.
+fn routeIndicesForSrc(g, srcId) {
+  let out = []
+  let i = 0
+  while (i < g.conns.length) {
+    if (g.conns[i].src === srcId) {
+      out.push(i)
+    }
+    i = i + 1
+  }
+  return out
+}
+
+fn nodeCard(g, nd, ids, accent, edit) {
+  let rIdx = routeIndicesForSrc(g, nd.id)
+  let routes = []
+  let ri = 0
+  while (ri < rIdx.length) {
+    routes.push(routeRow(g, rIdx[ri], ids, accent, edit))
+    ri = ri + 1
+  }
+  let nodeId = nd.id
+  return (
+    <div class="patch-mod sytrus-op-card" id={"pmnode-" + nd.id} key={"nd" + nd.id}>
+      <div class="patch-mod-head">
+        <span class="patch-mod-badge">{kindLabel(nd.kind)}</span>
+        <span class="patch-mod-id">{nd.id}</span>
+        <button
+          type="button"
+          class="sytrus-icon-btn patch-mod-x"
+          title={"Remove module"}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={() => {
+            removePatchNode(g, nodeId)
+            edit.commit()
+          }}
+        >
+          {"×"}
+        </button>
+      </div>
+      {nodeCardBody(nd, edit, accent)}
+      <div class="patch-mod-routes">
+        {routes.length === 0 ? <span class="patch-route-empty">{"not routed"}</span> : routes}
+        <button
+          type="button"
+          class="patch-route-add"
+          title={"Add an output route from this module"}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={() => {
+            addPatchConnFrom(g, nodeId)
+            edit.commit()
+          }}
+        >
+          {"+ →"}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+fn envCard(g, en, eidx, ids, edit) {
+  let segRows = []
+  let si = 0
+  while (si < en.segs.length) {
+    let sg = en.segs[si]
+    let sidx = si
+    segRows.push(
+      <div class="patch-seg-row" key={"sg" + eidx + "_" + si}>
+        <select
+          class="sytrus-route-sel"
+          value={sg.type}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={(e) => e.stopPropagation()}
+          onchange={(e) => {
+            g.envs[eidx].segs[sidx].type = e.target.value
+            edit.commit()
+          }}
+        >
+          {selOpt("set", "Set", sg.type, "st-set-" + eidx + "-" + sidx)}
+          {selOpt("lin", "Lin", sg.type, "st-lin-" + eidx + "-" + sidx)}
+          {selOpt("exp", "Exp", sg.type, "st-exp-" + eidx + "-" + sidx)}
+        </select>
+        <input
+          class="patch-expr"
+          type="text"
+          value={String(sg.tExpr)}
+          title={"time (s) — expr ok: dur, dur-0.1, note"}
+          onmousedown={(e) => e.stopPropagation()}
+          onchange={(e) => {
+            g.envs[eidx].segs[sidx].tExpr = e.target.value
+            edit.commit()
+          }}
+        />
+        <input
+          class="patch-expr"
+          type="text"
+          value={String(sg.vExpr)}
+          title={"value — expr ok: note, note*2, vel, numbers"}
+          onmousedown={(e) => e.stopPropagation()}
+          onchange={(e) => {
+            g.envs[eidx].segs[sidx].vExpr = e.target.value
+            edit.commit()
+          }}
+        />
+        <button
+          type="button"
+          class="sytrus-icon-btn"
+          title={"Remove segment"}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={() => {
+            removePatchEnvSegAt(g, eidx, sidx)
+            edit.commit()
+          }}
+        >
+          {"×"}
+        </button>
+      </div>
+    )
+    si = si + 1
+  }
+  return (
+    <div class="patch-mod patch-env sytrus-op-card" id={"pmenv-" + String(eidx)} key={"env" + String(eidx)}>
+      <div class="patch-mod-head">
+        <span class="patch-mod-badge patch-env-badge">{"ENV"}</span>
+        <span class="patch-env-target">
+          <select
+            class="sytrus-route-sel"
+            value={en.node}
+            onmousedown={(e) => e.stopPropagation()}
+            onclick={(e) => e.stopPropagation()}
+            onchange={(e) => {
+              g.envs[eidx].node = e.target.value
+              edit.commit()
+            }}
+          >
+            {nodeOptions(ids, "en" + eidx, en.node)}
+          </select>
+          <span class="patch-dot">{"."}</span>
+          <select
+            class="sytrus-route-sel"
+            value={en.param ? en.param : "gain"}
+            onmousedown={(e) => e.stopPropagation()}
+            onclick={(e) => e.stopPropagation()}
+            onchange={(e) => {
+              g.envs[eidx].param = e.target.value
+              edit.commit()
+            }}
+          >
+            {paramOptions("ep" + eidx, false, en.param ? en.param : "gain")}
+          </select>
+        </span>
+        <button
+          type="button"
+          class="sytrus-icon-btn patch-mod-x"
+          title={"Remove envelope"}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={() => {
+            removePatchEnvAt(g, eidx)
+            edit.commit()
+          }}
+        >
+          {"×"}
+        </button>
+      </div>
+      <div class="patch-seg-head">
+        <span>{"seg"}</span>
+        <span>{"t"}</span>
+        <span>{"value"}</span>
+        <span />
+      </div>
+      {segRows}
+      <button
+        type="button"
+        class="sytrus-add-btn"
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={() => {
+          addPatchEnvSeg(g, eidx)
+          edit.commit()
+        }}
+      >
+        {"+ Seg"}
+      </button>
+    </div>
+  )
+}
+
+// Conns whose src is NOT a live node (e.g. hand-written TPL, or a node deleted in the Raw view). Per-card
+// routing can't show them, so surface them here so they stay visible + removable (they still emit/play-as-noop).
+fn orphanConnRows(g, edit) {
+  let rows = []
+  let i = 0
+  while (i < g.conns.length) {
+    let cn = g.conns[i]
+    if (!hasNode(g, cn.src)) {
+      let cidx = i
+      rows.push(
+        <div class="patch-route patch-orphan-route" key={"orph" + String(cidx)}>
+          <span class="patch-orphan-src">{cn.src}</span>
+          <span class="patch-route-arrow">{"→"}</span>
+          <span class="patch-orphan-dst">{cn.dst + (cn.dstParam ? "." + cn.dstParam : "")}</span>
+          <button
+            type="button"
+            class="sytrus-icon-btn"
+            title={"Remove orphan route"}
+            onmousedown={(e) => e.stopPropagation()}
+            onclick={() => {
+              removePatchConnAt(g, cidx)
+              edit.commit()
+            }}
+          >
+            {"×"}
+          </button>
+        </div>
+      )
+    }
+    i = i + 1
+  }
+  return rows
+}
+
+// ---- Read-only signal-flow cables ----
+// An SVG overlay draws a line from each route (a card's output) to its destination card / the OUT sink, so
+// the topology is legible at a glance — no drag, purely visual. Paths are computed IMPERATIVELY from measured
+// card positions after layout (the vdom can't know pixel positions), re-measured on each render (rAF) + on
+// resize/scroll. Colour by kind: green = audio (signal), amber-dashed = modulation (freq/gain/…), blue =
+// reaches the OUTPUT. The connectivity for the current panel is stashed in cableState (only one patch panel
+// is visible at a time); drawPatchCables no-ops when the host isn't mounted.
+let cableState = { conns: [], envs: [] }
+let cableListenersWired = false
+let cableDrawPending = false
+
+// Pure: a horizontal-biased cubic bezier from (x1,y1) to (x2,y2). Exported for tests.
+export fn cablePathD(x1, y1, x2, y2) {
+  let dx = Math.abs(x2 - x1) * 0.45
+  if (dx < 24) {
+    dx = 24
+  }
+  if (dx > 90) {
+    dx = 90
+  }
+  return "M " + String(Math.round(x1)) + " " + String(Math.round(y1)) +
+    " C " + String(Math.round(x1 + dx)) + " " + String(Math.round(y1)) + ", " +
+    String(Math.round(x2 - dx)) + " " + String(Math.round(y2)) + ", " +
+    String(Math.round(x2)) + " " + String(Math.round(y2))
+}
+
+// Pure: classify a connection for colouring. Exported for tests.
+export fn cableKindFor(conn) {
+  if (conn.dst === "out" || conn.dst === "reverb") {
+    return "out"
+  }
+  if (conn.dstParam) {
+    return "mod"
+  }
+  return "audio"
+}
+
+fn drawPatchCables() {
+  cableDrawPending = false
+  if (typeof document === "undefined" || !document.getElementById) {
+    return
+  }
+  let host = document.getElementById("patch-cable-host")
+  let svg = document.getElementById("patch-cables")
+  if (host == null || svg == null) {
+    return
+  }
+  let hr = host.getBoundingClientRect()
+  let conns = cableState.conns
+  let parts = ""
+  let i = 0
+  while (i < conns.length) {
+    let cn = conns[i]
+    let srcEl = document.getElementById("pmroute-" + String(i))
+    let dstEl = null
+    if (cn.dst === "out") {
+      dstEl = document.getElementById("pmsink-out")
+    } else if (cn.dst === "reverb") {
+      dstEl = document.getElementById("pmsink-reverb")
+    } else {
+      dstEl = document.getElementById("pmnode-" + String(cn.dst))
+    }
+    if (srcEl != null && dstEl != null) {
+      let sr = srcEl.getBoundingClientRect()
+      let dr = dstEl.getBoundingClientRect()
+      let x1 = sr.right - hr.left
+      let y1 = sr.top - hr.top + sr.height / 2
+      let x2 = dr.left - hr.left
+      let y2 = dr.top - hr.top + dr.height / 2
+      parts = parts + "<path class=\"patch-cable patch-cable-" + cableKindFor(cn) + "\" d=\"" + cablePathD(x1, y1, x2, y2) + "\" />"
+    }
+    i = i + 1
+  }
+  // Envelope cables: each ENV card modulates its target node's param (gain/freq/…), so draw a modulation
+  // cable (amber-dashed) from the env card to the target node card. Skip if the target isn't a live node.
+  let envs = cableState.envs
+  let ei = 0
+  while (ei < envs.length) {
+    let en = envs[ei]
+    let envEl = document.getElementById("pmenv-" + String(ei))
+    let tgtEl = document.getElementById("pmnode-" + String(en.node))
+    if (envEl != null && tgtEl != null) {
+      let er = envEl.getBoundingClientRect()
+      let tr = tgtEl.getBoundingClientRect()
+      // Match the conn convention: source's RIGHT edge → target's LEFT edge, so the modulation cable reads as
+      // signal flowing into the node (the env is a source feeding the node's param).
+      let ex1 = er.right - hr.left
+      let ey1 = er.top - hr.top + er.height / 2
+      let ex2 = tr.left - hr.left
+      let ey2 = tr.top - hr.top + tr.height / 2
+      parts = parts + "<path class=\"patch-cable patch-cable-mod\" d=\"" + cablePathD(ex1, ey1, ex2, ey2) + "\" />"
+    }
+    ei = ei + 1
+  }
+  svg.setAttribute("width", String(Math.round(hr.width)))
+  svg.setAttribute("height", String(Math.round(hr.height)))
+  svg.innerHTML = parts
+}
+
+fn scheduleCableDraw() {
+  if (cableDrawPending) {
+    return
+  }
+  // Gate via globalThis (always declared) — NOT bare `typeof requestAnimationFrame`: lattish compiles `typeof X`
+  // to a form that EVALUATES X, so a bare undeclared global throws ReferenceError under node (headless render).
+  if (typeof globalThis === "undefined" || typeof globalThis.requestAnimationFrame !== "function") {
+    return
+  }
+  cableDrawPending = true
+  globalThis.requestAnimationFrame(drawPatchCables)
+}
+
+fn wirePatchCableListeners() {
+  if (cableListenersWired) {
+    return
+  }
+  if (typeof globalThis === "undefined" || typeof globalThis.addEventListener !== "function") {
+    return
+  }
+  cableListenersWired = true
+  globalThis.addEventListener("resize", scheduleCableDraw)
+  globalThis.addEventListener("scroll", scheduleCableDraw, true)
+  // rAF is paused while the tab is hidden, so a panel rendered in the background hasn't drawn yet — redraw
+  // when it becomes visible.
+  if (globalThis.document != null && typeof globalThis.document.addEventListener === "function") {
+    globalThis.document.addEventListener("visibilitychange", scheduleCableDraw)
+  }
+}
+
+// Owner display name for the read-only banner.
+fn trackOwnerName(project, channelId) {
+  if (project.coDjMeta && project.coDjMeta.tracks && project.coDjMeta.tracks[channelId]) {
+    let o = project.coDjMeta.tracks[channelId].ownerActorId
+    if (o != null && String(o).length > 0) {
+      return String(o)
+    }
+  }
+  return "another player"
+}
+
+// mayEdit gates authoring: when false (a co-DJ track you don't own / a master-locked track) the editor is
+// read-only — liveEdit/commitEdit no-op (no local mutation persisted, no broadcast), the palette is inert,
+// and the cards get `instr-readonly` (pointer-events:none) so no control can fire. Prevents the optimistic-
+// local-vs-rejected-broadcast divergence (the gated ingest door would reject a non-owner's edit anyway).
+export fn PatchGraphPanel(ch, project, setProject, rt, mayEdit) {
+  let canEdit = mayEdit !== false
   if (
     !ch.generatorSpec ||
     ch.generatorSpec.kind !== "patch" ||
@@ -386,339 +892,173 @@ export fn PatchGraphPanel(ch, project, setProject, tplMirrorFlush) {
     g.envs = []
   }
 
-  fn commit() {
+  // Undo snapshot of the gen_block as it stood BEFORE the current edit. Re-synced to the live state on every
+  // AT-REST render (so it tracks undo/redo/peer changes), but FROZEN while a knob is dragging (so the captured
+  // "before" is the pre-drag value, not a mid-drag one). commitEdit reads it as the undo inverse.
+  if (rt && canEdit) {
+    if (!rt._genSnap) {
+      rt._genSnap = {}
+    }
+    if (!isKnobDragging()) {
+      rt._genSnap[ch.id] = emitInstrumentModuleTpl(project, ch.id, "gen")
+    }
+  }
+
+  fn liveEdit() {
+    if (!canEdit) {
+      return
+    }
     syncPatchSpecFromGraph(spec)
     setProject(project)
-    if (tplMirrorFlush) {
-      tplMirrorFlush()
+  }
+  fn commitEdit() {
+    if (!canEdit) {
+      return
     }
+    // Capture the inverse (pre-edit gen_block) BEFORE setProject re-renders + re-syncs the snapshot.
+    let inv = (rt && rt._genSnap) ? rt._genSnap[ch.id] : null
+    syncPatchSpecFromGraph(spec)
+    setProject(project)
+    // Broadcast the whole gen_block through the gated `gen` ingest door — reaches peers + round-trips +
+    // MERGES (preserves steps/mix) + is UNDOABLE (inverse = the pre-edit block). Immediate (no debounce):
+    // commit only fires at a settle point (knob onCommit / discrete edit), so the generatorSpec swap never
+    // lands inside an in-flight knob drag.
+    let fwd = emitInstrumentModuleTpl(project, ch.id, "gen")
+    if (rt && rt.directiveUndoable) {
+      // Unique per-gesture token → each edit is its own undo step (not one coarse per-channel step).
+      if (rt._genTokenSeq == null) {
+        rt._genTokenSeq = 0
+      }
+      rt._genTokenSeq = rt._genTokenSeq + 1
+      rt.directiveUndoable(fwd, inv, "genblock:" + ch.id + ":" + String(rt._genTokenSeq))
+    } else if (rt && rt.directive) {
+      rt.directive(fwd)
+    }
+  }
+  fn addMod(kind) {
+    if (!canEdit) {
+      return
+    }
+    addPatchNode(g, kind)
+    commitEdit()
+  }
+  fn addEnvMod() {
+    if (!canEdit) {
+      return
+    }
+    addPatchEnv(g)
+    commitEdit()
+  }
+  let edit = { live: liveEdit, commit: commitEdit }
+
+  // View ↔ Edit: default to a clean read-only flow (cards + cables, no route dropdowns/× / palette); Edit
+  // reveals the wiring chrome. A non-owner is always in View (canEdit gates it). The mode is a transient view
+  // pref on rt (not the document). The chrome is hidden via the root `patch-view`/`patch-edit` class in CSS.
+  let editMode = canEdit && rt != null && rt.patchEditMode === true
+  fn setPatchEditMode(on) {
+    if (rt != null) {
+      rt.patchEditMode = on
+    }
+    setProject(project)
   }
 
   let ids = nodeIdList(g)
   let accent = accentForGenerator(ch.generatorId)
 
-  // Node cards.
   let nodeCards = []
   let ni = 0
   while (ni < g.nodes.length) {
-    let nd = g.nodes[ni]
-    let ndCopy = nd
-    nodeCards.push(
-      <div class="patch-node sytrus-op-card" key={"nd" + nd.id}>
-        <div class="patch-node-top">
-          <span class="patch-node-badge">{kindLabel(nd.kind) + " " + nd.id}</span>
-          <button
-            type="button"
-            class="sytrus-icon-btn"
-            title={"Remove node"}
-            onmousedown={(e) => e.stopPropagation()}
-            onclick={() => {
-              removePatchNode(g, ndCopy.id)
-              commit()
-            }}
-          >
-            {"×"}
-          </button>
-        </div>
-        {nodeCardBody(nd, commit, accent)}
-      </div>
-    )
+    nodeCards.push(nodeCard(g, g.nodes[ni], ids, accent, edit))
     ni = ni + 1
   }
 
-  // Connection rows.
-  let connRows = []
-  let ci = 0
-  while (ci < g.conns.length) {
-    let cn = g.conns[ci]
-    let cidx = ci
-    let isNodeDst = cn.dst !== "out" && cn.dst !== "reverb"
-    connRows.push(
-      <div class="sytrus-route-row" key={"cn" + String(ci)}>
-        <select
-          class="sytrus-route-sel"
-          value={cn.src}
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={(e) => e.stopPropagation()}
-          onchange={(e) => {
-            g.conns[cidx].src = e.target.value
-            commit()
-          }}
-        >
-          {nodeIdOptions(ids, "cs" + cidx)}
-        </select>
-        <span class="sytrus-route-arrow">{"→"}</span>
-        <select
-          class="sytrus-route-sel"
-          value={cn.dst}
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={(e) => e.stopPropagation()}
-          onchange={(e) => {
-            let nv = e.target.value
-            g.conns[cidx].dst = nv
-            if (nv === "out" || nv === "reverb") {
-              g.conns[cidx].dstParam = null
-            }
-            commit()
-          }}
-        >
-          {nodeIdOptions(ids, "cd" + cidx)}
-          <option value="out">{"out"}</option>
-          <option value="reverb">{"reverb"}</option>
-        </select>
-        <select
-          class="sytrus-route-sel"
-          value={cn.dstParam ? cn.dstParam : ""}
-          disabled={isNodeDst ? false : true}
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={(e) => e.stopPropagation()}
-          onchange={(e) => {
-            let pv = e.target.value
-            g.conns[cidx].dstParam = pv === "" ? null : pv
-            commit()
-          }}
-        >
-          {paramOptions("cp" + cidx, true)}
-        </select>
-        <span class="sytrus-route-vol">
-          {Knob({
-            label: "Vol",
-            value: Math.round(numOr(cn.vol, 1) * 100),
-            min: 0,
-            max: 200,
-            step: 1,
-            accent: accent,
-            size: "xs",
-            fmt: (v) => String(Math.round(v) / 100),
-            onInput: (v) => {
-              g.conns[cidx].vol = v / 100
-              commit()
-            }
-          })}
-        </span>
-        <button
-          type="button"
-          class="sytrus-icon-btn"
-          title={"Remove connection"}
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={() => {
-            removePatchConnAt(g, cidx)
-            commit()
-          }}
-        >
-          {"×"}
-        </button>
-      </div>
-    )
-    ci = ci + 1
-  }
-
-  // Envelope blocks.
-  let envBlocks = []
+  let envCards = []
   let ei = 0
   while (ei < g.envs.length) {
-    let en = g.envs[ei]
-    let eidx = ei
-    let segRows = []
-    let si = 0
-    while (si < en.segs.length) {
-      let sg = en.segs[si]
-      let sidx = si
-      segRows.push(
-        <div class="patch-seg-row" key={"sg" + eidx + "_" + si}>
-          <select
-            class="sytrus-route-sel"
-            value={sg.type}
-            onmousedown={(e) => e.stopPropagation()}
-            onclick={(e) => e.stopPropagation()}
-            onchange={(e) => {
-              g.envs[eidx].segs[sidx].type = e.target.value
-              commit()
-            }}
-          >
-            <option value="set">{"Set"}</option>
-            <option value="lin">{"Lin"}</option>
-            <option value="exp">{"Exp"}</option>
-          </select>
-          <input
-            class="patch-expr"
-            type="text"
-            value={String(sg.tExpr)}
-            title={"time (s) — expr ok: dur, dur-0.1, note"}
-            onmousedown={(e) => e.stopPropagation()}
-            onchange={(e) => {
-              g.envs[eidx].segs[sidx].tExpr = e.target.value
-              commit()
-            }}
-          />
-          <input
-            class="patch-expr"
-            type="text"
-            value={String(sg.vExpr)}
-            title={"value — expr ok: note, note*2, vel, numbers"}
-            onmousedown={(e) => e.stopPropagation()}
-            onchange={(e) => {
-              g.envs[eidx].segs[sidx].vExpr = e.target.value
-              commit()
-            }}
-          />
-          <button
-            type="button"
-            class="sytrus-icon-btn"
-            title={"Remove segment"}
-            onmousedown={(e) => e.stopPropagation()}
-            onclick={() => {
-              removePatchEnvSegAt(g, eidx, sidx)
-              commit()
-            }}
-          >
-            {"×"}
-          </button>
-        </div>
-      )
-      si = si + 1
-    }
-    envBlocks.push(
-      <div class="patch-env sytrus-op-card" key={"env" + String(ei)}>
-        <div class="patch-env-top">
-          <span class="patch-env-target">
-            <select
-              class="sytrus-route-sel"
-              value={en.node}
-              onmousedown={(e) => e.stopPropagation()}
-              onclick={(e) => e.stopPropagation()}
-              onchange={(e) => {
-                g.envs[eidx].node = e.target.value
-                commit()
-              }}
-            >
-              {nodeIdOptions(ids, "en" + eidx)}
-            </select>
-            <span class="patch-dot">{"."}</span>
-            <select
-              class="sytrus-route-sel"
-              value={en.param ? en.param : "gain"}
-              onmousedown={(e) => e.stopPropagation()}
-              onclick={(e) => e.stopPropagation()}
-              onchange={(e) => {
-                g.envs[eidx].param = e.target.value
-                commit()
-              }}
-            >
-              {paramOptions("ep" + eidx, false)}
-            </select>
-          </span>
-          <button
-            type="button"
-            class="sytrus-icon-btn"
-            title={"Remove envelope"}
-            onmousedown={(e) => e.stopPropagation()}
-            onclick={() => {
-              removePatchEnvAt(g, eidx)
-              commit()
-            }}
-          >
-            {"×"}
-          </button>
-        </div>
-        <div class="patch-seg-head">
-          <span>{"seg"}</span>
-          <span>{"t"}</span>
-          <span>{"value"}</span>
-          <span />
-        </div>
-        {segRows}
-        <button
-          type="button"
-          class="sytrus-add-btn"
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={() => {
-            addPatchEnvSeg(g, eidx)
-            commit()
-          }}
-        >
-          {"+ Seg"}
-        </button>
-      </div>
-    )
+    envCards.push(envCard(g, g.envs[ei], ei, ids, edit))
     ei = ei + 1
   }
 
+  let orphans = orphanConnRows(g, edit)
+
   let durIsSet = g.dur != null
   let durVal = durIsSet ? Number(g.dur) : 0.5
+  let ownerName = trackOwnerName(project, ch.id)
+
+  let usesReverb = false
+  let urc = 0
+  while (urc < g.conns.length) {
+    if (g.conns[urc].dst === "reverb") {
+      usesReverb = true
+    }
+    urc = urc + 1
+  }
+  // Hand the current connectivity to the imperative cable layer + schedule a re-measure after this paint.
+  cableState.conns = g.conns
+  cableState.envs = g.envs
+  scheduleCableDraw()
+  wirePatchCableListeners()
 
   return (
-    <div class="sytrus-panel patch-panel">
+    <div class={editMode ? "sytrus-panel patch-panel patch-edit" : "sytrus-panel patch-panel patch-view"}>
       <div class="sytrus-panel-head">
         <span class="sytrus-panel-title">{"PATCH"}</span>
-        <span class="sytrus-panel-sub">{"nodes · wiring · breakpoint envelopes"}</span>
+        <span class="sytrus-panel-sub">{editMode ? "modules · wire each output" : "modules · signal flow"}</span>
+        {canEdit ? (
+          <span class="patch-mode-toggle">
+            <button type="button" class={editMode ? "imt-btn" : "imt-btn imt-on"} onmousedown={(e) => e.stopPropagation()} onclick={() => setPatchEditMode(false)}>{"View"}</button>
+            <button type="button" class={editMode ? "imt-btn imt-on" : "imt-btn"} onmousedown={(e) => e.stopPropagation()} onclick={() => setPatchEditMode(true)}>{"Edit"}</button>
+          </span>
+        ) : null}
+        {canEdit ? null : <span class="instr-lock-tag">{"read only"}</span>}
       </div>
 
-      <section class="sytrus-section">
-        <div class="sytrus-section-h">
-          <span>{"Nodes"}</span>
-          <span class="patch-add-row">
-            <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => { addPatchNode(g, "osc"); commit() }}>{"+ Osc"}</button>
-            <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => { addPatchNode(g, "noise"); commit() }}>{"+ Noise"}</button>
-            <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => { addPatchNode(g, "string"); commit() }}>{"+ String"}</button>
-            <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => { addPatchNode(g, "filter"); commit() }}>{"+ Filter"}</button>
-            <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => { addPatchNode(g, "shaper"); commit() }}>{"+ Shaper"}</button>
-            <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => { addPatchNode(g, "gain"); commit() }}>{"+ Gain"}</button>
-          </span>
-        </div>
-        {g.nodes.length === 0 ? (
-          <p class="sytrus-empty">{"Add a node to start the patch."}</p>
-        ) : (
-          <div class="sytrus-op-grid">{nodeCards}</div>
-        )}
-      </section>
+      {canEdit ? null : (
+        <div class="instr-locked-hint">{"🔒 owned by " + ownerName + " — read only"}</div>
+      )}
 
-      <section class="sytrus-section">
-        <div class="sytrus-section-h">
-          <span>{"Connections"}</span>
-          <button
-            type="button"
-            class="sytrus-add-btn"
-            onmousedown={(e) => e.stopPropagation()}
-            onclick={() => {
-              addPatchConn(g)
-              commit()
-            }}
-          >
-            {"+ Conn"}
-          </button>
-        </div>
-        {g.conns.length === 0 ? (
-          <p class="sytrus-empty">{"Wire a node to out (or another node's param)."}</p>
-        ) : (
-          <div class="sytrus-routes">{connRows}</div>
-        )}
-      </section>
+      <div class={canEdit ? "patch-edit-region" : "patch-edit-region instr-readonly"}>
+      <div class="patch-palette">
+        <span class="patch-palette-label">{"Add module"}</span>
+        <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => addMod("osc")}>{"Osc"}</button>
+        <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => addMod("noise")}>{"Noise"}</button>
+        <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => addMod("string")}>{"String"}</button>
+        <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => addMod("filter")}>{"Filter"}</button>
+        <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => addMod("shaper")}>{"Shaper"}</button>
+        <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => addMod("gain")}>{"Gain"}</button>
+        <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => addMod("pan")}>{"Pan"}</button>
+        <button type="button" class="sytrus-add-btn" onmousedown={(e) => e.stopPropagation()} onclick={() => addEnvMod()}>{"Env"}</button>
+      </div>
 
-      <section class="sytrus-section">
-        <div class="sytrus-section-h">
-          <span>{"Envelopes"}</span>
-          <button
-            type="button"
-            class="sytrus-add-btn"
-            onmousedown={(e) => e.stopPropagation()}
-            onclick={() => {
-              addPatchEnv(g)
-              commit()
-            }}
-          >
-            {"+ Env"}
-          </button>
+      {g.nodes.length === 0 && g.envs.length === 0 ? (
+        <p class="sytrus-empty">{"Add a module to start the patch. Wire each module's output to the next, ending at out."}</p>
+      ) : (
+        <div class="patch-mod-grid" id="patch-cable-host">
+          <svg id="patch-cables" class="patch-cables" />
+          {nodeCards}
+          {envCards}
+          <div class="patch-sink patch-sink-out" id="pmsink-out" key="pmsink-out">
+            <span class="patch-sink-label">{"▶ OUT"}</span>
+          </div>
+          {usesReverb ? (
+            <div class="patch-sink patch-sink-rev" id="pmsink-reverb" key="pmsink-reverb">
+              <span class="patch-sink-label">{"REVERB"}</span>
+            </div>
+          ) : null}
         </div>
-        <p class="sytrus-hint">{"t / value accept expressions: note, note*2, dur, dur-0.1, vel, or a number."}</p>
-        {g.envs.length === 0 ? (
-          <p class="sytrus-empty">{"Add an envelope on any node's gain / freq / detune / q."}</p>
-        ) : (
-          <div class="patch-env-grid">{envBlocks}</div>
-        )}
-      </section>
+      )}
 
-      <section class="sytrus-section">
+      {orphans.length > 0 ? (
+        <section class="sytrus-section patch-orphans">
+          <div class="sytrus-section-h">
+            <span>{"Unrouted connections"}</span>
+          </div>
+          <p class="sytrus-hint">{"These route from a module that no longer exists. Remove them or re-add the module."}</p>
+          <div class="sytrus-routes">{orphans}</div>
+        </section>
+      ) : null}
+
+      <section class="sytrus-section patch-voicelen">
         <div class="sytrus-section-h">
           <span>{"Voice length"}</span>
         </div>
@@ -733,7 +1073,7 @@ export fn PatchGraphPanel(ch, project, setProject, tplMirrorFlush) {
               } else {
                 g.dur = null
               }
-              commit()
+              commitEdit()
             }}
           />
           {durIsSet ? "Fixed" : "Auto (note length)"}
@@ -750,12 +1090,14 @@ export fn PatchGraphPanel(ch, project, setProject, tplMirrorFlush) {
               fmt: (v) => String(Math.round(v)) + " ms",
               onInput: (v) => {
                 g.dur = v / 1000
-                commit()
-              }
+                liveEdit()
+              },
+              onCommit: () => commitEdit()
             })}
           </div>
         ) : null}
       </section>
+      </div>
     </div>
   )
 }

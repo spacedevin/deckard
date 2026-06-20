@@ -362,6 +362,7 @@ export fn App() {
   }
   rt.emit = (addr, val) => editorRef.current.emit(addr, val)
   rt.directive = (line) => editorRef.current.directive(line)
+  rt.directiveUndoable = (fwd, inv, addr) => editorRef.current.directiveUndoable(fwd, inv, addr)
   // Apply an arbitrary TPL fragment (e.g. a preset's TPL) through the one gated write door.
   rt.applyTpl = (tpl) => editorRef.current.directive(tpl)
   // Undo / redo: re-ingest the inverse / forward TPL through the same gated door (ownership-checked,

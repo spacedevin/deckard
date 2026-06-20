@@ -22,9 +22,11 @@ import { compileGeneratorToPatchLines } from '../model/PatchCompile.tish'
 import { emitInstrumentModuleTpl } from '../core/Levels.tish'
 import { GeneratorParamPanel } from './GeneratorParams.tish'
 import { accentForGenerator, Knob } from './InstrumentKit.tish'
+import { actorMayEditTrack } from '../codj/Merge.tish'
 import { MatrixFmPanel } from './MatrixFmPanel.tish'
 import { PatchGraphPanel } from './PatchGraphPanel.tish'
 import { MacroDesignerPanel } from './MacroDesignerPanel.tish'
+import { RichTplEditor } from './RichTplEditor.tish'
 
 let VOICE_GROUPS = [
   { title: "Oscillators", voices: [["basicOsc", "Osc"], ["fmTone", "FM"]] },
@@ -281,18 +283,23 @@ fn ModuleCard(title, tplBlock, module, ctx, children, wide) {
   let cardClass = wide ? "instr-module instr-module-wide" : "instr-module"
   let body = children
   if (raw) {
-    body = (
-      <textarea
-        class="instr-module-raw"
-        spellcheck={false}
-        value={emitInstrumentModuleTpl(ctx.project, ctx.ch.id, module)}
-        onmousedown={(e) => e.stopPropagation()}
-        onchange={(e) => {
-          if (ctx.rt && ctx.rt.directive) {
-            ctx.rt.directive(e.target.value)
-          }
-        }}
-      />
+    // The current gen_block for this module — shown in the editor AND used as the undo inverse (the pre-edit
+    // text), since onCommit fires on blur with the new text and this closure captures the pre-edit value.
+    let curTpl = emitInstrumentModuleTpl(ctx.project, ctx.ch.id, module)
+    body = RichTplEditor(
+      ctx.rt,
+      "rawed-" + ctx.ch.id + "-" + module,
+      curTpl,
+      (text) => {
+        if (ctx.rt == null) {
+          return
+        }
+        if (ctx.rt.directiveUndoable) {
+          ctx.rt.directiveUndoable(text, curTpl, "rawedit:" + ctx.ch.id + ":" + module)
+        } else if (ctx.rt.directive) {
+          ctx.rt.directive(text)
+        }
+      }
     )
   }
   return (
@@ -314,17 +321,23 @@ fn ModuleCard(title, tplBlock, module, ctx, children, wide) {
 
 fn voiceDesigner(project, ch, gid, setProject, tplMirrorFlush, rt) {
   let isMacro = ch.macroName != null
+  // Ownership gate: the modular patch/matrix editors mutate the project locally + broadcast, so a non-owner
+  // (a co-DJ track you don't own, or a master-locked track) must not author edits — else the optimistic
+  // local state diverges from the gated-rejected broadcast. actorMayEditTrack respects ownership + masterLock;
+  // the local actor is rt.coDjActorId (defaults to "human", which owns everything in a solo session).
+  let selfActor = (rt && rt.coDjActorId) ? rt.coDjActorId : "human"
+  let mayEdit = actorMayEditTrack(project, ch.id, selfActor, false)
   return (
     <Fragment>
       <div class="instr-params-wrap">{GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt)}</div>
       {gid === "matrixFm" ? (
-        <div class="matrixfm-panel-wrap">{MatrixFmPanel(ch, project, setProject, tplMirrorFlush)}</div>
+        <div class="matrixfm-panel-wrap">{MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt)}</div>
       ) : null}
       {isMacro ? (
         <div class="macro-panel-wrap">{MacroDesignerPanel(ch, project, setProject, tplMirrorFlush)}</div>
       ) : null}
       {gid === "patch" && !isMacro ? (
-        <div class="patch-panel-wrap">{PatchGraphPanel(ch, project, setProject, tplMirrorFlush)}</div>
+        <div class="patch-panel-wrap">{PatchGraphPanel(ch, project, setProject, rt, mayEdit)}</div>
       ) : null}
     </Fragment>
   )

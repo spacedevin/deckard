@@ -1377,6 +1377,31 @@ input[type="range"]::-moz-range-thumb {
   background: rgba(0, 0, 0, 0.25);
   min-width: 4.5rem;
 }
+/* ---- Matrix FM flow cues: active modulation cells, audible-op marks, signal-flow strip ---- */
+.sytrus-matrix-active { background: rgba(90, 169, 232, 0.16); box-shadow: inset 0 0 0 1px rgba(90, 169, 232, 0.55); }
+.sytrus-op-audible { box-shadow: inset 0 0 0 1px rgba(138, 182, 255, 0.5); }
+.sytrus-op-out-tag { font-size: 0.5rem; font-weight: 800; letter-spacing: 0.05em; color: #0a0a0a;
+  background: #8ab6ff; border-radius: 3px; padding: 0.05rem 0.28rem; margin-left: 0.3rem; }
+.sytrus-section-hint { font-size: 0.54rem; color: var(--muted); margin-left: auto; }
+.mfm-flow-section { margin-bottom: 0.4rem; }
+.mfm-flow-wrap { overflow-x: auto; }
+.mfm-flow { width: 100%; max-width: 100%; height: auto; max-height: 5.5rem; display: block; }
+.mfm-op { fill: rgba(255, 255, 255, 0.06); stroke: rgba(255, 255, 255, 0.25); stroke-width: 1; }
+.mfm-op-on { fill: rgba(138, 182, 255, 0.18); stroke: #8ab6ff; stroke-width: 1.4; }
+.mfm-op-lbl, .mfm-out-lbl { fill: var(--text, #e8e8ea); font-size: 11px; font-weight: 700; text-anchor: middle; }
+.mfm-out { fill: rgba(138, 182, 255, 0.14); stroke: #8ab6ff; stroke-width: 1.4; }
+.mfm-out-lbl { font-size: 9px; letter-spacing: 0.04em; }
+.mfm-arc { fill: none; stroke-width: 1.6; opacity: 0.85; }
+.mfm-arc-fm { stroke: #e8945c; }
+.mfm-arc-rm { stroke: #c9a6e0; stroke-dasharray: 4 3; }
+.mfm-dot-fm { fill: #e8945c; }
+.mfm-dot-rm { fill: #c9a6e0; }
+.mfm-out-line { fill: none; stroke: #8ab6ff; stroke-width: 1.6; opacity: 0.7; }
+/* filter nodes on the flow strip + the routing (audio bus) arcs below the row */
+.mfm-filter { fill: rgba(255, 255, 255, 0.05); stroke: rgba(255, 255, 255, 0.22); stroke-width: 1; }
+.mfm-filter-on { fill: rgba(95, 208, 111, 0.16); stroke: #5fd06f; stroke-width: 1.3; }
+.mfm-filter-lbl { fill: var(--text, #e8e8ea); font-size: 10px; font-weight: 700; text-anchor: middle; }
+.mfm-route-line { fill: none; stroke: #5fd06f; stroke-width: 1.5; opacity: 0.7; }
 
 .sytrus-mod-pair {
   display: flex;
@@ -5152,6 +5177,90 @@ input[type="range"]::-moz-range-thumb {
 .patch-expr { font-family: inherit; font-size: 0.58rem; background: var(--bg); color: var(--text);
   border: 1px solid var(--border); border-radius: 3px; padding: 0.12rem 0.25rem; min-width: 0; width: 100%; }
 
+/* ---- Decomposed modular patch: per-module cards + inline routing ---- */
+/* Module palette (the add-a-module bar). */
+.patch-palette { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin: 0.1rem 0 0.5rem; }
+.patch-palette-label { font-size: 0.54rem; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--muted); margin-right: 0.15rem; }
+/* Cards fill the width side-by-side, ~1 screen — each module is self-contained. */
+/* Masonry: CSS multi-column packs cards top-to-bottom into columns, filling the vertical whitespace that
+   a flex-wrap row grid leaves under shorter cards. break-inside:avoid keeps each card whole. */
+.patch-mod-grid { columns: 12rem; column-gap: 0.5rem; position: relative; }
+.patch-mod { break-inside: avoid; margin: 0 0 0.5rem; padding: 0.45rem 0.5rem;
+  display: flex; flex-direction: column; gap: 0.35rem; position: relative; z-index: 1; }
+
+/* Read-only signal-flow cables: an SVG overlay UNDER the cards (z-index 0), drawn imperatively. */
+.patch-cables { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;
+  overflow: visible; z-index: 0; }
+.patch-cable { fill: none; stroke-width: 1.6; opacity: 0.55; }
+.patch-cable-audio { stroke: #5fd06f; }                                  /* green = audio signal */
+.patch-cable-mod { stroke: #e8945c; stroke-dasharray: 5 3; }             /* amber dashed = modulation */
+.patch-cable-out { stroke: #8ab6ff; stroke-width: 2.4; opacity: 0.85; }  /* blue bold = reaches output */
+/* Output / reverb sink tiles — cables terminate here so "what's audible" is obvious. In the masonry column
+   flow they pack like any card (break-inside:avoid + margin), with a min-height so the tile reads as a target. */
+.patch-sink { break-inside: avoid; margin: 0 0 0.5rem; min-height: 2.6rem; display: flex; align-items: center;
+  justify-content: center; border-radius: 8px; position: relative; z-index: 1; }
+.patch-sink-out { border: 1.5px solid #8ab6ff; background: rgba(138, 182, 255, 0.1); }
+.patch-sink-rev { border: 1.5px solid #c9a6e0; background: rgba(201, 166, 224, 0.1); }
+.patch-sink-label { font-size: 0.62rem; font-weight: 800; letter-spacing: 0.08em; color: var(--text, #e8e8ea); }
+.patch-mod-head { display: flex; align-items: center; gap: 0.35rem; }
+.patch-mod-badge { font-size: 0.58rem; font-weight: 800; letter-spacing: 0.08em; color: var(--panel, #141418);
+  background: var(--accent-warm, #e8945c); border-radius: 3px; padding: 0.1rem 0.35rem; }
+.patch-env-badge { background: #8ab6ff; }
+.patch-mod-id { font-size: 0.58rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.patch-mod-x { margin-left: auto; }
+/* Inline routing footer — each card owns where its signal goes. */
+.patch-mod-routes { display: flex; flex-direction: column; gap: 0.25rem; border-top: 1px solid var(--border, #2a2a31);
+  padding-top: 0.3rem; }
+.patch-route { display: flex; align-items: center; gap: 0.25rem; }
+.patch-route-arrow { color: var(--accent-warm, #e8945c); font-weight: 800; font-size: 0.7rem; }
+.patch-route .sytrus-route-sel { max-width: none; flex: 1 1 auto; min-width: 0; }
+.patch-route-param { flex: 0 1 4.5rem !important; }
+.patch-route-vol { flex: 0 0 auto; }
+.patch-route-empty { font-size: 0.55rem; color: var(--muted); font-style: italic; }
+.patch-route-add { align-self: flex-start; font-family: inherit; font-size: 0.6rem; font-weight: 700;
+  color: var(--accent-warm, #e8945c); background: transparent; border: 1px dashed var(--border, #2a2a31);
+  border-radius: 4px; padding: 0.1rem 0.4rem; cursor: pointer; }
+.patch-route-add:hover { border-color: var(--accent-warm, #e8945c); }
+.patch-env .patch-seg-head { margin-top: 0.1rem; }
+.patch-voicelen { margin-top: 0.6rem; }
+
+/* Patch View ↔ Edit. View = clean read-only flow: hide the wiring chrome (route dropdowns/vol/×, +→, palette,
+   remove ×, +seg) and show a compact "→ dest" label instead; the cables convey the routing. Edit reveals all. */
+.patch-panel .sytrus-panel-head { display: flex; align-items: center; gap: 0.45rem; }
+.patch-mode-toggle { margin-left: auto; display: inline-flex; }
+.patch-route-dst-lbl { font-size: 0.62rem; color: var(--text, #d6d6dc); font-weight: 600;
+  background: rgba(0, 0, 0, 0.25); border-radius: 3px; padding: 0.05rem 0.32rem; }
+.patch-edit .patch-route-dst-lbl { display: none; }
+.patch-view .patch-route .sytrus-route-sel,
+.patch-view .patch-route-param,
+.patch-view .patch-route-vol,
+.patch-view .patch-route .sytrus-icon-btn,
+.patch-view .patch-route-add,
+.patch-view .patch-mod-x,
+.patch-view .patch-palette,
+.patch-view .patch-env .sytrus-add-btn,
+.patch-view .patch-seg-row .sytrus-icon-btn,
+.patch-view .patch-orphan-route .sytrus-icon-btn { display: none; }
+/* In View, the route row collapses to just the arrow + dest label (no big gap). */
+.patch-view .patch-route { gap: 0.2rem; }
+/* Orphan / unrouted connections (src module deleted) — visible + removable so they're never stuck. */
+.patch-orphans { margin-top: 0.5rem; }
+.patch-orphan-route { gap: 0.35rem; color: var(--muted); }
+.patch-orphan-src, .patch-orphan-dst { font-size: 0.6rem; font-variant-numeric: tabular-nums;
+  background: rgba(0, 0, 0, 0.25); border-radius: 3px; padding: 0.08rem 0.3rem; }
+.patch-orphan-src { color: #e0794e; }
+
+/* ---- Instrument editor ownership gate (read-only for a track you don't own / master-locked) ---- */
+.instr-readonly { pointer-events: none; opacity: 0.5; }
+.instr-readonly-host { pointer-events: none; opacity: 0.62; }
+.instr-locked-hint { display: flex; align-items: center; gap: 0.3rem; font-size: 0.6rem; font-weight: 700;
+  color: #f0b06a; background: rgba(232, 148, 92, 0.14); border: 1px solid rgba(232, 148, 92, 0.4);
+  border-radius: 5px; padding: 0.2rem 0.45rem; margin: 0.1rem 0 0.4rem; }
+.instr-lock-tag { font-size: 0.52rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+  color: #f0b06a; border: 1px solid rgba(232, 148, 92, 0.45); border-radius: 3px; padding: 0.05rem 0.3rem;
+  margin-left: 0.4rem; }
+
 /* ---- Kick / Bass macro designers ---- */
 .designer-pick-row { display: flex; align-items: center; gap: 0.4rem; margin: 0.35rem 0 0.1rem; }
 .designer-pick-label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em;
@@ -5211,10 +5320,13 @@ input[type="range"]::-moz-range-thumb {
 .imt-btn { font-family: inherit; font-size: 0.56rem; font-weight: 600; padding: 0.12rem 0.4rem; border: none;
   background: transparent; color: var(--muted); cursor: pointer; }
 .imt-btn.imt-on { background: rgba(232, 148, 92, 0.18); color: var(--accent-warm, #e8945c); }
-.instr-module-raw { width: 100%; min-height: 8rem; box-sizing: border-box;
-  font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.66rem; line-height: 1.5;
-  background: var(--bg, #0e0e12); color: var(--text, #e8e8ea); border: 1px solid var(--border, #2a2a2a);
-  border-radius: 5px; padding: 0.45rem 0.55rem; resize: vertical; white-space: pre; }
+/* Reusable rich TPL editor (RichTplEditor) — the SAME highlight stack as the main TPL editor, sized for the
+   inline module "Raw" views: border/background on the stack, the transparent textarea over the highlighted <pre>.
+   Only min-height is overridden so font metrics stay identical (alignment of the two layers must match). */
+.rich-tpl-slot { display: block; width: 100%; }
+.rich-tpl-stack.tpl-song-mirror-stack { min-height: 0; background: var(--bg, #0e0e12);
+  border: 1px solid var(--border, #2a2a2a); border-radius: 5px; overflow: hidden; }
+.rich-tpl-stack .tpl-song-input-layer { min-height: 8rem; }
 
 /* ---- Instrument kit: rotary knobs, wave-icon pickers, envelope display, reskinned cards ---- */
 .ik-knob { display: inline-flex; flex-direction: column; align-items: center; gap: 0.1rem; width: 4rem; }
