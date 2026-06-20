@@ -14,7 +14,7 @@ import { loadDeckSet, deckSetCatalog } from '../src/model/DeckSets.tish'
 import { channelDeck } from '../src/model/DeckRouting.tish'
 import { stepTriggers } from '../src/audio/Playback.tish'
 import { createAudioDeviceSettings } from '../src/core/AudioDeviceSettings.tish'
-import { applyCueRouting } from '../src/audio/Engine.tish'
+import { applyCueRouting, applyChannelFilterAutomation } from '../src/audio/Engine.tish'
 import { levelPresetList, addLevelPreset, findLevelPreset, removeLevelPreset } from '../src/model/LevelPresets.tish'
 import { compileGeneratorToPatchLines, canCompileToPatch } from '../src/model/PatchCompile.tish'
 import { parsePatchGraph } from '../src/tpl/TplExtension.tish'
@@ -24,7 +24,10 @@ import { parseMidiBytes, ccKey, normalize01, createMidiController, midiTargetLis
 import { fragmentForEdit } from '../src/core/Edit.tish'
 import { snapToScale, parseScaleRoot, scaleIntervals, projectSnapPitch } from '../src/model/Scale.tish'
 import { rotatePattern, euclidSteps, reseedSteps, mutateSteps, humanizeSteps, sprinkleProbability, cloneSteps16 } from '../src/model/Generative.tish'
+import { euclidNotes, reseedNotes, mutateNotes, humanizeNotes, sprinkleNoteProbability, notePitchForChannel, notesAfterFirstBar } from '../src/model/Generative.tish'
 import { defaultAutoParam, autoNorm, autoDenorm, autoLaneValues, channelAutoPoints } from '../src/model/AutoParams.tish'
+import { clonePianoNote } from '../src/model/Project.tish'
+import { noteLine } from '../src/tpl/Emit.tish'
 import { generatorChannelAtBeat } from '../src/audio/ParamAtBeat.tish'
 
 let pass = 0
@@ -915,15 +918,92 @@ applyTplSource(genProj2, "tpl 1\n" + genFrag + "\n")
 let genCh2 = findChannelById(genProj2, genCh.id)
 check("[gen] generated pattern round-trips hit count", countOn(genCh2.steps) === countOn(genArr))
 
+// ---- NOTE generators (the toolbar working on MELODIC channels → authoring notes) ----
+genSeed = 5
+let gnE = euclidNotes(4, 0, 48)
+check("[gennote] euclidNotes hit count + pitch + lock fields", gnE.length === 4 && gnE[0].pitch === 48 && gnE[0].vel === 100 && gnE[0].prob === 1 && gnE[0].ratchet === 1)
+check("[gennote] notePitchForChannel uses first note then stepPitch", notePitchForChannel({ pianoNotes: [{ pitch: 55, startBeat: 0, durBeats: 0.25, vel: 100 }] }) === 55 && notePitchForChannel({ pianoNotes: [], stepPitch: 41 }) === 41)
+// reseed deterministic for a fixed seed
+genSeed = 5
+let gnR1 = reseedNotes(genRng, 50)
+genSeed = 5
+let gnR2 = reseedNotes(genRng, 50)
+let gnRsame = gnR1.length === gnR2.length
+let gnk = 0
+while (gnk < gnR1.length) {
+  if (gnR1[gnk].startBeat !== gnR2[gnk].startBeat || gnR1[gnk].vel !== gnR2[gnk].vel) {
+    gnRsame = false
+  }
+  gnk = gnk + 1
+}
+check("[gennote] reseedNotes deterministic for a fixed seed", gnRsame && gnR1.length >= 3 && gnR1.length <= 8)
+// humanize keeps note count + pitches, jitters vel in range
+let gnBase = euclidNotes(8, 0, 60)
+genSeed = 9
+let gnH = humanizeNotes(gnBase, genRng, 20)
+let gnHok = gnH.length === gnBase.length
+let gnhi = 0
+while (gnhi < gnH.length) {
+  if (gnH[gnhi].pitch !== gnBase[gnhi].pitch || gnH[gnhi].vel < 1 || gnH[gnhi].vel > 127) {
+    gnHok = false
+  }
+  gnhi = gnhi + 1
+}
+check("[gennote] humanizeNotes keeps notes/pitches, vel in range", gnHok)
+// sprinkle adds sub-1 prob to off-beat notes, downbeat stays certain
+genSeed = 13
+let gnS = sprinkleNoteProbability(euclidNotes(16, 0, 60), genRng, 1)
+let gnDown = true
+let gnAny = false
+let gns = 0
+while (gns < gnS.length) {
+  let col = Math.floor(gnS[gns].startBeat * 4 + 0.0001)
+  if (col % 4 === 0 && gnS[gns].prob < 1) {
+    gnDown = false
+  }
+  if (gnS[gns].prob < 1) {
+    gnAny = true
+  }
+  gns = gns + 1
+}
+check("[gennote] sprinkleNoteProbability: downbeats certain, off-beats sprinkled", gnDown && gnAny)
+// mutate preserves bars 2+ and changes bar 1; input untouched
+let gnMulti = [{ startBeat: 0, durBeats: 0.25, pitch: 60, vel: 100, prob: 1, ratchet: 1, nudge: 0 }, { startBeat: 4, durBeats: 0.25, pitch: 62, vel: 100, prob: 1, ratchet: 1, nudge: 0 }]
+genSeed = 21
+let gnM = mutateNotes(gnMulti, genRng, 0.3, 60)
+let gnKeptBar2 = false
+let gnmi = 0
+while (gnmi < gnM.length) {
+  if (Math.abs(gnM[gnmi].startBeat - 4) < 1e-6 && gnM[gnmi].pitch === 62) {
+    gnKeptBar2 = true
+  }
+  gnmi = gnmi + 1
+}
+check("[gennote] mutateNotes preserves bars 2+ (the beat-4 note survives)", gnKeptBar2)
+check("[gennote] mutateNotes does not mutate the input", gnMulti.length === 2 && gnMulti[0].pitch === 60)
+// notesAfterFirstBar filters
+let gnLater = notesAfterFirstBar(gnMulti)
+check("[gennote] notesAfterFirstBar keeps only startBeat>=4", gnLater.length === 1 && Math.abs(gnLater[0].startBeat - 4) < 1e-6)
+// the generated notes round-trip through the notes door
+let gnP = emptyProjectShell()
+applyTplSource(gnP, "tpl 1\ntrack Lead id gn_lead gen basic_osc\n  note 60 0 0.25 v 100\n")
+let gnCh = gnP.channels[0]
+let gnNotes = euclidNotes(5, 0, 52)
+let gnFrag = fragmentForEdit(gnP, "track/" + gnCh.id + "/notes", gnNotes)
+let gnP2 = emptyProjectShell()
+applyTplSource(gnP2, "tpl 1\n" + gnFrag + "\n")
+check("[gennote] generated notes round-trip through the notes door", findChannelById(gnP2, gnCh.id).pianoNotes.length === 5 && findChannelById(gnP2, gnCh.id).pianoNotes[0].pitch === 52)
+
 // ===================================================================================================
 // DRAWABLE AUTOMATION LANES — value mapping, target selection, emit→apply round-trip, beat-accurate playback.
 // ===================================================================================================
 console.log("")
 console.log("=== Automation lanes ===")
 
-check("[auto] defaultAutoParam(pad) = cutoff", defaultAutoParam("pad") != null && defaultAutoParam("pad").key === "cutoff")
+check("[auto] defaultAutoParam(any) = the universal filterCutoff", defaultAutoParam("pad") != null && defaultAutoParam("pad").key === "filterCutoff")
 check("[auto] defaultAutoParam(drumSynth) is a param", defaultAutoParam("drumSynth") != null)
-check("[auto] patch/macro voice = no auto param", defaultAutoParam("patch") == null && defaultAutoParam("matrixFm") == null)
+// patch/macro/deck voices ARE now automatable — via the universal channel filter cutoff (the deck-automation fix).
+check("[auto] patch/macro voice gets the universal cutoff", defaultAutoParam("patch") != null && defaultAutoParam("patch").key === "filterCutoff" && defaultAutoParam("matrixFm") != null)
 
 // Linear norm/denorm round-trips.
 check("[auto] linear norm 0.5 of 0..1", Math.abs(autoNorm(0.5, 0, 1, false) - 0.5) < 1e-9)
@@ -968,6 +1048,33 @@ check("[auto] emitProject includes the auto block", auEmit.indexOf("auto " + auC
 let auP3 = loadDefaultDeckardProject().project
 applyTplSource(auP3, auEmit)
 check("[auto] auto curve survives a full round-trip", channelAutoPoints(auP3, auCh.id, "cutoff") != null)
+
+// ---- UNIVERSAL channel filter cutoff automation (works on ALL voices incl. patch/deck) ----
+let fcP = loadDefaultDeckardProject().project
+let fcCh = fcP.channels[0]
+// author a cutoff ramp through the filterCutoff edit door
+let fcCurve = []
+let fcix = 0
+while (fcix < 16) {
+  fcCurve.push(300 + fcix * 400)
+  fcix = fcix + 1
+}
+let fcFrag = fragmentForEdit(fcP, "auto/" + fcCh.id + "/filterCutoff", fcCurve)
+check("[autofilt] door emits `auto … gen filter_cutoff`", fcFrag.indexOf("auto " + fcCh.id + " gen filter_cutoff") === 0)
+let fcP2 = loadDefaultDeckardProject().project
+applyTplSource(fcP2, "tpl 1\n" + fcFrag + "\n")
+let fcPts = channelAutoPoints(fcP2, fcCh.id, "filterCutoff")
+check("[autofilt] applies as a paramAutomation (param=filterCutoff, 16 pts)", fcPts != null && fcPts.length === 16)
+// the scheduler apply writes the channel filter node at the given beat (when=null → immediate .value)
+let fakeFreq = { value: 0, setValueAtTime: (v, t) => {} }
+let fakeStore = { buses: [{ filterNode: { frequency: fakeFreq } }] }
+applyChannelFilterAutomation(fcP2, fakeStore, 0.25, null)
+check("[autofilt] scheduler sets the channel filter at beat 0.25 (=700)", Math.abs(fakeFreq.value - 700) < 1e-6)
+// a non-automated channel is left untouched
+let fakeFreq2 = { value: 1234, setValueAtTime: (v, t) => {} }
+let fcClean = loadDefaultDeckardProject().project
+applyChannelFilterAutomation(fcClean, { buses: [{ filterNode: { frequency: fakeFreq2 } }] }, 0.5, null)
+check("[autofilt] no automation → filter node untouched", fakeFreq2.value === 1234)
 
 // ===================================================================================================
 // PROJECTIONAL step toggle — a 1-bar grid click goes through the pattern door (broadcasts + round-trips),
@@ -1014,6 +1121,96 @@ let tgClr = fragmentForEdit(tgP, "track/" + tgCh.id + "/pattern", buildToggleArr
 let tgP3 = loadDefaultDeckardProject().project
 applyTplSource(tgP3, "tpl 1\n" + tgClr + "\n")
 check("[toggle] clear forces a step off", findChannelById(tgP3, tgCh.id).steps[0].on === false)
+
+// ===================================================================================================
+// PER-NOTE LOCKS on piano-roll notes — model clone, inline grammar round-trip, seeded player gate, the
+// track/<id>/notes edit door.
+// ===================================================================================================
+console.log("")
+console.log("=== Piano-note parameter locks ===")
+
+// clonePianoNote carries the locks (and defaults legacy notes).
+let pnClone = clonePianoNote({ startBeat: 1, durBeats: 0.5, pitch: 64, vel: 90, prob: 0.5, ratchet: 3, nudge: 0.25 })
+check("[pnote] clonePianoNote preserves locks", pnClone.prob === 0.5 && pnClone.ratchet === 3 && Math.abs(pnClone.nudge - 0.25) < 1e-9 && pnClone.vel === 90)
+let pnLegacy = clonePianoNote({ startBeat: 0, durBeats: 0.25, pitch: 60, vel: 100 })
+check("[pnote] clonePianoNote defaults legacy notes (1/1/0)", pnLegacy.prob === 1 && pnLegacy.ratchet === 1 && pnLegacy.nudge === 0)
+
+// Grammar: parse the inline p/r/n tokens.
+let pnP = emptyProjectShell()
+pnP.bpm = 120
+applyTplSource(pnP, "tpl 1\ntrack Lead id pn_lead gen basic_osc\n  note 60 0 0.5 v 90 p 0.5 r 3 n 0.25\n  note 64 1 0.5 v 100\n")
+let pnCh = pnP.channels[0]
+check("[pnote] parse: note 0 carries prob/ratchet/nudge", pnCh.pianoNotes[0].prob === 0.5 && pnCh.pianoNotes[0].ratchet === 3 && Math.abs(pnCh.pianoNotes[0].nudge - 0.25) < 1e-6)
+check("[pnote] parse: plain note defaults (1/1/0)", pnCh.pianoNotes[1].prob === 1 && pnCh.pianoNotes[1].ratchet === 1 && pnCh.pianoNotes[1].nudge === 0)
+
+// Emit: locks ride inline only when non-default; plain note stays bare.
+let pnTpl = emitProject(pnP)
+check("[pnote] emit writes inline locks (p 0.5 r 3 n 0.25)", pnTpl.indexOf("v 90 p 0.5 r 3 n 0.25") >= 0)
+check("[pnote] emit leaves a default note bare (no p/r/n)", pnTpl.indexOf("note 64 1 0.5 v 100\n") >= 0)
+check("[pnote] noteLine helper omits defaults", noteLine({ pitch: 60, startBeat: 0, durBeats: 0.25, vel: 100, prob: 1, ratchet: 1, nudge: 0 }).indexOf(" p ") < 0)
+// Round-trip: re-apply keeps the locks.
+let pnP2 = emptyProjectShell()
+applyTplSource(pnP2, pnTpl)
+check("[pnote] round-trips the locks", pnP2.channels[0].pianoNotes[0].prob === 0.5 && pnP2.channels[0].pianoNotes[0].ratchet === 3)
+check("[pnote] emit is stable across round-trip", emitProject(pnP2) === pnTpl)
+
+// Player: the piano branch honors prob/ratchet/nudge (seeded so peers agree).
+let pnSeqRt = { playMode: "sequence" }
+let pnStepSec = 60 / 120 / 4
+// ratchet 4 at step 0 → 4 sub-hits, evenly spaced by sec/4 (note dur 0.5 beat = 0.25s; /4 = 0.0625s).
+let pnRat = emptyProjectShell()
+pnRat.bpm = 120
+applyTplSource(pnRat, "tpl 1\ntrack R id pn_rat gen basic_osc\n  note 60 0 0.5 v 100 r 4\n")
+let pnRatTrig = stepTriggers(pnRat, pnSeqRt, 0)
+check("[pnote] player: ratchet 4 → 4 sub-hits", pnRatTrig.length === 4)
+let pnNoteSec = (0.5 * 60) / 120
+let pnRatOk = pnRatTrig.length === 4
+let pri = 0
+while (pri < pnRatTrig.length) {
+  if (Math.abs(pnRatTrig[pri].noteOffset - (pri * pnNoteSec / 4)) > 1e-6) {
+    pnRatOk = false
+  }
+  pri = pri + 1
+}
+check("[pnote] player: ratchet sub-hits evenly spaced over the note", pnRatOk)
+// nudge 0.25 → offset shifts by stepSec/4.
+let pnNud = emptyProjectShell()
+pnNud.bpm = 120
+applyTplSource(pnNud, "tpl 1\ntrack N id pn_nud gen basic_osc\n  note 60 0 0.5 v 100 n 0.25\n")
+let pnNudTrig = stepTriggers(pnNud, pnSeqRt, 0)
+check("[pnote] player: nudge shifts by stepSec/4", pnNudTrig.length === 1 && Math.abs(pnNudTrig[0].noteOffset - pnStepSec * 0.25) < 1e-6)
+// prob 0 → never fires (seeded gate); prob 1 → always.
+let pnPrb = emptyProjectShell()
+pnPrb.bpm = 120
+applyTplSource(pnPrb, "tpl 1\ntrack P id pn_prb gen basic_osc\n  note 60 0 0.5 v 100 p 0\n")
+let pnNeverFired = false
+let pnb = 0
+while (pnb < 16) {
+  if (stepTriggers(pnPrb, pnSeqRt, pnb * 16).length > 0) {
+    pnNeverFired = true
+  }
+  pnb = pnb + 1
+}
+check("[pnote] player: prob 0 note never fires", !pnNeverFired)
+
+// Edit door: track/<id>/notes re-emits the whole note array (broadcasts + round-trips).
+let pnEdP = emptyProjectShell()
+applyTplSource(pnEdP, "tpl 1\ntrack L id pn_ed gen basic_osc\n  note 60 0 0.25 v 100\n  note 62 1 0.25 v 100\n")
+let pnEdCh = pnEdP.channels[0]
+// build the cloned array with note 0's prob set (what emitNoteLock does)
+let pnArr = []
+let pae = 0
+while (pae < pnEdCh.pianoNotes.length) {
+  let nn = pnEdCh.pianoNotes[pae]
+  pnArr.push({ startBeat: nn.startBeat, durBeats: nn.durBeats, pitch: nn.pitch, vel: nn.vel, prob: pae === 0 ? 0.25 : 1, ratchet: 1, nudge: 0 })
+  pae = pae + 1
+}
+let pnFrag = fragmentForEdit(pnEdP, "track/" + pnEdCh.id + "/notes", pnArr)
+check("[pnote] notes fragment has both note lines", pnFrag.indexOf("note 60 0 0.25 v 100 p 0.25") >= 0 && pnFrag.indexOf("note 62 1 0.25 v 100") >= 0)
+let pnEdP2 = emptyProjectShell()
+applyTplSource(pnEdP2, "tpl 1\n" + pnFrag + "\n")
+let pnEdCh2 = findChannelById(pnEdP2, pnEdCh.id)
+check("[pnote] notes door round-trips (note 0 prob 0.25, both notes kept)", pnEdCh2.pianoNotes.length === 2 && Math.abs(pnEdCh2.pianoNotes[0].prob - 0.25) < 1e-6)
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))

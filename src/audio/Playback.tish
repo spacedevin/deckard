@@ -65,13 +65,35 @@ export fn stepTriggers(project, rt, globalStep) {
       while (pi < usePiano.length) {
         let n = usePiano[pi]
         let noteStep = Math.floor(n.startBeat * 4 + 0.0001)
-        if (noteStep >= 0 && noteStep < patSpan && stepInSpan === noteStep) {
+        let fires = noteStep >= 0 && noteStep < patSpan && stepInSpan === noteStep
+        // PER-NOTE PROBABILITY: same seeded gate as steps so every client agrees. Seed by the note's BEAT
+        // (bi*1000 + noteStep) — notes sharing a beat (a chord) roll together; reordering notes can't change it.
+        if (fires && n.prob != null && n.prob < 0.999) {
+          let seed = project.songSeed != null ? Math.floor(project.songSeed) : 0
+          if (stepRand01(globalStep, bi * 1000 + noteStep, seed) >= n.prob) {
+            fires = false
+          }
+        }
+        if (fires) {
           let sec = (n.durBeats * 60) / project.bpm
-          let notes = expandTriggerNotes(ch, projectSnapPitch(project, n.pitch), sec)
-          let pk = 0
-          while (pk < notes.length) {
-            out.push({ busIndex: bi, pitch: notes[pk].pitch, vel: n.vel, durSec: notes[pk].dur, beat: n.startBeat, noteOffset: notes[pk].offset })
-            pk = pk + 1
+          let stepSec = sixteenthSeconds(project.bpm)
+          // NUDGE = a micro-timing shift of a fraction of a STEP (16th), like the step lock. RATCHET = R
+          // evenly-spaced sub-hits filling the NOTE's own duration (each shortened to sec/R).
+          let nudgeSec = (n.nudge != null ? n.nudge : 0) * stepSec
+          let ratchet = (n.ratchet != null && n.ratchet >= 1) ? Math.floor(n.ratchet) : 1
+          if (ratchet > 8) {
+            ratchet = 8
+          }
+          let notes = expandTriggerNotes(ch, projectSnapPitch(project, n.pitch), ratchet > 1 ? sec / ratchet : sec)
+          let rj = 0
+          while (rj < ratchet) {
+            let ratSec = ratchet > 1 ? (rj * sec / ratchet) : 0
+            let pk = 0
+            while (pk < notes.length) {
+              out.push({ busIndex: bi, pitch: notes[pk].pitch, vel: n.vel, durSec: notes[pk].dur, beat: n.startBeat, noteOffset: notes[pk].offset + nudgeSec + ratSec })
+              pk = pk + 1
+            }
+            rj = rj + 1
           }
         }
         pi = pi + 1

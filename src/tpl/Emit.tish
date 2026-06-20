@@ -7,6 +7,26 @@ import { scaleRootNames } from '../model/Scale.tish'
 
 // Emit a per-step LANE (step_vel/step_prob/step_ratchet/step_nudge) only when SOME step deviates from the
 // default — a plain pattern stays terse. Ints emit floored; floats via formatTplFloat (trimmed, signed).
+// One `note` TPL line with the per-note p-locks appended ONLY when non-default (so plain melodies round-trip
+// byte-identical). Shared by the track-note emit, the clip-note emit, and the track/<id>/notes edit door so
+// the format can't drift. Caller adds any trailing `bar <sel>` (that lives only in the live channel emit).
+export fn noteLine(n) {
+  let o = "  note " + String(n.pitch) + " " + String(n.startBeat) + " " + String(n.durBeats) + " v " + String(n.vel)
+  let prob = n.prob != null ? Number(n.prob) : 1
+  if (prob < 0.999) {
+    o = o + " p " + formatTplFloat(prob)
+  }
+  let ratchet = n.ratchet != null ? Math.floor(Number(n.ratchet)) : 1
+  if (ratchet > 1) {
+    o = o + " r " + String(ratchet)
+  }
+  let nudge = n.nudge != null ? Number(n.nudge) : 0
+  if (nudge > 0.0005 || nudge < -0.0005) {
+    o = o + " n " + formatTplFloat(nudge)
+  }
+  return o
+}
+
 export fn stepLaneLine(steps, label, field, dflt, isInt) {
   if (!steps) {
     return ""
@@ -303,18 +323,7 @@ export fn emitProjectInner(project, skipSync) {
 
     let ni = 0
     while (ni < pianoNotes.length) {
-      let n = pianoNotes[ni]
-      o =
-        o +
-        "  note " +
-        String(n.pitch) +
-        " " +
-        String(n.startBeat) +
-        " " +
-        String(n.durBeats) +
-        " v " +
-        String(n.vel) +
-        "\n"
+      o = o + noteLine(pianoNotes[ni]) + "\n"
       ni = ni + 1
     }
 
@@ -432,18 +441,7 @@ export fn emitProjectInner(project, skipSync) {
         if (pn && pn.length > 0) {
           let nk = 0
           while (nk < pn.length) {
-            let n = pn[nk]
-            o =
-              o +
-              "  note " +
-              String(n.pitch) +
-              " " +
-              String(n.startBeat) +
-              " " +
-              String(n.durBeats) +
-              " v " +
-              String(n.vel) +
-              "\n"
+            o = o + noteLine(pn[nk]) + "\n"
             nk = nk + 1
           }
         } else {

@@ -335,10 +335,35 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
             let sb = Number(t[2])
             let db = Number(t[3])
             let barMax = nbars * 4
-            // Optional `bar <sel>` repeats this (within-bar) note on matching loop bars.
+            // After `v <vel>`, scan keyword PAIRS (any order): `p <prob>` `r <ratchet>` `n <nudge>` (per-note
+            // locks) and `bar <sel>` (repeat on matching loop bars). Locks default 1/1/0 when absent.
             let sel = null
-            if (t.length >= 8 && t[6] === "bar") {
-              sel = parseBarSelector(t[7])
+            let nprob = 1
+            let nratchet = 1
+            let nnudge = 0
+            let ti = 6
+            while (ti + 1 < t.length) {
+              let key = t[ti]
+              let val = t[ti + 1]
+              if (key === "bar") {
+                sel = parseBarSelector(val)
+              } else if (key === "p") {
+                let pv = Number(val)
+                if (pv === pv) {
+                  nprob = pv < 0 ? 0 : (pv > 1 ? 1 : pv)
+                }
+              } else if (key === "r") {
+                let rv = Math.floor(Number(val))
+                if (rv === rv) {
+                  nratchet = rv < 1 ? 1 : (rv > 8 ? 8 : rv)
+                }
+              } else if (key === "n") {
+                let nv = Number(val)
+                if (nv === nv) {
+                  nnudge = nv < -0.5 ? -0.5 : (nv > 0.5 ? 0.5 : nv)
+                }
+              }
+              ti = ti + 2
             }
             if (sb < 0 || sb >= barMax || sb + db > barMax + 0.0001 || (sel !== null && sb >= 4)) {
               errors.push({
@@ -349,12 +374,12 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
               let pitch = Math.floor(Number(t[1]))
               let vel = Math.floor(Number(t[5]))
               if (sel === null) {
-                noteLines.push({ pitch: pitch, startBeat: sb, durBeats: db, vel: vel })
+                noteLines.push({ pitch: pitch, startBeat: sb, durBeats: db, vel: vel, prob: nprob, ratchet: nratchet, nudge: nnudge })
               } else {
                 let b = 0
                 while (b < nbars) {
                   if (barSelectorMatches(sel, b)) {
-                    noteLines.push({ pitch: pitch, startBeat: sb + b * 4, durBeats: db, vel: vel })
+                    noteLines.push({ pitch: pitch, startBeat: sb + b * 4, durBeats: db, vel: vel, prob: nprob, ratchet: nratchet, nudge: nnudge })
                   }
                   b = b + 1
                 }
@@ -417,7 +442,10 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
         startBeat: noteLines[ni].startBeat,
         durBeats: noteLines[ni].durBeats,
         pitch: noteLines[ni].pitch,
-        vel: noteLines[ni].vel
+        vel: noteLines[ni].vel,
+        prob: noteLines[ni].prob != null ? noteLines[ni].prob : 1,
+        ratchet: noteLines[ni].ratchet != null ? noteLines[ni].ratchet : 1,
+        nudge: noteLines[ni].nudge != null ? noteLines[ni].nudge : 0
       })
       ni = ni + 1
     }
@@ -561,6 +589,32 @@ export fn applyClipPatternBody(ch, clip, body, errors) {
           if (t.length >= 6 && t[4] === "v") {
             let sb = Number(t[2])
             let db = Number(t[3])
+            // Per-note locks (p/r/n) after `v <vel>` — same keyword-pair scan as track notes (no `bar` in clips).
+            let cprob = 1
+            let cratchet = 1
+            let cnudge = 0
+            let cti = 6
+            while (cti + 1 < t.length) {
+              let ckey = t[cti]
+              let cval = t[cti + 1]
+              if (ckey === "p") {
+                let pv = Number(cval)
+                if (pv === pv) {
+                  cprob = pv < 0 ? 0 : (pv > 1 ? 1 : pv)
+                }
+              } else if (ckey === "r") {
+                let rv = Math.floor(Number(cval))
+                if (rv === rv) {
+                  cratchet = rv < 1 ? 1 : (rv > 8 ? 8 : rv)
+                }
+              } else if (ckey === "n") {
+                let nv = Number(cval)
+                if (nv === nv) {
+                  cnudge = nv < -0.5 ? -0.5 : (nv > 0.5 ? 0.5 : nv)
+                }
+              }
+              cti = cti + 2
+            }
             if (sb < 0 || sb + db > maxBeat + 0.0001) {
               errors.push({
                 line: row.lineNo,
@@ -571,7 +625,10 @@ export fn applyClipPatternBody(ch, clip, body, errors) {
                 pitch: Math.floor(Number(t[1])),
                 startBeat: sb,
                 durBeats: db,
-                vel: Math.floor(Number(t[5]))
+                vel: Math.floor(Number(t[5])),
+                prob: cprob,
+                ratchet: cratchet,
+                nudge: cnudge
               })
             }
           }
@@ -596,7 +653,10 @@ export fn applyClipPatternBody(ch, clip, body, errors) {
         startBeat: noteLines[ni].startBeat,
         durBeats: noteLines[ni].durBeats,
         pitch: noteLines[ni].pitch,
-        vel: noteLines[ni].vel
+        vel: noteLines[ni].vel,
+        prob: noteLines[ni].prob != null ? noteLines[ni].prob : 1,
+        ratchet: noteLines[ni].ratchet != null ? noteLines[ni].ratchet : 1,
+        nudge: noteLines[ni].nudge != null ? noteLines[ni].nudge : 0
       })
       ni = ni + 1
     }

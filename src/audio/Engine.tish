@@ -507,6 +507,51 @@ export fn removeChannelBusAt(store, index) {
   store.buses.splice(index, 1)
 }
 
+// A channel's filter-cutoff automation points (the universal `auto <id> gen filter_cutoff` lane), or null.
+fn cutoffAutoPoints(project, channelId) {
+  if (!project || !project.paramAutomations) {
+    return null
+  }
+  let i = 0
+  while (i < project.paramAutomations.length) {
+    let pa = project.paramAutomations[i]
+    if (pa.channelId === channelId && pa.param === "filterCutoff" && pa.points && pa.points.length > 0) {
+      return pa.points
+    }
+    i = i + 1
+  }
+  return null
+}
+
+// Schedule each automated channel's per-channel FILTER cutoff at `when` (the step's audio time) — a grid-synced
+// filter sweep that works on ANY voice (drums, synths, patch/deck), since every channel passes through this
+// filter node. Called once per step by the transport; the lookahead means each step's value lands on time.
+export fn applyChannelFilterAutomation(project, store, beat, when) {
+  if (!project || !project.channels || !store || !store.buses) {
+    return
+  }
+  let i = 0
+  while (i < project.channels.length) {
+    let pts = cutoffAutoPoints(project, project.channels[i].id)
+    if (pts != null && i < store.buses.length && store.buses[i] && store.buses[i].filterNode) {
+      let hz = automationAt(pts, beat)
+      if (hz < 20) {
+        hz = 20
+      }
+      if (hz > 20000) {
+        hz = 20000
+      }
+      let fp = store.buses[i].filterNode.frequency
+      if (when != null && when > 0) {
+        fp.setValueAtTime(hz, when)
+      } else {
+        fp.value = hz
+      }
+    }
+    i = i + 1
+  }
+}
+
 export fn updateMixerFromProject(project, store, atBeat) {
   if (!store.buses) {
     return
@@ -558,7 +603,15 @@ export fn updateMixerFromProject(project, store, atBeat) {
       b.eqMid.gain.value = midFall
       b.eqHi.gain.value = hiFall
     }
-    b.filterNode.frequency.value = ch.filterCutoff != null ? ch.filterCutoff : 20000
+    // When a cutoff automation drives this channel's filter, seed it to the sweep's start (beat 0); the
+    // transport's applyChannelFilterAutomation schedules the per-step values during play (so don't clobber
+    // it with the static ch.filterCutoff each reconcile).
+    let cutPts = cutoffAutoPoints(project, ch.id)
+    if (cutPts != null) {
+      b.filterNode.frequency.value = automationAt(cutPts, atBeat != null ? atBeat : 0)
+    } else {
+      b.filterNode.frequency.value = ch.filterCutoff != null ? ch.filterCutoff : 20000
+    }
     if (b.reverbSend) {
       b.reverbSend.gain.value = ch.reverbSend != null ? ch.reverbSend : 0
     }

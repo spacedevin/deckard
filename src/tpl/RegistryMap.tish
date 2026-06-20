@@ -65,5 +65,8 @@ export fn paramKeyToCamel(key) {
   if (key === "mod_wave") {
     return "modWave"
   }
+  if (key === "filter_cutoff") {
+    return "filterCutoff"
+  }
   return key
 }

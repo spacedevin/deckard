@@ -2,7 +2,7 @@
 // loop extends into something you can immediately tweak; not copying leaves the new bars empty.
 // Shrinking truncates content past the new length. Steps, piano notes, and per-bar step pitch all move.
 
-import { makeStep } from './Project.tish'
+import { makeStep, clonePianoNote } from './Project.tish'
 import { syncMainClipFromChannel } from './Session.tish'
 
 fn channelBars(ch) {
@@ -48,7 +48,9 @@ export fn resizeChannelBars(ch, newBars, copyLast) {
         while (k < ch.pianoNotes.length) {
           let n = ch.pianoNotes[k]
           if (Math.floor(n.startBeat / 4) === srcBar) {
-            added.push({ startBeat: (n.startBeat - srcBar * 4) + tb * 4, durBeats: n.durBeats, pitch: n.pitch, vel: n.vel })
+            let cn = clonePianoNote(n)
+            cn.startBeat = (n.startBeat - srcBar * 4) + tb * 4
+            added.push(cn)
           }
           k = k + 1
         }

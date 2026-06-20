@@ -12,6 +12,7 @@ import { setRackBars } from '../../model/RackBars.tish'
 import { channelDeck, channelDeckColor } from '../../model/DeckRouting.tish'
 import { scaleRootNames, scaleModeNames } from '../../model/Scale.tish'
 import { euclidSteps, reseedSteps, mutateSteps, humanizeSteps, sprinkleProbability } from '../../model/Generative.tish'
+import { euclidNotes, reseedNotes, mutateNotes, humanizeNotes, sprinkleNoteProbability, notePitchForChannel, notesAfterFirstBar } from '../../model/Generative.tish'
 import { defaultAutoParam, autoLaneValues, autoNorm, autoDenorm } from '../../model/AutoParams.tish'
 import { ensureCoDjMeta, setMasterLock } from '../../codj/CoDjMeta.tish'
 import { pianoRowsForChannel } from './PianoGrid.tish'
@@ -236,6 +237,75 @@ fn emitStepToggle(rt, project, chIdx, stepIdx, forceOff) {
   return true
 }
 
+// Set one step to an explicit on/off value (for click-drag PAINT) through the gated pattern door. Coalesced:
+// no-ops when the step is already at that value, so a fast drag is a few statements, not one per pointer pixel.
+// 1-bar only (the pattern door is bar-1); painting bars 2+ is a no-op (view bar 1 to paint a tiled pattern).
+fn paintStep(rt, project, chIdx, absStep, value) {
+  if (absStep < 0 || absStep >= 16) {
+    return
+  }
+  let ch = project.channels[chIdx]
+  if (!ch || !ch.steps || absStep >= ch.steps.length) {
+    return
+  }
+  if (ch.steps[absStep].on === value) {
+    return
+  }
+  let arr = []
+  let i = 0
+  while (i < ch.steps.length) {
+    let s = ch.steps[i]
+    arr.push({
+      on: s.on === true,
+      vel: s.vel != null ? s.vel : 100,
+      prob: s.prob != null ? s.prob : 1,
+      ratchet: s.ratchet != null ? s.ratchet : 1,
+      nudge: s.nudge != null ? s.nudge : 0
+    })
+    i = i + 1
+  }
+  arr[absStep].on = value
+  if (rt && rt.emit) {
+    rt.emit("track/" + ch.id + "/pattern", arr)
+  }
+}
+
+// Click-drag paint: mousedown picks the target value (toggle the first cell), then every boolean step cell the
+// pointer enters IN THE SAME CHANNEL gets painted that value. Cells carry data-pch / data-pstep so the
+// document-level move handler can resolve which step is under the cursor.
+fn stepPaintDown(e, rt, project, chIdx, absStep, curOn) {
+  e.stopPropagation()
+  if (e.preventDefault) {
+    e.preventDefault()
+  }
+  let value = !curOn
+  paintStep(rt, project, chIdx, absStep, value)
+  fn onMove(ev) {
+    let el = document.elementFromPoint(ev.clientX, ev.clientY)
+    if (!el) {
+      return
+    }
+    let cell = el.closest ? el.closest(".sg-cell") : null
+    if (!cell || !cell.id || cell.id.indexOf("sgc-") !== 0) {
+      return
+    }
+    let parts = cell.id.substring(4).split("-")
+    if (parts.length < 2) {
+      return
+    }
+    if (Math.floor(Number(parts[0])) !== chIdx) {
+      return
+    }
+    paintStep(rt, project, chIdx, Math.floor(Number(parts[1])), value)
+  }
+  fn onUp() {
+    document.removeEventListener("mousemove", onMove)
+    document.removeEventListener("mouseup", onUp)
+  }
+  document.addEventListener("mousemove", onMove)
+  document.addEventListener("mouseup", onUp)
+}
+
 // Generative row mode: a whole-pattern transform (euclid / reseed / mutate / humanize / sprinkle) emitted
 // through the SAME gated pattern door, so the generated pattern broadcasts to peers + round-trips. Generation
 // runs once here (Math.random) and peers receive the realized steps — no per-client divergence.
@@ -253,17 +323,106 @@ fn emitGenerated(rt, project, chIdx, arr) {
   }
 }
 
+// The same generative actions, but for MELODIC channels they author NOTES (emitted through the notes door)
+// instead of steps — so EUCLID/RESEED/MUTATE/HUMAN/PROB work everywhere, not just on drum/step rows.
+fn emitGeneratedNotes(rt, project, chIdx, arr) {
+  if (!rt || !rt.emit || arr == null) {
+    return
+  }
+  let ch = project.channels[chIdx]
+  if (!ch) {
+    return
+  }
+  rt.emit("track/" + ch.id + "/notes", arr)
+  if (rt.bumpGrid) {
+    rt.bumpGrid()
+  }
+}
+
+fn isMelodicCh(ch) {
+  return (ch.pianoNotes && ch.pianoNotes.length > 0) || singleNotePitch(ch) != null
+}
+
+// Append the channel's bars-2+ notes to a freshly-generated bar-1 array (so a rhythm regen keeps later bars).
+fn withLaterBars(arr, ch) {
+  let later = notesAfterFirstBar(ch.pianoNotes)
+  let li = 0
+  while (li < later.length) {
+    arr.push(later[li])
+    li = li + 1
+  }
+  return arr
+}
+
+// Each generative action dispatches: step channel → step transform via the pattern door; melodic/single-note
+// channel → note transform via the notes door.
+fn genClear(rt, project, chIdx, ch) {
+  if (isMelodicCh(ch)) {
+    emitGeneratedNotes(rt, project, chIdx, notesAfterFirstBar(ch.pianoNotes))
+  } else {
+    emitGenerated(rt, project, chIdx, euclidSteps(0, 0, ch.steps))
+  }
+}
+
+fn genEuclid(rt, project, chIdx, ch, hits) {
+  if (isMelodicCh(ch)) {
+    emitGeneratedNotes(rt, project, chIdx, withLaterBars(euclidNotes(hits, 0, notePitchForChannel(ch)), ch))
+  } else {
+    emitGenerated(rt, project, chIdx, euclidSteps(hits, 0, ch.steps))
+  }
+}
+
+fn genReseed(rt, project, chIdx, ch) {
+  if (isMelodicCh(ch)) {
+    emitGeneratedNotes(rt, project, chIdx, withLaterBars(reseedNotes(Math.random, notePitchForChannel(ch)), ch))
+  } else {
+    emitGenerated(rt, project, chIdx, reseedSteps(Math.random, ch.steps))
+  }
+}
+
+fn genMutate(rt, project, chIdx, ch) {
+  if (isMelodicCh(ch)) {
+    emitGeneratedNotes(rt, project, chIdx, mutateNotes(ch.pianoNotes, Math.random, 0.18, notePitchForChannel(ch)))
+  } else {
+    emitGenerated(rt, project, chIdx, mutateSteps(ch.steps, Math.random, 0.18))
+  }
+}
+
+fn genHumanize(rt, project, chIdx, ch) {
+  if (isMelodicCh(ch)) {
+    emitGeneratedNotes(rt, project, chIdx, humanizeNotes(ch.pianoNotes, Math.random, 22))
+  } else {
+    emitGenerated(rt, project, chIdx, humanizeSteps(ch.steps, Math.random, 22))
+  }
+}
+
+fn genProb(rt, project, chIdx, ch) {
+  if (isMelodicCh(ch)) {
+    emitGeneratedNotes(rt, project, chIdx, sprinkleNoteProbability(ch.pianoNotes, Math.random, 0.5))
+  } else {
+    emitGenerated(rt, project, chIdx, sprinkleProbability(ch.steps, Math.random, 0.5))
+  }
+}
+
 // Vertical drag on a lock-lane cell: top = max, bottom = min. Coalesced (only emits when the quantized value
 // changes) so a drag is a handful of pattern statements, not one per pixel.
-fn lockCellDown(e, rt, project, chIdx, stepIdx, field) {
+// Generic "DRAW ACROSS A LANE" gesture: press on any lane cell and sweep — every cell the pointer enters that
+// shares the lane's id `prefix` gets `applyAt(stepNum, py)` called (py = pointer height over THAT cell, 0=top).
+// So you draw a velocity ramp / probability shape / automation curve in one stroke. Same-lane only (the prefix
+// gate keeps a VEL sweep from bleeding into the PRB row). Cells carry id `<prefix><stepNum>`.
+fn runLaneDraw(e, prefix, applyAt) {
   e.stopPropagation()
   if (e.preventDefault) {
     e.preventDefault()
   }
-  let cell = e.currentTarget
-  let cfg = lockLaneCfg(field)
-  let last = null
-  fn applyAt(clientY) {
+  fn fire(cell, clientY) {
+    if (!cell || !cell.id || cell.id.indexOf(prefix) !== 0) {
+      return
+    }
+    let stepNum = Math.floor(Number(cell.id.substring(prefix.length)))
+    if (stepNum !== stepNum) {
+      return
+    }
     let r = cell.getBoundingClientRect()
     let py = r.height > 0 ? (clientY - r.top) / r.height : 0
     if (py < 0) {
@@ -272,15 +431,13 @@ fn lockCellDown(e, rt, project, chIdx, stepIdx, field) {
     if (py > 1) {
       py = 1
     }
-    let v = quantizeLock(field, cfg.lo + (1 - py) * (cfg.hi - cfg.lo))
-    if (v !== last) {
-      last = v
-      emitStepLock(rt, project, chIdx, stepIdx, field, v)
-    }
+    applyAt(stepNum, py)
   }
-  applyAt(e.clientY)
+  fire(e.currentTarget, e.clientY)
   fn onMove(ev) {
-    applyAt(ev.clientY)
+    let el = document.elementFromPoint(ev.clientX, ev.clientY)
+    let cell = (el && el.closest) ? el.closest(".sg-lk-cell") : null
+    fire(cell, ev.clientY)
   }
   fn onUp() {
     document.removeEventListener("mousemove", onMove)
@@ -288,6 +445,18 @@ fn lockCellDown(e, rt, project, chIdx, stepIdx, field) {
   }
   document.addEventListener("mousemove", onMove)
   document.addEventListener("mouseup", onUp)
+}
+
+fn lockCellDown(e, rt, project, chIdx, field) {
+  let cfg = lockLaneCfg(field)
+  let lastByStep = {}
+  runLaneDraw(e, "lk-" + String(chIdx) + "-" + field + "-", (stepIdx, py) => {
+    let v = quantizeLock(field, cfg.lo + (1 - py) * (cfg.hi - cfg.lo))
+    if (lastByStep[stepIdx] !== v) {
+      lastByStep[stepIdx] = v
+      emitStepLock(rt, project, chIdx, stepIdx, field, v)
+    }
+  })
 }
 
 fn LockLaneCell(project, chIdx, i, field, rt, st) {
@@ -320,8 +489,9 @@ fn LockLaneCell(project, chIdx, i, field, rt, st) {
   return (
     <div
       class={cls}
-      title={cfg.label + " · step " + String(i + 1) + " — drag to set, double-click resets"}
-      onmousedown={(e) => lockCellDown(e, rt, project, chIdx, i, field)}
+      id={"lk-" + String(chIdx) + "-" + field + "-" + String(i)}
+      title={cfg.label + " · step " + String(i + 1) + " — drag across to draw, double-click resets"}
+      onmousedown={(e) => lockCellDown(e, rt, project, chIdx, field)}
       ondblclick={() => emitStepLock(rt, project, chIdx, i, field, cfg.dflt)}
     >
       {cfg.bip ? <div class="sg-lk-mid" /> : null}
@@ -361,50 +531,30 @@ fn lockLanesForChannel(project, ch, chIdx, rt) {
 // 16 columns = beats 0,0.25,…,3.75 of bar 1; vertical drag sets the param value at that beat. Re-emits the
 // whole 16-point curve as an `auto <id> gen <param>` block (master-gated). Playback applies it beat-accurately
 // via generatorChannelAtBeat. bumpGrid is called explicitly (an `auto` edit doesn't touch the channel slice).
-fn autoCellDown(e, rt, project, ch, stepIdx, spec, curValues) {
-  e.stopPropagation()
-  if (e.preventDefault) {
-    e.preventDefault()
+fn autoCellDown(e, rt, project, ch, spec, curValues) {
+  // The automation lane (unlike the lock lanes) doesn't read the live project per-emit, so a sweep must
+  // ACCUMULATE into a working copy and re-emit the whole curve, or only the last cell would survive.
+  let working = []
+  let wi = 0
+  while (wi < 16) {
+    working.push(wi < curValues.length ? Number(curValues[wi]) : spec.min)
+    wi = wi + 1
   }
-  let cell = e.currentTarget
-  let last = null
-  fn applyAt(clientY) {
-    let r = cell.getBoundingClientRect()
-    let py = r.height > 0 ? (clientY - r.top) / r.height : 0
-    if (py < 0) {
-      py = 0
-    }
-    if (py > 1) {
-      py = 1
-    }
+  let lastByStep = {}
+  runLaneDraw(e, "au-" + String(ch.id) + "-", (stepIdx, py) => {
     let val = autoDenorm(1 - py, spec.min, spec.max, spec.log)
     let rounded = Math.round(val * 1000)
-    if (rounded !== last) {
-      last = rounded
-      let arr = []
-      let k = 0
-      while (k < 16) {
-        arr.push(k === stepIdx ? val : (k < curValues.length ? curValues[k] : spec.min))
-        k = k + 1
-      }
+    if (lastByStep[stepIdx] !== rounded) {
+      lastByStep[stepIdx] = rounded
+      working[stepIdx] = val
       if (rt && rt.emit) {
-        rt.emit("auto/" + ch.id + "/" + spec.key, arr)
+        rt.emit("auto/" + ch.id + "/" + spec.key, working)
         if (rt.bumpGrid) {
           rt.bumpGrid()
         }
       }
     }
-  }
-  applyAt(e.clientY)
-  fn onMove(ev) {
-    applyAt(ev.clientY)
-  }
-  fn onUp() {
-    document.removeEventListener("mousemove", onMove)
-    document.removeEventListener("mouseup", onUp)
-  }
-  document.addEventListener("mousemove", onMove)
-  document.addEventListener("mouseup", onUp)
+  })
 }
 
 fn autoLaneCell(project, ch, i, spec, rt, curValues) {
@@ -418,8 +568,9 @@ fn autoLaneCell(project, ch, i, spec, rt, curValues) {
   return (
     <div
       class={cls}
-      title={spec.label + " · step " + String(i + 1) + " — drag to draw the curve"}
-      onmousedown={(e) => autoCellDown(e, rt, project, ch, i, spec, curValues)}
+      id={"au-" + String(ch.id) + "-" + String(i)}
+      title={spec.label + " · step " + String(i + 1) + " — drag across to draw the curve"}
+      onmousedown={(e) => autoCellDown(e, rt, project, ch, spec, curValues)}
     >
       <div class="sg-lk-fill sg-auto-fill" style={{ height: String(pct) + "%" }} />
     </div>
@@ -447,6 +598,136 @@ fn autoLaneRow(project, ch, chIdx, rt) {
       <div class="sg-cells sg-lk-cells">{cells}</div>
     </div>
   )
+}
+
+// ---- Piano-note lock lanes (column-indexed; each column edits the notes STARTING at that step) ----------
+// The inline piano grid is itself 16 step-columns, so the step lock-lane UX ports over: VEL/PRB/RCH/NDG lanes
+// where column i edits every note whose startBeat lands on step (viewBar*16+i). Edits clone the whole
+// pianoNotes array and emit through the gated track/<id>/notes door (broadcasts + round-trips like steps).
+fn pianoNotesAtStep(ch, absStep) {
+  let out = []
+  if (!ch.pianoNotes) {
+    return out
+  }
+  let i = 0
+  while (i < ch.pianoNotes.length) {
+    if (Math.floor(ch.pianoNotes[i].startBeat * 4 + 0.0001) === absStep) {
+      out.push(i)
+    }
+    i = i + 1
+  }
+  return out
+}
+
+fn emitNoteLock(rt, project, chIdx, absStep, field, value) {
+  if (!rt || !rt.emit) {
+    return
+  }
+  let ch = project.channels[chIdx]
+  if (!ch || !ch.pianoNotes) {
+    return
+  }
+  let arr = []
+  let i = 0
+  while (i < ch.pianoNotes.length) {
+    let n = ch.pianoNotes[i]
+    let c = {
+      startBeat: n.startBeat,
+      durBeats: n.durBeats,
+      pitch: n.pitch,
+      vel: n.vel != null ? n.vel : 100,
+      prob: n.prob != null ? n.prob : 1,
+      ratchet: n.ratchet != null ? n.ratchet : 1,
+      nudge: n.nudge != null ? n.nudge : 0
+    }
+    if (Math.floor(n.startBeat * 4 + 0.0001) === absStep) {
+      c[field] = value
+    }
+    arr.push(c)
+    i = i + 1
+  }
+  rt.emit("track/" + ch.id + "/notes", arr)
+}
+
+fn noteLockCellDown(e, rt, project, chIdx, field) {
+  let cfg = lockLaneCfg(field)
+  let lastByStep = {}
+  runLaneDraw(e, "pl-" + String(chIdx) + "-" + field + "-", (absStep, py) => {
+    let v = quantizeLock(field, cfg.lo + (1 - py) * (cfg.hi - cfg.lo))
+    if (lastByStep[absStep] !== v) {
+      lastByStep[absStep] = v
+      emitNoteLock(rt, project, chIdx, absStep, field, v)
+    }
+  })
+}
+
+fn PianoLockLaneCell(project, chIdx, i, field, rt, ch, viewBar) {
+  let cfg = lockLaneCfg(field)
+  let absStep = viewBar * 16 + i
+  let idxs = pianoNotesAtStep(ch, absStep)
+  let cls = "sg-lk-cell sg-pnote-lk-cell sg-col-" + String(i)
+  if (i % 4 === 0) {
+    cls = cls + " sg-beat"
+  }
+  if (idxs.length === 0) {
+    return <div class={cls + " sg-lk-dim"} title={cfg.label + " · step " + String(i + 1) + " (no note here)"} />
+  }
+  let v = stepLockVal(ch.pianoNotes[idxs[0]], field)
+  let frac = (v - cfg.lo) / (cfg.hi - cfg.lo)
+  if (frac < 0) {
+    frac = 0
+  }
+  if (frac > 1) {
+    frac = 1
+  }
+  let pct = Math.round(frac * 100)
+  let fill = null
+  if (cfg.bip) {
+    let top = pct >= 50 ? (100 - pct) : 50
+    let barH = pct >= 50 ? (pct - 50) : (50 - pct)
+    fill = <div class="sg-lk-fill sg-lk-bip" style={{ top: String(top) + "%", height: String(barH) + "%" }} />
+  } else {
+    fill = <div class="sg-lk-fill" style={{ height: String(pct) + "%" }} />
+  }
+  return (
+    <div
+      class={cls}
+      id={"pl-" + String(chIdx) + "-" + field + "-" + String(absStep)}
+      title={cfg.label + " · step " + String(i + 1) + " — drag across to draw (" + String(idxs.length) + " note)"}
+      onmousedown={(e) => noteLockCellDown(e, rt, project, chIdx, field)}
+      ondblclick={() => emitNoteLock(rt, project, chIdx, absStep, field, cfg.dflt)}
+    >
+      {cfg.bip ? <div class="sg-lk-mid" /> : null}
+      {fill}
+    </div>
+  )
+}
+
+fn pianoLockLaneRow(project, ch, chIdx, field, rt, viewBar) {
+  let cells = []
+  let i = 0
+  while (i < 16) {
+    cells.push(PianoLockLaneCell(project, chIdx, i, field, rt, ch, viewBar))
+    i = i + 1
+  }
+  let cfg = lockLaneCfg(field)
+  return (
+    <div class={"sg-row sg-lk-row sg-pnote-lk-row " + deckClass(project, ch)} key={"pnlk-" + ch.id + "-" + field}>
+      <div class="sg-gutter sg-lk-gutter">
+        <span class="sg-lk-label">{cfg.label}</span>
+      </div>
+      <div class="sg-cells sg-lk-cells">{cells}</div>
+    </div>
+  )
+}
+
+fn pianoLockLanesForChannel(project, ch, chIdx, rt, viewBar) {
+  return [
+    pianoLockLaneRow(project, ch, chIdx, "vel", rt, viewBar),
+    pianoLockLaneRow(project, ch, chIdx, "prob", rt, viewBar),
+    pianoLockLaneRow(project, ch, chIdx, "ratchet", rt, viewBar),
+    pianoLockLaneRow(project, ch, chIdx, "nudge", rt, viewBar)
+  ]
 }
 
 // Velocity bar + lock markers drawn INSIDE a lit boolean step (so the pattern reads its dynamics at a glance).
@@ -496,11 +777,35 @@ fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh,
   // Absolute step index in the (possibly multi-bar) pattern for the bar being viewed.
   let nbars = (rt != null && rt.gridBars != null) ? Math.floor(rt.gridBars) : 1
   let absStep = viewBar * 16 + i
+  // The velocity/lock overlay must read the SAME (wrapped) step `cellOnAtView` uses — a 1-bar pattern tiled
+  // across N bars has only 16 steps, so bars 2+ wrap; reading the raw absStep ran off the end and dropped the
+  // fill (lit cells looked solid on bar 1, hollow on bars 2+).
+  let ovChBars = (ch.patternBars != null && Math.floor(ch.patternBars) >= 1) ? Math.floor(ch.patternBars) : 1
+  let ovLocal = (viewBar * 16 + i) % (ovChBars * 16)
+  let ovStep = (ch.steps && ovLocal < ch.steps.length) ? ch.steps[ovLocal] : (ch.steps ? ch.steps[ovLocal % 16] : null)
   return (
     <button
       type="button"
       class={cls}
-      title={single ? "Left: place note · Right: clear" : (melodic ? "Melodic — click to edit in piano roll" : "Left: toggle · Right: clear")}
+      id={"sgc-" + String(chIdx) + "-" + String(absStep)}
+      title={single ? "Left: place note · Right: clear" : (melodic ? "Melodic — click to edit in piano roll" : "Left: toggle · Drag: paint · Right: clear")}
+      onmousedown={(e) => {
+        // Boolean steps: click-drag PAINTS (mousedown owns the toggle so onclick is a no-op). 1-bar uses the
+        // gated pattern door; multi-bar (bars 2+) falls back to the legacy direct toggle on mousedown.
+        if (single || melodic) {
+          return
+        }
+        if (nbars <= 1 && absStep < 16) {
+          stepPaintDown(e, rt, project, chIdx, absStep, on === true)
+          return
+        }
+        e.stopPropagation()
+        let c = project.channels[chIdx]
+        promoteChannelToBars(c, nbars)
+        toggleStep(c, absStep)
+        syncMainClipFromChannel(c)
+        setProjectFromUI(project)
+      }}
       onclick={(e) => {
         e.stopPropagation()
         let c = project.channels[chIdx]
@@ -524,15 +829,7 @@ fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh,
           }
           return
         }
-        // 1-bar (the common case): toggle PROJECTIONALLY through the pattern door (round-trips to TPL +
-        // broadcasts to peers). Multi-bar falls back to the legacy direct edit (the `steps` emit is bar-1 only).
-        if (nbars <= 1 && emitStepToggle(rt, project, chIdx, absStep, false)) {
-          return
-        }
-        promoteChannelToBars(c, nbars)
-        toggleStep(c, absStep)
-        syncMainClipFromChannel(c)
-        setProjectFromUI(project)
+        // Boolean step: the onmousedown paint handler already toggled/painted — nothing to do on click.
       }}
       oncontextmenu={(e) => {
         e.preventDefault()
@@ -562,7 +859,7 @@ fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh,
         setProjectFromUI(project)
       }}
     >
-      {(on && !melodic && !single) ? stepLockOverlay(ch.steps[absStep]) : null}
+      {(on && !melodic && !single) ? stepLockOverlay(ovStep) : null}
     </button>
   )
 }
@@ -606,6 +903,8 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
   // path, which carries its own velocity and ignores ch.steps locks) — so only offer the toggle there.
   let stepChannel = !hasNotes && solo == null
   let locksOpen = rt != null && rt.gridLocks != null && rt.gridLocks[ch.id] === true
+  // Melodic / single-note channels (pianoNotes) get the SAME four locks via column-indexed piano lanes.
+  let pianoLocksOpen = rt != null && rt.gridPianoLocks != null && rt.gridPianoLocks[ch.id] === true
   // Automation lane is offered for any channel whose (simple) generator exposes a sweepable param.
   let autoCapable = defaultAutoParam(ch.generatorId ? ch.generatorId : "basicOsc") != null
   let autoOpen = rt != null && rt.gridAuto != null && rt.gridAuto[ch.id] === true
@@ -712,7 +1011,27 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
             >
               {"⇅"}
             </button>
-          ) : null}
+          ) : (
+            <button
+              type="button"
+              class={pianoLocksOpen ? "sg-tog sg-tog-lck sg-tog-lck-on" : "sg-tog sg-tog-lck"}
+              title="Per-note locks — velocity · probability · ratchet · nudge (drag the lanes below the notes)"
+              onclick={(e) => {
+                e.stopPropagation()
+                if (rt) {
+                  if (!rt.gridPianoLocks) {
+                    rt.gridPianoLocks = {}
+                  }
+                  rt.gridPianoLocks[ch.id] = !(rt.gridPianoLocks[ch.id] === true)
+                  if (rt.bumpGrid) {
+                    rt.bumpGrid()
+                  }
+                }
+              }}
+            >
+              {"⇅"}
+            </button>
+          )}
           {autoCapable ? (
             <button
               type="button"
@@ -927,6 +1246,18 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
         lk = lk + 1
       }
     }
+    // Per-note lock lanes for melodic / single-note channels (column-indexed; each column edits the notes
+    // starting at that step). Mirrors the step lock lanes but writes through the track/<id>/notes door.
+    let pianoLocksOpen = rt != null && rt.gridPianoLocks != null && rt.gridPianoLocks[ch.id] === true
+    let isMelodic = (ch.pianoNotes && ch.pianoNotes.length > 0) || singleNotePitch(ch) != null
+    if (pianoLocksOpen && isMelodic) {
+      let plrows = pianoLockLanesForChannel(project, ch, ci, rt, viewBar)
+      let plk = 0
+      while (plk < plrows.length) {
+        rows.push(plrows[plk])
+        plk = plk + 1
+      }
+    }
     // Drawable automation lane (any channel whose generator exposes a sweepable param).
     let autoOpen = rt != null && rt.gridAuto != null && rt.gridAuto[ch.id] === true
     if (autoOpen) {
@@ -985,10 +1316,11 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
   // Euclidean fill for the selected channel — moved here from the instrument (it edits `steps`,
   // which is the rack's pattern, not the sound).
   let selCh = (selectedCh >= 0 && selectedCh < project.channels.length) ? project.channels[selectedCh] : null
-  // Generative row mode applies to the SELECTED channel's STEP pattern only (melodic/single tracks use notes).
-  let selStepCh = selCh != null && (!selCh.pianoNotes || selCh.pianoNotes.length === 0) && singleNotePitch(selCh) == null
+  // EUCLID + generative toolbar shows for ANY selected channel (it edits the step pattern). NOTE: melodic
+  // channels play their `note`s, so generating a step pattern on them is currently a no-op for playback —
+  // generating into NOTES for melodic tracks is a follow-up; this restores the toolbar's visibility.
   let euclidRow = null
-  if (selCh && selStepCh) {
+  if (selCh) {
     let pills = []
     // OFF clears the row (emit an all-off pattern, keeping the locks structure).
     pills.push(
@@ -998,7 +1330,7 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
         title="Clear the pattern"
         onclick={() => {
           selCh.euclid = 0
-          emitGenerated(rt, project, selectedCh, euclidSteps(0, 0, selCh.steps))
+          genClear(rt, project, selectedCh, selCh)
         }}
       >
         {"Off"}
@@ -1014,7 +1346,7 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
           title={"Euclidean " + String(ek) + " hits across 16"}
           onclick={() => {
             selCh.euclid = hits
-            emitGenerated(rt, project, selectedCh, euclidSteps(hits, 0, selCh.steps))
+            genEuclid(rt, project, selectedCh, selCh, hits)
           }}
         >
           {String(ek)}
@@ -1036,7 +1368,7 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
             title="RESEED — a fresh random pattern (new density + rotation, humanized). Broadcasts to peers."
             onclick={() => {
               selCh.euclid = 0
-              emitGenerated(rt, project, selectedCh, reseedSteps(Math.random, selCh.steps))
+              genReseed(rt, project, selectedCh, selCh)
             }}
           >
             {"⟳ RESEED"}
@@ -1044,9 +1376,9 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
           <button
             type="button"
             class="sg-gen-btn"
-            title="MUTATE — flip a few steps + jitter velocities (evolve the current pattern)."
+            title="MUTATE — flip a few steps/notes + jitter velocities (evolve the current pattern)."
             onclick={() => {
-              emitGenerated(rt, project, selectedCh, mutateSteps(selCh.steps, Math.random, 0.18))
+              genMutate(rt, project, selectedCh, selCh)
             }}
           >
             {"MUTATE"}
@@ -1054,9 +1386,9 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
           <button
             type="button"
             class="sg-gen-btn"
-            title="HUMANIZE — jitter the velocity of every hit so it breathes."
+            title="HUMANIZE — jitter the velocity of every hit/note so it breathes."
             onclick={() => {
-              emitGenerated(rt, project, selectedCh, humanizeSteps(selCh.steps, Math.random, 22))
+              genHumanize(rt, project, selectedCh, selCh)
             }}
           >
             {"HUMAN"}
@@ -1064,9 +1396,9 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
           <button
             type="button"
             class="sg-gen-btn"
-            title="PROB — sprinkle probability onto off-beat hits so the pattern varies every loop (seeded, peers agree)."
+            title="PROB — sprinkle probability onto off-beat hits/notes so the pattern varies every loop (seeded, peers agree)."
             onclick={() => {
-              emitGenerated(rt, project, selectedCh, sprinkleProbability(selCh.steps, Math.random, 0.5))
+              genProb(rt, project, selectedCh, selCh)
             }}
           >
             {"PROB"}

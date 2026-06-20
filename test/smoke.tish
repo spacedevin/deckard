@@ -30,6 +30,8 @@ import { emitInstrumentModuleTpl } from '../src/core/Levels.tish'
 import { addInstrumentPreset, applyInstrumentPresetToChannel, ensureInstrumentPresets } from '../src/model/InstrumentPresets.tish'
 import { expandTriggerNotes, chordStrumDelta } from '../src/audio/NoteExpand.tish'
 import { compileGeneratorToPatchLines, canCompileToPatch } from '../src/model/PatchCompile.tish'
+import { h } from '@tishlang/lattish'
+import { StepGridPanel } from '../src/ui/grid/StepGrid.tish'
 
 let pass = 0
 let fail = 0
@@ -1353,6 +1355,35 @@ while (rIdx < tape2.length) {
   rIdx = rIdx + 1
 }
 check("setEnergy: rebuild is deterministic (same tape → same energy)", JSON.stringify(rA) === JSON.stringify(rB) && rA.maxStep === 8 && rA.totalNotes === 3)
+
+// ---- UI render smoke: build the sequencer vnode with EVERY per-row expansion open (lock lanes, automation
+// lane, generative toolbar) so a render-time crash is caught here, not in the browser. (lattish `h` builds
+// plain vnodes headlessly; the post-render setTimeout playhead poke is a no-op with document stubbed.) This
+// guards against JSX-runtime shadowing — e.g. a local `let h` clobbering the hyperscript fn ("h is not a fn").
+if (typeof globalThis.document === "undefined") {
+  globalThis.document = { querySelectorAll: () => [], getElementById: () => null, querySelector: () => null }
+}
+let uiP = loadDefaultDeckardProject().project
+let uiRt = { gridLocks: {}, gridAuto: {}, gridExpanded: {}, gridPianoLocks: {}, gridBars: 1, gridViewBar: 0, emit: () => {}, bumpGrid: () => {}, directive: () => {} }
+let uci = 0
+while (uci < uiP.channels.length) {
+  uiRt.gridLocks[uiP.channels[uci].id] = true
+  uiRt.gridAuto[uiP.channels[uci].id] = true
+  uiRt.gridExpanded[uiP.channels[uci].id] = true
+  uiRt.gridPianoLocks[uiP.channels[uci].id] = true
+  uci = uci + 1
+}
+// Give one channel piano notes so the piano grid + per-note lock lanes actually render in the smoke.
+uiP.channels[0].pianoNotes = [{ startBeat: 0, durBeats: 0.25, pitch: 60, vel: 100, prob: 0.5, ratchet: 2, nudge: 0.1 }]
+let uiRendered = false
+try {
+  let uiVnode = StepGridPanel(uiP, 0, () => {}, () => {}, uiRt, null)
+  uiRendered = uiVnode != null
+} catch (uiErr) {
+  console.log("  (render threw: " + String(uiErr) + ")")
+  uiRendered = false
+}
+check("UI: StepGridPanel renders with all lanes/expansions open (no h-shadow / render crash)", uiRendered)
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))

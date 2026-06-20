@@ -1,6 +1,6 @@
 // Pure edit helpers — safe transforms for agents.
 
-import { makeStep } from './Project.tish'
+import { makeStep, clonePianoNote } from './Project.tish'
 
 /// Grow a channel to `bars`-bar storage so each bar can be edited independently (tiling the existing
 /// single-bar pattern across the new bars so it keeps sounding the same until you change a bar).
@@ -21,7 +21,9 @@ export fn promoteChannelToBars(ch, bars) {
         let k = 0
         while (k < origLen) {
           let n = orig[k]
-          ch.pianoNotes.push({ startBeat: n.startBeat + rep * span, durBeats: n.durBeats, pitch: n.pitch, vel: n.vel })
+          let cn = clonePianoNote(n)
+          cn.startBeat = n.startBeat + rep * span
+          ch.pianoNotes.push(cn)
           k = k + 1
         }
         rep = rep + 1
@@ -175,7 +177,7 @@ export fn clampPianoNoteToPattern(ch, n, minDur) {
 }
 
 export fn addPianoNote(ch, startBeat, durBeats, pitch, vel) {
-  let n = { startBeat: startBeat, durBeats: durBeats, pitch: pitch, vel: vel }
+  let n = { startBeat: startBeat, durBeats: durBeats, pitch: pitch, vel: vel, prob: 1, ratchet: 1, nudge: 0 }
   clampPianoNoteToPattern(ch, n, 0.0078125)
   ch.pianoNotes.push(n)
 }

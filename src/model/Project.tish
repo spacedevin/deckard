@@ -10,6 +10,24 @@ export fn makeStep(on, vel) {
   return { on: on, vel: vel, prob: 1, ratchet: 1, nudge: 0 }
 }
 
+// Full copy of a PIANO NOTE including its per-note p-locks (prob/ratchet/nudge) — used wherever notes are
+// duplicated (clip sync, scene load, bar tiling/splicing) so the locks ride along instead of resetting.
+// Tolerates legacy notes missing the lock fields. The caller overrides startBeat/durBeats when re-positioning.
+export fn clonePianoNote(n) {
+  if (!n) {
+    return { startBeat: 0, durBeats: 0.25, pitch: 60, vel: 100, prob: 1, ratchet: 1, nudge: 0 }
+  }
+  return {
+    startBeat: n.startBeat,
+    durBeats: n.durBeats,
+    pitch: n.pitch,
+    vel: n.vel != null ? n.vel : 100,
+    prob: n.prob != null ? n.prob : 1,
+    ratchet: n.ratchet != null ? n.ratchet : 1,
+    nudge: n.nudge != null ? n.nudge : 0
+  }
+}
+
 // Full copy of a step INCLUDING its p-locks — used wherever steps are duplicated (clip sync, tiling) so the
 // locks ride along instead of being reset to defaults. Tolerates legacy steps missing the lock fields.
 export fn cloneStep(st) {

@@ -3904,6 +3904,14 @@ input[type="range"]::-moz-range-thumb {
   background: rgba(255, 255, 255, 0.18);
   pointer-events: none;
 }
+/* Per-note lock lanes (under the piano grid) reuse the step lane look; a left tick marks them as note-scoped,
+   and empty columns (no note at that step) fade further back. */
+.sg-pnote-lk-row .sg-lk-gutter {
+  border-left: 2px solid var(--row-accent);
+}
+.sg-pnote-lk-cell.sg-lk-dim {
+  opacity: 0.16;
+}
 .sg-tog-lck {
   color: #8a8aa0;
 }

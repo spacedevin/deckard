@@ -12,7 +12,7 @@ import { PresetBar } from './PresetBar.tish'
 import { emitProject, emitLivePlayback } from '../tpl/Emit.tish'
 import { CodeDebugView } from './CodeDebugView.tish'
 import { migrateProjectGenerators } from '../model/Migrate.tish'
-import { ensureAudio, updateMixerFromProject, resyncAllChannelBuses, applyCueRouting, applyOutputDevices, setCueLevel, setCueSyncOffset, setMainAutoSync, ensureCueOutput, suspendDrawsAround, drawsSuspended, setDrawDisabled, triggerMasterFxEcho, triggerMasterFxFilter, playHitAt } from '../audio/Engine.tish'
+import { ensureAudio, updateMixerFromProject, resyncAllChannelBuses, applyCueRouting, applyOutputDevices, setCueLevel, setCueSyncOffset, setMainAutoSync, ensureCueOutput, suspendDrawsAround, drawsSuspended, setDrawDisabled, triggerMasterFxEcho, triggerMasterFxFilter, playHitAt, applyChannelFilterAutomation } from '../audio/Engine.tish'
 import { createAudioDeviceSettings } from '../core/AudioDeviceSettings.tish'
 import { AudioRackPanel } from './AudioRackPanel.tish'
 import { MidiPanel } from './MidiPanel.tish'
@@ -1111,6 +1111,8 @@ export fn App() {
       coDjFlushScheduledForStep(step, r)
       // THE audio: schedule this step's notes at the EXACT audio time `when` (jitter-immune).
       transportTick(r.project, audioStore, step, r, when)
+      // Grid-synced channel filter sweeps (the universal CUTOFF automation — works on any voice incl. decks).
+      applyChannelFilterAutomation(r.project, audioStore, step * 0.25, when)
       if (r.sessionQueuePending && r.bumpSeqPromoteUi) {
         r.bumpSeqPromoteUi()
       }

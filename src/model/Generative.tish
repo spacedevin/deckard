@@ -4,7 +4,7 @@
 // receive the realized steps (no per-client divergence). Euclid distribution keeps the output musical, not noise.
 
 import { euclideanPattern } from '../tpl/Euclidean.tish'
-import { cloneStep, makeStep } from './Project.tish'
+import { cloneStep, makeStep, clonePianoNote } from './Project.tish'
 
 // Rotate a boolean pattern by `rot` steps (positive = shift later in time).
 export fn rotatePattern(pat, rot) {
@@ -118,6 +118,160 @@ export fn sprinkleProbability(steps, rng, fraction) {
       out[i].prob = lvls[Math.floor(rng() * lvls.length)]
     }
     i = i + 1
+  }
+  return out
+}
+
+// ===================================================================================================
+// NOTE generators — the same euclid/reseed/mutate/humanize/sprinkle ideas, but authoring PIANO NOTES so the
+// generative toolbar works on MELODIC / single-note channels too (they play `note`s, not steps). They build a
+// bar-1 rhythm at a chosen pitch; the UI prepends any bars-2+ notes (notesAfterFirstBar) and emits the whole
+// array through the gated track/<id>/notes door. Per-note locks (prob/ratchet/nudge) ride along.
+// ===================================================================================================
+
+// The pitch to generate at: the channel's first existing note (keep the melody's register), else its
+// stepPitch, else middle C.
+export fn notePitchForChannel(ch) {
+  if (ch && ch.pianoNotes && ch.pianoNotes.length > 0) {
+    return Math.floor(ch.pianoNotes[0].pitch)
+  }
+  if (ch && ch.stepPitch != null) {
+    return Math.floor(ch.stepPitch)
+  }
+  return 60
+}
+
+fn makeGenNote(col, pitch, vel) {
+  return { startBeat: col * 0.25, durBeats: 0.25, pitch: Math.floor(pitch), vel: vel, prob: 1, ratchet: 1, nudge: 0 }
+}
+
+// Notes that live in bars 2+ (startBeat >= 4) — preserved when a generator only rewrites bar 1's rhythm.
+export fn notesAfterFirstBar(notes) {
+  let out = []
+  if (!notes) {
+    return out
+  }
+  let i = 0
+  while (i < notes.length) {
+    if (notes[i].startBeat >= 4 - 0.0001) {
+      out.push(clonePianoNote(notes[i]))
+    }
+    i = i + 1
+  }
+  return out
+}
+
+// Euclid(hits) with a rotation → bar-1 notes (one per hit) at `pitch`.
+export fn euclidNotes(hits, rotation, pitch) {
+  let pat = euclideanPattern(hits, 16)
+  if (rotation && rotation !== 0) {
+    pat = rotatePattern(pat, rotation)
+  }
+  let out = []
+  let i = 0
+  while (i < 16) {
+    if (pat[i] === true) {
+      out.push(makeGenNote(i, pitch, 100))
+    }
+    i = i + 1
+  }
+  return out
+}
+
+// RESEED: a fresh random euclid note rhythm (3..8 hits + rotation), lightly humanized.
+export fn reseedNotes(rng, pitch) {
+  let hits = 3 + Math.floor(rng() * 6)
+  let rot = Math.floor(rng() * 16)
+  return humanizeNotes(euclidNotes(hits, rot, pitch), rng, 16)
+}
+
+// HUMANIZE: jitter every note's velocity (all bars).
+export fn humanizeNotes(notes, rng, depth) {
+  let out = []
+  let i = 0
+  while (i < notes.length) {
+    let n = clonePianoNote(notes[i])
+    let base = n.vel != null ? n.vel : 100
+    let v = base + Math.round((rng() * 2 - 1) * depth)
+    if (v < 1) {
+      v = 1
+    }
+    if (v > 127) {
+      v = 127
+    }
+    n.vel = v
+    out.push(n)
+    i = i + 1
+  }
+  return out
+}
+
+// SPRINKLE PROBABILITY onto ~fraction of the off-beat notes (downbeats stay certain) — all bars.
+export fn sprinkleNoteProbability(notes, rng, fraction) {
+  let lvls = [0.4, 0.5, 0.6, 0.7, 0.8]
+  let out = []
+  let i = 0
+  while (i < notes.length) {
+    let n = clonePianoNote(notes[i])
+    let col = Math.floor(n.startBeat * 4 + 0.0001)
+    if (col % 4 !== 0 && rng() < fraction) {
+      n.prob = lvls[Math.floor(rng() * lvls.length)]
+    }
+    out.push(n)
+    i = i + 1
+  }
+  return out
+}
+
+// MUTATE: flip ~amount of bar-1's columns (one representative note per column — chords collapse) + give a
+// freshly-added note a random velocity. Bars 2+ are preserved untouched. Existing columns keep their pitch.
+export fn mutateNotes(notes, rng, amount, pitch) {
+  let colNote = []
+  let ci = 0
+  while (ci < 16) {
+    colNote.push(null)
+    ci = ci + 1
+  }
+  let later = []
+  let j = 0
+  while (j < notes.length) {
+    let c = Math.floor(notes[j].startBeat * 4 + 0.0001)
+    if (c >= 0 && c < 16) {
+      if (colNote[c] == null) {
+        colNote[c] = clonePianoNote(notes[j])
+      }
+    } else {
+      later.push(clonePianoNote(notes[j]))
+    }
+    j = j + 1
+  }
+  let flips = Math.max(1, Math.round(16 * amount))
+  let f = 0
+  while (f < flips) {
+    let c = Math.floor(rng() * 16)
+    if (c >= 0 && c < 16) {
+      if (colNote[c] != null) {
+        colNote[c] = null
+      } else {
+        colNote[c] = makeGenNote(c, pitch, 70 + Math.floor(rng() * 50))
+      }
+    }
+    f = f + 1
+  }
+  let out = []
+  let k = 0
+  while (k < 16) {
+    if (colNote[k] != null) {
+      let nn = colNote[k]
+      nn.startBeat = k * 0.25
+      out.push(nn)
+    }
+    k = k + 1
+  }
+  let li = 0
+  while (li < later.length) {
+    out.push(later[li])
+    li = li + 1
   }
   return out
 }

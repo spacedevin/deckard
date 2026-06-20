@@ -5,7 +5,7 @@
 // same door peers and the agent use. This is how "the UI is just a TPL client" becomes literal.
 
 import { formatTplFloat } from '../tpl/Format.tish'
-import { generatorIdToTpl, stepLaneLine } from '../tpl/Emit.tish'
+import { generatorIdToTpl, stepLaneLine, noteLine } from '../tpl/Emit.tish'
 import { findChannelById } from '../tpl/Apply.tish'
 import { scaleRootNames } from '../model/Scale.tish'
 import { camelToSnake } from '../tpl/RegistryMap.tish'
@@ -262,6 +262,20 @@ export fn fragmentForEdit(project, address, value) {
       o = o + stepLaneLine(value, "step_prob", "prob", 1, false)
       o = o + stepLaneLine(value, "step_ratchet", "ratchet", 1, true)
       o = o + stepLaneLine(value, "step_nudge", "nudge", 0, false)
+      return o
+    }
+    // The WHOLE pianoNotes array as one statement (analogous to `pattern` for steps): the track header + one
+    // `note … [p][r][n]` line per note. applyTrackBody replaces ch.pianoNotes wholesale from these lines, so a
+    // full-array re-emit is the right semantics. Used by the piano grid's note edits + lock lanes so they
+    // broadcast to peers + round-trip (today's piano edits mutate locally and never reach ingest).
+    if (section === "notes") {
+      let o = hdr
+      let arr = Array.isArray(value) ? value : []
+      let i = 0
+      while (i < arr.length) {
+        o = o + "\n" + noteLine(arr[i])
+        i = i + 1
+      }
       return o
     }
   }

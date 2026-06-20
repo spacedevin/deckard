@@ -733,7 +733,7 @@ fn prDocumentMouseUp(e) {
         if (beat < 0) {
           beat = 0
         }
-        ch.pianoNotes.push({ startBeat: beat, durBeats: defDur, pitch: pitch, vel: 100 })
+        ch.pianoNotes.push({ startBeat: beat, durBeats: defDur, pitch: pitch, vel: 100, prob: 1, ratchet: 1, nudge: 0 })
         clampPianoNoteToFirstBar(ch.pianoNotes[ch.pianoNotes.length - 1], snap)
         prUi.selected = [ch.pianoNotes.length - 1]
         attachPianoRoll(ctx.canvas, ctx.project, ctx.chIdx, ctx.setProject)

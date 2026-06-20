@@ -4,34 +4,36 @@
 
 import { automationAt } from '../schedule/Engine.tish'
 
-// Continuous, numeric params worth sweeping, per generator (first = the default the lane drives in v1).
+// The UNIVERSAL cutoff target — the per-channel filter (ch.filterCutoff) that EVERY channel passes through,
+// including patch/macro/deck voices. Applied to the channel filter node by the scheduler (not the
+// generatorParams path), so it sweeps any voice. This is what makes the ∿ lane work on decks.
+fn filterCutoffTarget() {
+  return { key: "filterCutoff", label: "CUTOFF", min: 150, max: 12000, log: true }
+}
+
+// Continuous, numeric params worth sweeping, per generator. filterCutoff is offered FIRST on every channel;
+// generator-specific gen-params (modIndex/decay/tone/drive) follow where they exist.
 export fn automatableParams(generatorId) {
-  if (generatorId === "pad") {
-    return [{ key: "cutoff", label: "CUTOFF", min: 150, max: 9000, log: true }, { key: "decay", label: "DECAY", min: 0.02, max: 3, log: true }]
-  }
   if (generatorId === "fmTone") {
-    return [{ key: "modIndex", label: "FM IDX", min: 0, max: 24, log: false }, { key: "decay", label: "DECAY", min: 0.02, max: 2, log: true }]
+    return [filterCutoffTarget(), { key: "modIndex", label: "FM IDX", min: 0, max: 24, log: false }, { key: "decay", label: "DECAY", min: 0.02, max: 2, log: true }]
   }
   if (generatorId === "noiseBurst") {
-    return [{ key: "tone", label: "TONE", min: 0, max: 1, log: false }, { key: "decay", label: "DECAY", min: 0.01, max: 1, log: true }]
+    return [filterCutoffTarget(), { key: "tone", label: "TONE", min: 0, max: 1, log: false }, { key: "decay", label: "DECAY", min: 0.01, max: 1, log: true }]
   }
   if (generatorId === "guitar") {
-    return [{ key: "tone", label: "TONE", min: 0, max: 1, log: false }, { key: "drive", label: "DRIVE", min: 0, max: 1, log: false }]
+    return [filterCutoffTarget(), { key: "tone", label: "TONE", min: 0, max: 1, log: false }, { key: "drive", label: "DRIVE", min: 0, max: 1, log: false }]
   }
   if (generatorId === "clap") {
-    return [{ key: "tone", label: "TONE", min: 0, max: 1, log: false }]
+    return [filterCutoffTarget(), { key: "tone", label: "TONE", min: 0, max: 1, log: false }]
   }
   if (generatorId === "drumSynth") {
-    return [{ key: "decay", label: "DECAY", min: 0.02, max: 1.2, log: true }, { key: "drive", label: "DRIVE", min: 0, max: 1, log: false }]
+    return [filterCutoffTarget(), { key: "decay", label: "DECAY", min: 0.02, max: 1.2, log: true }, { key: "drive", label: "DRIVE", min: 0, max: 1, log: false }]
   }
   if (generatorId === "bell") {
-    return [{ key: "decay", label: "DECAY", min: 0.1, max: 3, log: true }]
+    return [filterCutoffTarget(), { key: "decay", label: "DECAY", min: 0.1, max: 3, log: true }]
   }
-  if (generatorId === "basicOsc") {
-    return [{ key: "decay", label: "DECAY", min: 0.02, max: 1, log: true }]
-  }
-  // matrixFm / patch / macro / unknown → not automatable through the generatorParams path.
-  return []
+  // pad / basicOsc / matrixFm / patch / macro / unknown → at least the universal channel filter cutoff.
+  return [filterCutoffTarget()]
 }
 
 // The lane's default target for a channel (or null if the generator isn't automatable here).
@@ -114,7 +116,13 @@ export fn channelAutoPoints(project, channelId, param) {
 // the channel's current param value.
 export fn autoLaneValues(project, ch, param) {
   let pts = channelAutoPoints(project, ch.id, param)
-  let cur = (ch.generatorParams && ch.generatorParams[param] != null) ? Number(ch.generatorParams[param]) : 0
+  // filterCutoff is the CHANNEL filter (ch.filterCutoff), not a generatorParam — flat default reads it there.
+  let cur = 0
+  if (param === "filterCutoff") {
+    cur = ch.filterCutoff != null ? Number(ch.filterCutoff) : 12000
+  } else if (ch.generatorParams && ch.generatorParams[param] != null) {
+    cur = Number(ch.generatorParams[param])
+  }
   let out = []
   let i = 0
   while (i < 16) {

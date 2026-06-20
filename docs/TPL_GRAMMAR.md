@@ -128,13 +128,15 @@ step_nudge   0 0 0 0 0 0 0 0 0 0 0 0 0.25 0 0 0
 | `step_ratchet` | `1..8` (1) | Sub-hits — the step retriggers `R` evenly-spaced times, each shortened to `dur/R`. |
 | `step_nudge` | `-0.5..0.5` (0) | Micro-timing — shifts the hit by that fraction of a step (− = earlier, + = later). |
 
-Locks apply to **boolean step rows only** (single-note / melodic tracks carry their own per-note velocity via `note`). In the UI they're the **⇅ LOCKS** lane editor under each step row (drag to set, double-click resets) plus the velocity bar drawn inside each lit step. Every edit re-emits the whole pattern through the one gated `track/<id>/pattern` write door, so it broadcasts to peers and round-trips like any other statement.
+Step locks live on `steps`; melodic tracks carry the SAME four locks per **note** (see below). In the UI they're the **⇅ LOCKS** lane editor under each step row (drag to set, double-click resets) plus the velocity bar drawn inside each lit step. Every edit re-emits the whole pattern through the one gated `track/<id>/pattern` write door, so it broadcasts to peers and round-trips like any other statement.
 
 ### Notes (piano roll)
 
 ```
-note <midi> <startBeat> <durBeats> v <velocity> [ bar <selector> ]
+note <midi> <startBeat> <durBeats> v <velocity> [ p <prob> ] [ r <ratchet> ] [ n <nudge> ] [ bar <selector> ]
 ```
+
+- **Per-note locks** (optional, any order after `v`, appended only when non-default): `p <0..1>` probability (seeded by the note's beat so co-DJ peers agree), `r <1..8>` ratchet sub-hits (fill the note's own duration), `n <-0.5..0.5>` nudge (micro-timing, a fraction of a 16th step). Same semantics as the step locks. Example: `note 60 0 0.25 v 90 p 0.8 r 2 n -0.1`. Edited live via the **⇅ per-note lock lanes** under the expanded piano grid (column = the notes starting on that step); re-emitted through the gated `track/<id>/notes` door (broadcasts + round-trips).
 
 - **Beats** are in **quarter-note units** (1 beat = one quarter note). The sequencer shows **one bar at a time** with a bar pager for multi-bar patterns.
 - **Range:** `0 ≤ startBeat` and `startBeat + durBeats ≤ bars × 4`, where `bars` is the track's `* N` length (default 1). Apply rejects out-of-range lines.

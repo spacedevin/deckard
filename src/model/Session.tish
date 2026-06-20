@@ -1,7 +1,7 @@
 // Session / clip launcher: named patterns per track, grid of scenes (columns).
 // Channel rack + piano still edit ch.steps / ch.pianoNotes; main clip mirrors for emit + playback.
 
-import { makeStep, cloneStep } from './Project.tish'
+import { makeStep, cloneStep, clonePianoNote } from './Project.tish'
 import { promoteChannelToBars } from './Edits.tish'
 
 // --- single-bar copy helpers (for "load/save 1 bar" into the currently-viewed bar) ---
@@ -28,7 +28,10 @@ fn notesClippedToBar(notes, bar) {
       let ce = ne > barEnd ? barEnd : ne
       let dur = ce - cs
       if (dur > 0.0001) {
-        out.push({ startBeat: cs - barStart, durBeats: dur, pitch: n.pitch, vel: n.vel })
+        let cn = clonePianoNote(n)
+        cn.startBeat = cs - barStart
+        cn.durBeats = dur
+        out.push(cn)
       }
     }
     i = i + 1
@@ -59,7 +62,10 @@ fn notesStartingInBar(notes, bar) {
       }
       let dur = ce - ns
       if (dur > 0.0001) {
-        out.push({ startBeat: ns - barStart, durBeats: dur, pitch: n.pitch, vel: n.vel })
+        let cn = clonePianoNote(n)
+        cn.startBeat = ns - barStart
+        cn.durBeats = dur
+        out.push(cn)
       }
     }
     i = i + 1
@@ -93,7 +99,9 @@ fn spliceBarNotes(destNotes, destBar, srcNotes, srcBar) {
   let j = 0
   while (j < clipped.length) {
     let n = clipped[j]
-    out.push({ startBeat: n.startBeat + destBar * 4, durBeats: n.durBeats, pitch: n.pitch, vel: n.vel })
+    let cn = clonePianoNote(n)
+    cn.startBeat = n.startBeat + destBar * 4
+    out.push(cn)
     j = j + 1
   }
   return out
@@ -168,13 +176,7 @@ export fn copyPianoNotes(arr) {
   let out = []
   let i = 0
   while (i < arr.length) {
-    let n = arr[i]
-    out.push({
-      startBeat: n.startBeat,
-      durBeats: n.durBeats,
-      pitch: n.pitch,
-      vel: n.vel
-    })
+    out.push(clonePianoNote(arr[i]))
     i = i + 1
   }
   return out

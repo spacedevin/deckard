@@ -20,8 +20,10 @@ track <DisplayName> id <unique_id> gen <generator>
   step_prob <16 floats 0-1>     (optional per-step probability — seeded, deterministic across peers)
   step_ratchet <16 ints 1-8>    (optional per-step sub-hits)
   step_nudge <16 floats -0.5..0.5>  (optional per-step micro-timing, fraction of a step)
-  note <midi> <startBeat> <durBeats> v <velocity 0-127, default 100>   (repeat)
+  note <midi> <startBeat> <durBeats> v <velocity 0-127, default 100> [p <prob 0-1>] [r <ratchet 1-8>] [n <nudge -0.5..0.5>]   (repeat)
 ```
+
+Notes carry the same four locks as steps (per-note `p`/`r`/`n`, emitted only when non-default). See [TPL_GRAMMAR.md § Notes](TPL_GRAMMAR.md#notes-piano-roll).
 
 Per-step locks ride parallel lanes after `steps` (emit only when a step deviates from default). See [TPL_GRAMMAR.md § Per-step parameter locks](TPL_GRAMMAR.md#per-step-parameter-locks).
 
