@@ -32,6 +32,8 @@ import { expandTriggerNotes, chordStrumDelta } from '../src/audio/NoteExpand.tis
 import { compileGeneratorToPatchLines, canCompileToPatch } from '../src/model/PatchCompile.tish'
 import { h } from '@tishlang/lattish'
 import { StepGridPanel } from '../src/ui/grid/StepGrid.tish'
+import { Knob } from '../src/ui/InstrumentKit.tish'
+import { octaveKnob, selectorKnob } from '../src/ui/InstrumentStack.tish'
 
 let pass = 0
 let fail = 0
@@ -1384,6 +1386,140 @@ try {
   uiRendered = false
 }
 check("UI: StepGridPanel renders with all lanes/expansions open (no h-shadow / render crash)", uiRendered)
+
+// ---- Pitch selector knobs: detent-dot rendering on the shared Knob + the octave/arp/chord index<->value
+// mapping. Catches a knob-render crash (h-shadow) and locks the new stepped-selector behaviour. ----
+fn pkCircles(node, acc) {
+  if (node == null) {
+    return acc
+  }
+  if (Array.isArray(node)) {
+    let pci = 0
+    while (pci < node.length) {
+      pkCircles(node[pci], acc)
+      pci = pci + 1
+    }
+    return acc
+  }
+  if (typeof node !== "object") {
+    return acc
+  }
+  if (node.tag === "circle") {
+    acc.push(node)
+  }
+  if (node.children != null) {
+    pkCircles(node.children, acc)
+  }
+  return acc
+}
+fn pkClass(n) {
+  return n.props != null && n.props.class != null ? n.props.class : ""
+}
+fn pkFindTag(node, tagName) {
+  if (node == null || typeof node !== "object") {
+    return null
+  }
+  if (Array.isArray(node)) {
+    let pfi = 0
+    while (pfi < node.length) {
+      let pfr = pkFindTag(node[pfi], tagName)
+      if (pfr != null) {
+        return pfr
+      }
+      pfi = pfi + 1
+    }
+    return null
+  }
+  if (node.tag === tagName) {
+    return node
+  }
+  if (node.children != null) {
+    return pkFindTag(node.children, tagName)
+  }
+  return null
+}
+fn pkClassText(node, cls) {
+  if (node == null || typeof node !== "object") {
+    return null
+  }
+  if (Array.isArray(node)) {
+    let pti = 0
+    while (pti < node.length) {
+      let ptr = pkClassText(node[pti], cls)
+      if (ptr != null) {
+        return ptr
+      }
+      pti = pti + 1
+    }
+    return null
+  }
+  if (pkClass(node) === cls && node.children != null && node.children.length > 0) {
+    return node.children[0]
+  }
+  if (node.children != null) {
+    return pkClassText(node.children, cls)
+  }
+  return null
+}
+fn pkDetents(vn) {
+  return pkCircles(vn, []).filter(c => pkClass(c).indexOf("ik-knob-detent") >= 0)
+}
+fn pkLit(vn) {
+  return pkCircles(vn, []).filter(c => pkClass(c).indexOf("ik-knob-detent-on") >= 0)
+}
+
+let pkK = Knob({ label: "T", value: 1, min: 0, max: 4, step: 1, detents: 5, onInput: () => {} })
+check("knob detents: 5 position dots for detents:5", pkDetents(pkK).length === 5)
+check("knob detents: exactly one dot lit", pkLit(pkK).length === 1)
+let pkMin = Knob({ value: 0, min: 0, max: 4, step: 1, detents: 5, onInput: () => {} })
+let pkMax = Knob({ value: 4, min: 0, max: 4, step: 1, detents: 5, onInput: () => {} })
+check("knob detents: lit dot tracks the value (min cx < max cx)", Number(pkLit(pkMin)[0].props.cx) < Number(pkLit(pkMax)[0].props.cx))
+
+let pkPlain = Knob({ value: 0.5, min: 0, max: 1, step: 0.01, onInput: () => {} })
+check("knob: no detents → one moving dot, zero detent dots", pkDetents(pkPlain).length === 0 && pkCircles(pkPlain, []).filter(c => pkClass(c) === "ik-knob-dot").length === 1)
+
+let pkWheel = []
+let pkW = Knob({ value: 1, min: 0, max: 4, step: 1, detents: 5, onInput: (v) => pkWheel.push(v) })
+let pkWsvg = pkFindTag(pkW, "svg")
+pkWsvg.props.onwheel({ deltaY: -1, preventDefault: () => {} })
+pkWsvg.props.onwheel({ deltaY: 8, preventDefault: () => {} })
+check("knob wheel: up steps +1 (1→2), down steps -1 (1→0)", pkWheel.length === 2 && pkWheel[0] === 2 && pkWheel[1] === 0)
+let pkNoWheel = []
+let pkNW = Knob({ value: 0.5, min: 0, max: 1, step: 0.01, onInput: (v) => pkNoWheel.push(v) })
+pkFindTag(pkNW, "svg").props.onwheel({ deltaY: -1, preventDefault: () => {} })
+check("knob wheel: ignored when no detents (continuous knobs unaffected)", pkNoWheel.length === 0)
+// Boundary: wheel up at max is a no-op (no redundant gated emit/broadcast).
+let pkMaxEmit = []
+let pkMaxPrevented = false
+let pkMaxK = Knob({ value: 4, min: 0, max: 4, step: 1, detents: 5, onInput: (v) => pkMaxEmit.push(v) })
+pkFindTag(pkMaxK, "svg").props.onwheel({ deltaY: -1, preventDefault: () => { pkMaxPrevented = true } })
+check("knob wheel: at max, wheel-up emits nothing (no redundant broadcast)", pkMaxEmit.length === 0)
+check("knob wheel: at max, still consumes the vertical scroll (preventDefault)", pkMaxPrevented === true)
+// Horizontal swipe (deltaY 0): no step, and the page scroll is NOT swallowed.
+let pkHEmit = []
+let pkHPrevented = false
+let pkHK = Knob({ value: 2, min: 0, max: 4, step: 1, detents: 5, onInput: (v) => pkHEmit.push(v) })
+pkFindTag(pkHK, "svg").props.onwheel({ deltaY: 0, deltaX: 30, preventDefault: () => { pkHPrevented = true } })
+check("knob wheel: horizontal swipe (deltaY 0) does not step the knob", pkHEmit.length === 0)
+check("knob wheel: horizontal swipe is not preventDefault'd (page can scroll)", pkHPrevented === false)
+
+let pkArpDefs = [["Off", "off"], ["Up", "up"], ["Down", "down"], ["Up-Down", "updown"], ["Random", "random"]]
+let pkEmit = []
+let pkSel = selectorKnob("Arp", { id: "t1", arp: "updown" }, "arp", pkArpDefs, { emit: (a, v) => pkEmit.push([a, v]) }, "#fff")
+check("selectorKnob: value-readout shows the current option label", pkClassText(pkSel, "ik-knob-value") === "Up-Down")
+check("selectorKnob: one detent per option (5)", pkDetents(pkSel).length === 5)
+pkFindTag(pkSel, "svg").props.onwheel({ deltaY: 8, preventDefault: () => {} })
+check("selectorKnob: wheel-down emits the prev option value via voice/arp", pkEmit.length === 1 && pkEmit[0][0] === "track/t1/voice/arp" && pkEmit[0][1] === "down")
+
+let pkOct = []
+let pkOk = octaveKnob({ id: "t2", octave: -1 }, { emit: (a, v) => pkOct.push([a, v]) }, "#fff")
+check("octaveKnob: readout shows the signed octave", pkClassText(pkOk, "ik-knob-value") === "-1")
+pkFindTag(pkOk, "svg").props.onwheel({ deltaY: -1, preventDefault: () => {} })
+check("octaveKnob: wheel-up emits the numeric octave via voice/octave", pkOct.length === 1 && pkOct[0][0] === "track/t2/voice/octave" && pkOct[0][1] === 0)
+
+// Touch parity: the dial wires BOTH mouse and touch drag entry points (the pills it replaced were tappable).
+let pkTouchSvg = pkFindTag(Knob({ value: 1, min: 0, max: 4, step: 1, detents: 5, onInput: () => {} }), "svg")
+check("knob: dial wires both onmousedown and ontouchstart (touch drag restored)", typeof pkTouchSvg.props.onmousedown === "function" && typeof pkTouchSvg.props.ontouchstart === "function")
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))

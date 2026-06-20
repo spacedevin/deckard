@@ -147,8 +147,11 @@ fn knobClamp(v, min, max) {
 }
 
 /**
- * Rotary knob. opts: { label, value, min, max, step?, fmt?, onInput, accent? }.
+ * Rotary knob. opts: { label, value, min, max, step?, fmt?, onInput, accent?, detents? }.
  * Vertical drag = change (up increases). onInput(newValue) fires continuously during the drag.
+ * detents: when >= 2, draws that many evenly-spaced position dots around the dial (the current
+ * one lit in the accent colour) instead of the plain moving indicator — used for stepped selectors
+ * (octave / arp / chord). Scroll-wheel steps one detent at a time (only when detents is set).
  */
 export fn Knob(opts) {
   let min = opts.min
@@ -162,6 +165,28 @@ export fn Knob(opts) {
   let trackD = dialArc(cx, cy, r, -135, 135)
   let valD = dialArc(cx, cy, r, -135, -135 + t * 270)
   let dot = dialPoint(cx, cy, r, -135 + t * 270)
+  let detents = opts.detents != null && opts.detents >= 2 ? Math.round(opts.detents) : 0
+  let detentDots = []
+  if (detents > 0) {
+    let curIdx = Math.round(t * (detents - 1))
+    let di = 0
+    while (di < detents) {
+      let ddt = di / (detents - 1)
+      let dpt = dialPoint(cx, cy, r, -135 + ddt * 270)
+      let lit = di === curIdx
+      detentDots.push(
+        <circle
+          class={lit ? "ik-knob-detent ik-knob-detent-on" : "ik-knob-detent"}
+          cx={String(dpt[0])}
+          cy={String(dpt[1])}
+          r={lit ? "2.6" : "1.6"}
+          style={lit ? { fill: accent } : {}}
+          key={"det" + String(di)}
+        />
+      )
+      di = di + 1
+    }
+  }
   let label = opts.label ? opts.label : ""
   let valText = opts.fmt ? opts.fmt(v) : String(Math.round(v))
   let rootCls = "ik-knob"
@@ -172,6 +197,41 @@ export fn Knob(opts) {
     rootCls = "ik-knob ik-knob-xs"
   }
 
+  // Shared drag from a starting Y. Mouse and touch both funnel through here so the value math + the
+  // emit-coalescing are identical; each binds its own move/up pair on document (touch needs the
+  // `.ik-knob-dial { touch-action: none }` rule so the drag doesn't scroll the page).
+  fn startDrag(startY) {
+    let startV = v
+    let range = max - min
+    let lastEmit = startV
+    fn onMove(ev) {
+      let cy2 = ev.clientY != null ? ev.clientY : (ev.touches != null && ev.touches.length > 0 ? ev.touches[0].clientY : startY)
+      let dy = startY - cy2
+      let nv = knobClamp(startV + (dy / 150) * range, min, max)
+      if (opts.step != null && opts.step > 0) {
+        nv = Math.round(nv / opts.step) * opts.step
+      }
+      // Skip identical consecutive values — within one detent a stepped knob would otherwise
+      // re-emit (and re-broadcast) the same value every move.
+      if (nv !== lastEmit) {
+        lastEmit = nv
+        if (opts.onInput) {
+          opts.onInput(nv)
+        }
+      }
+    }
+    fn onUp() {
+      document.removeEventListener("mousemove", onMove)
+      document.removeEventListener("mouseup", onUp)
+      document.removeEventListener("touchmove", onMove)
+      document.removeEventListener("touchend", onUp)
+    }
+    document.addEventListener("mousemove", onMove)
+    document.addEventListener("mouseup", onUp)
+    document.addEventListener("touchmove", onMove)
+    document.addEventListener("touchend", onUp)
+  }
+
   fn onDown(e) {
     if (e.preventDefault) {
       e.preventDefault()
@@ -179,33 +239,52 @@ export fn Knob(opts) {
     if (e.stopPropagation) {
       e.stopPropagation()
     }
-    let startY = e.clientY
-    let startV = v
-    let range = max - min
-    fn onMove(ev) {
-      let dy = startY - ev.clientY
-      let nv = knobClamp(startV + (dy / 150) * range, min, max)
-      if (opts.step != null && opts.step > 0) {
-        nv = Math.round(nv / opts.step) * opts.step
-      }
-      if (opts.onInput) {
-        opts.onInput(nv)
-      }
+    startDrag(e.clientY)
+  }
+
+  fn onTouchStart(e) {
+    if (e.touches == null || e.touches.length === 0) {
+      return
     }
-    fn onUp() {
-      document.removeEventListener("mousemove", onMove)
-      document.removeEventListener("mouseup", onUp)
+    // preventDefault suppresses the ghost mouse/click events that follow a touch tap.
+    if (e.preventDefault) {
+      e.preventDefault()
     }
-    document.addEventListener("mousemove", onMove)
-    document.addEventListener("mouseup", onUp)
+    if (e.stopPropagation) {
+      e.stopPropagation()
+    }
+    startDrag(e.touches[0].clientY)
+  }
+
+  fn onWheel(e) {
+    if (detents <= 0) {
+      return
+    }
+    // Ignore horizontal / zero-Y wheel (e.g. a two-finger horizontal trackpad swipe carries deltaX
+    // with deltaY 0) so it neither steps the knob nor swallows the page scroll.
+    if (e.deltaY === 0) {
+      return
+    }
+    if (e.preventDefault) {
+      e.preventDefault()
+    }
+    let stepV = opts.step != null && opts.step > 0 ? opts.step : 1
+    let dir = e.deltaY < 0 ? 1 : -1
+    let nv = knobClamp(v + dir * stepV, min, max)
+    // At a boundary the clamp pins nv to the current value — skip the redundant gated emit/broadcast.
+    if (nv !== v && opts.onInput) {
+      opts.onInput(nv)
+    }
   }
 
   return (
     <div class={rootCls}>
-      <svg class="ik-knob-dial" viewBox="0 0 48 48" onmousedown={onDown}>
+      <svg class="ik-knob-dial" viewBox="0 0 48 48" onmousedown={onDown} ontouchstart={onTouchStart} onwheel={onWheel}>
         <path class="ik-knob-track" d={trackD} fill="none" />
         <path class="ik-knob-val" d={valD} fill="none" style={{ stroke: accent }} />
-        <circle class="ik-knob-dot" cx={String(dot[0])} cy={String(dot[1])} r="2.6" style={{ fill: accent }} />
+        {detents > 0 ? detentDots : (
+          <circle class="ik-knob-dot" cx={String(dot[0])} cy={String(dot[1])} r="2.6" style={{ fill: accent }} />
+        )}
       </svg>
       <div class="ik-knob-label">{label}</div>
       <div class="ik-knob-value">{valText}</div>

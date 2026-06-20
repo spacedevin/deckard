@@ -21,7 +21,7 @@ import { macroCatalog, assignMacroToChannel } from '../model/MacroVoice.tish'
 import { compileGeneratorToPatchLines } from '../model/PatchCompile.tish'
 import { emitInstrumentModuleTpl } from '../core/Levels.tish'
 import { GeneratorParamPanel } from './GeneratorParams.tish'
-import { accentForGenerator } from './InstrumentKit.tish'
+import { accentForGenerator, Knob } from './InstrumentKit.tish'
 import { MatrixFmPanel } from './MatrixFmPanel.tish'
 import { PatchGraphPanel } from './PatchGraphPanel.tish'
 import { MacroDesignerPanel } from './MacroDesignerPanel.tish'
@@ -48,14 +48,6 @@ let VOICE_GROUPS = [
     ]
   }
 ]
-
-let DECAY_PRESETS = {
-  Pluck: { attack: 0.002, decay: 0.08, sustain: 0.0, release: 0.06 },
-  Short: { attack: 0.005, decay: 0.12, sustain: 0.2, release: 0.1 },
-  Medium: { attack: 0.01, decay: 0.25, sustain: 0.5, release: 0.2 },
-  Long: { attack: 0.05, decay: 0.5, sustain: 0.7, release: 0.5 },
-  Pad: { attack: 0.3, decay: 0.6, sustain: 0.85, release: 1.5 }
-}
 
 fn isMacroVoice(key) {
   let mc = macroCatalog()
@@ -171,17 +163,8 @@ fn VoicePicker(project, ch, setProject, tplMirrorFlush) {
   return <div class="voice-picker-groups">{groups}</div>
 }
 
-// ---- pill helpers (moved from the old InstrumentEditor; every click is one rt.emit) ----
-
-fn approxEq(a, b) {
-  let x = a != null ? a : 0
-  let d = x - b
-  if (d < 0) {
-    d = -d
-  }
-  return d < 0.012
-}
-
+// Maps a voice/fx field name to its TPL emit address (used by the pitch selector knobs + fx controls);
+// every edit is one rt.emit through the gated ingest door.
 fn fieldAddress(field) {
   if (field === "arp") {
     return "voice/arp"
@@ -210,108 +193,67 @@ fn fieldAddress(field) {
   return "gen/" + field
 }
 
-fn PillGroup(label, opts) {
-  let pills = []
-  let i = 0
-  while (i < opts.length) {
-    let o = opts[i]
-    pills.push(
-      <button type="button" class={o.on ? "ie-pill ie-pill-on" : "ie-pill"} onclick={o.click}>
-        {o.text}
-      </button>
-    )
-    i = i + 1
-  }
-  return (
-    <div class="ie-group">
-      <div class="ie-group-label">{label}</div>
-      <div class="ie-pills">{pills}</div>
-    </div>
-  )
-}
-
-fn decayOpts(ch, rt) {
-  let names = ["Pluck", "Short", "Medium", "Long", "Pad"]
-  let gp = ch.generatorParams ? ch.generatorParams : {}
-  let out = []
-  let i = 0
-  while (i < names.length) {
-    let nm = names[i]
-    let d = DECAY_PRESETS[nm]
-    let active = approxEq(gp.attack, d.attack) && approxEq(gp.decay, d.decay) && approxEq(gp.sustain, d.sustain) && approxEq(gp.release, d.release)
-    out.push({
-      text: nm,
-      on: active,
-      click: () => {
-        if (rt && rt.emit) {
-          rt.emit("track/" + ch.id + "/adsr", { a: d.attack, d: d.decay, s: d.sustain, r: d.release })
-        }
-      }
-    })
-    i = i + 1
-  }
-  return out
-}
-
-fn octaveOpts(ch, rt) {
-  let vals = [-2, -1, 0, 1, 2]
+// Stepped selector knob for the Pitch module: a discrete dial with one detent dot per option,
+// the current one lit. octaveKnob is numeric (emits the octave directly); selectorKnob maps a
+// string option list to an index dial and emits the option value through the same gated voice door.
+export fn octaveKnob(ch, rt, accent) {
   let cur = ch.octave != null ? ch.octave : 0
-  let out = []
-  let i = 0
-  while (i < vals.length) {
-    let n = vals[i]
-    out.push({
-      text: n > 0 ? "+" + String(n) : String(n),
-      on: cur === n,
-      click: () => {
-        if (rt && rt.emit) {
-          rt.emit("track/" + ch.id + "/voice/octave", n)
-        }
+  return Knob({
+    label: "Octave",
+    value: cur,
+    min: -2,
+    max: 2,
+    step: 1,
+    detents: 5,
+    accent: accent,
+    fmt: (x) => {
+      let n = Math.round(x)
+      return n > 0 ? "+" + String(n) : String(n)
+    },
+    onInput: (x) => {
+      if (rt && rt.emit) {
+        rt.emit("track/" + ch.id + "/voice/octave", Math.round(x))
       }
-    })
-    i = i + 1
-  }
-  return out
+    }
+  })
 }
 
-fn selectOpts(ch, field, defs, rt) {
-  let cur = ch[field] != null ? ch[field] : defs[0][1]
-  let out = []
+export fn selectorKnob(label, ch, field, defs, rt, accent) {
+  let curStr = ch[field] != null ? ch[field] : defs[0][1]
+  let n = defs.length
+  let curIdx = 0
   let i = 0
-  while (i < defs.length) {
-    let d = defs[i]
-    out.push({
-      text: d[0],
-      on: cur === d[1],
-      click: () => {
-        if (rt && rt.emit) {
-          rt.emit("track/" + ch.id + "/" + fieldAddress(field), d[1])
-        }
-      }
-    })
+  while (i < n) {
+    if (defs[i][1] === curStr) {
+      curIdx = i
+    }
     i = i + 1
   }
-  return out
-}
-
-fn pairOpts(ch, field, defs, rt) {
-  let cur = ch[field]
-  let out = []
-  let i = 0
-  while (i < defs.length) {
-    let d = defs[i]
-    out.push({
-      text: d[0],
-      on: approxEq(cur, d[1]),
-      click: () => {
-        if (rt && rt.emit) {
-          rt.emit("track/" + ch.id + "/" + fieldAddress(field), d[1])
-        }
-      }
-    })
-    i = i + 1
+  fn clampIdx(x) {
+    let k = Math.round(x)
+    if (k < 0) {
+      k = 0
+    }
+    if (k > n - 1) {
+      k = n - 1
+    }
+    return k
   }
-  return out
+  return Knob({
+    label: label,
+    value: curIdx,
+    min: 0,
+    max: n - 1,
+    step: 1,
+    detents: n,
+    accent: accent,
+    fmt: (x) => defs[clampIdx(x)][0],
+    onInput: (x) => {
+      if (rt && rt.emit) {
+        rt.emit("track/" + ch.id + "/" + fieldAddress(field), defs[clampIdx(x)][1])
+      }
+    }
+  })
 }
 
 // ---- module card chrome + per-module Designer⇄Raw reduction ----
@@ -439,16 +381,19 @@ fn SoundModule(ctx, gid) {
 fn PitchModule(ctx) {
   let ch = ctx.ch
   let rt = ctx.rt
+  let accent = accentForGenerator(ch.generatorId)
+  let arpDefs = [["Off", "off"], ["Up", "up"], ["Down", "down"], ["Up-Down", "updown"], ["Random", "random"]]
+  let chordDefs = [["Off", "off"], ["Major", "major"], ["Minor", "minor"], ["Dom7", "dom7"], ["Maj7", "maj7"], ["Min7", "min7"], ["Dim", "dim"], ["Aug", "aug"], ["Sus4", "sus4"], ["Add9", "add9"]]
   return ModuleCard(
     "Pitch",
     "→ voice",
     "voice",
     ctx,
-    <Fragment>
-      {PillGroup("Octave", octaveOpts(ch, rt))}
-      {PillGroup("Arpeggiator", selectOpts(ch, "arp", [["Off", "off"], ["Up", "up"], ["Down", "down"], ["Up-Down", "updown"], ["Random", "random"]], rt))}
-      {PillGroup("Chord", selectOpts(ch, "chord", [["Off", "off"], ["Major", "major"], ["Minor", "minor"], ["Dom7", "dom7"], ["Maj7", "maj7"], ["Min7", "min7"], ["Dim", "dim"], ["Aug", "aug"], ["Sus4", "sus4"], ["Add9", "add9"]], rt))}
-    </Fragment>
+    <div class="instr-pitch-knobs">
+      {octaveKnob(ch, rt, accent)}
+      {selectorKnob("Arp", ch, "arp", arpDefs, rt, accent)}
+      {selectorKnob("Chord", ch, "chord", chordDefs, rt, accent)}
+    </div>
   )
 }
 

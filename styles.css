@@ -4113,44 +4113,6 @@ input[type="range"]::-moz-range-thumb {
   padding-top: 12px;
   border-top: 1px solid var(--grid-line);
 }
-.ie-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  margin-bottom: 0.5rem;
-}
-.ie-group-label {
-  font-size: 0.54rem;
-  letter-spacing: 0.07em;
-  color: var(--muted);
-  text-transform: uppercase;
-}
-.ie-pills {
-  display: flex;
-  gap: 0.25rem;
-  flex-wrap: wrap;
-}
-.ie-pill {
-  padding: 0.22rem 0.5rem;
-  border: 1px solid var(--border, #2a2a31);
-  border-radius: 6px;
-  background: var(--panel, #141418);
-  color: var(--muted, #9a9aa2);
-  font-family: inherit;
-  font-size: 0.62rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-.ie-pill:hover {
-  border-color: #44444f;
-  color: var(--text, #d6d6dc);
-}
-.ie-pill-on {
-  border-color: var(--accent-warm, #e8945c);
-  color: var(--accent-warm, #e8945c);
-  background: rgba(232, 148, 92, 0.12);
-}
-
 /* ---- A/B deck mixer ---- */
 .dk-panel {
   background: var(--panel-3);
@@ -5263,6 +5225,16 @@ input[type="range"]::-moz-range-thumb {
   white-space: nowrap; }
 .ik-knob-value { font-size: 0.62rem; font-variant-numeric: tabular-nums; color: var(--text, #e8e8ea); }
 .ik-knob-grid { display: flex; flex-wrap: wrap; gap: 0.5rem 0.35rem; align-items: flex-start; }
+/* Detent dots for stepped selector knobs (octave / arp / chord) — unlit positions are faint,
+   the current one is filled with the accent colour inline. */
+.ik-knob-detent { fill: rgba(255, 255, 255, 0.28); transition: fill 0.08s ease; }
+.ik-knob-detent-on { filter: drop-shadow(0 0 1.4px rgba(255, 255, 255, 0.25)); }
+
+/* Pitch module: the three stepped selector knobs sit in one row filling the card width. */
+.instr-pitch-knobs { display: flex; gap: 0.35rem; justify-content: space-around; align-items: flex-start;
+  flex-wrap: wrap; padding: 0.1rem 0; }
+.instr-pitch-knobs .ik-knob { width: 4.2rem; }
+.instr-pitch-knobs .ik-knob-value { white-space: nowrap; font-size: 0.56rem; }
 
 /* Compact knob (dense panels) */
 .ik-knob-sm { width: 3rem; }
