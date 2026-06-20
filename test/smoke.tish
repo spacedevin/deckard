@@ -4,7 +4,7 @@ import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
 import { emitProject, emitLivePlayback } from '../src/tpl/Emit.tish'
 import { applyTplSource, findChannelById } from '../src/tpl/Apply.tish'
 import { applyCoDjTplSource } from '../src/codj/Merge.tish'
-import { applyLaunchDirective, isLaunchDirective, launchSceneDirective, launchClipDirective, transportDirective, applyLaunchLinesFromSource, transportPlayDirective, transportPreviewDirective, cueDirective, throwDirective, isPrivateDirective, fxDirective } from '../src/codj/Launch.tish'
+import { applyLaunchDirective, isLaunchDirective, launchSceneDirective, launchClipDirective, transportDirective, applyLaunchLinesFromSource, transportPlayDirective, transportPreviewDirective, cueDirective, throwDirective, isPrivateDirective, fxDirective, deckMoveDirective } from '../src/codj/Launch.tish'
 import { setTrackOwner } from '../src/codj/CoDjMeta.tish'
 import { coDjClockAlign, coDjShouldFollow, coDjClockPayload } from '../src/codj/Transport.tish'
 import { createTplLineStream, tplLineStreamPush } from '../src/tpl/Stream.tish'
@@ -897,6 +897,29 @@ check("launch clip: owner override applied", fwRt.sessionArmedClipIds[2] === ovC
 // A different actor (not owner, not master) cannot override that track.
 applyLaunchDirective(fwProj, fwRt, launchClipDirective(fwProj.channels[2].id, fwProj.channels[2].id + "_sc1"), "actor-other", GUEST)
 check("launch clip: non-owner rejected", fwRt.sessionArmedClipIds[2] === ovClip)
+
+// ---- DECK vinyl-move directives (`@ deck X cut|rev|brake|spin`) — owner/master-gated, broadcast, dispatched ----
+check("directive detect: deck move", isLaunchDirective("@ deck C cut on") === true)
+check("directive emit: deck cut on/off", deckMoveDirective("C", "cut", true) === "@ deck C cut on" && deckMoveDirective("C", "cut", false) === "@ deck C cut off")
+check("directive emit: deck spin one-shot", deckMoveDirective("C", "spin", true) === "@ deck C spin")
+check("deck move: NOT private (broadcasts to peers)", isPrivateDirective("@ deck C cut on") === false)
+// Roster: deck A=player0=host, B=player1=guest, C=player2=actor-c, D=player3=actor-d.
+fwProj.coDjPlayers = ["actor-host", "actor-guest", "actor-c", "actor-d"]
+let dkCalls = []
+let dkRt = { sessionArmedClipIds: [], trackOverrides: [], applyDeckMove: (deck, move, on) => { dkCalls.push(String(deck) + ":" + String(move) + ":" + String(on)) } }
+applyLaunchDirective(fwProj, dkRt, deckMoveDirective("C", "cut", true), "actor-host", MASTER)
+check("deck move: master dispatches to applyDeckMove (any deck)", dkCalls.length === 1 && dkCalls[0] === "C:cut:true")
+applyLaunchDirective(fwProj, dkRt, "@ deck C brake off", "actor-host", MASTER)
+check("deck move: parses move + off", dkCalls.length === 2 && dkCalls[1] === "C:brake:false")
+applyLaunchDirective(fwProj, dkRt, "@ deck B spin", "actor-host", MASTER)
+check("deck move: spin one-shot (on defaults true)", dkCalls.length === 3 && dkCalls[2] === "B:spin:true")
+// A non-master GUEST may scratch their OWN deck (B = player 1).
+applyLaunchDirective(fwProj, dkRt, deckMoveDirective("B", "cut", true), "actor-guest", GUEST)
+check("deck move: owner may scratch their own deck", dkCalls.length === 4 && dkCalls[3] === "B:cut:true")
+// …but NOT another player's deck (C = player 2).
+let dkBefore = dkCalls.length
+applyLaunchDirective(fwProj, dkRt, deckMoveDirective("C", "cut", true), "actor-guest", GUEST)
+check("deck move: non-owner non-master rejected", dkCalls.length === dkBefore)
 
 // transport stop (master) silences every track.
 applyLaunchDirective(fwProj, fwRt, transportDirective("stop", 0), "actor-host", MASTER)

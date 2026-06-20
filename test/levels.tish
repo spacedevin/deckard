@@ -257,6 +257,19 @@ check("[rec] crossfader X/Y snapshot round-trips", ctlParsed.events[1].ctl != nu
 check("[rec] per-deck FLT snapshot round-trips", ctlParsed.events[1].ctl != null && Math.abs(ctlParsed.events[1].ctl.fA - (-0.6)) < 1e-6 && Math.abs(ctlParsed.events[1].ctl.fC - 0.3) < 1e-6)
 check("[rec] old Sets without a control token still parse (ctl null)", ps.events[0].ctl == null)
 
+// Deck vinyl moves (cut/rev/brake/spin) ride the tape per step and round-trip → the ghost re-fires them.
+let mvTape = [
+  { step: 0, triggers: [{ busIndex: 0, pitch: 36, vel: 100, durSec: 0.12, beat: 0, noteOffset: 0 }], ctl: null, moves: null },
+  { step: 4, triggers: [], ctl: null, moves: [{ deck: "C", move: "cut", on: true }, { deck: "C", move: "cut", on: false }] },
+  { step: 8, triggers: [], ctl: null, moves: [{ deck: "B", move: "spin", on: true }] }
+]
+let mvStream = emitSetStream(emitProject(loadDefaultDeckardProject().project), mvTape, "song")
+let mvParsed = parseSetStream(mvStream)
+check("[rec] move-only step (no notes) is kept", mvParsed.events.length === 3 && mvParsed.events[1].step === 4 && mvParsed.events[1].triggers.length === 0)
+check("[rec] deck moves round-trip (cut on+off)", mvParsed.events[1].moves != null && mvParsed.events[1].moves.length === 2 && mvParsed.events[1].moves[0].deck === "C" && mvParsed.events[1].moves[0].move === "cut" && mvParsed.events[1].moves[0].on === true && mvParsed.events[1].moves[1].on === false)
+check("[rec] spin one-shot round-trips (on defaults true)", mvParsed.events[2].moves != null && mvParsed.events[2].moves[0].deck === "B" && mvParsed.events[2].moves[0].move === "spin" && mvParsed.events[2].moves[0].on === true)
+check("[rec] a step with no moves parses moves null", mvParsed.events[0].moves == null)
+
 // End-to-end with the REAL engine: stepTriggers (what plays) → tape → Set → parse → replay map.
 let rp = loadDefaultDeckardProject().project
 rp.transportCrossfade = 0   // favour deck A so the default kit is audible in this headless config

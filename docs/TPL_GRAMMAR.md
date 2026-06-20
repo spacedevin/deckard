@@ -207,8 +207,27 @@ track Kick id k gen patch
   steps x . . . x . . . x . . . x . . .
 ```
 
-Node types: `osc`, `noise`, `filter <id> <type> [q Q] [freq Hz]`, `shaper <id> [amount A]`, `gain`.
-Envelope **time/value expressions** resolve per-trigger: a number, `note` (Hz of the played note), `note*2`/`note/2`, `dur`, `dur-0.1`/`dur*0.5`, `vel` (0–1). Velocity also scales the `out` connection automatically.
+**Node types** (each `<id>` is a graph-local name; `conn`/`env` reference it):
+
+| Node | Tokens | What it is |
+|---|---|---|
+| `osc <id>` | `[wave] [note\|<hz>] [ratio R] [detune cents] [rand N]` | oscillator (a fixed bare-Hz makes an LFO) |
+| `noise <id>` | — | white-noise buffer source |
+| `string <id>` | `[note] [tone T] [damping D] [decay P] [mute M]` | **Karplus-Strong plucked string** (a one-shot KS buffer; pitched by the played note; T/D/P/M are 0–1). This is the guitar voice's primitive. |
+| `filter <id> <type>` | `[q Q] [freq Hz]` | biquad — `lowpass\|highpass\|bandpass\|peaking\|notch` (peaking exposes `.gain` in dB for formants) |
+| `shaper <id>` | `[amount A] [curve hard\|soft\|guitar]` | waveshaper — `soft`/`tube` rounded saturation, `guitar` the EP/amp curve, `hard` (default) bright clip |
+| `pan <id>` | `[pos]` | StereoPanner (−1…+1); `.pan` is modulatable for auto-pan tremolo |
+| `gain <id>` | `[value]` | gain node (the amp / a mix bus / an LFO-depth node) |
+
+`rand N` on an `osc` = per-note humanize jitter (±N cents on a pitched osc, ±N Hz on a fixed-freq LFO) — a *local* synthesis detail, not streamed.
+
+Envelope **time/value expressions** resolve per-trigger, evaluated **left-to-right with NO operator precedence** (emit product chains or a single `base±num`, never a precedence-sensitive mix):
+
+- atoms: a number, `note` (Hz of the played note), `dur` (note/step seconds), `vel` (0–1)
+- product/sum chains: `note*2`, `note/2`, `note*vel`, `note*vel*4.2`, `0.5*vel`, `dur+0.34`, `dur-0.1`, `dur*0.5`
+- `max(a,b)` / `min(a,b)` — each arg a full sub-expression. Used for the staccato hold clamp `set max(dur,<attack>) 1 …` so a sub-attack note still completes its swell.
+
+Velocity also scales the `out` connection automatically (so a single-velocity voice's env breakpoints stay constant — using `vel*` in an env that routes to `out` squares velocity).
 
 ### Bar selectors
 
@@ -360,6 +379,39 @@ clip <clipId> channel <channelId> bars <n> [name <name>]
 - Indented body lines: `steps …` (literal or `euclid`), `note <midi> <startBeat> <durBeats> v <velocity>`, and `loops <N|inf>`. As with track blocks, a clip uses **either** steps **or** piano notes — `note` lines clear the clip's steps.
 - Clip notes may span the whole clip (`0 <= startBeat`, `startBeat + durBeats <= bars*4` beats), not just the first bar.
 - Stored on the owning channel under `channel.sessionClips[]`; merged by `clipId`.
+
+## Control directives (`@ …`)
+
+**Transient** performance lines, distinct from the document statements above: an `@` directive is applied through the one ingest door (gated → mutates the live arming / fires audio) and **broadcast** to co-DJ peers, but it is **not** saved into the project document (it round-trips only inside a *recorded Set* — see below). Parser + apply: [`src/codj/Launch.tish`](../src/codj/Launch.tish).
+
+| Directive | Authority | Effect |
+|---|---|---|
+| `@ launch scene <n>` | master | Arm every track to scene `n`'s clips (quantized launch). |
+| `@ launch clip <trackId> <clipId\|->` | track owner | Override one track to a clip; `-`/`.` releases it back to the scene; `stop` silences it. |
+| `@ transport play\|song\|sequence [scene] \| stop` | master | Start/stop the shared transport (align the song position). |
+| `@ transport preview` | **private** | Audition on the local preview clock — never broadcast. |
+| `@ cue <scene>` | **private** | Load a scene into the local preview (the DJ "cue" — peers hear nothing until thrown). |
+| `@ throw [scene]` | master | Commit the cued scene to the shared main. |
+| `@ fx <echo\|filter> on\|off [time <s>] [fb <0..0.9>]` | master | Live master-FX throw (hold-to-engage; releases into a decay). |
+| `@ deck <A\|B\|C\|D> <cut\|rev\|brake> on\|off` · `@ deck <X> spin` | **deck owner** or master | Vinyl performance on a deck's scratch platter: `cut` (sharp mute / transformer), `rev` (reverse/censor), `brake` (vinyl power-down), `spin` (one-shot spinback). Drives only the scratch read-head — **never the transport/BPM/clock**, so it cannot desync peers. |
+| `@ perf_step <n>` | — | Schedule the surrounding block for host perf step `n` (see [Global](#global)). |
+
+Authority: a **master** holds the `master_mixer` skill (or is a `human` lane); **owner** = the track's owner / the player performing that deck (`coDjPlayers[deckIndex]`, A=0…D=3). **Private** directives (`@ cue`, `@ transport preview`) stay on the local machine and are dropped from the broadcast tap.
+
+### Recorded Set stream (`# plays`)
+
+A *recorded Set* is "what played" — the sound-state header (`emitProject`) then a tape of the played stream, replayable as a ghost. Format: the header, then `# mode song|sequence`, then `# plays`, then one line per recorded step:
+
+```
+@<step> <bus>:<pitch>:<vel>:<dur>:<beat>:<offset> …  [ !<xf>:<xfy>:<fA>:<fB>:<fC>:<fD> ]  [ >deck:move:onflag … ]
+```
+
+- `@<step>` — the step index (relative to the take start). Following tokens, distinguished by their first char:
+  - **trigger** (`bus:pitch:vel:dur:beat:offset`) — a fired note.
+  - `!…` — the per-step **control snapshot**: the 4-way crossfader (`xf`,`xfy`) + per-deck filter (`fA`…`fD`).
+  - `>…` — a **deck vinyl move**: `>deck:move:onflag` (e.g. `>C:cut:1`, `>C:cut:0`, `>B:spin:1`). On replay these re-fire locally so the ghost reproduces your cuts/brakes/reverses, not just the notes.
+
+Serializer + parser: [`src/core/SetLibrary.tish`](../src/core/SetLibrary.tish).
 
 ## Streaming rules
 

@@ -349,6 +349,17 @@ fn serializeTape(tape) {
     if (c != null) {
       out = out + " !" + fmtNum(c.xf) + ":" + fmtNum(c.xfy) + ":" + fmtNum(c.fA) + ":" + fmtNum(c.fB) + ":" + fmtNum(c.fC) + ":" + fmtNum(c.fD)
     }
+    // Deck vinyl moves fired at this step: >deck:move:onflag (e.g. >C:cut:1, >B:spin:1). The `>` prefix keeps
+    // them distinct from a trigger / control snapshot, so the ghost re-fires your cuts/brakes/reverses.
+    let mv = e.moves
+    if (mv != null && mv.length > 0) {
+      let mi = 0
+      while (mi < mv.length) {
+        let m = mv[mi]
+        out = out + " >" + String(m.deck) + ":" + String(m.move) + ":" + (m.on ? "1" : "0")
+        mi = mi + 1
+      }
+    }
     out = out + "\n"
     i = i + 1
   }
@@ -366,6 +377,7 @@ fn parseTapeLines(lines) {
       if (step === step) {
         let triggers = []
         let ctl = null
+        let moves = null
         let k = 1
         while (k < toks.length) {
           let tok = toks[k]
@@ -374,6 +386,15 @@ fn parseTapeLines(lines) {
             let cp = tok.substring(1).split(":")
             if (cp.length >= 6) {
               ctl = { xf: Number(cp[0]), xfy: Number(cp[1]), fA: Number(cp[2]), fB: Number(cp[3]), fC: Number(cp[4]), fD: Number(cp[5]) }
+            }
+          } else if (tok.charAt(0) === ">") {
+            // Deck vinyl move: >deck:move:onflag.
+            let mp = tok.substring(1).split(":")
+            if (mp.length >= 2) {
+              if (moves == null) {
+                moves = []
+              }
+              moves.push({ deck: mp[0], move: mp[1], on: mp.length >= 3 ? mp[2] === "1" : true })
             }
           } else {
             let parts = tok.split(":")
@@ -390,7 +411,7 @@ fn parseTapeLines(lines) {
           }
           k = k + 1
         }
-        events.push({ step: Math.floor(step), triggers: triggers, ctl: ctl })
+        events.push({ step: Math.floor(step), triggers: triggers, ctl: ctl, moves: moves })
       }
     }
     i = i + 1

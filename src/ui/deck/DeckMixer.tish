@@ -415,12 +415,14 @@ fn holdBtn(label, cls, title, onDown, onUp) {
 fn VinylRow(deck, rt) {
   let suf = deck === "B" ? "b" : deck === "C" ? "c" : deck === "D" ? "d" : "a"
   let acc = "dk-acc-" + suf
+  // Each move emits an `@ deck <X> …` directive (applied locally through ingest + broadcast to peers), so it is
+  // multiplayer-safe and recordable — NOT a direct engine call. (See rt.onDeckMove.)
   return (
     <div class={"dk-vinyl " + acc}>
-      {holdBtn("CUT", "dk-vinyl-btn", "Cut deck " + deck + " — hold to mute sharply (tap rhythmically while jogging = transformer)", () => { if (rt && rt.scratchCut) { rt.scratchCut(deck, true) } }, () => { if (rt && rt.scratchCut) { rt.scratchCut(deck, false) } })}
-      {holdBtn("REV", "dk-vinyl-btn", "Reverse deck " + deck + " — hold to play backward (censor)", () => { if (rt && rt.scratchReverse) { rt.scratchReverse(deck, true) } }, () => { if (rt && rt.scratchReverse) { rt.scratchReverse(deck, false) } })}
-      {holdBtn("BRK", "dk-vinyl-btn", "Brake deck " + deck + " — hold to slow the record to a stop (release to bring it back)", () => { if (rt && rt.scratchBrake) { rt.scratchBrake(deck, true) } }, () => { if (rt && rt.scratchBrake) { rt.scratchBrake(deck, false) } })}
-      <button type="button" class="dk-vinyl-btn" title={"Spinback deck " + deck + " — the rewind zip"} onpointerdown={(e) => { if (e.stopPropagation) { e.stopPropagation() } }} onclick={() => { if (rt && rt.scratchSpinback) { rt.scratchSpinback(deck) } }}>
+      {holdBtn("CUT", "dk-vinyl-btn", "Cut deck " + deck + " — hold to mute sharply (tap rhythmically while jogging = transformer)", () => { if (rt && rt.onDeckMove) { rt.onDeckMove(deck, "cut", true) } }, () => { if (rt && rt.onDeckMove) { rt.onDeckMove(deck, "cut", false) } })}
+      {holdBtn("REV", "dk-vinyl-btn", "Reverse deck " + deck + " — hold to play backward (censor)", () => { if (rt && rt.onDeckMove) { rt.onDeckMove(deck, "rev", true) } }, () => { if (rt && rt.onDeckMove) { rt.onDeckMove(deck, "rev", false) } })}
+      {holdBtn("BRK", "dk-vinyl-btn", "Brake deck " + deck + " — hold to slow the record to a stop (release to bring it back)", () => { if (rt && rt.onDeckMove) { rt.onDeckMove(deck, "brake", true) } }, () => { if (rt && rt.onDeckMove) { rt.onDeckMove(deck, "brake", false) } })}
+      <button type="button" class="dk-vinyl-btn" title={"Spinback deck " + deck + " — the rewind zip"} onpointerdown={(e) => { if (e.stopPropagation) { e.stopPropagation() } }} onclick={() => { if (rt && rt.onDeckMove) { rt.onDeckMove(deck, "spin", true) } }}>
         {"SPIN"}
       </button>
     </div>

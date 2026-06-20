@@ -32,7 +32,7 @@ import { TransportBar } from './Transport.tish'
 import { collectActorLanes, channelActorLane, ensureActorMixerEntries } from '../model/MixerRouting.tish'
 import { InstrumentStack } from './InstrumentStack.tish'
 import { CoDjPanel } from './CoDjPanel.tish'
-import { launchSceneDirective, transportDirective, fxDirective, cueDirective } from '../codj/Launch.tish'
+import { launchSceneDirective, transportDirective, fxDirective, cueDirective, deckMoveDirective } from '../codj/Launch.tish'
 import { coDjClockPayload, coDjShouldFollow, coDjClockAlign } from '../codj/Transport.tish'
 import {
   PianoRollCanvas,
@@ -580,9 +580,10 @@ export fn App() {
         }
       } else if (e.key === "v" || e.key === "V") {
         // Hold V = CUT the actively-jogged deck — the two-handed transformer/chirp: jog with the mouse, cut
-        // with V. Targets r.activeScratchDeck (set when you grab a jog / vinyl move).
-        if (!e.repeat && r.scratchCut && r.activeScratchDeck) {
-          r.scratchCut(r.activeScratchDeck, true)
+        // with V. Targets r.activeScratchDeck (set when you grab a jog / vinyl move). Routes through the
+        // `@ deck` directive so the cut broadcasts to peers, same as the buttons.
+        if (!e.repeat && r.onDeckMove && r.activeScratchDeck) {
+          r.onDeckMove(r.activeScratchDeck, "cut", true)
         }
       }
     }
@@ -1239,6 +1240,38 @@ export fn App() {
     coDjPushControl([line], 0)
   }
 
+  // ---- DECK vinyl moves as `@ deck` directives (multiplayer-safe, recordable) ----
+  // The RECEIVER: applyLaunchDirective calls this on every client (local + peers) so a cut/brake/reverse lands
+  // identically. Dispatches to the local per-deck scratch engine (the same hooks the jog uses).
+  rt.applyDeckMove = (deck, move, on) => {
+    if (move === "cut" && rt.scratchCut) {
+      rt.scratchCut(deck, on)
+    } else if (move === "rev" && rt.scratchReverse) {
+      rt.scratchReverse(deck, on)
+    } else if (move === "brake" && rt.scratchBrake) {
+      rt.scratchBrake(deck, on)
+    } else if (move === "spin" && rt.scratchSpinback) {
+      rt.scratchSpinback(deck)
+    }
+  }
+  // UI/hotkey entry for a deck move: apply LOCALLY through ingest (gated → fires the scratch) AND broadcast to
+  // peers — exactly the `@ fx` throw pattern, so cuts/brakes are multiplayer-safe and ride a recorded Set.
+  rt.onDeckMove = (deck, move, on) => {
+    let line = deckMoveDirective(deck, move, on)
+    if (rt.directive) {
+      rt.directive(line)
+    }
+    coDjPushControl([line], 0)
+    // If a take is recording, buffer this move so recordPlayedStep folds it into the step's tape entry — the
+    // Set ghost re-fires your cuts/brakes/reverses, not just the notes.
+    if (rt.tplRecording && !rt.tplReplaying) {
+      if (!rt.tplPendingMoves) {
+        rt.tplPendingMoves = []
+      }
+      rt.tplPendingMoves.push({ deck: deck, move: move, on: on === true })
+    }
+  }
+
   // Host clock heartbeat: while the host plays, broadcast the playhead (step + scene) once per bar so
   // followers can lock to it. Only the host emits — followers slave.
   fn coDjPushClock(perfStep, scene) {
@@ -1378,6 +1411,7 @@ export fn App() {
     rt.tplReplaying = false
     rt.tplReplayTriggers = null
     rt.tplReplayControls = null
+    rt.tplReplayMoves = null
     bumpTimeline()
     if (rt.coDjNotifyPlaying) {
       rt.coDjNotifyPlaying(false)
@@ -1487,17 +1521,21 @@ export fn App() {
     let trs = triggers ? triggers : []
     let ctl = controlSnapshot(rt.project)
     let ctlChanged = controlsDiffer(ctl, rt.tplLastCtl)
-    // Record a step when notes fired OR a performance control moved — so the FLT/4-way-fader trajectory is
-    // captured across silent steps too, not only under notes (which is why the old guard dropped them).
-    if (trs.length === 0 && !ctlChanged) {
+    let moves = (rt.tplPendingMoves && rt.tplPendingMoves.length > 0) ? rt.tplPendingMoves : null
+    // Record a step when notes fired OR a performance control moved OR a deck move fired — so the FLT/4-way-fader
+    // trajectory AND the scratch/cut/brake gestures are captured across silent steps too, not only under notes.
+    if (trs.length === 0 && !ctlChanged && moves == null) {
       return
+    }
+    if (moves != null) {
+      rt.tplPendingMoves = []
     }
     let step = Math.floor(globalStep) - Math.floor(rt.tplTapeStartStep != null ? rt.tplTapeStartStep : 0)
     if (step < 0) {
       step = 0
     }
     rt.tplLastCtl = ctl
-    rt.tplTape.push({ step: step, triggers: trs, ctl: ctl })
+    rt.tplTape.push({ step: step, triggers: trs, ctl: ctl, moves: moves })
     // Fold this step into the per-deck energy map + flag the canvas dirty (scopeFrame repaints the lanes, off
     // the audio path). Re-render the React CHROME when a deck FIRST produces sound (its lane canvas must mount)
     // OR at a bar boundary (so the ruler ticks + the track's gridline width keep growing with the take instead
@@ -1559,6 +1597,7 @@ export fn App() {
   fn replayTriggers(tape, mode) {
     let map = {}
     let ctlMap = {}
+    let moveMap = {}
     let maxStep = 0
     let i = 0
     while (i < tape.length) {
@@ -1568,6 +1607,9 @@ export fn App() {
       if (e.ctl != null) {
         ctlMap[s] = e.ctl
       }
+      if (e.moves != null) {
+        moveMap[s] = e.moves
+      }
       if (e.step > maxStep) {
         maxStep = s
       }
@@ -1575,6 +1617,7 @@ export fn App() {
     }
     rt.tplReplayTriggers = map
     rt.tplReplayControls = ctlMap
+    rt.tplReplayMoves = moveMap
     rt.tplReplayStartStep = 0
     rt.tplReplayMaxStep = maxStep
     rt.tplReplaying = true
@@ -1611,6 +1654,26 @@ export fn App() {
     applyDeckEq(p, "D")
     if (rt.scheduleDeckMix) {
       rt.scheduleDeckMix()
+    }
+  }
+  // Re-fire the taped DECK vinyl moves for a replay step (cut/rev/brake/spin), through the LOCAL scratch engine
+  // (not re-broadcast) so the ghost reproduces the scratch performance over its own decks.
+  rt.applyReplayMoves = (rel) => {
+    let mm = rt.tplReplayMoves
+    if (!mm) {
+      return
+    }
+    let mv = mm[rel]
+    if (mv == null) {
+      return
+    }
+    let i = 0
+    while (i < mv.length) {
+      let m = mv[i]
+      if (rt.applyDeckMove) {
+        rt.applyDeckMove(m.deck, m.move, m.on)
+      }
+      i = i + 1
     }
   }
   // Load a recorded Set: load its sounds, show the played timeline, then replay it (the ghost).

@@ -190,6 +190,10 @@ export fn transportTick(project, store, globalStep, rt, whenSec) {
     if (rt.applyReplayControls) {
       rt.applyReplayControls(rel)
     }
+    // …and re-fire the taped deck vinyl moves (cut/rev/brake/spin) for this step.
+    if (rt.applyReplayMoves) {
+      rt.applyReplayMoves(rel)
+    }
   } else {
     triggers = stepTriggers(project, rt, globalStep)
     if (rt && rt.recordPlayedStep) {

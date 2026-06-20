@@ -87,6 +87,18 @@ export fn fxDirective(type, on, params) {
   return "@ fx " + t + " " + s + extra
 }
 
+/** Live DECK vinyl move: `@ deck <X> <cut|rev|brake> on|off`, or `@ deck <X> spin` (a one-shot spinback). A
+ *  scratch performance on deck X — master-gated, broadcast (NOT private) so a cut/brake/reverse lands on every
+ *  client's copy of that deck. The jog itself stays local (a 60 Hz gesture isn't a directive). */
+export fn deckMoveDirective(deck, move, on) {
+  let d = String(deck)
+  let m = String(move)
+  if (m === "spin") {
+    return "@ deck " + d + " spin"
+  }
+  return "@ deck " + d + " " + m + " " + (on ? "on" : "off")
+}
+
 // ---- detect ------------------------------------------------------------------------------------
 
 /** True when a trimmed line is a session-control directive (`@ launch|transport|cue|throw …`). */
@@ -98,7 +110,7 @@ export fn isLaunchDirective(line) {
   if (toks.length < 2 || toks[0] !== "@") {
     return false
   }
-  return toks[1] === "launch" || toks[1] === "transport" || toks[1] === "cue" || toks[1] === "throw" || toks[1] === "fx"
+  return toks[1] === "launch" || toks[1] === "transport" || toks[1] === "cue" || toks[1] === "throw" || toks[1] === "fx" || toks[1] === "deck"
 }
 
 /** A PRIVATE directive must never leave this machine (cue/preview are local-only). Used by the
@@ -126,6 +138,20 @@ fn channelIndexById(project, trackId) {
     i = i + 1
   }
   return -1
+}
+
+/** May `actorId` perform deck `deck` (A/B/C/D)? True for a master, OR for the player who OWNS that deck — i.e.
+ *  the actor at the deck's roster slot (A=player 0 … D=player 3). Solo / no roster → the local actor owns all. */
+fn actorMayPerformDeck(project, deck, actorId, skillIds) {
+  if (laneCanMaster(actorId, skillIds)) {
+    return true
+  }
+  let players = project ? project.coDjPlayers : null
+  if (!Array.isArray(players) || players.length <= 1) {
+    return true
+  }
+  let idx = deck === "B" ? 1 : deck === "C" ? 2 : deck === "D" ? 3 : 0
+  return idx < players.length && String(players[idx]) === String(actorId)
 }
 
 // ---- apply (the RECEIVER mutates its shared arming) --------------------------------------------
@@ -272,6 +298,24 @@ export fn applyLaunchDirective(project, rt, line, actorId, skillIds) {
     }
     if (rt.triggerMasterFx) {
       rt.triggerMasterFx(type, on, params)
+    }
+    return true
+  }
+
+  // Live DECK vinyl move: `@ deck <X> <cut|rev|brake> on|off` | `@ deck <X> spin`. Broadcast; gated to the deck's
+  // OWNER (the player performing that deck) or a master — so each DJ scratches their own deck in a co-DJ booth.
+  // Fires via the rt hook (App wires it to the per-deck scratch engine) so the move lands the same on every
+  // client. The platter rate is a separate read-head on a rendered loop — it never touches the transport/BPM,
+  // so a cut/brake/reverse can't desync the shared clock.
+  if (kind === "deck") {
+    let deck = toks.length >= 3 ? String(toks[2]) : "A"
+    if (!actorMayPerformDeck(project, deck, actorId, skillIds)) {
+      return true
+    }
+    let move = toks.length >= 4 ? String(toks[3]) : ""
+    let on = !(toks.length >= 5 && toks[4] === "off")
+    if (rt.applyDeckMove) {
+      rt.applyDeckMove(deck, move, on)
     }
     return true
   }
