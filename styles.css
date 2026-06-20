@@ -1158,12 +1158,9 @@ input[type="range"]::-moz-range-thumb {
   border-color: #444;
 }
 
-.sytrus-op-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
-  gap: 0.4rem;
-  align-items: start;
-}
+/* Masonry (CSS multi-column) instead of a grid so cards of unequal height pack tight with no row-gaps. */
+.sytrus-op-grid { columns: 13rem; column-gap: 0.4rem; }
+.sytrus-op-grid > .sytrus-op-card { break-inside: avoid; margin: 0 0 0.4rem; }
 /* Compact env strip inside the operator cards so 4-6 ops tile in a row or two, not a full-width wall. */
 .sytrus-op-env-wrap .sytrus-env-bg { height: 30px; }
 /* Shrink the knobs inside op/filter cards so the 4 ADSR knobs (and filter env knobs) sit on ONE row in a
@@ -1425,12 +1422,8 @@ input[type="range"]::-moz-range-thumb {
   min-width: 3rem;
 }
 
-.sytrus-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
-  gap: 0.45rem;
-  align-items: start;
-}
+.sytrus-filter-grid { columns: 15rem; column-gap: 0.45rem; }
+.sytrus-filter-grid > .sytrus-filter-card { break-inside: avoid; margin: 0 0 0.45rem; }
 
 .sytrus-filter-card {
   background: rgba(0, 0, 0, 0.25);
@@ -5182,22 +5175,30 @@ input[type="range"]::-moz-range-thumb {
 .patch-palette { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin: 0.1rem 0 0.5rem; }
 .patch-palette-label { font-size: 0.54rem; text-transform: uppercase; letter-spacing: 0.07em;
   color: var(--muted); margin-right: 0.15rem; }
-/* Cards fill the width side-by-side, ~1 screen — each module is self-contained. */
-/* Masonry: CSS multi-column packs cards top-to-bottom into columns, filling the vertical whitespace that
-   a flex-wrap row grid leaves under shorter cards. break-inside:avoid keeps each card whole. */
-.patch-mod-grid { columns: 12rem; column-gap: 0.5rem; position: relative; }
+/* Masonry signal flow: node cards are ordered by signal-flow stage (sources → … → out) then packed into CSS
+   multi-columns — multi-column lays items out IN ORDER (filling columns left→right), so we keep the rough
+   left-to-right flow AND fill the vertical whitespace that a rigid grid/stage-columns leaves under short cards.
+   `.patch-mod-grid` is the cable host (position:relative so the absolute SVG overlay covers node + env rows). */
+.patch-mod-grid { position: relative; }
+.patch-node-masonry { columns: 12rem; column-gap: 0.5rem; position: relative; z-index: 1; }
 .patch-mod { break-inside: avoid; margin: 0 0 0.5rem; padding: 0.45rem 0.5rem;
   display: flex; flex-direction: column; gap: 0.35rem; position: relative; z-index: 1; }
+/* Envelopes — their own wider masonry row (the seg editors need room); cables shown only in Edit. */
+.patch-env-row { position: relative; z-index: 1; margin-top: 0.6rem; padding-top: 0.5rem;
+  border-top: 1px dashed var(--border, #2a2a31); }
+.patch-env-row-label { display: block; font-size: 0.54rem; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted); margin-bottom: 0.4rem; }
+.patch-env-row-cards { columns: 17rem; column-gap: 0.5rem; }
 
-/* Read-only signal-flow cables: an SVG overlay UNDER the cards (z-index 0), drawn imperatively. */
+/* Read-only signal-flow cables: an SVG overlay UNDER the cards (z-index 0), drawn imperatively. opacity
+   transitions so hover-dim/highlight fades in. */
 .patch-cables { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;
   overflow: visible; z-index: 0; }
-.patch-cable { fill: none; stroke-width: 1.6; opacity: 0.55; }
+.patch-cable { fill: none; stroke-width: 1.6; opacity: 0.55; transition: opacity 0.12s ease; }
 .patch-cable-audio { stroke: #5fd06f; }                                  /* green = audio signal */
 .patch-cable-mod { stroke: #e8945c; stroke-dasharray: 5 3; }             /* amber dashed = modulation */
 .patch-cable-out { stroke: #8ab6ff; stroke-width: 2.4; opacity: 0.85; }  /* blue bold = reaches output */
-/* Output / reverb sink tiles — cables terminate here so "what's audible" is obvious. In the masonry column
-   flow they pack like any card (break-inside:avoid + margin), with a min-height so the tile reads as a target. */
+/* Output / reverb sink tiles — cables terminate here so "what's audible" is obvious. Pack like any card. */
 .patch-sink { break-inside: avoid; margin: 0 0 0.5rem; min-height: 2.6rem; display: flex; align-items: center;
   justify-content: center; border-radius: 8px; position: relative; z-index: 1; }
 .patch-sink-out { border: 1.5px solid #8ab6ff; background: rgba(138, 182, 255, 0.1); }

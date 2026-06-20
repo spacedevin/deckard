@@ -30,7 +30,8 @@ import {
   addPatchEnv,
   removePatchEnvAt,
   addPatchEnvSeg,
-  removePatchEnvSegAt
+  removePatchEnvSegAt,
+  patchSignalStages
 } from '../tpl/PatchGraph.tish'
 
 fn numOr(x, def) {
@@ -528,7 +529,9 @@ fn nodeCard(g, nd, ids, accent, edit) {
   }
   let nodeId = nd.id
   return (
-    <div class="patch-mod sytrus-op-card" id={"pmnode-" + nd.id} key={"nd" + nd.id}>
+    <div class="patch-mod sytrus-op-card" id={"pmnode-" + nd.id} key={"nd" + nd.id}
+      onmouseenter={() => setCableHover("node:" + nd.id)}
+      onmouseleave={() => setCableHover(null)}>
       <div class="patch-mod-head">
         <span class="patch-mod-badge">{kindLabel(nd.kind)}</span>
         <span class="patch-mod-id">{nd.id}</span>
@@ -626,7 +629,9 @@ fn envCard(g, en, eidx, ids, edit) {
     si = si + 1
   }
   return (
-    <div class="patch-mod patch-env sytrus-op-card" id={"pmenv-" + String(eidx)} key={"env" + String(eidx)}>
+    <div class="patch-mod patch-env sytrus-op-card" id={"pmenv-" + String(eidx)} key={"env" + String(eidx)}
+      onmouseenter={() => setCableHover("env:" + String(eidx))}
+      onmouseleave={() => setCableHover(null)}>
       <div class="patch-mod-head">
         <span class="patch-mod-badge patch-env-badge">{"ENV"}</span>
         <span class="patch-env-target">
@@ -732,9 +737,26 @@ fn orphanConnRows(g, edit) {
 // resize/scroll. Colour by kind: green = audio (signal), amber-dashed = modulation (freq/gain/…), blue =
 // reaches the OUTPUT. The connectivity for the current panel is stashed in cableState (only one patch panel
 // is visible at a time); drawPatchCables no-ops when the host isn't mounted.
-let cableState = { conns: [], envs: [] }
+let cableState = { conns: [], envs: [], editMode: false }
 let cableListenersWired = false
 let cableDrawPending = false
+// Hover focus for the cable layer — EDIT MODE ONLY (legibility while wiring): null, or "node:<id>" /
+// "env:<index>". When set, cables NOT touching the hovered card dim away and the touched ones light up. In View
+// mode the cable layer is STATIC (no hover dim/highlight, env cables simply not drawn) — so View reads as a clean
+// signal-flow snapshot. Lives outside `project` (pure view state) → no re-render, just a cable repaint.
+let cableHover = null
+
+fn setCableHover(h) {
+  // Hover focus only applies in Edit mode; in View the cables are static, so don't repaint on hover.
+  if (!cableState.editMode) {
+    return
+  }
+  if (cableHover === h) {
+    return
+  }
+  cableHover = h
+  scheduleCableDraw()
+}
 
 // Pure: a horizontal-biased cubic bezier from (x1,y1) to (x2,y2). Exported for tests.
 export fn cablePathD(x1, y1, x2, y2) {
@@ -762,30 +784,55 @@ export fn cableKindFor(conn) {
   return "audio"
 }
 
+// opacity attr for a cable given the hover focus: full when hovered-and-touched, dim when hovered-and-not, and
+// no override (use the class' base opacity) when nothing is hovered.
+fn cableOpacityAttr(hovering, touched) {
+  if (!hovering) {
+    return ""
+  }
+  if (touched) {
+    return " style=\"opacity:1\""
+  }
+  return " style=\"opacity:0.08\""
+}
+
 fn drawPatchCables() {
   cableDrawPending = false
-  if (typeof document === "undefined" || !document.getElementById) {
+  if (typeof globalThis === "undefined" || globalThis.document == null || typeof globalThis.document.getElementById !== "function") {
     return
   }
-  let host = document.getElementById("patch-cable-host")
-  let svg = document.getElementById("patch-cables")
+  let doc = globalThis.document
+  let host = doc.getElementById("patch-cable-host")
+  let svg = doc.getElementById("patch-cables")
   if (host == null || svg == null) {
     return
   }
   let hr = host.getBoundingClientRect()
+  let editMode = cableState.editMode === true
+  // Decode the hover focus once. Hover dim/highlight is EDIT-MODE ONLY — in View the cables are static.
+  let hovering = editMode && cableHover != null
+  let hoverKind = null
+  let hoverId = null
+  if (hovering) {
+    let sep = cableHover.indexOf(":")
+    if (sep >= 0) {
+      hoverKind = cableHover.substring(0, sep)
+      hoverId = cableHover.substring(sep + 1)
+    }
+  }
   let conns = cableState.conns
   let parts = ""
   let i = 0
   while (i < conns.length) {
     let cn = conns[i]
-    let srcEl = document.getElementById("pmroute-" + String(i))
+    let srcEl = doc.getElementById("pmroute-" + String(i))
     let dstEl = null
     if (cn.dst === "out") {
-      dstEl = document.getElementById("pmsink-out")
+      dstEl = doc.getElementById("pmsink-out")
     } else if (cn.dst === "reverb") {
-      dstEl = document.getElementById("pmsink-reverb")
+      dstEl = doc.getElementById("pmsink-reverb")
     } else {
-      dstEl = document.getElementById("pmnode-" + String(cn.dst))
+      dstEl = doc.getElementById("pmnode-" + String(cn.dst))
     }
     if (srcEl != null && dstEl != null) {
       let sr = srcEl.getBoundingClientRect()
@@ -794,28 +841,35 @@ fn drawPatchCables() {
       let y1 = sr.top - hr.top + sr.height / 2
       let x2 = dr.left - hr.left
       let y2 = dr.top - hr.top + dr.height / 2
-      parts = parts + "<path class=\"patch-cable patch-cable-" + cableKindFor(cn) + "\" d=\"" + cablePathD(x1, y1, x2, y2) + "\" />"
+      let touched = hoverKind === "node" && (cn.src === hoverId || String(cn.dst) === hoverId)
+      parts = parts + "<path class=\"patch-cable patch-cable-" + cableKindFor(cn) + "\"" +
+        cableOpacityAttr(hovering, touched) + " d=\"" + cablePathD(x1, y1, x2, y2) + "\" />"
     }
     i = i + 1
   }
-  // Envelope cables: each ENV card modulates its target node's param (gain/freq/…), so draw a modulation
-  // cable (amber-dashed) from the env card to the target node card. Skip if the target isn't a live node.
+  // Envelope cables: each ENV card modulates its target node's param. They're the bulk of the clutter, so they
+  // are ONLY drawn in EDIT mode (where you're wiring) — never in View. In Edit they're dimmed/lit by hover like
+  // any cable. Source RIGHT edge → target LEFT edge (the conn convention).
   let envs = cableState.envs
   let ei = 0
   while (ei < envs.length) {
     let en = envs[ei]
-    let envEl = document.getElementById("pmenv-" + String(ei))
-    let tgtEl = document.getElementById("pmnode-" + String(en.node))
-    if (envEl != null && tgtEl != null) {
-      let er = envEl.getBoundingClientRect()
-      let tr = tgtEl.getBoundingClientRect()
-      // Match the conn convention: source's RIGHT edge → target's LEFT edge, so the modulation cable reads as
-      // signal flowing into the node (the env is a source feeding the node's param).
-      let ex1 = er.right - hr.left
-      let ey1 = er.top - hr.top + er.height / 2
-      let ex2 = tr.left - hr.left
-      let ey2 = tr.top - hr.top + tr.height / 2
-      parts = parts + "<path class=\"patch-cable patch-cable-mod\" d=\"" + cablePathD(ex1, ey1, ex2, ey2) + "\" />"
+    let touchedByEnv = hoverKind === "env" && String(ei) === hoverId
+    let touchedByNode = hoverKind === "node" && String(en.node) === hoverId
+    let touched = touchedByEnv || touchedByNode
+    if (editMode) {
+      let envEl = doc.getElementById("pmenv-" + String(ei))
+      let tgtEl = doc.getElementById("pmnode-" + String(en.node))
+      if (envEl != null && tgtEl != null) {
+        let er = envEl.getBoundingClientRect()
+        let tr = tgtEl.getBoundingClientRect()
+        let ex1 = er.right - hr.left
+        let ey1 = er.top - hr.top + er.height / 2
+        let ex2 = tr.left - hr.left
+        let ey2 = tr.top - hr.top + tr.height / 2
+        parts = parts + "<path class=\"patch-cable patch-cable-mod\"" +
+          cableOpacityAttr(hovering, touched) + " d=\"" + cablePathD(ex1, ey1, ex2, ey2) + "\" />"
+      }
     }
     ei = ei + 1
   }
@@ -965,11 +1019,20 @@ export fn PatchGraphPanel(ch, project, setProject, rt, mayEdit) {
   let ids = nodeIdList(g)
   let accent = accentForGenerator(ch.generatorId)
 
-  let nodeCards = []
-  let ni = 0
-  while (ni < g.nodes.length) {
-    nodeCards.push(nodeCard(g, g.nodes[ni], ids, accent, edit))
-    ni = ni + 1
+  // Order nodes by signal-flow stage (sources → … → out), then masonry-pack them: CSS multi-column lays the
+  // cards out IN ORDER (filling columns left→right), so we keep the rough left-to-right signal flow AND fill the
+  // vertical whitespace that rigid stage-columns left under shorter cards. Envelopes get their own wider row.
+  let stages = patchSignalStages(g)
+  let orderedNodeCards = []
+  let sci = 0
+  while (sci < stages.length) {
+    let colNodes = stages[sci]
+    let cni = 0
+    while (cni < colNodes.length) {
+      orderedNodeCards.push(nodeCard(g, colNodes[cni], ids, accent, edit))
+      cni = cni + 1
+    }
+    sci = sci + 1
   }
 
   let envCards = []
@@ -996,6 +1059,7 @@ export fn PatchGraphPanel(ch, project, setProject, rt, mayEdit) {
   // Hand the current connectivity to the imperative cable layer + schedule a re-measure after this paint.
   cableState.conns = g.conns
   cableState.envs = g.envs
+  cableState.editMode = editMode
   scheduleCableDraw()
   wirePatchCableListeners()
 
@@ -1035,14 +1099,21 @@ export fn PatchGraphPanel(ch, project, setProject, rt, mayEdit) {
       ) : (
         <div class="patch-mod-grid" id="patch-cable-host">
           <svg id="patch-cables" class="patch-cables" />
-          {nodeCards}
-          {envCards}
-          <div class="patch-sink patch-sink-out" id="pmsink-out" key="pmsink-out">
-            <span class="patch-sink-label">{"▶ OUT"}</span>
+          <div class="patch-node-masonry">
+            {orderedNodeCards}
+            <div class="patch-sink patch-sink-out" id="pmsink-out" key="pmsink-out">
+              <span class="patch-sink-label">{"▶ OUT"}</span>
+            </div>
+            {usesReverb ? (
+              <div class="patch-sink patch-sink-rev" id="pmsink-reverb" key="pmsink-reverb">
+                <span class="patch-sink-label">{"REVERB"}</span>
+              </div>
+            ) : null}
           </div>
-          {usesReverb ? (
-            <div class="patch-sink patch-sink-rev" id="pmsink-reverb" key="pmsink-reverb">
-              <span class="patch-sink-label">{"REVERB"}</span>
+          {g.envs.length > 0 ? (
+            <div class="patch-env-row">
+              <span class="patch-env-row-label">{editMode ? "Envelopes — wire each to its target" : "Envelopes — cables shown in Edit"}</span>
+              <div class="patch-env-row-cards">{envCards}</div>
             </div>
           ) : null}
         </div>

@@ -340,3 +340,61 @@ export fn removePatchEnvSegAt(graph, envIndex, segIndex) {
   }
   graph.envs[ei].segs = newS
 }
+
+/// Group node objects into signal-flow STAGES (left→right columns) for a layered layout. A node's stage is the
+/// longest AUDIO-path depth from a source (osc/noise with no audio input). Only audio conns count (dstParam empty);
+/// param-modulation conns (freq/gain/…) are excluded — they're back-edges (FM feedback) that would otherwise
+/// distort the columns. Returns an array (stage 0 = sources) of arrays of nodes, in stable node order within each
+/// stage. Cycle-safe: relaxation is bounded by node count. Pure — reused by the layout + tested headlessly.
+export fn patchSignalStages(graph) {
+  let nodes = graph.nodes ? graph.nodes : []
+  let conns = graph.conns ? graph.conns : []
+  let stageById = {}
+  let i = 0
+  while (i < nodes.length) {
+    stageById[nodes[i].id] = 0
+    i = i + 1
+  }
+  let pass = 0
+  while (pass < nodes.length) {
+    let changed = false
+    let ci = 0
+    while (ci < conns.length) {
+      let cn = conns[ci]
+      let isAudio = cn.dstParam == null || String(cn.dstParam).length === 0
+      if (isAudio && stageById[cn.src] != null && stageById[cn.dst] != null) {
+        if (stageById[cn.dst] < stageById[cn.src] + 1) {
+          stageById[cn.dst] = stageById[cn.src] + 1
+          changed = true
+        }
+      }
+      ci = ci + 1
+    }
+    if (changed) {
+      pass = pass + 1
+    } else {
+      pass = nodes.length
+    }
+  }
+  let maxStage = 0
+  let n2 = 0
+  while (n2 < nodes.length) {
+    let s = stageById[nodes[n2].id]
+    if (s > maxStage) {
+      maxStage = s
+    }
+    n2 = n2 + 1
+  }
+  let cols = []
+  let s2 = 0
+  while (s2 <= maxStage) {
+    cols.push([])
+    s2 = s2 + 1
+  }
+  let n3 = 0
+  while (n3 < nodes.length) {
+    cols[stageById[nodes[n3].id]].push(nodes[n3])
+    n3 = n3 + 1
+  }
+  return cols
+}

@@ -22,7 +22,7 @@ import { createSignals } from '../src/core/Signals.tish'
 import { createIngest } from '../src/core/Ingest.tish'
 import { fragmentForEdit, createEditor } from '../src/core/Edit.tish'
 import { parsePatchGraph, parseGenBlock, defaultMatrixFmRawLines } from '../src/tpl/TplExtension.tish'
-import { patchGraphToLines, syncPatchSpecFromGraph, defaultPatchRawLines, addPatchNode, removePatchNode, addPatchConn, removePatchConnAt, addPatchEnv, addPatchEnvSeg, removePatchEnvSegAt } from '../src/tpl/PatchGraph.tish'
+import { patchGraphToLines, syncPatchSpecFromGraph, defaultPatchRawLines, addPatchNode, removePatchNode, addPatchConn, removePatchConnAt, addPatchEnv, addPatchEnvSeg, removePatchEnvSegAt, patchSignalStages } from '../src/tpl/PatchGraph.tish'
 import { macroCatalog, macroKind, macroParamControls, expandMacroToSpec, assignMacroToChannel, setMacroParam, freezeMacroChannel } from '../src/model/MacroVoice.tish'
 import { defaultParamsForGeneratorId, generatorCatalog } from '../src/generators/Registry.tish'
 import { matrixFmPatches, matrixFmFactoryInstrumentPresets } from '../src/model/MatrixFmPresets.tish'
@@ -1993,6 +1993,27 @@ meCh.generatorId = "matrixFm"
 meCh.generatorSpec = parseGenBlock("matrix_fm", matrixFmPatches()[0].lines)
 let meV = MatrixFmPanel(meCh, meP, () => {}, () => {}, true)
 check("matrix dropdowns: render marks options selected (selOpt wired — no silent fallback to the first option)", pgSelectedOptionValues(meV, []).length >= 1)
+
+// (13) Signal-flow stage layout: nodes grouped into left→right columns by audio-path depth. Build a chain
+// src → mid → out (audio) plus a back-edge mod (mid → src.freq) that must NOT pull src into a later stage.
+let psG = parsePatchGraph(["osc src sine note", "filter mid lowpass q 0.7 freq 1200", "gain amp 1",
+  "conn src mid 1", "conn mid amp 1", "conn amp out 1", "conn mid src.freq 0.5"])
+let psStages = patchSignalStages(psG)
+let psStageOf = (id) => { let r = -1; psStages.forEach((col, i) => { if (col.some(n => n.id === id)) { r = i } }); return r }
+check("stages: source osc is stage 0", psStageOf("src") === 0)
+check("stages: filter (1 audio hop) is stage 1", psStageOf("mid") === 1)
+check("stages: gain (2 audio hops) is stage 2", psStageOf("amp") === 2)
+check("stages: a param-mod back-edge (mid→src.freq) does NOT push the source later", psStageOf("src") === 0)
+check("stages: every node lands in exactly one column", psStages.reduce((a, c) => a + c.length, 0) === psG.nodes.length)
+// the panel renders stage columns + the env row + keeps the sink/anchor ids the cable layer needs
+let psPanelP = loadDefaultDeckardProject().project
+let psCh = psPanelP.channels[0]
+psCh.generatorId = "patch"
+psCh.generatorSpec = parseGenBlock("patch", compileGeneratorToPatchLines("matrixFm", {}, parseGenBlock("matrix_fm", defaultMatrixFmRawLines())))
+let psV = PatchGraphPanel(psCh, psPanelP, () => {}, { directive: () => {} }, true)
+check("flow layout: nodes pack into the masonry (ordered by stage)", pgFindClass(psV, "patch-node-masonry") != null)
+check("flow layout: envelopes drop to their own row", pgFindClass(psV, "patch-env-row") != null)
+check("flow layout: the OUT sink + node anchors survive the restructure", pgFindId(psV, "pmsink-out") != null && pgFindId(psV, "pmnode-eg1") != null)
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))
