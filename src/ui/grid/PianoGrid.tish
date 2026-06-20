@@ -1,10 +1,10 @@
-// Inline piano rows for a channel — rendered INSIDE the channel rack, directly under the track's
-// step row, reusing the step-grid's gutter + 16-cell layout so the step columns line up exactly.
-// One cell = a note at (pitch, step) lasting one step; multiple pitches per step = a chord.
+// Inline piano rows for a channel — rendered INSIDE the channel rack, directly under the track's step row,
+// reusing the step-grid's gutter + 16-cell layout so the step columns line up exactly. Notes render as
+// SPANNING BARS (so duration is visible): drag the body to MOVE (pitch + beat), drag the right edge to
+// RESIZE (duration), double-click to DELETE; click an empty cell to ADD. Every edit flows through the gated
+// track/<id>/notes door (broadcasts to peers + round-trips) — fixing the old direct-mutation piano path.
 
 import { h } from '@tishlang/lattish'
-import { addPianoNote, removePianoNoteAt, promoteChannelToBars } from '../../model/Edits.tish'
-import { syncMainClipFromChannel } from '../../model/Session.tish'
 import { channelDeck, channelDeckColor } from '../../model/DeckRouting.tish'
 
 let NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -37,9 +37,8 @@ fn noteIdxAt(ch, pitch, step) {
   return -1
 }
 
-// Fixed ~2-octave window anchored to a STABLE reference pitch so adding/removing notes never shifts
-// the grid under the cursor (the old min/max-recenter made every click appear to land on a new row).
-// Anchor = the channel's step pitch, or the first piano note if present (stable across edits).
+// Fixed ~2-octave window anchored to a STABLE reference pitch so adding/removing notes never shifts the grid
+// under the cursor. Anchor = the channel's step pitch, or the first piano note if present.
 fn pitchWindow(ch) {
   let center = 60
   if (ch.stepPitch != null) {
@@ -62,15 +61,259 @@ fn pitchWindow(ch) {
   return { lo: lo, hi: hi }
 }
 
-fn pianoCell(ch, pitch, col, viewBar, gridBars, project, setProjectFromUI) {
-  // col is the on-screen column (0..15) of the viewed bar; map to the channel's own (tiled) pattern.
-  let chBars = (ch.patternBars != null && Math.floor(ch.patternBars) >= 1) ? Math.floor(ch.patternBars) : 1
-  let local = (viewBar * 16 + col) % (chBars * 16)
-  let on = noteIdxAt(ch, pitch, local) >= 0
-  let cls = "sg-cell sg-pcell sg-col-" + String(col)
-  if (on) {
-    cls = cls + " sg-on"
+// ---- The gated notes door (clone the array, edit, emit) -------------------------------------------------
+fn pianoNotesArray(ch) {
+  let arr = []
+  if (!ch.pianoNotes) {
+    return arr
   }
+  let i = 0
+  while (i < ch.pianoNotes.length) {
+    let n = ch.pianoNotes[i]
+    arr.push({
+      startBeat: n.startBeat,
+      durBeats: n.durBeats,
+      pitch: n.pitch,
+      vel: n.vel != null ? n.vel : 100,
+      prob: n.prob != null ? n.prob : 1,
+      ratchet: n.ratchet != null ? n.ratchet : 1,
+      nudge: n.nudge != null ? n.nudge : 0
+    })
+    i = i + 1
+  }
+  return arr
+}
+
+fn neededBarsFor(arr) {
+  let mx = 1
+  let i = 0
+  while (i < arr.length) {
+    let endBar = Math.ceil((arr[i].startBeat + arr[i].durBeats) / 4 - 0.0001)
+    if (endBar > mx) {
+      mx = endBar
+    }
+    i = i + 1
+  }
+  return mx
+}
+
+fn emitPianoNotes(rt, project, chIdx, arr) {
+  let ch = project.channels[chIdx]
+  if (!ch || !rt || !rt.emit) {
+    return
+  }
+  // Grow (never shrink) patternBars so notes pushed into later bars fit — the `* N` in the emitted track
+  // header reads ch.patternBars, and apply rejects notes beyond bars*4.
+  let cur = (ch.patternBars != null && Math.floor(ch.patternBars) >= 1) ? Math.floor(ch.patternBars) : 1
+  let need = neededBarsFor(arr)
+  ch.patternBars = need > cur ? need : cur
+  rt.emit("track/" + ch.id + "/notes", arr)
+  if (rt.bumpGrid) {
+    rt.bumpGrid()
+  }
+}
+
+fn pianoAddNote(rt, project, chIdx, pitch, startBeat) {
+  let arr = pianoNotesArray(project.channels[chIdx])
+  arr.push({ startBeat: startBeat, durBeats: 0.25, pitch: Math.floor(pitch), vel: 100, prob: 1, ratchet: 1, nudge: 0 })
+  emitPianoNotes(rt, project, chIdx, arr)
+}
+
+fn pianoDeleteNote(rt, project, chIdx, noteIdx) {
+  let arr = pianoNotesArray(project.channels[chIdx])
+  if (noteIdx >= 0 && noteIdx < arr.length) {
+    arr.splice(noteIdx, 1)
+  }
+  emitPianoNotes(rt, project, chIdx, arr)
+}
+
+// Move (pitch + startBeat) and/or resize (durBeats) one note; null args leave that field unchanged.
+fn pianoSetNote(rt, project, chIdx, noteIdx, pitch, startBeat, durBeats) {
+  let arr = pianoNotesArray(project.channels[chIdx])
+  if (noteIdx < 0 || noteIdx >= arr.length) {
+    return
+  }
+  if (pitch != null) {
+    arr[noteIdx].pitch = Math.floor(pitch)
+  }
+  if (startBeat != null) {
+    arr[noteIdx].startBeat = startBeat
+  }
+  if (durBeats != null) {
+    arr[noteIdx].durBeats = durBeats
+  }
+  emitPianoNotes(rt, project, chIdx, arr)
+}
+
+// Resolve the (pitch, col) of the background cell under the pointer (cells carry id `pnc-<ch>-<pitch>-<col>`).
+// Uses elementsFromPoint (PLURAL) so the note bar on top (z-index) doesn't hide the cell beneath it — else a
+// move would stutter the moment the bar follows the cursor. Returns null off-grid / over another channel.
+fn cellUnderPointer(chIdx, clientX, clientY) {
+  let prefix = "pnc-" + String(chIdx) + "-"
+  let els = document.elementsFromPoint ? document.elementsFromPoint(clientX, clientY) : []
+  let i = 0
+  while (i < els.length) {
+    let el = els[i]
+    if (el && el.id && el.id.indexOf(prefix) === 0) {
+      let parts = el.id.substring(prefix.length).split("-")
+      if (parts.length >= 2) {
+        return { pitch: Math.floor(Number(parts[0])), col: Math.floor(Number(parts[1])) }
+      }
+    }
+    i = i + 1
+  }
+  return null
+}
+
+// Drag the note body → move it to whatever (pitch, beat) cell the pointer is over.
+fn pianoNoteMoveDown(e, rt, project, chIdx, noteIdx, vb, curPitch, curCol) {
+  // Skip the drag-setup on the SECOND mousedown of a double-click (which deletes) so the two don't collide.
+  if (e.detail != null && e.detail >= 2) {
+    return
+  }
+  e.stopPropagation()
+  if (e.preventDefault) {
+    e.preventDefault()
+  }
+  // Seed lastKey with the note's CURRENT cell so a plain click (no movement) doesn't re-emit a no-op move.
+  let lastKey = String(curPitch) + ":" + String(curCol)
+  fn at(clientX, clientY) {
+    let t = cellUnderPointer(chIdx, clientX, clientY)
+    if (!t) {
+      return
+    }
+    let key = String(t.pitch) + ":" + String(t.col)
+    if (key === lastKey) {
+      return
+    }
+    lastKey = key
+    pianoSetNote(rt, project, chIdx, noteIdx, t.pitch, vb * 4 + t.col * 0.25, null)
+  }
+  at(e.clientX, e.clientY)
+  fn onMove(ev) {
+    at(ev.clientX, ev.clientY)
+  }
+  fn onUp() {
+    document.removeEventListener("mousemove", onMove)
+    document.removeEventListener("mouseup", onUp)
+  }
+  document.addEventListener("mousemove", onMove)
+  document.addEventListener("mouseup", onUp)
+}
+
+// Drag the right edge → extend/shrink duration to the column under the pointer (min one step). Pitch fixed.
+fn pianoNoteResizeDown(e, rt, project, chIdx, noteIdx, startCol, vb) {
+  e.stopPropagation()
+  if (e.preventDefault) {
+    e.preventDefault()
+  }
+  let lastDur = -1
+  fn at(clientX, clientY) {
+    let t = cellUnderPointer(chIdx, clientX, clientY)
+    if (!t) {
+      return
+    }
+    // absolute end column across bars (the pointer may be in a later bar's view position — clamp to >= start)
+    let endCol = vb * 16 + t.col
+    let dur = (endCol - startCol + 1) * 0.25
+    if (dur < 0.25) {
+      dur = 0.25
+    }
+    if (dur === lastDur) {
+      return
+    }
+    lastDur = dur
+    pianoSetNote(rt, project, chIdx, noteIdx, null, null, dur)
+  }
+  at(e.clientX, e.clientY)
+  fn onMove(ev) {
+    at(ev.clientX, ev.clientY)
+  }
+  fn onUp() {
+    document.removeEventListener("mousemove", onMove)
+    document.removeEventListener("mouseup", onUp)
+  }
+  document.addEventListener("mousemove", onMove)
+  document.addEventListener("mouseup", onUp)
+}
+
+// Click an empty cell to add a note; PRESS-AND-DRAG across empty cells to PAINT a run of notes (a melodic
+// line, a hi-hat roll, a glissando). Adds one note per cell the pointer enters that doesn't already have one
+// (each through the gated notes door; the live ch.pianoNotes accumulates after each ingest). Cells already
+// holding a note are covered by their bar (which grabs for move), so paint only ever fills empties.
+fn pianoPaintDown(e, rt, project, chIdx, pitch, col, vb) {
+  e.stopPropagation()
+  if (e.preventDefault) {
+    e.preventDefault()
+  }
+  let painted = {}
+  fn addAt(p, c) {
+    let key = String(p) + ":" + String(c)
+    if (painted[key]) {
+      return
+    }
+    painted[key] = true
+    if (noteIdxAt(project.channels[chIdx], p, vb * 16 + c) >= 0) {
+      return
+    }
+    pianoAddNote(rt, project, chIdx, p, vb * 4 + c * 0.25)
+  }
+  addAt(pitch, col)
+  fn onMove(ev) {
+    let t = cellUnderPointer(chIdx, ev.clientX, ev.clientY)
+    if (t) {
+      addAt(t.pitch, t.col)
+    }
+  }
+  fn onUp() {
+    document.removeEventListener("mousemove", onMove)
+    document.removeEventListener("mouseup", onUp)
+  }
+  document.addEventListener("mousemove", onMove)
+  document.addEventListener("mouseup", onUp)
+}
+
+// RIGHT-button press-and-drag = ERASE: delete the note at each cell the pointer crosses (a note is found at
+// its START cell). De-duped per cell. Works starting on a cell OR a note bar (both route here on button 2).
+fn pianoEraseDown(e, rt, project, chIdx, vb) {
+  e.stopPropagation()
+  if (e.preventDefault) {
+    e.preventDefault()
+  }
+  let erased = {}
+  fn eraseAt(p, c) {
+    let key = String(p) + ":" + String(c)
+    if (erased[key]) {
+      return
+    }
+    erased[key] = true
+    let idx = noteIdxAt(project.channels[chIdx], p, vb * 16 + c)
+    if (idx >= 0) {
+      pianoDeleteNote(rt, project, chIdx, idx)
+    }
+  }
+  let t0 = cellUnderPointer(chIdx, e.clientX, e.clientY)
+  if (t0) {
+    eraseAt(t0.pitch, t0.col)
+  }
+  fn onMove(ev) {
+    let t = cellUnderPointer(chIdx, ev.clientX, ev.clientY)
+    if (t) {
+      eraseAt(t.pitch, t.col)
+    }
+  }
+  fn onUp() {
+    document.removeEventListener("mousemove", onMove)
+    document.removeEventListener("mouseup", onUp)
+  }
+  document.addEventListener("mousemove", onMove)
+  document.addEventListener("mouseup", onUp)
+}
+
+// A background cell: LEFT press/drag = add/paint, RIGHT press/drag = erase. Carries the id the pointer
+// resolution reads.
+fn pianoCell(rt, project, chIdx, ch, pitch, col, vb) {
+  let cls = "sg-cell sg-pcell sg-col-" + String(col)
   if (col % 4 === 0) {
     cls = cls + " sg-beat"
   }
@@ -78,30 +321,71 @@ fn pianoCell(ch, pitch, col, viewBar, gridBars, project, setProjectFromUI) {
     <button
       type="button"
       class={cls}
-      onclick={(e) => {
-        e.stopPropagation()
-        // Promote to multi-bar so each bar is independent, then edit at the absolute beat.
-        promoteChannelToBars(ch, gridBars)
-        let cb = (ch.patternBars != null && Math.floor(ch.patternBars) >= 1) ? Math.floor(ch.patternBars) : 1
-        let abs = (viewBar * 16 + col) % (cb * 16)
-        let idx = noteIdxAt(ch, pitch, abs)
-        if (idx >= 0) {
-          removePianoNoteAt(ch, idx)
+      id={"pnc-" + String(chIdx) + "-" + String(pitch) + "-" + String(col)}
+      title={"Add " + noteName(pitch) + " · drag to paint · right-drag to erase"}
+      onmousedown={(e) => {
+        if (e.button === 2) {
+          pianoEraseDown(e, rt, project, chIdx, vb)
         } else {
-          addPianoNote(ch, abs * 0.25, 0.25, pitch, 100)
+          pianoPaintDown(e, rt, project, chIdx, pitch, col, vb)
         }
-        syncMainClipFromChannel(ch)
-        setProjectFromUI(project)
       }}
     />
   )
 }
 
-/** Array of inline piano rows (sg-row variants) for one channel — appended under its step row,
- *  showing the currently-viewed bar (16 columns). */
-export fn pianoRowsForChannel(project, ch, setProjectFromUI, viewBar, gridBars) {
+// The spanning bar for one note: body = move, right edge = resize, double-click = delete.
+fn pianoNoteBar(rt, project, chIdx, n, noteIdx, vb) {
+  let startCol = Math.floor(n.startBeat * 4 + 0.0001) - vb * 16
+  let widthCols = n.durBeats * 4
+  let leftPct = (startCol / 16) * 100
+  let widthPct = (widthCols / 16) * 100
+  if (leftPct + widthPct > 100) {
+    widthPct = 100 - leftPct
+  }
+  if (widthPct < 6.25) {
+    widthPct = 6.25
+  }
+  return (
+    <div
+      class="sg-pnote-bar"
+      style={{ left: String(leftPct) + "%", width: String(widthPct) + "%" }}
+      title={noteName(n.pitch) + " — drag to move · right edge to resize · right-click/drag to erase"}
+      onmousedown={(e) => {
+        if (e.button === 2) {
+          pianoEraseDown(e, rt, project, chIdx, vb)
+        } else {
+          pianoNoteMoveDown(e, rt, project, chIdx, noteIdx, vb, Math.floor(n.pitch), startCol)
+        }
+      }}
+      ondblclick={(e) => {
+        e.stopPropagation()
+        pianoDeleteNote(rt, project, chIdx, noteIdx)
+      }}
+      oncontextmenu={(e) => {
+        // Suppress the menu; the actual delete happens in onmousedown (button 2) → pianoEraseDown, so the
+        // index can't go stale between mousedown-delete and a context-menu-delete.
+        e.preventDefault()
+        e.stopPropagation()
+      }}
+    >
+      <div
+        class="sg-pnote-edge"
+        onmousedown={(e) => {
+          if (e.button === 2) {
+            pianoEraseDown(e, rt, project, chIdx, vb)
+          } else {
+            pianoNoteResizeDown(e, rt, project, chIdx, noteIdx, vb * 16 + startCol, vb)
+          }
+        }}
+      />
+    </div>
+  )
+}
+
+/** Array of inline piano rows for one channel — appended under its step row, showing the viewed bar. */
+export fn pianoRowsForChannel(project, ch, chIdx, rt, setProjectFromUI, viewBar, gridBars) {
   let vb = (viewBar != null && viewBar >= 0) ? Math.floor(viewBar) : 0
-  let gb = (gridBars != null && gridBars >= 1) ? Math.floor(gridBars) : 1
   let win = pitchWindow(ch)
   let deckCls = "sg-deck-" + channelDeckColor(project, ch)
   let rows = []
@@ -111,8 +395,23 @@ export fn pianoRowsForChannel(project, ch, setProjectFromUI, viewBar, gridBars) 
     let cells = []
     let i = 0
     while (i < 16) {
-      cells.push(pianoCell(ch, pitch, i, vb, gb, project, setProjectFromUI))
+      cells.push(pianoCell(rt, project, chIdx, ch, pitch, i, vb))
       i = i + 1
+    }
+    // Note bars at THIS pitch that start in the viewed bar, overlaid on the cells.
+    let bars = []
+    if (ch.pianoNotes) {
+      let ni = 0
+      while (ni < ch.pianoNotes.length) {
+        let n = ch.pianoNotes[ni]
+        if (Math.floor(n.pitch) === pitch) {
+          let sc = Math.floor(n.startBeat * 4 + 0.0001)
+          if (sc >= vb * 16 && sc < vb * 16 + 16) {
+            bars.push(pianoNoteBar(rt, project, chIdx, n, ni, vb))
+          }
+        }
+        ni = ni + 1
+      }
     }
     let rowCls = "sg-row sg-prow " + deckCls
     if (isBlackKey(pitch)) {
@@ -123,7 +422,7 @@ export fn pianoRowsForChannel(project, ch, setProjectFromUI, viewBar, gridBars) 
     rows.push(
       <div class={rowCls}>
         <div class={gutCls}><span class="sg-pkey">{noteName(pitch)}</span></div>
-        <div class="sg-cells">{cells}</div>
+        <div class="sg-cells sg-pcells">{cells}{bars}</div>
       </div>
     )
     p = p - 1

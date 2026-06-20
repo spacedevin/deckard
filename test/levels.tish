@@ -1122,6 +1122,29 @@ let tgP3 = loadDefaultDeckardProject().project
 applyTplSource(tgP3, "tpl 1\n" + tgClr + "\n")
 check("[toggle] clear forces a step off", findChannelById(tgP3, tgCh.id).steps[0].on === false)
 
+// MULTI-BAR: a bar-1 pattern edit (what the paint-drag emits after a deck load bumps gridBars) must preserve
+// bars 2+. This is why the paint-drag is gated on absStep<16, NOT on nbars<=1 (which broke paint after a deck load).
+let mbP = emptyProjectShell()
+applyTplSource(mbP, "tpl 1\ntrack D id mb_d gen basic_osc * 2\n  steps x . . . . . . . . . . . . . . .\n")
+let mbCh = findChannelById(mbP, "mb_d")
+while (mbCh.steps.length < 32) {
+  mbCh.steps.push({ on: false, vel: 100, prob: 1, ratchet: 1, nudge: 0 })
+}
+mbCh.steps[16].on = true
+mbCh.patternBars = 2
+let mbArr = []
+let mbi = 0
+while (mbi < mbCh.steps.length) {
+  let s = mbCh.steps[mbi]
+  mbArr.push({ on: s.on === true, vel: s.vel, prob: s.prob, ratchet: s.ratchet, nudge: s.nudge })
+  mbi = mbi + 1
+}
+mbArr[4].on = true
+applyTplSource(mbP, "tpl 1\n" + fragmentForEdit(mbP, "track/mb_d/pattern", mbArr) + "\n")
+let mbAfter = findChannelById(mbP, "mb_d")
+check("[toggle] multi-bar: bar-1 edit applies (step 4 on)", mbAfter.steps[4].on === true)
+check("[toggle] multi-bar: bar-1 edit PRESERVES bar 2 (step 16 still on, 32 steps)", mbAfter.steps.length === 32 && mbAfter.steps[16].on === true && mbAfter.patternBars === 2)
+
 // ===================================================================================================
 // PER-NOTE LOCKS on piano-roll notes — model clone, inline grammar round-trip, seeded player gate, the
 // track/<id>/notes edit door.
@@ -1211,6 +1234,22 @@ let pnEdP2 = emptyProjectShell()
 applyTplSource(pnEdP2, "tpl 1\n" + pnFrag + "\n")
 let pnEdCh2 = findChannelById(pnEdP2, pnEdCh.id)
 check("[pnote] notes door round-trips (note 0 prob 0.25, both notes kept)", pnEdCh2.pianoNotes.length === 2 && Math.abs(pnEdCh2.pianoNotes[0].prob - 0.25) < 1e-6)
+
+// DELETE the LAST note: the notes door emits an EMPTY array → `notes_clear` → apply must clear pianoNotes
+// (an empty note set otherwise reads as a mix-only edit that leaves notes intact). Critical bug from review.
+let pnDelP = emptyProjectShell()
+applyTplSource(pnDelP, "tpl 1\ntrack One id pn_del gen basic_osc\n  note 60 0 0.25 v 100\n")
+let pnDelCh = pnDelP.channels[0]
+check("[pnote] setup: one note present", pnDelCh.pianoNotes.length === 1)
+let pnDelFrag = fragmentForEdit(pnDelP, "track/" + pnDelCh.id + "/notes", [])
+check("[pnote] empty notes fragment emits notes_clear", pnDelFrag.indexOf("notes_clear") >= 0)
+applyTplSource(pnDelP, "tpl 1\n" + pnDelFrag + "\n")
+check("[pnote] delete last note actually clears pianoNotes", findChannelById(pnDelP, pnDelCh.id).pianoNotes.length === 0)
+// A mix-only edit (no note lines, NO notes_clear) must NOT wipe existing notes.
+let pnKeepP = emptyProjectShell()
+applyTplSource(pnKeepP, "tpl 1\ntrack Two id pn_keep gen basic_osc\n  note 60 0 0.25 v 100\n")
+applyTplSource(pnKeepP, "tpl 1\ntrack Two id pn_keep gen basic_osc\n  mix gain 0.5\n")
+check("[pnote] a mix-only edit leaves notes intact (no accidental wipe)", findChannelById(pnKeepP, "pn_keep").pianoNotes.length === 1)
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))

@@ -271,6 +271,11 @@ export fn fragmentForEdit(project, address, value) {
     if (section === "notes") {
       let o = hdr
       let arr = Array.isArray(value) ? value : []
+      if (arr.length === 0) {
+        // Explicit "no notes" — else an empty note set reads as a mix-only edit and apply leaves notes intact
+        // (so deleting the last note would be a no-op). `notes_clear` forces ch.pianoNotes = [].
+        return o + "\n  notes_clear"
+      }
       let i = 0
       while (i < arr.length) {
         o = o + "\n" + noteLine(arr[i])

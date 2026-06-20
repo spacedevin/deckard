@@ -605,11 +605,26 @@ export fn App() {
         r.scratchCut(r.activeScratchDeck, false)
       }
     }
+    // Suppress the browser's native right-click menu everywhere EXCEPT text fields (right-click is a real
+    // editing gesture here — clear a step, delete a note — so the OS menu just gets in the way). Text
+    // inputs/textarea/contenteditable keep their native menu so the TPL editor still has copy/paste.
+    fn onCtx(e) {
+      let tgt = e.target
+      let tag = tgt && tgt.tagName ? String(tgt.tagName).toLowerCase() : ""
+      if (tag === "input" || tag === "textarea" || tag === "select" || (tgt && tgt.isContentEditable)) {
+        return
+      }
+      if (e.preventDefault) {
+        e.preventDefault()
+      }
+    }
     window.addEventListener("keydown", onKey)
     window.addEventListener("keyup", onKeyUp)
+    window.addEventListener("contextmenu", onCtx)
     return () => {
       window.removeEventListener("keydown", onKey)
       window.removeEventListener("keyup", onKeyUp)
+      window.removeEventListener("contextmenu", onCtx)
     }
   }, [])
 

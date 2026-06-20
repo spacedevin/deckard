@@ -4032,6 +4032,40 @@ input[type="range"]::-moz-range-thumb {
 .sg-cell.sg-pcell {
   height: 14px;
 }
+/* Notes render as spanning bars overlaid on the cell row, so duration is visible + grabbable. */
+.sg-cells.sg-pcells {
+  position: relative;
+}
+.sg-pnote-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--row-accent);
+  border: 1px solid var(--row-accent);
+  border-radius: 3px;
+  box-shadow: 0 0 7px var(--row-glow);
+  cursor: grab;
+  z-index: 3;
+  box-sizing: border-box;
+}
+.sg-pnote-bar:active {
+  cursor: grabbing;
+}
+.sg-pnote-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 9px;
+  z-index: 4;
+  cursor: ew-resize;
+  background: rgba(255, 255, 255, 0.25);
+  border-top-right-radius: 3px;
+  border-bottom-right-radius: 3px;
+}
+.sg-pnote-edge:hover {
+  background: rgba(255, 255, 255, 0.6);
+}
 .sg-gutter.sg-pgut {
   justify-content: flex-end;
 }

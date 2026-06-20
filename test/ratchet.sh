@@ -22,10 +22,12 @@ audio=$(grep -rnE '\.gain\.value *=|\.connect\(|\.disconnect\(' $UI | wc -l | tr
 total=$((proj + mut + field + audio))
 
 # Baseline snapshot — NEVER raise it; drive it to 0 as controls migrate onto rt.emit/ingest.
-# History: 40 (guard introduced) -> 27 (deleted dead Mixer.tish/ChannelRack.tish) -> 20 (InstrumentEditor).
+# History: 40 (guard introduced) -> 27 (deleted dead Mixer.tish/ChannelRack.tish) -> 20 (InstrumentEditor)
+# -> 17 (piano grid edits routed through the track/<id>/notes door instead of addPianoNote/removePianoNoteAt/
+# promoteChannelToBars/syncMainClipFromChannel).
 # Remaining: InstrumentPanel/GeneratorParams/MatrixFmPanel (duplicate instrument UI to reconcile),
-# DeckMixer deck-EQ macro, CoDjPanel roster, + step/piano/session edits coupled to the step-6 rack model.
-BASELINE=20
+# DeckMixer deck-EQ macro, CoDjPanel roster, + the single-note StepCell path + session edits.
+BASELINE=17
 
 echo "ratchet: project=$proj model-mutators=$mut model-fields=$field audio=$audio  => total=$total (baseline $BASELINE, target 0)"
 

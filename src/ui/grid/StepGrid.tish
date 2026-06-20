@@ -790,12 +790,13 @@ fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh,
       id={"sgc-" + String(chIdx) + "-" + String(absStep)}
       title={single ? "Left: place note · Right: clear" : (melodic ? "Melodic — click to edit in piano roll" : "Left: toggle · Drag: paint · Right: clear")}
       onmousedown={(e) => {
-        // Boolean steps: click-drag PAINTS (mousedown owns the toggle so onclick is a no-op). 1-bar uses the
-        // gated pattern door; multi-bar (bars 2+) falls back to the legacy direct toggle on mousedown.
+        // Boolean steps: click-drag PAINTS (mousedown owns the toggle so onclick is a no-op). The pattern door
+        // handles BAR 1 (absStep < 16) for ANY channel — incl. multi-bar (a bar-1 edit preserves bars 2+) and
+        // after a deck load bumps gridBars; only bars 2+ (the pager) fall to the legacy direct toggle.
         if (single || melodic) {
           return
         }
-        if (nbars <= 1 && absStep < 16) {
+        if (absStep < 16) {
           stepPaintDown(e, rt, project, chIdx, absStep, on === true)
           return
         }
@@ -850,7 +851,7 @@ fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh,
         if (melodic) {
           return
         }
-        if (nbars <= 1 && emitStepToggle(rt, project, chIdx, absStep, true)) {
+        if (absStep < 16 && emitStepToggle(rt, project, chIdx, absStep, true)) {
           return
         }
         promoteChannelToBars(c, nbars)
@@ -1228,7 +1229,7 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
     rows.push(ChannelRowGrid(ch, ci, project, setProjectFromUI, ci === selectedCh, setSelectedCh, rt, viewBar))
     let expanded = rt != null && rt.gridExpanded != null && rt.gridExpanded[ch.id] === true
     if (expanded) {
-      let prows = pianoRowsForChannel(project, ch, setProjectFromUI, viewBar, gridBars)
+      let prows = pianoRowsForChannel(project, ch, ci, rt, setProjectFromUI, viewBar, gridBars)
       let k = 0
       while (k < prows.length) {
         rows.push(prows[k])
