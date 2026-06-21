@@ -108,6 +108,21 @@ export fn generatorCatalog() {
       description: "Aggressive true hard sync analog lead with an automated sweep envelope."
     },
     {
+      id: "syncChoir",
+      label: "Sync Choir",
+      description: "Lush, robotic 80s analog choir built from detuned hard sync formants."
+    },
+    {
+      id: "obSync",
+      label: "OB Sync",
+      description: "Massive, creamy dual-oscillator hard sync synth with Oberheim-style width and a sweeping filter."
+    },
+    {
+      id: "laserSync",
+      label: "Laser Sync",
+      description: "Punchy, retro-arcade zap. A rapid pitch-dropping master oscillator ripping through a static sync slave."
+    },
+    {
       id: "meSpeakVocal",
       label: "meSpeak Vocal",
       description: "Retro robotic TTS using meSpeak.js with sample-accurate timing."
@@ -370,6 +385,45 @@ export fn defaultParamsForGeneratorId(id) {
       decay: 0.3,
       sustain: 0.8,
       release: 0.5
+    }
+  }
+  if (id === "syncChoir") {
+    return {
+      vowelShift: 24,
+      morphRate: 0.5,
+      morphAmt: 12,
+      ensembleDetune: 15,
+      vibRate: 5.0,
+      vibAmt: 10,
+      highpass: 300,
+      attack: 1.0,
+      decay: 1.0,
+      sustain: 0.8,
+      release: 1.5
+    }
+  }
+  if (id === "obSync") {
+    return {
+      detune: 15,
+      sweepRate: 0.5,
+      sweepAmt: 24,
+      cutoff: 1200,
+      resonance: 2,
+      filterEnv: 2400,
+      filterDecay: 0.8,
+      attack: 0.1,
+      decay: 0.4,
+      sustain: 0.6,
+      release: 0.5
+    }
+  }
+  if (id === "laserSync") {
+    return {
+      dropRate: 0.8,
+      dropAmt: 36,
+      slaveBase: 18,
+      attack: 0.01,
+      decay: 0.3
     }
   }
   if (id === "patch") {

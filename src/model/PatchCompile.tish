@@ -832,6 +832,146 @@ fn aahsLines(p) {
   return lines
 }
 
+fn syncLeadLines(p) {
+  let wave = p.waveform ? p.waveform : "sawtooth"
+  let hf = p.hfFilter > 0 ? p.hfFilter : 0.8
+  let syncAmt = p.syncAmount >= 0 && p.syncAmount <= 1 ? p.syncAmount : 0.5
+  let sweepRate = p.sweepRate >= 0 && p.sweepRate <= 1 ? p.sweepRate : 0.4
+  let a = p.attack > 0 ? p.attack : 0.05
+  let d = p.decay > 0 ? p.decay : 0.2
+  let s = p.sustain >= 0 && p.sustain <= 1 ? p.sustain : 0.5
+  let r = p.release > 0 ? p.release : 0.2
+  let filterCutoff = Math.round(500 + hf * 5000)
+  let sweepEnvRate = 0.05 + (1 - sweepRate) * 0.4
+  let lines = [
+    "syncosc s1",
+    "filter f1 lowpass q 1 freq " + f(filterCutoff),
+    "gain a1 0",
+    "conn s1 f1 1",
+    "conn f1 a1 1",
+    "conn a1 out " + f(VOL_COMP * 0.8),
+    "env s1.masterFreq set 0 note",
+    "env s1.slaveFreq set 0 note*" + f(1 + syncAmt * 4) + " exp " + f(sweepEnvRate) + " note*" + f(1 + syncAmt),
+    adsrAmpEnv("a1", a, d, s, r)
+  ]
+  return lines
+}
+
+fn syncChoirLines(p) {
+  let morphRate = p.morphRate >= 0 && p.morphRate <= 1 ? p.morphRate : 0.5
+  let morphAmt = p.morphAmt >= 0 && p.morphAmt <= 1 ? p.morphAmt : 0.6
+  let width = p.width >= 0 && p.width <= 1 ? p.width : 0.6
+  let vibRate = p.vibRate >= 0 && p.vibRate <= 1 ? p.vibRate : 0.5
+  let vibAmt = p.vibAmt >= 0 && p.vibAmt <= 1 ? p.vibAmt : 0.4
+  let hp = p.highpass > 0 ? p.highpass : 300
+  let a = p.attack > 0 ? p.attack : 0.4
+  let r = p.release > 0 ? p.release : 0.6
+  let shift = p.shift != null ? p.shift : 12
+  let shiftRatio = Math.pow(2, shift / 12)
+  let detuneCents = width * 30
+  let lfoRate = 0.2 + morphRate * 4
+  let lfoDepth = morphAmt * 2.5
+  let vHz = 3 + vibRate * 5
+  let vDepth = vibAmt * 30
+  let lines = [
+    "syncosc s1 detune " + f(0 - detuneCents),
+    "syncosc s2 detune " + f(detuneCents),
+    "osc lfo sine " + f(lfoRate),
+    "gain glfo 1",
+    "osc vib sine " + f(vHz),
+    "gain gvib 1",
+    "filter f1 highpass q 0.7 freq " + f(hp),
+    "gain a1 0",
+    "pan p1 -0.5",
+    "pan p2 0.5",
+    "conn s1 f1 1",
+    "conn s2 f1 1",
+    "conn f1 a1 1",
+    "conn a1 p1 1",
+    "conn a1 p2 1",
+    "conn p1 out " + f(VOL_COMP * 0.5),
+    "conn p2 out " + f(VOL_COMP * 0.5),
+    "env s1.masterFreq set 0 note",
+    "env s2.masterFreq set 0 note",
+    "env s1.slaveFreq set 0 note*" + f(shiftRatio),
+    "env s2.slaveFreq set 0 note*" + f(shiftRatio),
+    "conn vib gvib " + f(vDepth),
+    "conn gvib s1.masterFreq 1",
+    "conn gvib s2.masterFreq 1",
+    "conn lfo glfo " + f(lfoDepth),
+    "conn glfo s1.slaveFreq 1",
+    "conn glfo s2.slaveFreq 1",
+    "env glfo.gain set 0 0 lin " + f(a) + " " + f(lfoDepth) + " lin dur " + f(lfoDepth) + " lin dur+" + f(r) + " 0",
+    "env a1.gain set 0 0 lin " + f(a) + " 1 lin dur 1 lin dur+" + f(r) + " 0"
+  ]
+  return lines
+}
+
+fn obSyncLines(p) {
+  let detune = p.detune != null ? p.detune : 15 // cents
+  let sweepRate = p.sweepRate != null ? p.sweepRate : 0.5
+  let sweepAmt = p.sweepAmt != null ? p.sweepAmt : 24
+  let cutoff = p.cutoff != null ? p.cutoff : 1200
+  let res = p.resonance != null ? p.resonance : 2
+  let filterEnv = p.filterEnv != null ? p.filterEnv : 2400
+  let filterDecay = p.filterDecay != null ? p.filterDecay : 0.8
+  let a = p.attack != null ? p.attack : 0.1
+  let d = p.decay != null ? p.decay : 0.4
+  let s = p.sustain != null ? p.sustain : 0.6
+  let r = p.release != null ? p.release : 0.5
+
+  let sweepDecay = 0.05 + (1 - sweepRate) * 1.5
+  let cutoffPeak = cutoff + filterEnv
+
+  let lines = [
+    "syncosc sL detune " + f(0 - detune),
+    "syncosc sR detune " + f(detune),
+    "filter fL lowpass q " + f(res) + " freq " + f(cutoff),
+    "filter fR lowpass q " + f(res) + " freq " + f(cutoff),
+    "pan pL -0.6",
+    "pan pR 0.6",
+    "gain a1 0",
+    "conn sL fL 1",
+    "conn sR fR 1",
+    "conn fL pL 1",
+    "conn fR pR 1",
+    "conn pL a1 1",
+    "conn pR a1 1",
+    "conn a1 out " + f(VOL_COMP * 0.6),
+    "env sL.masterFreq set 0 note",
+    "env sR.masterFreq set 0 note",
+    "env sL.slaveFreq set 0 note*" + f(Math.pow(2, sweepAmt/12)) + " exp " + f(sweepDecay) + " note",
+    "env sR.slaveFreq set 0 note*" + f(Math.pow(2, sweepAmt/12)) + " exp " + f(sweepDecay) + " note",
+    "env fL.freq set 0 " + f(cutoffPeak) + " exp " + f(filterDecay) + " " + f(cutoff),
+    "env fR.freq set 0 " + f(cutoffPeak) + " exp " + f(filterDecay) + " " + f(cutoff),
+    adsrAmpEnv("a1", a, d, s, r)
+  ]
+  return lines
+}
+
+fn laserSyncLines(p) {
+  let dropRate = p.dropRate != null ? p.dropRate : 0.8
+  let dropAmt = p.dropAmt != null ? p.dropAmt : 36
+  let slaveBase = p.slaveBase != null ? p.slaveBase : 18
+  let a = p.attack != null ? p.attack : 0.01
+  let d = p.decay != null ? p.decay : 0.3
+
+  let dropDecay = 0.01 + (1 - dropRate) * 0.5
+  let slaveRatio = Math.pow(2, slaveBase/12)
+  let dropRatio = Math.pow(2, dropAmt/12)
+
+  let lines = [
+    "syncosc s1",
+    "gain a1 0",
+    "conn s1 a1 1",
+    "conn a1 out " + f(VOL_COMP * 0.8),
+    "env s1.masterFreq set 0 note*" + f(dropRatio) + " exp " + f(dropDecay) + " note",
+    "env s1.slaveFreq set 0 note*" + f(slaveRatio),
+    "env a1.gain set 0 0 lin " + f(a) + " 1 exp " + f(d) + " 0.0001 lin dur 0.0001 lin dur+0.1 0"
+  ]
+  return lines
+}
+
 /// True when this generator can be reduced to an equivalent patch graph (sound-preserving switch).
 export fn canCompileToPatch(generatorId) {
   return (
@@ -848,7 +988,11 @@ export fn canCompileToPatch(generatorId) {
     generatorId === "tine" ||
     generatorId === "aether" ||
     generatorId === "halo" ||
-    generatorId === "aahs"
+    generatorId === "aahs" ||
+    generatorId === "syncLead" ||
+    generatorId === "syncChoir" ||
+    generatorId === "obSync" ||
+    generatorId === "laserSync"
   )
 }
 
@@ -894,6 +1038,18 @@ export fn compileGeneratorToPatchLines(generatorId, params, spec) {
   }
   if (generatorId === "aahs") {
     return aahsLines(p)
+  }
+  if (generatorId === "syncLead") {
+    return syncLeadLines(p)
+  }
+  if (generatorId === "syncChoir") {
+    return syncChoirLines(p)
+  }
+  if (generatorId === "obSync") {
+    return obSyncLines(p)
+  }
+  if (generatorId === "laserSync") {
+    return laserSyncLines(p)
   }
   if (generatorId === "matrixFm") {
     return spec && spec.graph ? matrixFmLines(spec.graph) : null

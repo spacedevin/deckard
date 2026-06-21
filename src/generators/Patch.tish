@@ -254,6 +254,12 @@ fn audioParamFor(node, param) {
   if (p === "pan") {
     return node.pan ? node.pan : null
   }
+  if (p === "masterFreq") {
+    return node.parameters && node.parameters.get ? node.parameters.get("masterFreq") : null
+  }
+  if (p === "slaveFreq") {
+    return node.parameters && node.parameters.get ? node.parameters.get("slaveFreq") : null
+  }
   return null
 }
 
@@ -286,6 +292,7 @@ export fn playPatch(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let byId = {}
   let oscList = []
   let noiseList = []
+  let disconnectList = []
   let i = 0
   while (i < graph.nodes.length) {
     let nd = graph.nodes[i]
@@ -318,61 +325,103 @@ export fn playPatch(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
       byId[nd.id] = osc
       oscList.push(osc)
     } else {
-      if (nd.kind === "noise") {
-        let src = ctx.createBufferSource()
-        src.buffer = makeNoiseBuffer(ctx)
-        src.loop = true
-        byId[nd.id] = src
-        noiseList.push(src)
-      } else {
-      if (nd.kind === "string") {
-        // KS plucked string: render the full ring into a one-shot buffer (loop=false — the decay is IN the
-        // buffer, re-triggering would re-pluck). Render at UNIT amplitude — velocity/conn weight are applied
-        // ONCE downstream by the conn machinery (cn.vol * v), never baked in (would square velocity). Stash
-        // _ringSec so voiceDur honors the ring even for a bare `string` node with no `dur` line.
-        let ks = makeStringBuffer(ctx, note, nd.tone, nd.damping, nd.decay, nd.mute)
-        let src = ctx.createBufferSource()
-        src.buffer = ks.buffer
-        src.loop = false
-        nd._ringSec = ks.ringSec
-        byId[nd.id] = src
-        noiseList.push(src)
-      } else {
-        if (nd.kind === "filter") {
-          let f = ctx.createBiquadFilter()
-          f.type = nd.ftype
-          if (nd.freq && nd.freq > 0) {
-            f.frequency.value = nd.freq
-          }
-          f.Q.value = nd.q
-          byId[nd.id] = f
-        } else {
-          if (nd.kind === "shaper") {
-            let ws = ctx.createWaveShaper()
-            ws.curve = makeDistortionCurve(nd.amount, nd.curve)
-            ws.oversample = "4x"
-            byId[nd.id] = ws
+      if (nd.kind === "syncosc") {
+        let osc = null
+        try {
+          osc = new AudioWorkletNode(ctx, "sync-oscillator")
+        } catch (e) {
+          osc = ctx.createOscillator()
+          osc.type = "sawtooth"
+        }
+        let hz = nd.freqMode === "fixed" ? nd.fixedHz : note * (nd.ratio > 0 ? nd.ratio : 1)
+        if (hz < 0.0001) {
+          hz = 0.0001
+        }
+        let det = nd.detune ? nd.detune : 0
+        if (nd.rand && nd.rand > 0) {
+          let jit = (Math.random() * 2 - 1) * nd.rand
+          if (nd.freqMode === "fixed") {
+            hz = hz + jit
+            if (hz < 0.0001) {
+              hz = 0.0001
+            }
           } else {
-            if (nd.kind === "gain") {
-              let g = ctx.createGain()
-              g.gain.value = nd.value
-              byId[nd.id] = g
+            det = det + jit
+          }
+        }
+        if (osc.parameters) {
+          let mParam = osc.parameters.get("masterFreq")
+          let sParam = osc.parameters.get("slaveFreq")
+          let masterHz = hz * Math.pow(2, det / 1200)
+          mParam.setValueAtTime(masterHz, t)
+          sParam.setValueAtTime(masterHz, t)
+        } else {
+          osc.frequency.value = hz
+          osc.detune.value = det
+        }
+        byId[nd.id] = osc
+        oscList.push(osc)
+      } else {
+        if (nd.kind === "noise") {
+          let src = ctx.createBufferSource()
+          src.buffer = makeNoiseBuffer(ctx)
+          src.loop = true
+          byId[nd.id] = src
+          noiseList.push(src)
+        } else {
+          if (nd.kind === "string") {
+            // KS plucked string: render the full ring into a one-shot buffer (loop=false — the decay is IN the
+            // buffer, re-triggering would re-pluck). Render at UNIT amplitude — velocity/conn weight are applied
+            // ONCE downstream by the conn machinery (cn.vol * v), never baked in (would square velocity). Stash
+            // _ringSec so voiceDur honors the ring even for a bare `string` node with no `dur` line.
+            let ks = makeStringBuffer(ctx, note, nd.tone, nd.damping, nd.decay, nd.mute)
+            let src = ctx.createBufferSource()
+            src.buffer = ks.buffer
+            src.loop = false
+            nd._ringSec = ks.ringSec
+            byId[nd.id] = src
+            noiseList.push(src)
+          } else {
+            if (nd.kind === "filter") {
+              let f = ctx.createBiquadFilter()
+              f.type = nd.ftype
+              if (nd.freq && nd.freq > 0) {
+                f.frequency.value = nd.freq
+              }
+              f.Q.value = nd.q
+              byId[nd.id] = f
+              disconnectList.push(f)
             } else {
-              if (nd.kind === "pan") {
-                // StereoPanner — a stereo position node (modulatable .pan for auto-pan tremolo). Pure processing
-                // node, no start/stop. Falls back to a gain pass-through if the context lacks createStereoPanner.
-                if (ctx.createStereoPanner) {
-                  let sp = ctx.createStereoPanner()
-                  sp.pan.value = nd.pos != null ? nd.pos : 0
-                  byId[nd.id] = sp
+              if (nd.kind === "shaper") {
+                let ws = ctx.createWaveShaper()
+                ws.curve = makeDistortionCurve(nd.amount, nd.curve)
+                ws.oversample = "4x"
+                byId[nd.id] = ws
+                disconnectList.push(ws)
+              } else {
+                if (nd.kind === "gain") {
+                  let g = ctx.createGain()
+                  g.gain.value = nd.value
+                  byId[nd.id] = g
+                  disconnectList.push(g)
                 } else {
-                  byId[nd.id] = ctx.createGain()
+                  if (nd.kind === "pan") {
+                    // StereoPanner — a stereo position node (modulatable .pan for auto-pan tremolo). Pure processing
+                    // node, no start/stop. Falls back to a gain pass-through if the context lacks createStereoPanner.
+                    if (ctx.createStereoPanner) {
+                      let sp = ctx.createStereoPanner()
+                      sp.pan.value = nd.pos != null ? nd.pos : 0
+                      byId[nd.id] = sp
+                      disconnectList.push(sp)
+                    } else {
+                      byId[nd.id] = ctx.createGain()
+                    }
+                  }
                 }
               }
             }
           }
         }
-      }
       }
     }
     i = i + 1
@@ -460,6 +509,7 @@ export fn playPatch(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
     og.gain.linearRampToValueAtTime(0, tStop)
     srcNode.connect(og)
     og.connect(target)
+    disconnectList.push(og)
   }
 
   // 3) Connections. dst "out" → channel input (× velocity); "reverb" → channel reverb send.
@@ -486,6 +536,7 @@ export fn playPatch(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
                   sg.gain.value = cn.vol
                   srcNode.connect(sg)
                   sg.connect(ap)
+                  disconnectList.push(sg)
                 } else {
                   srcNode.connect(ap)
                 }
@@ -499,6 +550,7 @@ export fn playPatch(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
                 cg.gain.value = cn.vol
                 srcNode.connect(cg)
                 cg.connect(dstNode)
+                disconnectList.push(cg)
               } else {
                 srcNode.connect(dstNode)
               }
@@ -511,10 +563,16 @@ export fn playPatch(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   }
 
   // 4) Start / stop all sources (tStop computed above for the declick window).
+  // AudioWorkletNodes (syncosc) don't have .start/.stop — they run immediately and
+  // are cleaned up via disconnect in the setTimeout below.
   let oi = 0
   while (oi < oscList.length) {
-    oscList[oi].start(t)
-    oscList[oi].stop(tStop)
+    if (oscList[oi].start) {
+      oscList[oi].start(t)
+      if (oscList[oi].stop) {
+        oscList[oi].stop(tStop)
+      }
+    }
     oi = oi + 1
   }
   let ni = 0
@@ -523,4 +581,29 @@ export fn playPatch(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
     noiseList[ni].stop(tStop)
     ni = ni + 1
   }
+
+  // 5) Cleanup: disconnect all nodes after the voice finishes to prevent Web Audio graph bloat.
+  setTimeout(() => {
+    let di = 0
+    while (di < oscList.length) {
+      if (oscList[di].disconnect) {
+        oscList[di].disconnect()
+      }
+      di = di + 1
+    }
+    let ni2 = 0
+    while (ni2 < noiseList.length) {
+      if (noiseList[ni2].disconnect) {
+        noiseList[ni2].disconnect()
+      }
+      ni2 = ni2 + 1
+    }
+    let cli = 0
+    while (cli < disconnectList.length) {
+      if (disconnectList[cli].disconnect) {
+        disconnectList[cli].disconnect()
+      }
+      cli = cli + 1
+    }
+  }, (tStop - ctx.currentTime) * 1000 + 200)
 }

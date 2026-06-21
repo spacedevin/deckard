@@ -930,6 +930,121 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
       </article>
     )
   }
+  if (id === "syncChoir") {
+    let vs = p.vowelShift != null ? p.vowelShift : 24
+    let mr = p.morphRate != null ? p.morphRate : 0.5
+    let ma = p.morphAmt != null ? p.morphAmt : 12
+    
+    let ed = p.ensembleDetune != null ? p.ensembleDetune : 15
+    let vr = p.vibRate != null ? p.vibRate : 5.0
+    let va = p.vibAmt != null ? p.vibAmt : 10
+    
+    let hp = p.highpass != null ? p.highpass : 300
+    let att = p.attack != null ? p.attack : 1.0
+    let dec = p.decay != null ? p.decay : 1.0
+    let sus = p.sustain != null ? p.sustain : 0.8
+    let rel = p.release != null ? p.release : 1.5
+    
+    return (
+      <article class="gen-params ik-cols">
+        <div class="ik-card">
+          <div class="ik-card-h">{"Formant & Morph"}</div>
+          <div class="ik-knob-grid">
+            {numKnob("Vowel Shift", vs, 0, 48, 1, "st", rt, ch, "vowelShift", accent)}
+            {numKnob("Morph Rate", mr, 0, 10, 0.1, "Hz", rt, ch, "morphRate", accent)}
+            {numKnob("Morph Amt", ma, 0, 24, 1, "st", rt, ch, "morphAmt", accent)}
+          </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"Ensemble"}</div>
+          <div class="ik-knob-grid">
+            {numKnob("Detune Width", ed, 0, 50, 1, "ct", rt, ch, "ensembleDetune", accent)}
+            {numKnob("Vibrato Rate", vr, 0, 10, 0.1, "Hz", rt, ch, "vibRate", accent)}
+            {numKnob("Vibrato Amt", va, 0, 100, 1, "ct", rt, ch, "vibAmt", accent)}
+          </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"Tone & Envelope"}</div>
+          <div class="ik-knob-grid">
+            {freqKnob("Highpass", hp, rt, ch, "highpass", accent)}
+            {msKnob("Attack", att, 5.0, rt, ch, "attack", accent)}
+            {msKnob("Release", rel, 5.0, rt, ch, "release", accent)}
+          </div>
+        </div>
+      </article>
+    )
+  }
+  if (id === "obSync") {
+    let dt = p.detune != null ? p.detune : 15
+    let sr = p.sweepRate != null ? p.sweepRate : 0.5
+    let sa = p.sweepAmt != null ? p.sweepAmt : 24
+    let cut = p.cutoff != null ? p.cutoff : 1200
+    let res = p.resonance != null ? p.resonance : 2
+    let fenv = p.filterEnv != null ? p.filterEnv : 2400
+    let fdec = p.filterDecay != null ? p.filterDecay : 0.8
+    let att = p.attack != null ? p.attack : 0.1
+    let dec = p.decay != null ? p.decay : 0.4
+    let sus = p.sustain != null ? p.sustain : 0.6
+    let rel = p.release != null ? p.release : 0.5
+
+    return (
+      <article class="gen-params ik-cols">
+        <div class="ik-card">
+          <div class="ik-card-h">{"Oscillators"}</div>
+          <div class="ik-knob-grid">
+            {numKnob("Detune", dt, 0, 50, 1, "ct", rt, ch, "detune", accent)}
+            {numKnob("Sweep Rate", sr, 0, 1, 0.01, "", rt, ch, "sweepRate", accent)}
+            {numKnob("Sweep Amt", sa, 0, 48, 1, "st", rt, ch, "sweepAmt", accent)}
+          </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"Filter"}</div>
+          <div class="ik-knob-grid">
+            {freqKnob("Cutoff", cut, rt, ch, "cutoff", accent)}
+            {numKnob("Resonance", res, 0, 10, 0.1, "", rt, ch, "resonance", accent)}
+            {numKnob("Env Amt", fenv, -5000, 5000, 10, "Hz", rt, ch, "filterEnv", accent)}
+            {msKnob("Env Decay", fdec, 5.0, rt, ch, "filterDecay", accent)}
+          </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"Amp Envelope"}</div>
+          <div class="ik-knob-grid">
+            {msKnob("Attack", att, 2.0, rt, ch, "attack", accent)}
+            {msKnob("Decay", dec, 2.0, rt, ch, "decay", accent)}
+            {numKnob("Sustain", sus, 0, 1, 0.01, "", rt, ch, "sustain", accent)}
+            {msKnob("Release", rel, 5.0, rt, ch, "release", accent)}
+          </div>
+        </div>
+      </article>
+    )
+  }
+  if (id === "laserSync") {
+    let dr = p.dropRate != null ? p.dropRate : 0.8
+    let da = p.dropAmt != null ? p.dropAmt : 36
+    let sb = p.slaveBase != null ? p.slaveBase : 18
+    let att = p.attack != null ? p.attack : 0.01
+    let dec = p.decay != null ? p.decay : 0.3
+
+    return (
+      <article class="gen-params ik-cols">
+        <div class="ik-card">
+          <div class="ik-card-h">{"Laser Pitch"}</div>
+          <div class="ik-knob-grid">
+            {numKnob("Drop Speed", dr, 0, 1, 0.01, "", rt, ch, "dropRate", accent)}
+            {numKnob("Drop Range", da, 0, 60, 1, "st", rt, ch, "dropAmt", accent)}
+            {numKnob("Slave Pitch", sb, 0, 48, 1, "st", rt, ch, "slaveBase", accent)}
+          </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"Amp Envelope"}</div>
+          <div class="ik-knob-grid">
+            {msKnob("Attack", att, 1.0, rt, ch, "attack", accent)}
+            {msKnob("Decay", dec, 2.0, rt, ch, "decay", accent)}
+          </div>
+        </div>
+      </article>
+    )
+  }
   if (id === "matrixFm") {
     if (
       !ch.generatorSpec ||

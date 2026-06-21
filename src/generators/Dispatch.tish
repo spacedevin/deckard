@@ -21,6 +21,9 @@ import { playChiptune } from './Chiptune.tish'
 import { playCymbal } from './Cymbal.tish'
 import { playReeseBass } from './ReeseBass.tish'
 import { playSyncLead } from './SyncLead.tish'
+import { playSyncChoir } from './SyncChoir.tish'
+import { playObSync } from './ObSync.tish'
+import { playLaserSync } from './LaserSync.tish'
 
 export fn dispatchPlayNote(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric) {
   if (!bus || !bus.input) {
@@ -115,6 +118,18 @@ export fn dispatchPlayNote(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
   }
   if (id === "syncLead") {
     playSyncLead(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+  if (id === "syncChoir") {
+    playSyncChoir(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+  if (id === "obSync") {
+    playObSync(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+  if (id === "laserSync") {
+    playLaserSync(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
     return
   }
   if (id === "patch") {

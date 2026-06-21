@@ -41,9 +41,33 @@ fn filterLine(nd) {
   return s
 }
 
+fn syncoscLine(nd) {
+  let s = "syncosc " + nd.id
+  if (nd.freqMode === "fixed") {
+    let hz = nd.fixedHz != null ? nd.fixedHz : 220
+    s = s + " " + formatTplFloat(hz)
+  } else {
+    s = s + " note"
+    let r = nd.ratio != null ? nd.ratio : 1
+    if (Math.abs(r - 1) > 0.00001) {
+      s = s + " ratio " + formatTplFloat(r)
+    }
+  }
+  if (nd.detune != null && Math.abs(nd.detune) > 0.00001) {
+    s = s + " detune " + formatTplFloat(nd.detune)
+  }
+  if (nd.rand != null && nd.rand > 0.00001) {
+    s = s + " rand " + formatTplFloat(nd.rand)
+  }
+  return s
+}
+
 fn nodeLine(nd) {
   if (nd.kind === "osc") {
     return oscLine(nd)
+  }
+  if (nd.kind === "syncosc") {
+    return syncoscLine(nd)
   }
   if (nd.kind === "noise") {
     return "noise " + nd.id
