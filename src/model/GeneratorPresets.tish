@@ -1,8 +1,10 @@
 // Factory presets for all generators — Tier 2 (Sync), Tier 3 (existing generators), Tier 4 (drums).
 // Each function returns an array of { presetId, name, generatorId, params } objects.
 
+import { generatorLabelById } from '../generators/Registry.tish'
+
 export fn generatorFactoryPresets() {
-  return [
+  let raw = [
     // ──── GUITAR (Karplus-Strong) ────────────────────────────────
     {
       presetId: "factory_guitar_clean",
@@ -427,6 +429,127 @@ export fn generatorFactoryPresets() {
       name: "Square Sub",
       generatorId: "basicOsc",
       params: { waveform: "square", attack: 0.005, decay: 0.3, sustain: 0.8, release: 0.15 }
+    },
+    
+    // ──── 2A03 (NES) ──────────────────────────────────────────────
+    {
+      presetId: "factory_nes_pulse_lead",
+      name: "Pulse Lead",
+      generatorId: "nes2a03",
+      params: { type: "pulse", duty: "50", envMode: "decay", vol: 12, attack: 0, decay: 3, sustain: 10, release: 2 }
+    },
+    {
+      presetId: "factory_nes_pulse_pluck",
+      name: "12.5% Pluck",
+      generatorId: "nes2a03",
+      params: { type: "pulse", duty: "12_5", envMode: "decay", vol: 15, attack: 0, decay: 6, sustain: 0, release: 1 }
+    },
+    {
+      presetId: "factory_nes_tri_bass",
+      name: "Triangle Bass",
+      generatorId: "nes2a03",
+      params: { type: "triangle", vol: 15, attack: 0, decay: 0, sustain: 15, release: 0 }
+    },
+    
+    // ──── LR35902 (Game Boy) ──────────────────────────────────────
+    {
+      presetId: "factory_dmg_pulse_25",
+      name: "25% Pulse",
+      generatorId: "gameBoyDmg",
+      params: { type: "pulse", duty: "25", envMode: "step", vol: 15, sweep: 2, attack: 0, decay: 0, sustain: 15, release: 0 }
+    },
+    {
+      presetId: "factory_dmg_wave_crunch",
+      name: "Wavetable Crunch",
+      generatorId: "gameBoyDmg",
+      params: { type: "wave", waveVol: "100", attack: 0, decay: 0, sustain: 15, release: 0 }
+    },
+
+    // ──── MOS 6581 (SID) ──────────────────────────────────────────
+    {
+      presetId: "factory_sid_sync_lead",
+      name: "Hard Sync Lead",
+      generatorId: "c64sid",
+      params: { waveform: "sawtooth", hardSync: true, attack: 2, decay: 5, sustain: 10, release: 6, pitchDrop: -12, pitchDec: 0.2 }
+    },
+    {
+      presetId: "factory_sid_filter_bass",
+      name: "Filter Bass",
+      generatorId: "c64sid",
+      params: { waveform: "pulse", pulseWidth: 0.5, filterType: "lowpass", cutoff: 600, resonance: 8, attack: 0, decay: 4, sustain: 4, release: 3 }
+    },
+
+    // ──── YM2612 (Genesis FM) ─────────────────────────────────────
+    {
+      presetId: "factory_ym_epiano",
+      name: "FM E-Piano",
+      generatorId: "ym2612",
+      params: { 
+        algorithm: 4, feedback: 0,
+        op1_mul: 1, op1_tl: 0, op1_ar: 31, op1_dr: 12, op1_sr: 5, op1_rr: 8, op1_sl: 5,
+        op2_mul: 1, op2_tl: 20, op2_ar: 31, op2_dr: 15, op2_sr: 5, op2_rr: 8, op2_sl: 5,
+        op3_mul: 4, op3_tl: 30, op3_ar: 31, op3_dr: 18, op3_sr: 5, op3_rr: 8, op3_sl: 5,
+        op4_mul: 1, op4_tl: 10, op4_ar: 31, op4_dr: 10, op4_sr: 5, op4_rr: 8, op4_sl: 5
+      }
+    },
+    {
+      presetId: "factory_ym_brass",
+      name: "Genesis Brass",
+      generatorId: "ym2612",
+      params: { 
+        algorithm: 1, feedback: 5,
+        op1_mul: 1, op1_tl: 0, op1_ar: 20, op1_dr: 15, op1_sr: 5, op1_rr: 10, op1_sl: 2,
+        op2_mul: 2, op2_tl: 15, op2_ar: 22, op2_dr: 12, op2_sr: 5, op2_rr: 10, op2_sl: 2,
+        op3_mul: 1, op3_tl: 5, op3_ar: 18, op3_dr: 10, op3_sr: 5, op3_rr: 10, op3_sl: 2,
+        op4_mul: 1, op4_tl: 0, op4_ar: 24, op4_dr: 8, op4_sr: 5, op4_rr: 10, op4_sl: 2
+      }
+    },
+
+    // ──── SN76489 (Genesis PSG) ───────────────────────────────────
+    {
+      presetId: "factory_sn_square_lead",
+      name: "PSG Square Lead",
+      generatorId: "sn76489",
+      params: { type: "square", vol: 15, attack: 0, decay: 0.1, sustain: 15, release: 0 }
+    },
+
+    // ──── SPC700 (SNES) ───────────────────────────────────────────
+    {
+      presetId: "factory_spc_strings",
+      name: "Echo Strings",
+      generatorId: "spc700",
+      params: { waveform: "strings", attack: 10, decay: 3, sustainLevel: 7, sustainRate: 0, echoEnable: true, echoDelay: 8, echoFeedback: 40 }
+    },
+    {
+      presetId: "factory_spc_brass",
+      name: "Warm Brass",
+      generatorId: "spc700",
+      params: { waveform: "brass", attack: 6, decay: 5, sustainLevel: 5, sustainRate: 0, echoEnable: false, echoDelay: 4, echoFeedback: 0 }
     }
   ]
+
+  let out = []
+  let i = 0
+  while (i < raw.length) {
+    let p = raw[i]
+    let label = generatorLabelById(p.generatorId)
+    
+    // Some older presets might already have the chip name in them, 
+    // but we'll normalize it by replacing or just prepending.
+    // To be safe and clean, we'll strip common prefixes if they exist, then prepend "Label · "
+    let cleanName = p.name
+    if (cleanName.indexOf("NES ") === 0) cleanName = cleanName.substring(4)
+    if (cleanName.indexOf("GB ") === 0) cleanName = cleanName.substring(3)
+    if (cleanName.indexOf("C64 ") === 0) cleanName = cleanName.substring(4)
+    if (cleanName.indexOf("SID ") === 0) cleanName = cleanName.substring(4)
+    if (cleanName.indexOf("SNES ") === 0) cleanName = cleanName.substring(5)
+    if (cleanName.indexOf("Genesis ") === 0) cleanName = cleanName.substring(8)
+    if (cleanName.indexOf("PSG ") === 0) cleanName = cleanName.substring(4)
+    if (cleanName.indexOf("TR-") === 0) cleanName = cleanName.substring(3)
+    
+    p.name = label + " · " + cleanName
+    out.push(p)
+    i = i + 1
+  }
+  return out
 }
