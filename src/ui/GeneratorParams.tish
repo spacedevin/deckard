@@ -460,7 +460,7 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
       </article>
     )
   }
-  if (id === "formantVocal" || id === "ttsVocal") {
+  if (id === "formantVocal" || id === "ttsVocal" || id === "meSpeakVocal") {
     let applyLyrics = (str) => {
       let words = str.trim().split(" ")
       let validWords = []
@@ -554,6 +554,100 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
             {pctKnob("Vib.Dpt", vibDepth, rt, ch, "vib_depth", accent)}
             {numKnob("Vib.Rt", vibRate, 0, 10, 0.1, "Hz", rt, ch, "vib_rate", accent)}
             {pctKnob("Human", humanize, rt, ch, "humanize", accent)}
+          </div>
+        </div>
+      )
+    } else if (id === "meSpeakVocal") {
+      let pitch = p.pitch != null ? p.pitch : 50
+      let speed = p.speed != null ? p.speed : 175
+      let wordgap = p.wordgap != null ? p.wordgap : 0
+      let variant = p.variant != null ? p.variant : "m1"
+      let voice = p.voice != null ? p.voice : "en/en-us"
+      
+      let voiceOpts = [
+        ["en/en-us", "US Eng"], ["en/en-sc", "Scottish"], ["en/en-rp", "British"],
+        ["en/en-wm", "Welsh"], ["fr", "French"], ["de", "German"], ["es", "Spanish"], ["it", "Italian"]
+      ]
+      let varOpts = [
+        ["m1", "M1"], ["m2", "M2"], ["m3", "M3"], ["m4", "M4"], ["m5", "M5"], ["m6", "M6"], ["m7", "M7"],
+        ["f1", "F1"], ["f2", "F2"], ["f3", "F3"], ["f4", "F4"], ["f5", "F5"], 
+        ["croak", "Croak"], ["whisper", "Whisper"], ["whisperf", "Whisper F"]
+      ]
+
+      let vIdx = 0
+      let i = 0
+      while (i < voiceOpts.length) {
+        if (voiceOpts[i][0] === voice) vIdx = i
+        i = i + 1
+      }
+
+      let varIdx = 0
+      let j = 0
+      while (j < varOpts.length) {
+        if (varOpts[j][0] === variant) varIdx = j
+        j = j + 1
+      }
+
+      let voiceKnob = Knob({
+        label: "Voice",
+        value: vIdx,
+        min: 0,
+        max: voiceOpts.length - 1,
+        step: 1,
+        detents: voiceOpts.length,
+        accent: accent,
+        fmt: (x) => {
+          let k = Math.round(x)
+          if (k < 0) k = 0
+          if (k > voiceOpts.length - 1) k = voiceOpts.length - 1
+          return voiceOpts[k][1]
+        },
+        onInput: (x) => {
+          let k = Math.round(x)
+          if (k < 0) k = 0
+          if (k > voiceOpts.length - 1) k = voiceOpts.length - 1
+          if (rt && rt.emit) {
+            rt.emit("track/" + ch.id + "/gen/voice", voiceOpts[k][0])
+          }
+        }
+      })
+
+      let variantKnob = Knob({
+        label: "Variant",
+        value: varIdx,
+        min: 0,
+        max: varOpts.length - 1,
+        step: 1,
+        detents: varOpts.length,
+        accent: accent,
+        fmt: (x) => {
+          let k = Math.round(x)
+          if (k < 0) k = 0
+          if (k > varOpts.length - 1) k = varOpts.length - 1
+          return varOpts[k][1]
+        },
+        onInput: (x) => {
+          let k = Math.round(x)
+          if (k < 0) k = 0
+          if (k > varOpts.length - 1) k = varOpts.length - 1
+          if (rt && rt.emit) {
+            rt.emit("track/" + ch.id + "/gen/variant", varOpts[k][0])
+          }
+        }
+      })
+      
+      genSpecific = (
+        <div class="ik-card">
+          <div class="ik-card-h">{"meSpeak Vocal"}</div>
+          <div style={{ textAlign: "center", fontSize: "11px", color: accent, marginBottom: "8px", fontWeight: "bold" }}>
+            {voiceOpts[vIdx][1]} / {varOpts[varIdx][1]}
+          </div>
+          <div class="ik-knob-grid">
+            {voiceKnob}
+            {variantKnob}
+            {numKnob("Pitch", pitch, 0, 100, 1, "", rt, ch, "pitch", accent)}
+            {numKnob("Speed", speed, 50, 400, 1, "wpm", rt, ch, "speed", accent)}
+            {numKnob("Gap", wordgap, 0, 10, 1, "", rt, ch, "wordgap", accent)}
           </div>
         </div>
       )

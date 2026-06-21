@@ -13,6 +13,7 @@ import { playAether } from './Aether.tish'
 import { playHalo } from './Halo.tish'
 import { playFormantVocal } from './FormantVocal.tish'
 import { playTtsVocal } from './TtsVocal.tish'
+import { playMeSpeakVocal } from './MeSpeakVocal.tish'
 import { playPatch } from './Patch.tish'
 
 export fn dispatchPlayNote(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric) {
@@ -80,6 +81,10 @@ export fn dispatchPlayNote(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
   }
   if (id === "ttsVocal") {
     playTtsVocal(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
+    return
+  }
+  if (id === "meSpeakVocal") {
+    playMeSpeakVocal(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
     return
   }
   if (id === "patch") {

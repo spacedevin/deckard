@@ -1327,7 +1327,7 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
       }
     }
     // Automatically render the LYRIC row at the bottom for vocal generators, always.
-    let isVocal = ch.generatorId === "formantVocal" || ch.generatorId === "ttsVocal"
+    let isVocal = ch.generatorId === "formantVocal" || ch.generatorId === "ttsVocal" || ch.generatorId === "meSpeakVocal"
     if (isVocal) {
       if (expanded) {
         rows.push(pianoLockLaneRow(project, ch, ci, "lyric", rt, viewBar))

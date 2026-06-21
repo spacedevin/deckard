@@ -78,6 +78,11 @@ export fn generatorCatalog() {
       description: "Web Speech API Text-to-Speech engine for robotic vocal sequences."
     },
     {
+      id: "meSpeakVocal",
+      label: "meSpeak Vocal",
+      description: "Retro robotic TTS using meSpeak.js with sample-accurate timing."
+    },
+    {
       id: "patch",
       label: "Patch",
       description: "Modular synth patch (gen_block patch): osc/noise/filter/shaper/gain + breakpoint envelopes — any voice, written in TPL."
@@ -266,6 +271,15 @@ export fn defaultParamsForGeneratorId(id) {
     return {
       voice: 0,
       rate: 1.5
+    }
+  }
+  if (id === "meSpeakVocal") {
+    return {
+      pitch: 50,
+      speed: 175,
+      wordgap: 0,
+      variant: "m1",
+      amplitude: 100
     }
   }
   if (id === "patch") {

@@ -1,0 +1,132 @@
+
+
+let mespeakInitialized = false
+let mespeakInitializing = false
+
+fn initMeSpeak() {
+  if (mespeakInitialized || mespeakInitializing) {
+    return
+  }
+  if (typeof window === "undefined") {
+    return
+  }
+  mespeakInitializing = true
+  fetch('/mespeak/mespeak_config.json')
+    .then((r) => r.json())
+    .then((cfg) => {
+      window.meSpeak.loadConfig(cfg)
+      mespeakInitialized = true
+      mespeakInitializing = false
+    }, (e) => {
+      console.log("window.meSpeak init error", e)
+      mespeakInitializing = false
+    })
+}
+
+let ttsCache = {}
+let ttsCacheKeys = []
+
+fn playCachedBuffer(ctx, bus, t, v, audioBuf) {
+  let src = ctx.createBufferSource()
+  src.buffer = audioBuf
+  let gain = ctx.createGain()
+  gain.gain.value = v
+  src.connect(gain)
+  gain.connect(bus.input)
+  src.start(t)
+}
+
+let loadedVoices = {}
+
+export fn playMeSpeakVocal(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric) {
+  initMeSpeak()
+  if (!mespeakInitialized) {
+    return
+  }
+
+  let p = ch.generatorParams
+  let voicePath = p && p.voice != null ? p.voice : "en/en-us"
+  
+  if (!loadedVoices[voicePath]) {
+    loadedVoices[voicePath] = "loading"
+    fetch('/mespeak/voices/' + voicePath + '.json')
+      .then((r) => r.json())
+      .then((vc) => {
+        window.meSpeak.loadVoice(vc)
+        loadedVoices[voicePath] = "ready"
+      })
+  }
+  
+  if (loadedVoices[voicePath] !== "ready") {
+    return
+  }
+
+  let l = lyric
+  if (!l || l.trim() === "") {
+    l = "beep"
+  }
+
+  let basePitch = p && p.pitch != null ? p.pitch : 50
+  let baseSpeed = p && p.speed != null ? p.speed : 175
+  let wordgap = p && p.wordgap != null ? p.wordgap : 0
+  let variant = p && p.variant != null ? p.variant : "m1"
+  let amplitude = p && p.amplitude != null ? p.amplitude : 100
+
+  // Track the MIDI pitch. Base pitch is centered around C4 (MIDI 60).
+  let n = Math.floor(midi + bendSemis)
+  let calculatedPitch = Math.round(basePitch + (n - 60))
+  if (calculatedPitch < 0) calculatedPitch = 0
+  if (calculatedPitch > 99) calculatedPitch = 99
+
+  // Track the note duration. Calculate required WPM to fit the lyrics inside durSec.
+  let estimatedDurAt175 = Math.max(0.2, l.length * 0.07)
+  let speedMultiplier = estimatedDurAt175 / durSec
+  let calculatedSpeed = Math.round(baseSpeed * speedMultiplier)
+  if (calculatedSpeed < 10) calculatedSpeed = 10
+  if (calculatedSpeed > 400) calculatedSpeed = 400
+
+  let v = vel / 127
+  if (v < 0) v = 0
+  if (v > 1) v = 1
+
+  let cacheKey = l + "|" + calculatedPitch + "|" + calculatedSpeed + "|" + wordgap + "|" + variant + "|" + amplitude + "|" + voicePath
+  
+  if (ttsCache[cacheKey]) {
+    if (ttsCache[cacheKey].isReady) {
+      playCachedBuffer(ctx, bus, t, v, ttsCache[cacheKey].buffer)
+    }
+    return
+  }
+
+  if (ttsCacheKeys.length > 100) {
+    let oldest = ttsCacheKeys.shift()
+    delete ttsCache[oldest]
+  }
+
+  ttsCache[cacheKey] = { isReady: false }
+  ttsCacheKeys.push(cacheKey)
+
+  let wavBuf = window.meSpeak.speak(l, {
+    pitch: calculatedPitch,
+    speed: calculatedSpeed,
+    wordgap: wordgap,
+    variant: variant,
+    amplitude: amplitude,
+    voice: voicePath,
+    rawdata: true
+  })
+
+  if (wavBuf) {
+    // Copy the ArrayBuffer to avoid detached buffer issues when decoding multiple times
+    let copy = wavBuf.slice(0)
+    ctx.decodeAudioData(copy, (audioBuf) => {
+      ttsCache[cacheKey] = { isReady: true, buffer: audioBuf }
+      playCachedBuffer(ctx, bus, t, v, audioBuf)
+    }, (err) => {
+      console.log("decodeAudioData error", err)
+      delete ttsCache[cacheKey]
+    })
+  } else {
+    delete ttsCache[cacheKey]
+  }
+}

@@ -19,7 +19,8 @@
   },
   "dependencies": {
     "@tishlang/lattish": "^2.0.0",
-    "@tishlang/tish": "^2.2.5"
+    "@tishlang/tish": "^2.2.5",
+    "mespeak": "^2.0.2"
   },
   "devDependencies": {
     "lucide": "^0.469.0",

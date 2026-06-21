@@ -34,7 +34,7 @@ let VOICE_GROUPS = [
   { title: "Strings", voices: [["guitar", "Guitar"], ["arco", "Arco"]] },
   { title: "Keys", voices: [["tine", "Tine EP"]] },
   { title: "Mallets", voices: [["halo", "Halo"]] },
-  { title: "Vox", voices: [["formantVocal", "Formant"], ["ttsVocal", "TTS"]] },
+  { title: "Vox", voices: [["formantVocal", "Formant"], ["ttsVocal", "TTS"], ["meSpeakVocal", "meSpeak"]] },
   { title: "Lead", voices: [["aether", "Aether"]] },
   { title: "Percussion", voices: [["drumSynth", "Drum"], ["clap", "Clap"]] },
   { title: "Modular", voices: [["matrixFm", "Matrix FM"], ["patch", "Patch"]] },
@@ -516,7 +516,7 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
         {VoiceModule(ctx)}
         {SoundModule(ctx, gid)}
         {PitchModule(ctx)}
-        {gid === "formantVocal" || gid === "ttsVocal" ? QuickLyricsModule(ctx) : null}
+        {gid === "formantVocal" || gid === "ttsVocal" || gid === "meSpeakVocal" ? QuickLyricsModule(ctx) : null}
       </div>
     </section>
   )
