@@ -2,7 +2,7 @@ import { h } from '@tishlang/lattish'
 import { defaultParamsForGeneratorId, normalizeBasicOscWaveform } from '../generators/Registry.tish'
 import { parseGenBlock, defaultMatrixFmRawLines } from '../tpl/TplExtension.tish'
 import { defaultPatchRawLines } from '../tpl/PatchGraph.tish'
-import { Knob, InfiniteKnob, WaveIconPicker, EnvDisplay, accentForGenerator } from './InstrumentKit.tish'
+import { Knob, InfiniteKnob, WaveIconPicker, EnvDisplay, accentForGenerator, Switch } from './InstrumentKit.tish'
 
 // Every instrument edit routes one param through the single gated write door (rt.emit → `gen <snake> <v>`,
 // merged into generatorParams). The TPL key is snake_case so apply's snakeToCamel lands the right field;
@@ -69,7 +69,17 @@ fn numKnob(label, val, min, max, step, suffix, rt, ch, key, accent, disabled) {
     min: min,
     max: max,
     step: step,
-    fmt: (x) => String(Math.round(x * 100) / 100) + suffix,
+    fmt: (x) => {
+      let decs = 0
+      if (step != null && step % 1 !== 0) {
+        let strStep = String(step)
+        let parts = strStep.split(".")
+        if (parts.length > 1) {
+          decs = parts[1].length
+        }
+      }
+      return Number(Math.round(x * 100) / 100).toFixed(decs) + suffix
+    },
     accent: accent,
     disabled: disabled,
     onInput: (x) => genEmit(rt, ch, key, x)
@@ -111,7 +121,7 @@ fn pickPills(current, opts, rt, ch, key, accent) {
     let val = opts[i][0]
     let lab = opts[i][1]
     let valCopy = val
-    let on = current === val
+    let on = String(current) === String(val)
     let style = on ? { borderColor: accent, color: accent, background: accent + "22" } : {}
     pills.push(
       <button
@@ -135,7 +145,7 @@ fn genSelectorKnob(label, current, opts, rt, ch, key, accent, disabled) {
   let curIdx = 0
   let i = 0
   while (i < n) {
-    if (opts[i][0] === current) {
+    if (String(opts[i][0]) === String(current)) {
       curIdx = i
     }
     i = i + 1
@@ -985,8 +995,8 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
         </div>
         <div class="ik-card">
           <div class="ik-card-h">{"Global Echo"}</div>
-          <div style={{ marginBottom: "12px" }}>
-            {pickPills(echoEn ? "on" : "off", [["off", "EON Off"], ["on", "Echo On"]], rt, ch, "echoEnable", accent, (v) => v === "on")}
+          <div style={{ marginBottom: "12px", display: "flex", justifyContent: "center" }}>
+            {Switch({ label: "Echo", value: echoEn, accent: accent, onInput: (v) => genEmit(rt, ch, "echoEnable", v) })}
           </div>
           <div class="ik-knob-grid">
             {numKnob("EDL", echoDelay, 0, 15, 1, "", rt, ch, "echoDelay", accent, !echoEn)}
@@ -1015,7 +1025,7 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     let sus = p.sustain != null ? Math.round(p.sustain) : 15
     let rel = p.release != null ? p.release : 0
     
-    let bitcrush = p.bitcrush !== false
+    let bitcrush = p.bitcrush !== false && p.bitcrush !== "16bit"
     
     let pitchDrop = p.pitchDrop != null ? Math.round(p.pitchDrop) : 0
     let pitchDec = p.pitchDec != null ? p.pitchDec : 0.05
@@ -1038,11 +1048,9 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
         </div>
         <div class="ik-card">
           <div class="ik-card-h">{"DirectSound"}</div>
-          <div style={{ marginBottom: "12px" }}>
-            {pickPills(bitcrush ? "8bit" : "16bit", [["16bit", "Smooth"], ["8bit", "8-bit DAC"]], rt, ch, "bitcrush", accent, (v) => v === "8bit")}
-          </div>
           <div class="ik-knob-grid">
-            {pickPills(duty, [["12_5", "12.5%"], ["25", "25%"], ["50", "50%"], ["75", "75%"]], rt, ch, "duty", accent, null, wf !== "pulse")}
+            {genSelectorKnob("DAC", bitcrush ? "8bit" : "16bit", [["16bit", "16-bit"], ["8bit", "8-bit"]], rt, ch, "bitcrush", accent)}
+            {genSelectorKnob("Duty", duty, [["12_5", "12.5%"], ["25", "25%"], ["50", "50%"], ["75", "75%"]], rt, ch, "duty", accent, wf !== "pulse")}
           </div>
         </div>
         <div class="ik-card">
@@ -1070,18 +1078,20 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     let arpSemis = p.arpSemis != null ? Math.round(p.arpSemis) : 0
 
     let opKnobs = (n) => {
-      let tl = p["op" + n + "_tl"] != null ? p["op" + n + "_tl"] : 0
-      let mul = p["op" + n + "_mul"] != null ? p["op" + n + "_mul"] : 1
-      let ar = p["op" + n + "_ar"] != null ? p["op" + n + "_ar"] : 31
-      let dr = p["op" + n + "_dr"] != null ? p["op" + n + "_dr"] : 5
-      let sr = p["op" + n + "_sr"] != null ? p["op" + n + "_sr"] : 5
-      let rr = p["op" + n + "_rr"] != null ? p["op" + n + "_rr"] : 5
-      let sl = p["op" + n + "_sl"] != null ? p["op" + n + "_sl"] : 0
+      let tl = p["op" + n + "Tl"] != null ? p["op" + n + "Tl"] : 0
+      let mul = p["op" + n + "Mul"] != null ? p["op" + n + "Mul"] : 1
+      let dt = p["op" + n + "Dt"] != null ? p["op" + n + "Dt"] : 0
+      let ar = p["op" + n + "Ar"] != null ? p["op" + n + "Ar"] : 31
+      let dr = p["op" + n + "Dr"] != null ? p["op" + n + "Dr"] : 5
+      let sr = p["op" + n + "Sr"] != null ? p["op" + n + "Sr"] : 5
+      let rr = p["op" + n + "Rr"] != null ? p["op" + n + "Rr"] : 5
+      let sl = p["op" + n + "Sl"] != null ? p["op" + n + "Sl"] : 0
       return (
         <div class="ik-card">
           <div class="ik-card-h">{"Operator " + n}</div>
           <div class="ik-knob-grid">
             {numKnob("Mul", mul, 0, 15, 1, "", rt, ch, "op" + n + "_mul", accent)}
+            {numKnob("DT", dt, 0, 3, 1, "", rt, ch, "op" + n + "_dt", accent)}
             {numKnob("TL", tl, 0, 127, 1, "", rt, ch, "op" + n + "_tl", accent)}
             {numKnob("AR", ar, 0, 31, 1, "", rt, ch, "op" + n + "_ar", accent)}
             {numKnob("DR", dr, 0, 31, 1, "", rt, ch, "op" + n + "_dr", accent)}
@@ -1310,34 +1320,7 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
       </article>
     )
   }
-  if (id === "gameBoyDmg") {
-    let channel = p.channel ? p.channel : "pulse_50"
-    let waveShape = p.waveShape ? p.waveShape : "sawtooth"
-    let dec = p.decay != null ? p.decay : 0.2
-    let sweep = p.sweep != null ? p.sweep : 0
-    let isWave = channel === "wavetable"
-    return (
-      <article class="gen-params ik-cols">
-        <div class="ik-card">
-          <div class="ik-card-h">{"DMG Channel"}</div>
-          <div class="ik-knob-grid">
-            {genSelectorKnob("Channel", channel, [
-              ["pulse_12_5", "P 12.5%"], ["pulse_25", "P 25%"], ["pulse_50", "P 50%"], ["pulse_75", "P 75%"],
-              ["wavetable", "Wave"], ["noise_15", "N 15bit"], ["noise_7", "N 7bit"]
-            ], rt, ch, "channel", accent)}
-            {genSelectorKnob("Shape", waveShape, [["sawtooth", "Saw"], ["square", "Square"], ["sine", "Sine"]], rt, ch, "waveShape", accent, !isWave)}
-          </div>
-        </div>
-        <div class="ik-card">
-          <div class="ik-card-h">{"Hardware Controls"}</div>
-          <div class="ik-knob-grid">
-            {numKnob("Sweep", sweep, -12, 12, 1, "st", rt, ch, "sweep", accent)}
-            {msKnob("Decay", dec, 1.5, rt, ch, "decay", accent)}
-          </div>
-        </div>
-      </article>
-    )
-  }
+
   if (id === "cymbal") {
     let tune = p.tune != null ? p.tune : 300
     let metallic = p.metallic != null ? p.metallic : 0.8

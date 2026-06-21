@@ -235,6 +235,10 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
         let num = Number(raw)
         if (num === num && raw.length > 0) {
           ch.generatorParams[key] = num
+        } else if (raw === "true") {
+          ch.generatorParams[key] = true
+        } else if (raw === "false") {
+          ch.generatorParams[key] = false
         } else {
           ch.generatorParams[key] = raw
         }

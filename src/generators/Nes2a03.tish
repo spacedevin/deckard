@@ -128,7 +128,7 @@ fn getNesDpcmBuffer(ctx, sampleType) {
 export fn playNes2a03(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let gp = ch.generatorParams ? ch.generatorParams : {}
   let type = gp.type ? gp.type : "pulse"
-  let duty = gp.duty ? gp.duty : "50"
+  let duty = gp.duty ? String(gp.duty) : "50"
   let envMode = gp.envMode ? gp.envMode : "decay"
   let vol = gp.vol != null ? gp.vol : 10
   let sweep = gp.sweep != null ? gp.sweep : 0

@@ -77,14 +77,14 @@ export fn playGameBoyAdv(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   if (!gp) gp = {}
   
   let waveform = gp.waveform ? gp.waveform : "pulse"
-  let duty = gp.duty ? gp.duty : "50"
+  let duty = gp.duty ? String(gp.duty) : "50"
   let vol = gp.vol != null ? Math.round(gp.vol) : 15
   let attack = gp.attack != null ? gp.attack : 0
   let decay = gp.decay != null ? gp.decay : 2
   let sustain = gp.sustain != null ? gp.sustain : 15
   let release = gp.release != null ? gp.release : 0
   
-  let bitcrush = gp.bitcrush !== false
+  let bitcrush = gp.bitcrush !== false && gp.bitcrush !== "16bit"
   let pitchDrop = gp.pitchDrop != null ? Math.round(gp.pitchDrop) : 0
   let pitchDec = gp.pitchDec != null ? gp.pitchDec : 0.05
   let vibRate = gp.vibRate != null ? gp.vibRate : 0
@@ -143,36 +143,46 @@ export fn playGameBoyAdv(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let sLevel = maxAmp * (sustain / 15.0)
   
   let finalGain = ctx.createGain()
-  finalGain.gain.setValueAtTime(0, t)
+  finalGain.gain.value = maxAmp
   
   let safeDur = Math.max(durSec, 0.01)
+  let envGain = ctx.createGain()
+  envGain.gain.value = 0
+  
   let tA = t + attack
   let tD = tA + (decay / 10.0)
   let tOff = Math.max(t + safeDur, tD)
   
+  let envSLevel = sustain / 15.0
   if (attack > 0) {
-    finalGain.gain.linearRampToValueAtTime(maxAmp, tA)
+    envGain.gain.linearRampToValueAtTime(1.0, tA)
   } else {
-    finalGain.gain.setValueAtTime(maxAmp, tA)
+    envGain.gain.setValueAtTime(1.0, tA)
   }
   
   if (decay > 0) {
-    finalGain.gain.setTargetAtTime(sLevel, tA, decay / 30.0)
+    envGain.gain.setTargetAtTime(envSLevel, tA, decay / 30.0)
   } else {
-    finalGain.gain.setValueAtTime(sLevel, tA)
+    envGain.gain.setValueAtTime(envSLevel, tA)
   }
   
-  finalGain.gain.setValueAtTime(sLevel, tOff)
+  envGain.gain.setValueAtTime(envSLevel, tOff)
   if (release > 0) {
-    finalGain.gain.setTargetAtTime(0, tOff, release / 30.0)
+    envGain.gain.setTargetAtTime(0, tOff, release / 30.0)
   } else {
-    finalGain.gain.setValueAtTime(0, tOff)
+    envGain.gain.setValueAtTime(0, tOff)
   }
 
   src.start(t)
   src.stop(tOff + release + 0.1)
+  
+  src.connect(envGain)
+  
   disconnects.push(src)
+  disconnects.push(envGain)
   disconnects.push(finalGain)
+
+
 
   if (bitcrush) {
     let shaper = ctx.createWaveShaper()
@@ -185,13 +195,13 @@ export fn playGameBoyAdv(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
     mixFilter.type = "lowpass"
     mixFilter.frequency.value = 16000 // Typical max GBA mixing frequency Nyquist limit
     
-    src.connect(shaper)
+    envGain.connect(shaper)
     shaper.connect(mixFilter)
     mixFilter.connect(finalGain)
     disconnects.push(shaper)
     disconnects.push(mixFilter)
   } else {
-    src.connect(finalGain)
+    envGain.connect(finalGain)
   }
 
   finalGain.connect(bus.input)

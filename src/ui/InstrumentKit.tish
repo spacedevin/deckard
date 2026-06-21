@@ -267,7 +267,8 @@ export fn Knob(opts) {
     fn onMove(ev) {
       let cy2 = ev.clientY != null ? ev.clientY : (ev.touches != null && ev.touches.length > 0 ? ev.touches[0].clientY : startY)
       let dy = startY - cy2
-      let nv = knobClamp(startV + (dy / 150) * range, min, max)
+      let dragRange = Math.max(range, 4) // Make discrete 2-option knobs more sensitive
+      let nv = knobClamp(startV + (dy / 150) * dragRange, min, max)
       if (opts.step != null && opts.step > 0) {
         nv = Math.round(nv / opts.step) * opts.step
       }
@@ -567,3 +568,31 @@ export fn InfiniteKnob(opts) {
   )
 }
 
+export fn Switch(opts) {
+  let v = opts.value === true
+  let accent = opts.accent ? opts.accent : "var(--accent-warm, #e8945c)"
+  let label = opts.label ? opts.label : ""
+  
+  let rootCls = "ik-switch"
+  if (opts.disabled) {
+    rootCls = rootCls + " ik-switch-disabled"
+  }
+  
+  let onCls = v ? "ik-switch-btn ik-switch-btn-on" : "ik-switch-btn"
+  
+  fn toggle(e) {
+    if (e.stopPropagation) e.stopPropagation()
+    if (opts.disabled) return
+    if (opts.onInput) opts.onInput(!v)
+    if (opts.onCommit) opts.onCommit(!v)
+  }
+  
+  return (
+    <div class={rootCls} style={opts.disabled ? { opacity: "0.4", pointerEvents: "none" } : { display: "flex", flexDirection: "column", alignItems: "center", gap: "6px" }}>
+      <div class={onCls} onmousedown={toggle} ontouchstart={toggle}>
+        <div class="ik-switch-handle" style={v ? { backgroundColor: accent, boxShadow: "0 0 6px " + accent } : {}}></div>
+      </div>
+      <div class="ik-switch-lbl" style={{ textAlign: "center", fontSize: "0.55rem", fontWeight: "700", letterSpacing: "0.08em", color: "var(--muted)", textTransform: "uppercase", marginTop: "2px" }}>{label}</div>
+    </div>
+  )
+}

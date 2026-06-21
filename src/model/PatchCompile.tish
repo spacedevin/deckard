@@ -241,7 +241,9 @@ fn matrixFmLines(graph) {
     if (wave === "noise") {
       lines.push("noise op" + oid)
     } else {
-      lines.push("osc op" + oid + " " + normalizeBasicOscWaveform(wave) + " note ratio " + f(ratio))
+      let ratioStr = ratio !== 1 ? " ratio " + f(ratio) : ""
+      let detuneStr = od.detune ? " detune " + f(od.detune) : ""
+      lines.push("osc op" + oid + " " + normalizeBasicOscWaveform(wave) + " note" + ratioStr + detuneStr)
     }
     tail[oid] = "op" + oid
     i = i + 1
@@ -1048,6 +1050,13 @@ fn addRetroGlobals(lines, p, targetOsc) {
   }
 }
 
+fn applySweep(lines, p, targetOsc) {
+  if (p.sweep != null && p.sweep !== 0) {
+    let sweepRatio = Math.pow(2, p.sweep / 12.0)
+    lines.push("env " + targetOsc + ".freq set 0 note lin dur note*" + f(sweepRatio))
+  }
+}
+
 fn nes2a03Lines(p) {
   let type = p.type ? p.type : "pulse"
   let isNoise = type === "noise"
@@ -1064,7 +1073,10 @@ fn nes2a03Lines(p) {
     "conn a1 out " + vComp,
     adsrAmpEnv("a1", a, d, s, r)
   ]
-  if (!isNoise) addRetroGlobals(lines, p, "o1")
+  if (!isNoise) {
+    addRetroGlobals(lines, p, "o1")
+    applySweep(lines, p, "o1")
+  }
   return lines
 }
 
@@ -1084,7 +1096,10 @@ fn gameBoyDmgLines(p) {
     "conn a1 out " + vComp,
     adsrAmpEnv("a1", a, d, s, r)
   ]
-  if (!isNoise) addRetroGlobals(lines, p, "o1")
+  if (!isNoise) {
+    addRetroGlobals(lines, p, "o1")
+    applySweep(lines, p, "o1")
+  }
   return lines
 }
 
@@ -1144,8 +1159,11 @@ fn ym2612Lines(p) {
     let mul = p["op" + i + "_mul"] != null ? p["op" + i + "_mul"] : 1
     if (mul === 0) mul = 0.5
     
+    let dt = p["op" + i + "_dt"] != null ? p["op" + i + "_dt"] : 0
+    let detuneCents = dt * 7.0
+    
     let oid = String(i)
-    ops[oid] = { wave: "sine", ratio: mul }
+    ops[oid] = { wave: "sine", ratio: mul, detune: detuneCents }
     
     let envObj = ymEnvToAdsr(p, "op" + i)
     opEnvs[oid] = { a: envObj.a, d: envObj.d, s: envObj.s, r: envObj.r }
@@ -1221,30 +1239,34 @@ fn ym2612Lines(p) {
 
 fn sn76489Lines(p) {
   let isNoise = p.type === "noise"
+  let isPeriodic = isNoise && p.noiseMode === "periodic"
   let wave = "square"
   let a = p.attack ? p.attack : 0.005
   let d = p.decay ? p.decay : 0.1
   let s = p.sustain != null ? p.sustain / 15.0 : 0.5
   let r = p.release ? p.release : 0.1
   let vComp = getRetroVolComp(p.vol, 15.0)
-  return [
-    isNoise ? "noise o1" : ("osc o1 " + wave + " note"),
+  let lines = [
+    isNoise && !isPeriodic ? "noise o1" : isPeriodic ? "osc o1 square note ratio 0.0625" : ("osc o1 " + wave + " note"),
     "gain a1 0",
     "conn o1 a1 1",
     "conn a1 out " + vComp,
     adsrAmpEnv("a1", a, d, s, r)
   ]
+  if (!isNoise) addRetroGlobals(lines, p, "o1")
+  return lines
 }
 
 fn spc700Lines(p) {
-  let wave = p.waveform === "sine" ? "sine" : p.waveform === "brass" ? "sawtooth" : "square"
+  let isNoise = p.waveform === "noise"
+  let wave = p.waveform === "sine" ? "sine" : p.waveform === "brass" || p.waveform === "sawtooth" ? "sawtooth" : "square"
   let a = p.attack ? p.attack / 15.0 : 0.05
   let d = p.decay ? p.decay / 7.0 : 0.2
   let s = p.sustainLevel != null ? p.sustainLevel / 7.0 : 0.5
   let r = 0.2
   let vComp = getRetroVolComp(p.vol, 10.0)
   let lines = [
-    "osc o1 " + wave + " note",
+    isNoise ? "noise o1" : ("osc o1 " + wave + " note"),
     "filter f1 lowpass freq 3000 q 0.7",
     "gain a1 0",
     "conn o1 f1 1",
