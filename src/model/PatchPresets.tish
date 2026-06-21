@@ -1,0 +1,287 @@
+// Factory Patch showcase presets — complex multi-node patches that demonstrate the full power
+// of the modular Patch system. These are the "show don't tell" presets: sounds you CAN'T build
+// with a single generator. Also includes Tier 5 (missing instruments built as patches).
+
+import { parseGenBlock } from '../tpl/TplExtension.tish'
+
+export fn patchFactoryPresets() {
+  let patches = [
+    // ──── SYNTH SHOWCASE ─────────────────────────────────────────
+
+    {
+      id: "patch_supersaw", name: "Trance Supersaw", category: "Lead",
+      lines: [
+        "osc o1 sawtooth note",
+        "osc o2 sawtooth note rand 8",
+        "osc o3 sawtooth note rand 12",
+        "osc o4 sawtooth note rand 16",
+        "osc o5 sawtooth note rand 10",
+        "osc o6 sawtooth note rand 14",
+        "osc o7 sawtooth note rand 6",
+        "filter f1 lowpass q 2 freq 3000",
+        "osc lfo sine 0.25",
+        "gain glfo 0",
+        "gain a1 0",
+        "conn o1 f1 1", "conn o2 f1 1", "conn o3 f1 1", "conn o4 f1 1",
+        "conn o5 f1 1", "conn o6 f1 1", "conn o7 f1 1",
+        "conn f1 a1 1",
+        "conn a1 out 0.28",
+        "conn lfo glfo 1",
+        "conn glfo f1.freq 1",
+        "env glfo.gain set 0 1200",
+        "env f1.freq set 0 800 lin 0.6 4500 lin 1.2 3000",
+        "env a1.gain set 0 0 lin 0.15 1 lin 0.6 0.8 set dur 0.8 lin dur+0.5 0"
+      ]
+    },
+
+    {
+      id: "patch_analog_brass", name: "Analog Brass Stab", category: "Lead",
+      lines: [
+        "osc o1 sawtooth note",
+        "osc o2 square note rand 6",
+        "filter f1 lowpass q 4 freq 1000",
+        "gain a1 0",
+        "conn o1 f1 0.6", "conn o2 f1 0.5",
+        "conn f1 a1 1",
+        "conn a1 out 0.72",
+        "env f1.freq set 0 400 lin 0.08 4800 lin 0.25 1600 set dur 1600 lin dur+0.15 400",
+        "env a1.gain set 0 0 lin 0.04 1 lin 0.18 0.75 set dur 0.75 lin dur+0.15 0"
+      ]
+    },
+
+    {
+      id: "patch_sub_wobble", name: "Sub Bass Wobble", category: "Bass",
+      lines: [
+        "osc o1 sine note",
+        "osc o2 sawtooth note",
+        "filter f1 lowpass q 5 freq 600",
+        "osc lfo sine 3",
+        "gain glfo 0",
+        "gain a1 0",
+        "conn o1 a1 0.7",
+        "conn o2 f1 0.5",
+        "conn f1 a1 0.5",
+        "conn a1 out 0.72",
+        "conn lfo glfo 1",
+        "conn glfo f1.freq 1",
+        "env glfo.gain set 0 0 lin 0.3 500",
+        "env a1.gain set 0 0 lin 0.02 1 lin 0.2 0.8 set dur 0.8 lin dur+0.3 0"
+      ]
+    },
+
+    {
+      id: "patch_cinematic_drone", name: "Cinematic Drone", category: "Pad",
+      lines: [
+        "osc o1 sine note",
+        "osc o2 sine note rand 3",
+        "osc o3 triangle note*0.5",
+        "noise n1",
+        "filter f1 lowpass q 1 freq 1200",
+        "filter f2 highpass q 0.7 freq 80",
+        "osc lfo sine 0.08",
+        "gain glfo 0",
+        "gain a1 0",
+        "conn o1 f1 0.4", "conn o2 f1 0.35", "conn o3 f1 0.25", "conn n1 f1 0.06",
+        "conn f1 f2 1",
+        "conn f2 a1 1",
+        "conn a1 out 0.6",
+        "conn lfo glfo 1",
+        "conn glfo f1.freq 1",
+        "env glfo.gain set 0 400",
+        "env a1.gain set 0 0 lin 2.5 0.8 lin 4.0 0.7 set dur 0.7 lin dur+3.0 0"
+      ]
+    },
+
+    {
+      id: "patch_808_tape", name: "808 Tape Kick", category: "Drums",
+      lines: [
+        "osc o1 sine note",
+        "noise n1",
+        "filter f1 lowpass q 0.7 freq 200",
+        "shaper s1 amount 0.3",
+        "gain gn 0",
+        "gain a1 0",
+        "conn o1 s1 1",
+        "conn s1 f1 1",
+        "conn f1 a1 0.9",
+        "conn n1 gn 1",
+        "conn gn a1 0.4",
+        "conn a1 out 0.8",
+        "env o1.freq set 0 note*8 exp 0.04 note",
+        "env gn.gain set 0 0.8 lin 0.005 0.8 lin 0.04 0",
+        "env a1.gain set 0 1 lin 0.5 0.3 lin 0.8 0"
+      ]
+    },
+
+    {
+      id: "patch_lofi_keys", name: "Lo-fi Keys", category: "Keys",
+      lines: [
+        "osc o1 triangle note",
+        "osc o2 sine note*2.01",
+        "noise n1",
+        "filter f1 lowpass q 1.5 freq 2800",
+        "filter f2 lowpass q 0.7 freq 3500",
+        "gain gn 0",
+        "gain a1 0",
+        "conn o1 f1 0.6", "conn o2 f1 0.2",
+        "conn f1 a1 1",
+        "conn n1 gn 1",
+        "conn gn f2 1",
+        "conn f2 a1 0.08",
+        "conn a1 out 0.65",
+        "env gn.gain set 0 0.3 lin 0.01 0.3 lin 0.1 0",
+        "env a1.gain set 0 0 lin 0.008 1 lin 0.5 0.4 set dur 0.4 lin dur+0.3 0"
+      ]
+    },
+
+    // ──── MISSING INSTRUMENTS (Tier 5) ───────────────────────────
+
+    {
+      id: "patch_brass_swell", name: "Brass Swell", category: "Brass",
+      lines: [
+        "osc o1 sawtooth note",
+        "osc o2 sawtooth note rand 4",
+        "filter f1 lowpass q 3 freq 800",
+        "filter f2 highpass q 0.7 freq 200",
+        "gain a1 0",
+        "conn o1 f1 0.55", "conn o2 f1 0.45",
+        "conn f1 f2 1",
+        "conn f2 a1 1",
+        "conn a1 out 0.72",
+        "env f1.freq set 0 600 lin 0.15 3200 lin 0.4 2000 set dur 2000 lin dur+0.2 600",
+        "env a1.gain set 0 0 lin 0.1 0.9 lin 0.3 0.75 set dur 0.75 lin dur+0.2 0"
+      ]
+    },
+
+    {
+      id: "patch_trumpet", name: "Muted Trumpet", category: "Brass",
+      lines: [
+        "osc o1 sawtooth note",
+        "filter f1 bandpass q 5 freq 1500",
+        "filter f2 lowpass q 2 freq 2500",
+        "gain a1 0",
+        "conn o1 f1 1",
+        "conn f1 f2 0.7",
+        "conn f2 a1 1",
+        "conn a1 out 0.7",
+        "env f1.freq set 0 800 lin 0.06 1800 lin 0.2 1400",
+        "env a1.gain set 0 0 lin 0.05 1 lin 0.2 0.8 set dur 0.8 lin dur+0.15 0"
+      ]
+    },
+
+    {
+      id: "patch_b3_organ", name: "B3 Organ", category: "Keys",
+      lines: [
+        "osc o1 sine note",
+        "osc o2 sine note*2",
+        "osc o3 sine note*3",
+        "osc o4 sine note*4",
+        "osc o5 sine note*6",
+        "osc o6 sine note*8",
+        "noise n1",
+        "filter f1 lowpass q 0.7 freq 4500",
+        "gain gn 0",
+        "gain a1 0",
+        "conn o1 a1 0.35",
+        "conn o2 a1 0.28",
+        "conn o3 a1 0.18",
+        "conn o4 a1 0.12",
+        "conn o5 a1 0.08",
+        "conn o6 a1 0.05",
+        "conn n1 gn 1",
+        "conn gn a1 0.04",
+        "conn a1 f1 1",
+        "conn f1 out 0.65",
+        "env gn.gain set 0 1 lin 0.008 0",
+        "env a1.gain set 0 0 lin 0.006 1 set dur 1 lin dur+0.08 0"
+      ]
+    },
+
+    {
+      id: "patch_strings_section", name: "Strings Section", category: "Pad",
+      lines: [
+        "osc o1 sawtooth note rand 5",
+        "osc o2 sawtooth note rand 8",
+        "osc o3 sawtooth note rand 4",
+        "osc o4 sawtooth note*2.001",
+        "filter f1 lowpass q 1 freq 3000",
+        "osc lfo sine 5.5",
+        "gain glfo 0",
+        "gain a1 0",
+        "pan p1 -0.4",
+        "pan p2 0.4",
+        "conn o1 p1 0.3", "conn o2 p2 0.3",
+        "conn o3 f1 0.25", "conn o4 f1 0.15",
+        "conn f1 a1 1",
+        "conn p1 a1 1", "conn p2 a1 1",
+        "conn a1 out 0.45",
+        "conn lfo glfo 1",
+        "conn glfo o1.freq 1", "conn glfo o2.freq 1",
+        "env glfo.gain set 0 0 lin 0.6 note*0.006",
+        "env a1.gain set 0 0 lin 0.5 0.9 lin 1.0 0.75 set dur 0.75 lin dur+1.0 0"
+      ]
+    },
+
+    {
+      id: "patch_flute", name: "Breathy Flute", category: "Wind",
+      lines: [
+        "osc o1 sine note",
+        "noise n1",
+        "filter f1 bandpass q 3 freq 2000",
+        "filter f2 lowpass q 1 freq 3500",
+        "osc lfo sine 5",
+        "gain glfo 0",
+        "gain gn 0",
+        "gain a1 0",
+        "conn o1 f2 0.6",
+        "conn n1 gn 1",
+        "conn gn f1 1",
+        "conn f1 f2 0.3",
+        "conn f2 a1 1",
+        "conn a1 out 0.7",
+        "conn lfo glfo 1",
+        "conn glfo o1.freq 1",
+        "env glfo.gain set 0 0 lin 0.3 note*0.005",
+        "env f1.freq set 0 note*3",
+        "env gn.gain set 0 0 lin 0.08 0.35 lin 0.3 0.15 set dur 0.15 lin dur+0.2 0",
+        "env a1.gain set 0 0 lin 0.08 1 lin 0.3 0.8 set dur 0.8 lin dur+0.2 0"
+      ]
+    },
+
+    {
+      id: "patch_wurlitzer", name: "Wurlitzer EP", category: "Keys",
+      lines: [
+        "osc o1 sine note",
+        "osc o2 sine note*2",
+        "osc o3 square note*5",
+        "filter f1 lowpass q 2 freq 2400",
+        "gain gmod 0",
+        "gain a1 0",
+        "conn o3 gmod 1",
+        "conn gmod o1.freq 1",
+        "conn o1 f1 0.7",
+        "conn o2 f1 0.2",
+        "conn f1 a1 1",
+        "conn a1 out 0.65",
+        "env gmod.gain set 0 note*2 lin 0.12 note*0.1",
+        "env f1.freq set 0 3600 lin 0.8 1800",
+        "env a1.gain set 0 0 lin 0.004 1 lin 1.0 0.3 set dur 0.3 lin dur+0.25 0"
+      ]
+    }
+  ]
+
+  let out = []
+  let i = 0
+  while (i < patches.length) {
+    let p = patches[i]
+    out.push({
+      presetId: "factory_" + p.id,
+      name: "Patch · " + p.name,
+      generatorId: "patch",
+      params: {},
+      generatorSpec: parseGenBlock("patch", p.lines)
+    })
+    i = i + 1
+  }
+  return out
+}

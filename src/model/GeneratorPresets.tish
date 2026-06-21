@@ -1,0 +1,352 @@
+// Factory presets for all generators — Tier 2 (Sync), Tier 3 (existing generators), Tier 4 (drums).
+// Each function returns an array of { presetId, name, generatorId, params } objects.
+
+export fn generatorFactoryPresets() {
+  return [
+    // ──── GUITAR (Karplus-Strong) ────────────────────────────────
+    {
+      presetId: "factory_guitar_clean",
+      name: "Clean Electric",
+      generatorId: "guitar",
+      params: { tone: 0.55, decay: 0.6, damping: 0.35, drive: 0.1, body: 3800, mute: 0 }
+    },
+    {
+      presetId: "factory_guitar_palm",
+      name: "Palm Mute Chug",
+      generatorId: "guitar",
+      params: { tone: 0.35, decay: 0.3, damping: 0.55, drive: 0.45, body: 2800, mute: 0.7 }
+    },
+    {
+      presetId: "factory_guitar_nylon",
+      name: "Nylon Acoustic",
+      generatorId: "guitar",
+      params: { tone: 0.72, decay: 0.75, damping: 0.25, drive: 0, body: 4200, mute: 0 }
+    },
+    {
+      presetId: "factory_guitar_bass",
+      name: "Bass Guitar",
+      generatorId: "guitar",
+      params: { tone: 0.28, decay: 0.55, damping: 0.6, drive: 0.15, body: 1800, mute: 0 }
+    },
+
+    // ──── ARCO (Bowed Strings) ───────────────────────────────────
+    {
+      presetId: "factory_arco_violin",
+      name: "Solo Violin",
+      generatorId: "arco",
+      params: { voice: "violin", pressure: 0.55, bow: 0.45, vibrato: 0.4, rosin: 0.25, body: 0.65 }
+    },
+    {
+      presetId: "factory_arco_cello",
+      name: "Cello Legato",
+      generatorId: "arco",
+      params: { voice: "cello", pressure: 0.6, bow: 0.5, vibrato: 0.5, rosin: 0.2, body: 0.75 }
+    },
+    {
+      presetId: "factory_arco_fiddle",
+      name: "Country Fiddle",
+      generatorId: "arco",
+      params: { voice: "fiddle", pressure: 0.7, bow: 0.55, vibrato: 0.3, rosin: 0.55, body: 0.5 }
+    },
+    {
+      presetId: "factory_arco_bass",
+      name: "Upright Bass",
+      generatorId: "arco",
+      params: { voice: "bass", pressure: 0.45, bow: 0.35, vibrato: 0.2, rosin: 0.15, body: 0.8 }
+    },
+
+    // ──── TINE (Rhodes EP) ───────────────────────────────────────
+    {
+      presetId: "factory_tine_suitcase",
+      name: "Suitcase Warm",
+      generatorId: "tine",
+      params: { bark: 0.35, tine: 0.4, tremolo: 0.6, decay: 0.65, drive: 0.15 }
+    },
+    {
+      presetId: "factory_tine_stage",
+      name: "Stage Bright",
+      generatorId: "tine",
+      params: { bark: 0.7, tine: 0.75, tremolo: 0, decay: 0.45, drive: 0.3 }
+    },
+    {
+      presetId: "factory_tine_neosoul",
+      name: "Neo Soul Keys",
+      generatorId: "tine",
+      params: { bark: 0.45, tine: 0.55, tremolo: 0.25, decay: 0.7, drive: 0.1 }
+    },
+
+    // ──── ACID 303 ───────────────────────────────────────────────
+    {
+      presetId: "factory_acid_classic",
+      name: "Classic Acid",
+      generatorId: "acid303",
+      params: { waveform: "square", cutoff: 600, resonance: 18, envMod: 5000, decay: 0.35 }
+    },
+    {
+      presetId: "factory_acid_squelch",
+      name: "Acid Squelch",
+      generatorId: "acid303",
+      params: { waveform: "sawtooth", cutoff: 400, resonance: 22, envMod: 6000, decay: 0.2 }
+    },
+    {
+      presetId: "factory_acid_deep",
+      name: "Deep Acid",
+      generatorId: "acid303",
+      params: { waveform: "sawtooth", cutoff: 500, resonance: 12, envMod: 3000, decay: 0.6 }
+    },
+
+    // ──── REESE BASS ─────────────────────────────────────────────
+    {
+      presetId: "factory_reese_dnb",
+      name: "DnB Reese",
+      generatorId: "reeseBass",
+      params: { voices: 5, detune: 40, cutoff: 1200, wobble: 0.6, decay: 1.5 }
+    },
+    {
+      presetId: "factory_reese_minimal",
+      name: "Minimal Sub Reese",
+      generatorId: "reeseBass",
+      params: { voices: 2, detune: 15, cutoff: 800, wobble: 0, decay: 1.2 }
+    },
+
+    // ──── SUB 808 ────────────────────────────────────────────────
+    {
+      presetId: "factory_808_long",
+      name: "808 Long Tail",
+      generatorId: "sub808",
+      params: { punch: 48, decay: 2.5, drive: 0.15, glide: 0.08 }
+    },
+    {
+      presetId: "factory_808_distorted",
+      name: "808 Distorted",
+      generatorId: "sub808",
+      params: { punch: 72, decay: 1.0, drive: 0.6, glide: 0.03 }
+    },
+
+    // ──── HALO (Hang Drum) ───────────────────────────────────────
+    {
+      presetId: "factory_halo_meditation",
+      name: "Meditation Bowl",
+      generatorId: "halo",
+      params: { temper: 0.3, ring: 0.8, mallet: 0.2, bloom: 0.65, lows: 0.6 }
+    },
+    {
+      presetId: "factory_halo_tongue",
+      name: "Steel Tongue",
+      generatorId: "halo",
+      params: { temper: 0.55, ring: 0.35, mallet: 0.6, bloom: 0.3, lows: 0.35 }
+    },
+
+    // ──── AETHER (Theremin) ──────────────────────────────────────
+    {
+      presetId: "factory_aether_classic",
+      name: "Classic Theremin",
+      generatorId: "aether",
+      params: { glide: 0.4, waver: 0.5, tone: 0.3, swell: 0.45, air: 0.25 }
+    },
+    {
+      presetId: "factory_aether_scifi",
+      name: "Sci-Fi Wail",
+      generatorId: "aether",
+      params: { glide: 0.7, waver: 0.8, tone: 0.5, swell: 0.6, air: 0.4 }
+    },
+
+    // ──── BELL ───────────────────────────────────────────────────
+    {
+      presetId: "factory_bell_crystal",
+      name: "Crystal Chime",
+      generatorId: "bell",
+      params: { partial: 3.01, highpass: 1200, decay: 2.0 }
+    },
+    {
+      presetId: "factory_bell_dark",
+      name: "Dark Bell",
+      generatorId: "bell",
+      params: { partial: 1.41, highpass: 400, decay: 1.8 }
+    },
+
+    // ──── PAD ────────────────────────────────────────────────────
+    {
+      presetId: "factory_pad_warm",
+      name: "Warm Blanket",
+      generatorId: "pad",
+      params: { wave1: "triangle", wave2: "sine", detune: 14, cutoff: 1200, attack: 0.6, decay: 0.8, sustain: 0.75, release: 2.0 }
+    },
+    {
+      presetId: "factory_pad_glass",
+      name: "Glass Shimmer",
+      generatorId: "pad",
+      params: { wave1: "sawtooth", wave2: "square", detune: 8, cutoff: 4000, attack: 0.3, decay: 0.4, sustain: 0.6, release: 1.2 }
+    },
+
+    // ──── CHIPTUNE ───────────────────────────────────────────────
+    {
+      presetId: "factory_chip_square",
+      name: "NES Lead",
+      generatorId: "chiptune",
+      params: { pulseWidth: 0.5, pwmSpeed: 0, bitcrush: 0.6, decay: 0.25 }
+    },
+    {
+      presetId: "factory_chip_pwm",
+      name: "C64 PWM",
+      generatorId: "chiptune",
+      params: { pulseWidth: 0.25, pwmSpeed: 3.5, bitcrush: 0.3, decay: 0.45 }
+    },
+
+    // ──── CYMBAL ─────────────────────────────────────────────────
+    {
+      presetId: "factory_cymbal_ride",
+      name: "Ride Cymbal",
+      generatorId: "cymbal",
+      params: { tune: 340, metallic: 0.7, decay: 0.8, highpass: 6000 }
+    },
+    {
+      presetId: "factory_cymbal_crash",
+      name: "Crash",
+      generatorId: "cymbal",
+      params: { tune: 280, metallic: 0.9, decay: 1.5, highpass: 5000 }
+    },
+
+    // ──── CLAP ───────────────────────────────────────────────────
+    {
+      presetId: "factory_clap_tight",
+      name: "Tight Clap",
+      generatorId: "clap",
+      params: { hands: 2, spread: 0.2, size: 0.3, tone: 0.6, claps: 1, gap: 0.2, tail: 0.25, body: 0.15 }
+    },
+    {
+      presetId: "factory_clap_crowd",
+      name: "Crowd Clap",
+      generatorId: "clap",
+      params: { hands: 8, spread: 0.7, size: 0.7, tone: 0.45, claps: 3, gap: 0.4, tail: 0.6, body: 0.35 }
+    },
+
+    // ──── DRUMS (expanded) ───────────────────────────────────────
+    {
+      presetId: "factory_drum_909kick",
+      name: "TR-909 Kick",
+      generatorId: "drumSynth",
+      params: { tone: "sine", pitchEnv: 30, pitchDecay: 0.035, decay: 0.3, noise: 0.05, drive: 0.2 }
+    },
+    {
+      presetId: "factory_drum_boombap",
+      name: "Boom Bap Kick",
+      generatorId: "drumSynth",
+      params: { tone: "sine", pitchEnv: 38, pitchDecay: 0.07, decay: 0.55, noise: 0, drive: 0.08 }
+    },
+    {
+      presetId: "factory_drum_rim",
+      name: "Rim Shot",
+      generatorId: "drumSynth",
+      params: { tone: "triangle", pitchEnv: 12, pitchDecay: 0.015, decay: 0.06, noise: 0.5, noiseHp: 3000, noiseDecay: 0.04, drive: 0.15 }
+    },
+    {
+      presetId: "factory_drum_tom_low",
+      name: "Tom Low",
+      generatorId: "drumSynth",
+      params: { tone: "sine", pitchEnv: 24, pitchDecay: 0.04, decay: 0.35, noise: 0.1, drive: 0.05 }
+    },
+    {
+      presetId: "factory_drum_tom_hi",
+      name: "Tom High",
+      generatorId: "drumSynth",
+      params: { tone: "sine", pitchEnv: 18, pitchDecay: 0.03, decay: 0.25, noise: 0.12, drive: 0.05 }
+    },
+
+    // ──── SYNC LEAD ──────────────────────────────────────────────
+    {
+      presetId: "factory_sync_screamer",
+      name: "Sync Screamer",
+      generatorId: "syncLead",
+      params: { slaveBase: 19, sweepAmt: 36, sweepDecay: 0.25, cutoff: 5000, resonance: 3, filterEnvAmt: 0, attack: 0.02, decay: 0.2, sustain: 0.9, release: 0.3 }
+    },
+    {
+      presetId: "factory_sync_pluck",
+      name: "Sync Pluck",
+      generatorId: "syncLead",
+      params: { slaveBase: 12, sweepAmt: 24, sweepDecay: 0.15, cutoff: 2400, resonance: 6, filterEnvAmt: 0.3, filterDecay: 0.2, attack: 0.005, decay: 0.15, sustain: 0, release: 0.2 }
+    },
+    {
+      presetId: "factory_sync_talk",
+      name: "Sync Talk Box",
+      generatorId: "syncLead",
+      params: { slaveBase: 5, sweepAmt: 12, sweepDecay: 0.6, lfoRate: 3.5, lfoAmt: 8, cutoff: 1800, resonance: 8, attack: 0.08, decay: 0.4, sustain: 0.7, release: 0.4 }
+    },
+
+    // ──── SYNC CHOIR ─────────────────────────────────────────────
+    {
+      presetId: "factory_choir_android",
+      name: "Android Choir",
+      generatorId: "syncChoir",
+      params: { vowelShift: 24, morphRate: 0.5, morphAmt: 12, ensembleDetune: 15, vibRate: 5.0, vibAmt: 10, highpass: 300, attack: 1.0, decay: 1.0, sustain: 0.8, release: 1.5 }
+    },
+    {
+      presetId: "factory_choir_morph",
+      name: "Slow Morph Pad",
+      generatorId: "syncChoir",
+      params: { vowelShift: 19, morphRate: 0.12, morphAmt: 24, ensembleDetune: 20, vibRate: 4.0, vibAmt: 8, highpass: 200, attack: 2.0, decay: 1.5, sustain: 0.85, release: 2.5 }
+    },
+    {
+      presetId: "factory_choir_tight",
+      name: "Tight Ensemble",
+      generatorId: "syncChoir",
+      params: { vowelShift: 12, morphRate: 0.8, morphAmt: 6, ensembleDetune: 6, vibRate: 6.5, vibAmt: 14, highpass: 400, attack: 0.3, decay: 0.5, sustain: 0.9, release: 0.8 }
+    },
+
+    // ──── OB SYNC ────────────────────────────────────────────────
+    {
+      presetId: "factory_ob_jump",
+      name: "Oberheim Jump",
+      generatorId: "obSync",
+      params: { detune: 18, sweepRate: 0.7, sweepAmt: 30, cutoff: 2000, resonance: 3, filterEnv: 3200, filterDecay: 0.5, attack: 0.04, decay: 0.3, sustain: 0.7, release: 0.3 }
+    },
+    {
+      presetId: "factory_ob_pad",
+      name: "OB Pad",
+      generatorId: "obSync",
+      params: { detune: 12, sweepRate: 0.2, sweepAmt: 12, cutoff: 800, resonance: 1.5, filterEnv: 1600, filterDecay: 1.2, attack: 0.6, decay: 0.8, sustain: 0.8, release: 1.5 }
+    },
+
+    // ──── LASER SYNC ─────────────────────────────────────────────
+    {
+      presetId: "factory_laser_zap",
+      name: "Arcade Zap",
+      generatorId: "laserSync",
+      params: { dropRate: 0.9, dropAmt: 48, slaveBase: 24, attack: 0.005, decay: 0.15 }
+    },
+    {
+      presetId: "factory_laser_sweep",
+      name: "Laser Sweep",
+      generatorId: "laserSync",
+      params: { dropRate: 0.3, dropAmt: 24, slaveBase: 12, attack: 0.02, decay: 0.6 }
+    },
+
+    // ──── FM TONE (simple 2-op) ──────────────────────────────────
+    {
+      presetId: "factory_fm_epiano",
+      name: "FM E-Piano",
+      generatorId: "fmTone",
+      params: { ratio: 1, modIndex: 3, carrierWave: "sine", modWave: "sine", attack: 0.003, decay: 0.8, sustain: 0.15, release: 0.4 }
+    },
+    {
+      presetId: "factory_fm_brass",
+      name: "FM Brass",
+      generatorId: "fmTone",
+      params: { ratio: 1, modIndex: 6, carrierWave: "sine", modWave: "square", attack: 0.06, decay: 0.3, sustain: 0.7, release: 0.25 }
+    },
+
+    // ──── BASIC OSC ──────────────────────────────────────────────
+    {
+      presetId: "factory_osc_saw_lead",
+      name: "Saw Lead",
+      generatorId: "basicOsc",
+      params: { waveform: "sawtooth", attack: 0.01, decay: 0.15, sustain: 0.7, release: 0.2 }
+    },
+    {
+      presetId: "factory_osc_square_sub",
+      name: "Square Sub",
+      generatorId: "basicOsc",
+      params: { waveform: "square", attack: 0.005, decay: 0.3, sustain: 0.8, release: 0.15 }
+    }
+  ]
+}

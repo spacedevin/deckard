@@ -2,6 +2,8 @@
 
 import { defaultParamsForGeneratorId } from '../generators/Registry.tish'
 import { matrixFmFactoryInstrumentPresets } from './MatrixFmPresets.tish'
+import { generatorFactoryPresets } from './GeneratorPresets.tish'
+import { patchFactoryPresets } from './PatchPresets.tish'
 
 // A step carries its on/off + PER-STEP PARAMETER LOCKS: vel (1..127), prob (0..1 chance it fires — seeded so
 // every client agrees), ratchet (1..8 sub-hits within the step), nudge (−0.5..0.5 of a step, micro-timing).
@@ -164,6 +166,18 @@ export fn emptyProjectShell() {
   while (mxi < mxPresets.length) {
     instrumentPresets.push(mxPresets[mxi])
     mxi = mxi + 1
+  }
+  let genPresets = generatorFactoryPresets()
+  let gi = 0
+  while (gi < genPresets.length) {
+    instrumentPresets.push(genPresets[gi])
+    gi = gi + 1
+  }
+  let patchPresets = patchFactoryPresets()
+  let pi = 0
+  while (pi < patchPresets.length) {
+    instrumentPresets.push(patchPresets[pi])
+    pi = pi + 1
   }
   return {
     version: 2,
