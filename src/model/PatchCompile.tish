@@ -833,76 +833,118 @@ fn aahsLines(p) {
 }
 
 fn syncLeadLines(p) {
-  let wave = p.waveform ? p.waveform : "sawtooth"
-  let hf = p.hfFilter > 0 ? p.hfFilter : 0.8
-  let syncAmt = p.syncAmount >= 0 && p.syncAmount <= 1 ? p.syncAmount : 0.5
-  let sweepRate = p.sweepRate >= 0 && p.sweepRate <= 1 ? p.sweepRate : 0.4
-  let a = p.attack > 0 ? p.attack : 0.05
-  let d = p.decay > 0 ? p.decay : 0.2
-  let s = p.sustain >= 0 && p.sustain <= 1 ? p.sustain : 0.5
-  let r = p.release > 0 ? p.release : 0.2
-  let filterCutoff = Math.round(500 + hf * 5000)
-  let sweepEnvRate = 0.05 + (1 - sweepRate) * 0.4
+  // Use SAME param names and units as native SyncLead.tish
+  let slaveBase = p.slaveBase != null ? p.slaveBase : 12
+  let sweepAmt = p.sweepAmt != null ? p.sweepAmt : 24
+  let sweepDecay = p.sweepDecay != null ? p.sweepDecay : 0.4
+  let lfoRate = p.lfoRate != null ? p.lfoRate : 0
+  let lfoAmt = p.lfoAmt != null ? p.lfoAmt : 0
+  let cutoff = p.cutoff != null ? p.cutoff : 3000
+  let res = p.resonance != null ? p.resonance : 5
+  let filterEnvAmt = p.filterEnvAmt != null ? p.filterEnvAmt : 0
+  let filterDecay = p.filterDecay != null ? p.filterDecay : 0.4
+  let att = p.attack != null ? p.attack : 0.05
+  let dec = p.decay != null ? p.decay : 0.3
+  let sus = p.sustain != null ? p.sustain : 0.8
+  let rel = p.release != null ? p.release : 0.5
+
+  let slaveRatio = Math.pow(2, slaveBase / 12)
+  let sweepStartRatio = slaveRatio * Math.pow(2, sweepAmt / 12)
+  // Filter env: peak = cutoff * 2^(filterEnvAmt * 6)
+  let filterPeak = cutoff * Math.pow(2, filterEnvAmt * 6)
+  if (filterPeak > 20000) {
+    filterPeak = 20000
+  }
+  let filterSus = cutoff + (filterPeak - cutoff) * sus
+
   let lines = [
     "syncosc s1",
-    "filter f1 lowpass q 1 freq " + f(filterCutoff),
+    "filter f1 lowpass q " + f(res) + " freq " + f(cutoff),
     "gain a1 0",
     "conn s1 f1 1",
     "conn f1 a1 1",
     "conn a1 out " + f(VOL_COMP * 0.8),
+    // Sync oscillator frequency envelopes
     "env s1.masterFreq set 0 note",
-    "env s1.slaveFreq set 0 note*" + f(1 + syncAmt * 4) + " exp " + f(sweepEnvRate) + " note*" + f(1 + syncAmt),
-    adsrAmpEnv("a1", a, d, s, r)
+    "env s1.slaveFreq set 0 note*" + f(sweepStartRatio) + " exp " + f(sweepDecay + 0.01) + " note*" + f(slaveRatio),
+    // Filter envelope
+    "env f1.freq set 0 " + f(cutoff) + " lin " + f(att) + " " + f(filterPeak) + " exp " + f(filterDecay) + " " + f(filterSus),
+    // Amplitude ADSR
+    adsrAmpEnv("a1", att, dec, sus, rel)
   ]
+  // LFO on slave freq (optional)
+  if (lfoRate > 0 && lfoAmt > 0) {
+    let lfoDepthFactor = slaveRatio * (Math.pow(2, lfoAmt / 12) - 1)
+    lines.push("osc lfos sine " + f(lfoRate))
+    lines.push("gain glfos 0")
+    lines.push("conn lfos glfos 1")
+    lines.push("conn glfos s1.slaveFreq 1")
+    lines.push("env glfos.gain set 0 note*" + f(lfoDepthFactor))
+  }
   return lines
 }
 
 fn syncChoirLines(p) {
-  let morphRate = p.morphRate >= 0 && p.morphRate <= 1 ? p.morphRate : 0.5
-  let morphAmt = p.morphAmt >= 0 && p.morphAmt <= 1 ? p.morphAmt : 0.6
-  let width = p.width >= 0 && p.width <= 1 ? p.width : 0.6
-  let vibRate = p.vibRate >= 0 && p.vibRate <= 1 ? p.vibRate : 0.5
-  let vibAmt = p.vibAmt >= 0 && p.vibAmt <= 1 ? p.vibAmt : 0.4
-  let hp = p.highpass > 0 ? p.highpass : 300
-  let a = p.attack > 0 ? p.attack : 0.4
-  let r = p.release > 0 ? p.release : 0.6
-  let shift = p.shift != null ? p.shift : 12
-  let shiftRatio = Math.pow(2, shift / 12)
-  let detuneCents = width * 30
-  let lfoRate = 0.2 + morphRate * 4
-  let lfoDepth = morphAmt * 2.5
-  let vHz = 3 + vibRate * 5
-  let vDepth = vibAmt * 30
+  // Use the SAME param names and units as native SyncChoir.tish
+  let vowelShift = p.vowelShift != null ? p.vowelShift : 24
+  let morphRate = p.morphRate != null ? p.morphRate : 0.5
+  let morphAmt = p.morphAmt != null ? p.morphAmt : 12
+  let detuneCents = p.ensembleDetune != null ? p.ensembleDetune : 15
+  let vibRateHz = p.vibRate != null ? p.vibRate : 5.0
+  let vibAmtCents = p.vibAmt != null ? p.vibAmt : 10
+  let highpassFreq = p.highpass != null ? p.highpass : 300
+  let att = p.attack != null ? p.attack : 1.0
+  let dec = p.decay != null ? p.decay : 1.0
+  let sus = p.sustain != null ? p.sustain : 0.8
+  let rel = p.release != null ? p.release : 1.5
+
+  // slave freq ratio relative to master (vowelShift semitones)
+  let slaveRatio = Math.pow(2, vowelShift / 12)
+  // morph LFO depth: the native code uses slaveBaseFreq * (2^(morphAmt/12) - 1) which is
+  // frequency-relative; in the patch system we approximate by connecting to slaveFreq with
+  // a gain whose value scales with note. Use note-relative expr: note * ratio * (2^(amt/12) - 1)
+  let morphDepthFactor = slaveRatio * (Math.pow(2, morphAmt / 12) - 1)
+  // vibrato depth: native uses masterFreq * (2^(vibAmt/1200) - 1)
+  let vibDepthFactor = Math.pow(2, vibAmtCents / 1200) - 1
+
   let lines = [
     "syncosc s1 detune " + f(0 - detuneCents),
     "syncosc s2 detune " + f(detuneCents),
-    "osc lfo sine " + f(lfoRate),
-    "gain glfo 1",
-    "osc vib sine " + f(vHz),
-    "gain gvib 1",
-    "filter f1 highpass q 0.7 freq " + f(hp),
+    "osc lfo sine " + f(morphRate),
+    "gain glfo 0",
+    "osc vib sine " + f(vibRateHz),
+    "gain gvib 0",
+    "filter hp highpass q 0.7 freq " + f(highpassFreq),
+    "filter lp lowpass q 0.7 freq 8000",
     "gain a1 0",
-    "pan p1 -0.5",
-    "pan p2 0.5",
-    "conn s1 f1 1",
-    "conn s2 f1 1",
-    "conn f1 a1 1",
-    "conn a1 p1 1",
-    "conn a1 p2 1",
-    "conn p1 out " + f(VOL_COMP * 0.5),
-    "conn p2 out " + f(VOL_COMP * 0.5),
+    "pan p1 -0.7",
+    "pan p2 0.7",
+    // Signal chain: syncosc → a1 → hp → lp → pans → out
+    "conn s1 a1 1",
+    "conn s2 a1 1",
+    "conn a1 hp 1",
+    "conn hp lp 1",
+    "conn lp p1 1",
+    "conn lp p2 1",
+    "conn p1 out " + f(VOL_COMP * 0.4),
+    "conn p2 out " + f(VOL_COMP * 0.4),
+    // Set master/slave frequencies from note
     "env s1.masterFreq set 0 note",
     "env s2.masterFreq set 0 note",
-    "env s1.slaveFreq set 0 note*" + f(shiftRatio),
-    "env s2.slaveFreq set 0 note*" + f(shiftRatio),
-    "conn vib gvib " + f(vDepth),
-    "conn gvib s1.masterFreq 1",
-    "conn gvib s2.masterFreq 1",
-    "conn lfo glfo " + f(lfoDepth),
+    "env s1.slaveFreq set 0 note*" + f(slaveRatio),
+    "env s2.slaveFreq set 0 note*" + f(slaveRatio),
+    // Morph LFO → slaveFreq (freq-relative depth)
+    "conn lfo glfo 1",
     "conn glfo s1.slaveFreq 1",
     "conn glfo s2.slaveFreq 1",
-    "env glfo.gain set 0 0 lin " + f(a) + " " + f(lfoDepth) + " lin dur " + f(lfoDepth) + " lin dur+" + f(r) + " 0",
-    "env a1.gain set 0 0 lin " + f(a) + " 1 lin dur 1 lin dur+" + f(r) + " 0"
+    "env glfo.gain set 0 note*" + f(morphDepthFactor),
+    // Vibrato LFO → masterFreq (freq-relative depth)
+    "conn vib gvib 1",
+    "conn gvib s1.masterFreq 1",
+    "conn gvib s2.masterFreq 1",
+    "env gvib.gain set 0 note*" + f(vibDepthFactor),
+    // Amplitude envelope: matches native setTargetAtTime behavior approximated with lin segments
+    "env a1.gain set 0 0 lin " + f(att) + " 0.8 lin " + f(att + dec) + " " + f(0.8 * sus) + " lin dur " + f(0.8 * sus) + " lin dur+" + f(rel) + " 0"
   ]
   return lines
 }
