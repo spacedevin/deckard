@@ -356,11 +356,20 @@ export fn defaultParamsForGeneratorId(id) {
   }
   if (id === "syncLead") {
     return {
-      sweepAmt: 4.0,
+      masterTune: 0,
+      slaveBase: 12,
+      sweepAmt: 24,
       sweepDecay: 0.4,
+      lfoRate: 0,
+      lfoAmt: 0,
       cutoff: 3000,
       resonance: 5,
-      decay: 0.8
+      filterEnvAmt: 0,
+      filterDecay: 0.4,
+      attack: 0.05,
+      decay: 0.3,
+      sustain: 0.8,
+      release: 0.5
     }
   }
   if (id === "patch") {

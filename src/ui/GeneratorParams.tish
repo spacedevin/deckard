@@ -879,20 +879,52 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     )
   }
   if (id === "syncLead") {
-    let sweepAmt = p.sweepAmt != null ? p.sweepAmt : 4.0
-    let sweepDecay = p.sweepDecay != null ? p.sweepDecay : 0.4
-    let cutoff = p.cutoff != null ? p.cutoff : 3000
+    let mt = p.masterTune != null ? p.masterTune : 0
+    let sb = p.slaveBase != null ? p.slaveBase : 12
+    let sw = p.sweepAmt != null ? p.sweepAmt : 24
+    let sd = p.sweepDecay != null ? p.sweepDecay : 0.4
+    let lr = p.lfoRate != null ? p.lfoRate : 0
+    let la = p.lfoAmt != null ? p.lfoAmt : 0
+    
+    let cut = p.cutoff != null ? p.cutoff : 3000
     let res = p.resonance != null ? p.resonance : 5
-    let decay = p.decay != null ? p.decay : 0.8
+    let fea = p.filterEnvAmt != null ? p.filterEnvAmt : 0
+    let fdec = p.filterDecay != null ? p.filterDecay : 0.4
+
+    let att = p.attack != null ? p.attack : 0.05
+    let dec = p.decay != null ? p.decay : 0.3
+    let sus = p.sustain != null ? p.sustain : 0.8
+    let rel = p.release != null ? p.release : 0.5
+    
     return (
       <article class="gen-params ik-cols">
         <div class="ik-card">
-          <div class="ik-card-h">{"Hard Sync"}</div>
+          <div class="ik-card-h">{"Oscillator & Sync"}</div>
           <div class="ik-knob-grid">
-            {numKnob("Sweep Amt", sweepAmt, 1, 10, 0.1, "x", rt, ch, "sweepAmt", accent)}
-            {msKnob("Sweep Dec", sweepDecay, 2.0, rt, ch, "sweepDecay", accent)}
-            {freqKnob("Cutoff", cutoff, rt, ch, "cutoff", accent)}
+            {numKnob("Master Tune", mt, -24, 24, 1, "st", rt, ch, "masterTune", accent)}
+            {numKnob("Slave Base", sb, 0, 48, 1, "st", rt, ch, "slaveBase", accent)}
+            {numKnob("Sweep Amt", sw, 0, 48, 1, "st", rt, ch, "sweepAmt", accent)}
+            {msKnob("Sweep Dec", sd, 3.0, rt, ch, "sweepDecay", accent)}
+            {numKnob("LFO Rate", lr, 0, 20, 0.1, "Hz", rt, ch, "lfoRate", accent)}
+            {numKnob("LFO -> Sync", la, 0, 24, 1, "st", rt, ch, "lfoAmt", accent)}
+          </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"Filter"}</div>
+          <div class="ik-knob-grid">
+            {freqKnob("Cutoff", cut, rt, ch, "cutoff", accent)}
             {numKnob("Resonance", res, 1, 30, 0.5, "", rt, ch, "resonance", accent)}
+            {numKnob("Env Amt", fea, -1, 1, 0.05, "", rt, ch, "filterEnvAmt", accent)}
+            {msKnob("Env Dec", fdec, 3.0, rt, ch, "filterDecay", accent)}
+          </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"Amplifier (ADSR)"}</div>
+          <div class="ik-knob-grid">
+            {msKnob("Attack", att, 2.0, rt, ch, "attack", accent)}
+            {msKnob("Decay", dec, 3.0, rt, ch, "decay", accent)}
+            {pctKnob("Sustain", sus, rt, ch, "sustain", accent)}
+            {msKnob("Release", rel, 5.0, rt, ch, "release", accent)}
           </div>
         </div>
       </article>
