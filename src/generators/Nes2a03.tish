@@ -133,10 +133,53 @@ export fn playNes2a03(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   if (v < 0) v = 0
   if (v > 1) v = 1
 
-  let totalTime = Math.max(durSec, 0.01) + 0.1
-  let safeDur = Math.max(durSec, 0.01)
-  let decTime = (vol + 1) * 0.0166
+  let isNoise = (type === "noise")
+  let isTriangle = (type === "triangle")
+  let isDpcm = (type === "dpcm")
 
+  if (isTriangle) {
+    f0 = f0 / 2.0
+    f1 = f1 / 2.0
+  }
+
+  let src = ctx.createBufferSource()
+  src.loop = true
+
+  if (isDpcm) {
+    src.buffer = getNesDpcmBuffer(ctx, dpcmSample)
+    src.loop = false
+  } else if (isNoise) {
+    src.buffer = getNesLfsrBuffer(ctx, noiseMode === "short" ? 9 : 15)
+  } else if (isTriangle) {
+    src.buffer = getNesTriangleBuffer(ctx)
+  } else {
+    let d = duty === "75" || duty === "25_i" ? "25_i" : duty
+    src.buffer = getNesPulseBuffer(ctx, d)
+  }
+
+  let rate0 = 1.0
+  let rate1 = 1.0
+  if (isNoise) {
+    rate0 = f0 / 440
+    rate1 = f1 / 440
+  } else if (isDpcm) {
+    rate0 = Math.pow(2, (midi + bendSemis - 60) / 12)
+    rate1 = rate0
+  } else {
+    rate0 = (f0 * src.buffer.length) / ctx.sampleRate
+    rate1 = (f1 * src.buffer.length) / ctx.sampleRate
+  }
+
+  let safeDur = Math.max(durSec, 0.01)
+  let decTime = (vol + 1) * 0.0625
+
+  if (isDpcm && envMode !== "adsr") {
+    let dpcmDur = 0.2 / rate0
+    safeDur = dpcmDur
+    envMode = "constant"
+  }
+
+  let totalTime = safeDur + 0.1
   if (envMode === "adsr") {
     let tD = attack + decay + 0.01
     let tOff = Math.max(safeDur, tD)
@@ -144,45 +187,9 @@ export fn playNes2a03(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   } else if (envMode === "decay") {
     totalTime = Math.max(safeDur, decTime) + 0.1
   }
+  
   let stopTime = t + totalTime
   let disconnects = []
-
-  let src = ctx.createBufferSource()
-  src.loop = true
-  
-  let isNoise = false
-  let isTriangle = false
-  let isDpcm = false
-
-  if (type === "dpcm") {
-    src.buffer = getNesDpcmBuffer(ctx, dpcmSample)
-    src.loop = false
-    isDpcm = true
-  } else if (type === "noise") {
-    src.buffer = getNesLfsrBuffer(ctx, noiseMode === "short" ? 9 : 15)
-    isNoise = true
-  } else if (type === "triangle") {
-    src.buffer = getNesTriangleBuffer(ctx)
-    isTriangle = true
-  } else {
-    let d = duty === "75" || duty === "25_i" ? "25_i" : duty
-    src.buffer = getNesPulseBuffer(ctx, d)
-  }
-
-  // Determine playback rate center
-  let rate0 = 1.0
-  let rate1 = 1.0
-  if (isNoise) {
-    rate0 = f0 / 440
-    rate1 = f1 / 440
-  } else if (isDpcm) {
-    // Pitch tracked roughly, base = middle C (midi 60)
-    rate0 = Math.pow(2, (midi + bendSemis - 60) / 12)
-    rate1 = rate0
-  } else {
-    rate0 = (f0 * src.buffer.length) / ctx.sampleRate
-    rate1 = (f1 * src.buffer.length) / ctx.sampleRate
-  }
   
   src.playbackRate.setValueAtTime(rate0, t)
 
