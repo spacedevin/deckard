@@ -1,0 +1,191 @@
+// SN76489 (Sega Genesis / Master System PSG) Emulator
+// References:
+// 1. MAME (sn76496.cpp) - For 15-bit shift register logic and tapped bits.
+
+export fn defaultParamsForSn76489() {
+  return {
+    type: "square",
+    noiseMode: "white", // or "periodic"
+    noiseFreq: 0, // 0 = high, 1 = med, 2 = low, 3 = sync with CH3
+    vol: 15,
+    attack: 0,
+    decay: 0.1,
+    sustain: 15,
+    release: 0,
+    pitchDrop: 0,
+    pitchDec: 0.05,
+    vibRate: 0,
+    vibAmt: 0,
+    arpRate: 0,
+    arpSemis: 0
+  }
+}
+
+fn getSnNoiseBuffer(ctx, periodic) {
+  let cacheKey = periodic ? "snNoiseP" : "snNoiseW"
+  if (ctx[cacheKey]) return ctx[cacheKey]
+  
+  // SN76489 noise uses a 15-bit shift register
+  // Periodic noise taps bit 0 only (simple divide by 15-bit length = pulse)
+  // White noise taps bit 0 XOR bit 3 (for SN76489)
+  
+  let steps = 32767 // 2^15 - 1
+  let buf = ctx.createBuffer(1, steps, ctx.sampleRate)
+  let data = buf.getChannelData(0)
+  
+  let reg = 0x4000
+  let i = 0
+  while (i < steps) {
+    let bit0 = reg & 1
+    let feedback = bit0
+    if (!periodic) {
+      // White noise tap for SN76489 is bit 0 XOR bit 3
+      let bit3 = (reg >> 3) & 1
+      feedback = bit0 ^ bit3
+    }
+    
+    reg = (reg >> 1) | (feedback << 14)
+    data[i] = (reg & 1) ? 1.0 : -1.0
+    i = i + 1
+  }
+  
+  ctx[cacheKey] = buf
+  return buf
+}
+
+export fn playSn76489(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  let gp = ch.generatorParams
+  if (!gp) gp = {}
+  
+  let type = gp.type ? gp.type : "square"
+  let noiseMode = gp.noiseMode ? gp.noiseMode : "white"
+  let vol = gp.vol != null ? Math.round(gp.vol) : 15
+  let attack = gp.attack != null ? gp.attack : 0
+  let decay = gp.decay != null ? gp.decay : 0.1
+  let sustain = gp.sustain != null ? gp.sustain : 15
+  let release = gp.release != null ? gp.release : 0
+  
+  let pitchDrop = gp.pitchDrop != null ? Math.round(gp.pitchDrop) : 0
+  let pitchDec = gp.pitchDec != null ? gp.pitchDec : 0.05
+  let vibRate = gp.vibRate != null ? gp.vibRate : 0
+  let vibAmt = gp.vibAmt != null ? gp.vibAmt : 0
+  let arpRate = gp.arpRate != null ? gp.arpRate : 0
+  let arpSemis = gp.arpSemis != null ? Math.round(p.arpSemis) : 0
+
+  let f0 = 440 * Math.pow(2, (midi + bendSemis - 69) / 12)
+  let v = vel / 127
+  if (v < 0) v = 0
+  if (v > 1) v = 1
+
+  // SN76489 clock is typically 3.579545 MHz
+  // Period = Clock / (32 * Frequency). Max period is 10-bit (1023).
+  // Min frequency = 3579545 / (32 * 1023) = ~109.3 Hz
+  if (f0 < 109.3 && type === "square") {
+    f0 = 109.3 // Hardware clamp
+  }
+
+  let src = null
+  let disconnects = []
+  
+  if (type === "noise") {
+    src = ctx.createBufferSource()
+    src.buffer = getSnNoiseBuffer(ctx, noiseMode === "periodic")
+    src.loop = true
+    // Pitch mapped to MIDI scaling for ease of use in tracker
+    src.playbackRate.value = (f0 * 10) / ctx.sampleRate 
+  } else {
+    src = ctx.createOscillator()
+    src.type = "square"
+    src.frequency.value = f0
+  }
+
+  let safeDur = Math.max(durSec, 0.01)
+  let tA = t + attack
+  let tD = tA + decay
+  let tOff = Math.max(t + safeDur, tD)
+  
+  let freqParam = src.frequency ? src.frequency : src.playbackRate
+  let baseFreq = src.frequency ? f0 : src.playbackRate.value
+  
+  if (pitchDrop !== 0) {
+    let rateDrop = baseFreq * Math.pow(2, pitchDrop / 12)
+    freqParam.setValueAtTime(rateDrop, t)
+    freqParam.setTargetAtTime(baseFreq, t, Math.max(pitchDec, 0.001))
+  } else if (arpRate > 0 && arpSemis !== 0) {
+    let arpStep = 1.0 / arpRate
+    let steps = Math.ceil((tOff - t + release) / arpStep)
+    let ai = 0
+    freqParam.setValueAtTime(baseFreq, t)
+    while (ai < steps) {
+      let semi = (ai % 2 === 1) ? arpSemis : 0
+      freqParam.setValueAtTime(baseFreq * Math.pow(2, semi / 12), t + ai * arpStep)
+      ai = ai + 1
+    }
+  } else {
+    freqParam.setValueAtTime(baseFreq, t)
+  }
+
+  if (vibRate > 0 && vibAmt > 0 && type !== "noise") {
+    let lfo = ctx.createOscillator()
+    lfo.type = "sine"
+    lfo.frequency.value = vibRate
+    let lfoGain = ctx.createGain()
+    lfoGain.gain.value = baseFreq * (vibAmt / 1200)
+    lfo.connect(lfoGain)
+    lfoGain.connect(freqParam)
+    lfo.start(t)
+    lfo.stop(tOff + release)
+    disconnects.push(lfo)
+    disconnects.push(lfoGain)
+  }
+
+  // SN76489 Attenuation is 4-bit (0-15). 2dB per step.
+  // 15 = 0dB (Max). 0 = Silence (or -28dB depending on chip rev, usually silence in emus).
+  let volStep = Math.max(0, Math.min(15, Math.round(vol)))
+  let maxAmp = 0
+  if (volStep > 0) {
+    // 0 is silent, 1 is -28dB, 15 is 0dB
+    maxAmp = Math.pow(10, -((15 - volStep) * 2.0) / 20.0) * v * 0.8
+  }
+
+  let finalGain = ctx.createGain()
+  
+  let sLevel = maxAmp * (sustain / 15.0)
+  
+  finalGain.gain.setValueAtTime(0, t)
+  if (attack > 0) {
+    finalGain.gain.linearRampToValueAtTime(maxAmp, tA)
+  } else {
+    finalGain.gain.setValueAtTime(maxAmp, tA)
+  }
+  
+  if (decay > 0) {
+    finalGain.gain.setTargetAtTime(sLevel, tA, decay / 3.0)
+  } else {
+    finalGain.gain.setValueAtTime(sLevel, tA)
+  }
+  
+  finalGain.gain.setValueAtTime(sLevel, tOff)
+  if (release > 0) {
+    finalGain.gain.setTargetAtTime(0, tOff, release / 3.0)
+  } else {
+    finalGain.gain.setValueAtTime(0, tOff)
+  }
+
+  src.start(t)
+  src.stop(tOff + release + 0.1)
+  disconnects.push(src)
+
+  src.connect(finalGain)
+  finalGain.connect(bus.input)
+  disconnects.push(finalGain)
+
+  let totalTime = tOff - t + release + 0.2
+  setTimeout(() => {
+    let di = 0
+    while (di < disconnects.length) {
+      disconnects[di].disconnect()
+      di = di + 1
+    }
+  }, totalTime * 1000)
+}

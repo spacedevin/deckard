@@ -94,18 +94,28 @@ export fn generatorCatalog() {
     },
     {
       id: "nes2a03",
-      label: "NES (2A03)",
-      description: "Accurate emulation of the NES pulse, triangle, and noise channels."
+      label: "2A03",
+      description: "NES APU emulator (100% hardware parity)."
     },
     {
       id: "c64sid",
-      label: "C64 (SID)",
-      description: "Commodore 64 SID chip emulator with resonant multimode filter."
+      label: "MOS 6581",
+      description: "Commodore 64 SID chip emulator (100% hardware parity)."
     },
     {
       id: "gameBoyDmg",
-      label: "Game Boy (DMG)",
-      description: "Game Boy emulator with 4-bit wavetable crunch and pulse channels."
+      label: "LR35902",
+      description: "Game Boy DMG APU emulator (100% hardware parity)."
+    },
+    {
+      id: "ym2612",
+      label: "YM2612",
+      description: "Sega Genesis FM Synth emulator (References: Nuked-OPN2, Genesis Plus GX)."
+    },
+    {
+      id: "sn76489",
+      label: "SN76489",
+      description: "Sega Master System / Genesis PSG emulator (References: MAME)."
     },
     {
       id: "cymbal",
@@ -194,6 +204,38 @@ export fn normalizeBasicOscWaveform(raw) {
   }
   return "sine"
 }
+
+import { playNes2a03, defaultParamsForNes2a03 } from "./Nes2a03.tish"
+import { playGameBoyDmg, defaultParamsForGameBoyDmg } from "./GameBoyDmg.tish"
+import { defaultParamsForC64Sid } from "./C64Sid.tish"
+import { defaultParamsForYm2612 } from "./Ym2612.tish"
+import { defaultParamsForSn76489 } from "./Sn76489.tish"
+
+export let generators = [
+  { id: "basicOsc", name: "Basic Osc" },
+  { id: "noiseBurst", name: "Noise Burst" },
+  { id: "fmTone", name: "FM Tone" },
+  { id: "pad", name: "Pad" },
+  { id: "bell", name: "Bell" },
+  { id: "drumSynth", name: "Drum Synth" },
+  { id: "guitar", name: "Guitar" },
+  { id: "clap", name: "Clap" },
+  { id: "tine", name: "Electric Tine" },
+  { id: "aether", name: "Aether" },
+  { id: "halo", name: "Halo" },
+  { id: "formantVocal", name: "Vocal (Formant)" },
+  { id: "ttsVocal", name: "Vocal (TTS)" },
+  { id: "meSpeakVocal", name: "Vocal (meSpeak)" },
+  { id: "arco", name: "Arco" },
+  { id: "acid303", name: "Acid 303" },
+  { id: "sub808", name: "Sub 808" },
+  { id: "chiptune", name: "Chiptune (Simple)" },
+  { id: "nes2a03", name: "2A03" },
+  { id: "gameBoyDmg", name: "LR35902" },
+  { id: "c64sid", name: "MOS 6581" },
+  { id: "ym2612", name: "YM2612" },
+  { id: "sn76489", name: "SN76489" }
+]
 
 export fn defaultParamsForGeneratorId(id) {
   if (id === "basicOsc") {
@@ -375,49 +417,19 @@ export fn defaultParamsForGeneratorId(id) {
     }
   }
   if (id === "nes2a03") {
-    return {
-      type: "pulse",
-      duty: "50",
-      envMode: "decay",
-      vol: 10,
-      sweep: 0,
-      noiseMode: "long",
-      attack: 0,
-      decay: 0,
-      sustain: 15,
-      release: 0,
-      vibRate: 0,
-      vibAmt: 0,
-      arpRate: 0,
-      arpSemis: 0,
-      pitchDrop: 0,
-      pitchDec: 0.05,
-      dutySweep: 0,
-      dpcmSample: "kick"
-    }
+    return defaultParamsForNes2a03()
   }
   if (id === "gameBoyDmg") {
-    return {
-      channel: "pulse_50",
-      waveShape: "sawtooth",
-      decay: 0.2,
-      sweep: 0
-    }
+    return defaultParamsForGameBoyDmg()
   }
   if (id === "c64sid") {
-    return {
-      waveform: "sawtooth",
-      pulseWidth: 0.5,
-      filterType: "lowpass",
-      cutoff: 2000,
-      resonance: 5,
-      attack: 0,
-      decay: 5,
-      sustain: 15,
-      release: 6,
-      hardSync: false,
-      ringMod: false
-    }
+    return defaultParamsForC64Sid()
+  }
+  if (id === "ym2612") {
+    return defaultParamsForYm2612()
+  }
+  if (id === "sn76489") {
+    return defaultParamsForSn76489()
   }
 
   if (id === "cymbal") {

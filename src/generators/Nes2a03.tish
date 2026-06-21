@@ -1,6 +1,29 @@
 // NES 2A03 APU Emulator (100% Hardware Parity)
 // Uses exact hardware waveforms via AudioBuffers for exact aliasing and quantization.
 
+export fn defaultParamsForNes2a03() {
+  return {
+    type: "pulse",
+    duty: "50",
+    envMode: "decay",
+    vol: 10,
+    sweep: 0,
+    noiseMode: "long",
+    attack: 0,
+    decay: 0,
+    sustain: 15,
+    release: 0,
+    vibRate: 0,
+    vibAmt: 0,
+    arpRate: 0,
+    arpSemis: 0,
+    pitchDrop: 0,
+    pitchDec: 0.05,
+    dutySweep: 0,
+    dpcmSample: "kick"
+  }
+}
+
 fn getNesPulseBuffer(ctx, duty) {
   let cacheKey = "nesPulse_" + duty
   if (ctx[cacheKey]) return ctx[cacheKey]
@@ -142,6 +165,18 @@ export fn playNes2a03(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
     f1 = f1 / 2.0
   }
 
+  // Enforce APU 11-bit Period limits (CPU clock = 1789773 Hz)
+  let minFreqPulse = 1789773 / (16 * 2048) // ~54.6 Hz
+  let minFreqTri = 1789773 / (32 * 2048)   // ~27.3 Hz
+  
+  if (isTriangle) {
+    if (f0 < minFreqTri) f0 = minFreqTri
+    if (f1 < minFreqTri) f1 = minFreqTri
+  } else if (!isNoise && !isDpcm) {
+    if (f0 < minFreqPulse) f0 = minFreqPulse
+    if (f1 < minFreqPulse) f1 = minFreqPulse
+  }
+
   let src = ctx.createBufferSource()
   src.loop = true
 
@@ -160,8 +195,17 @@ export fn playNes2a03(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let rate0 = 1.0
   let rate1 = 1.0
   if (isNoise) {
-    rate0 = f0 / 440
-    rate1 = f1 / 440
+    // NES Noise channel has exactly 16 discrete hardware periods
+    let noisePeriods = [4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068]
+    // Map the 128 MIDI keys evenly across the 16 hardware periods (8 keys per period)
+    let noiseIdx = 15 - Math.floor(Math.min(127, Math.max(0, midi)) / 8)
+    if (noiseIdx < 0) noiseIdx = 0
+    if (noiseIdx > 15) noiseIdx = 15
+    let pTimer = noisePeriods[noiseIdx]
+    
+    // Cycle-accurate playback rate calculation
+    rate0 = (1789773 / pTimer) / ctx.sampleRate
+    rate1 = rate0
   } else if (isDpcm) {
     rate0 = Math.pow(2, (midi + bendSemis - 60) / 12)
     rate1 = rate0
