@@ -276,6 +276,15 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
           ch.arp = raw
         } else if (k === "chord") {
           ch.chord = raw
+        } else if (k === "arprate") {
+          ch.arpRate = raw
+        } else if (k === "inversion") {
+          ch.inversion = raw
+        } else if (k === "strum") {
+          let s = Number(raw)
+          if (s === s) {
+            ch.strum = s
+          }
         }
         vi = vi + 2
       }

@@ -79,10 +79,20 @@ fn voiceLine(ch, param, value) {
   let oct = ch.octave != null ? Math.floor(ch.octave) : 0
   let arp = (ch.arp != null && ch.arp !== "") ? ch.arp : "off"
   let chord = (ch.chord != null && ch.chord !== "") ? ch.chord : "off"
+  let arpRate = (ch.arpRate != null && ch.arpRate !== "") ? ch.arpRate : "auto"
+  let inversion = (ch.inversion != null && ch.inversion !== "") ? ch.inversion : "root"
+  let strum = ch.strum != null ? ch.strum : 0
   if (param === "octave") { oct = Math.floor(Number(value)) }
   else if (param === "arp") { arp = String(value) }
   else if (param === "chord") { chord = String(value) }
-  return "  voice octave " + String(oct) + " arp " + arp + " chord " + chord
+  else if (param === "arprate") { arpRate = String(value) }
+  else if (param === "inversion") { inversion = String(value) }
+  else if (param === "strum") { strum = Number(value) }
+  let line = "  voice octave " + String(oct) + " arp " + arp + " chord " + chord
+  if (arpRate !== "auto") line = line + " arprate " + arpRate
+  if (inversion !== "root") line = line + " inversion " + inversion
+  if (strum !== 0) line = line + " strum " + String(Math.round(strum * 1000) / 1000)
+  return line
 }
 
 fn stepsLine(value) {
@@ -370,6 +380,9 @@ export fn readAddr(project, address) {
       if (p === "octave") { return ch.octave != null ? Math.floor(ch.octave) : 0 }
       if (p === "arp") { return (ch.arp != null && ch.arp !== "") ? ch.arp : "off" }
       if (p === "chord") { return (ch.chord != null && ch.chord !== "") ? ch.chord : "off" }
+      if (p === "arprate") { return (ch.arpRate != null && ch.arpRate !== "") ? ch.arpRate : "auto" }
+      if (p === "inversion") { return (ch.inversion != null && ch.inversion !== "") ? ch.inversion : "root" }
+      if (p === "strum") { return ch.strum != null ? ch.strum : 0 }
     }
     // Generator params (every instrument knob: waveform/ratio/cutoff/attack/decay/sustain/release/…) — the
     // current value lives in ch.generatorParams keyed CAMEL-case; the address param is TPL snake_case. Returning

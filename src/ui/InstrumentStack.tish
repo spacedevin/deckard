@@ -171,8 +171,17 @@ fn fieldAddress(field) {
   if (field === "arp") {
     return "voice/arp"
   }
+  if (field === "arpRate") {
+    return "voice/arprate"
+  }
+  if (field === "inversion") {
+    return "voice/inversion"
+  }
   if (field === "chord") {
     return "voice/chord"
+  }
+  if (field === "strum") {
+    return "voice/strum"
   }
   if (field === "reverbSend") {
     return "fx/reverb"
@@ -197,7 +206,23 @@ fn fieldAddress(field) {
 
 // Stepped selector knob for the Pitch module: a discrete dial with one detent dot per option,
 // the current one lit. octaveKnob is numeric (emits the octave directly); selectorKnob maps a
-// string option list to an index dial and emits the option value through the same gated voice door.
+// label index to a string. msKnob is a continuous dial for millisecond values.
+
+fn msKnob(label, ch, field, maxMs, rt, accent) {
+  let ms = ch[field] != null ? ch[field] : 0
+  return Knob({
+    label: label,
+    value: ms, min: 0, max: maxMs, step: 1,
+    disp: String(Math.round(ms)) + "ms",
+    accent: accent,
+    onInput: (nv) => {
+      if (rt && rt.emit) {
+        rt.emit("track/" + ch.id + "/" + fieldAddress(field), nv)
+      }
+    }
+  })
+}
+
 export fn octaveKnob(ch, rt, accent) {
   let cur = ch.octave != null ? ch.octave : 0
   return Knob({
@@ -396,16 +421,21 @@ fn PitchModule(ctx) {
   let rt = ctx.rt
   let accent = accentForGenerator(ch.generatorId)
   let arpDefs = [["Off", "off"], ["Up", "up"], ["Down", "down"], ["Up-Down", "updown"], ["Random", "random"]]
+  let arpRateDefs = [["Auto", "auto"], ["1/8", "1/8"], ["1/16", "1/16"], ["1/32", "1/32"]]
   let chordDefs = [["Off", "off"], ["Major", "major"], ["Minor", "minor"], ["Dom7", "dom7"], ["Maj7", "maj7"], ["Min7", "min7"], ["Dim", "dim"], ["Aug", "aug"], ["Sus4", "sus4"], ["Add9", "add9"]]
+  let invDefs = [["Root", "root"], ["1st", "1st"], ["2nd", "2nd"]]
   return ModuleCard(
     "Pitch",
     "→ voice",
     "voice",
     ctx,
-    <div class="instr-pitch-knobs">
+    <div class="instr-pitch-knobs" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
       {octaveKnob(ch, rt, accent)}
-      {selectorKnob("Arp", ch, "arp", arpDefs, rt, accent)}
       {selectorKnob("Chord", ch, "chord", chordDefs, rt, accent)}
+      {selectorKnob("Inv", ch, "inversion", invDefs, rt, accent)}
+      {selectorKnob("Arp", ch, "arp", arpDefs, rt, accent)}
+      {selectorKnob("Rate", ch, "arpRate", arpRateDefs, rt, accent)}
+      {msKnob("Strum", ch, "strum", 150, rt, accent)}
     </div>
   )
 }

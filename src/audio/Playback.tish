@@ -84,7 +84,7 @@ export fn stepTriggers(project, rt, globalStep) {
           if (ratchet > 8) {
             ratchet = 8
           }
-          let notes = expandTriggerNotes(ch, projectSnapPitch(project, n.pitch), ratchet > 1 ? sec / ratchet : sec)
+          let notes = expandTriggerNotes(ch, projectSnapPitch(project, n.pitch), ratchet > 1 ? sec / ratchet : sec, project.bpm)
           let rj = 0
           while (rj < ratchet) {
             let ratSec = ratchet > 1 ? (rj * sec / ratchet) : 0
@@ -132,7 +132,7 @@ export fn stepTriggers(project, rt, globalStep) {
         if (ratchet > 8) {
           ratchet = 8
         }
-        let notes = expandTriggerNotes(ch, projectSnapPitch(project, basePitch), ratchet > 1 ? dur / ratchet : dur)
+        let notes = expandTriggerNotes(ch, projectSnapPitch(project, basePitch), ratchet > 1 ? dur / ratchet : dur, project.bpm)
         let rj = 0
         while (rj < ratchet) {
           let ratSec = ratchet > 1 ? (rj * stepSec / ratchet) : 0

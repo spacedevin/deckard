@@ -308,6 +308,17 @@ export fn emitProjectInner(project, skipSync) {
     if (ch.chord != null && ch.chord !== "" && ch.chord !== "off") {
       voiceParts = voiceParts + " chord " + String(ch.chord)
     }
+    if (ch.arpRate != null && ch.arpRate !== "auto") {
+      voiceParts = voiceParts + " arprate " + String(ch.arpRate)
+    }
+    if (ch.inversion != null && ch.inversion !== "root") {
+      voiceParts = voiceParts + " inversion " + String(ch.inversion)
+    }
+    if (ch.strum != null) {
+      let s = ch.strum
+      let sStr = String(Math.round(s * 1000) / 1000)
+      voiceParts = voiceParts + " strum " + sStr
+    }
     if (voiceParts.length > 0) {
       o = o + "  voice" + voiceParts + "\n"
     }

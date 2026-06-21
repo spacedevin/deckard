@@ -20,6 +20,12 @@ export fn generatorChannelAtBeat(project, ch, beat) {
   return {
     generatorId: ch.generatorId,
     generatorParams: gp,
-    generatorSpec: ch.generatorSpec
+    generatorSpec: ch.generatorSpec,
+    octave: ch.octave,
+    arp: ch.arp,
+    arpRate: ch.arpRate,
+    chord: ch.chord,
+    inversion: ch.inversion,
+    strum: ch.strum
   }
 }
