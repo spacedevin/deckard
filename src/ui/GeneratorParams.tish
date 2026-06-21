@@ -781,6 +781,110 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
       </article>
     )
   }
+  if (id === "acid303") {
+    let wave = p.waveform != null ? p.waveform : "sawtooth"
+    let cutoff = p.cutoff != null ? p.cutoff : 800
+    let res = p.resonance != null ? p.resonance : 15
+    let envMod = p.envMod != null ? p.envMod : 4000
+    let decay = p.decay != null ? p.decay : 0.4
+    return (
+      <article class="gen-params ik-cols">
+        {waveCard("Wave", wave, "waveform", rt, ch, accent)}
+        <div class="ik-card">
+          <div class="ik-card-h">{"Filter & Env"}</div>
+          <div class="ik-knob-grid">
+            {freqKnob("Cutoff", cutoff, rt, ch, "cutoff", accent)}
+            {numKnob("Resonance", res, 1, 30, 0.5, "", rt, ch, "resonance", accent)}
+            {freqKnob("Env Mod", envMod, rt, ch, "envMod", accent)}
+            {msKnob("Decay", decay, 1.5, rt, ch, "decay", accent)}
+          </div>
+        </div>
+      </article>
+    )
+  }
+  if (id === "sub808") {
+    let punch = p.punch != null ? p.punch : 60
+    let decay = p.decay != null ? p.decay : 1.2
+    let drive = p.drive != null ? p.drive : 0
+    let glide = p.glide != null ? p.glide : 0.05
+    return (
+      <article class="gen-params ik-cols">
+        <div class="ik-card">
+          <div class="ik-card-h">{"Sub Bass"}</div>
+          <div class="ik-knob-grid">
+            {numKnob("Punch", punch, 0, 300, 1, "Hz", rt, ch, "punch", accent)}
+            {msKnob("Decay", decay, 3.0, rt, ch, "decay", accent)}
+            {numKnob("Drive", drive, 0, 100, 1, "%", rt, ch, "drive", accent)}
+            {msKnob("Glide", glide, 0.5, rt, ch, "glide", accent)}
+          </div>
+        </div>
+      </article>
+    )
+  }
+  if (id === "chiptune") {
+    let pw = p.pulseWidth != null ? p.pulseWidth : 0.5
+    let pwmSpeed = p.pwmSpeed != null ? p.pwmSpeed : 0
+    let crush = p.bitcrush != null ? p.bitcrush : 0
+    let decay = p.decay != null ? p.decay : 0.3
+    return (
+      <article class="gen-params ik-cols">
+        <div class="ik-card">
+          <div class="ik-card-h">{"Pulse Wave"}</div>
+          <div class="ik-knob-grid">
+            {pctKnob("Width", pw, rt, ch, "pulseWidth", accent)}
+            {numKnob("PWM Speed", pwmSpeed, 0, 10, 0.1, "Hz", rt, ch, "pwmSpeed", accent)}
+            {pctKnob("Crush", crush, rt, ch, "bitcrush", accent)}
+            {msKnob("Decay", decay, 1.5, rt, ch, "decay", accent)}
+          </div>
+        </div>
+      </article>
+    )
+  }
+  if (id === "cymbal") {
+    let tune = p.tune != null ? p.tune : 300
+    let metallic = p.metallic != null ? p.metallic : 0.8
+    let decay = p.decay != null ? p.decay : 0.4
+    let highpass = p.highpass != null ? p.highpass : 7000
+    return (
+      <article class="gen-params ik-cols">
+        <div class="ik-card">
+          <div class="ik-card-h">{"808 Cymbal"}</div>
+          <div class="ik-knob-grid">
+            {freqKnob("Tune", tune, rt, ch, "tune", accent)}
+            {pctKnob("Metallic", metallic, rt, ch, "metallic", accent)}
+            {msKnob("Decay", decay, 2.0, rt, ch, "decay", accent)}
+            {freqKnob("Highpass", highpass, rt, ch, "highpass", accent)}
+          </div>
+        </div>
+      </article>
+    )
+  }
+  if (id === "reeseBass") {
+    let voices = p.voices != null ? p.voices : 3
+    let detune = p.detune != null ? p.detune : 30
+    let cutoff = p.cutoff != null ? p.cutoff : 1500
+    let wobble = p.wobble != null ? p.wobble : 0
+    let decay = p.decay != null ? p.decay : 1.0
+    return (
+      <article class="gen-params ik-cols">
+        <div class="ik-card">
+          <div class="ik-card-h">{"Supersaw"}</div>
+          <div class="ik-knob-grid">
+            {numKnob("Voices", voices, 1, 7, 1, "", rt, ch, "voices", accent)}
+            {numKnob("Detune", detune, 0, 100, 1, "¢", rt, ch, "detune", accent)}
+          </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"Filter"}</div>
+          <div class="ik-knob-grid">
+            {freqKnob("Cutoff", cutoff, rt, ch, "cutoff", accent)}
+            {numKnob("Wobble", wobble, 0, 10, 0.1, "Hz", rt, ch, "wobble", accent)}
+            {msKnob("Decay", decay, 3.0, rt, ch, "decay", accent)}
+          </div>
+        </div>
+      </article>
+    )
+  }
   if (id === "matrixFm") {
     if (
       !ch.generatorSpec ||

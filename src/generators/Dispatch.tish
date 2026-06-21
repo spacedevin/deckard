@@ -15,6 +15,11 @@ import { playFormantVocal } from './FormantVocal.tish'
 import { playTtsVocal } from './TtsVocal.tish'
 import { playMeSpeakVocal } from './MeSpeakVocal.tish'
 import { playPatch } from './Patch.tish'
+import { playAcid303 } from './Acid303.tish'
+import { playSub808 } from './Sub808.tish'
+import { playChiptune } from './Chiptune.tish'
+import { playCymbal } from './Cymbal.tish'
+import { playReeseBass } from './ReeseBass.tish'
 
 export fn dispatchPlayNote(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric) {
   if (!bus || !bus.input) {
@@ -85,6 +90,26 @@ export fn dispatchPlayNote(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
   }
   if (id === "meSpeakVocal") {
     playMeSpeakVocal(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
+    return
+  }
+  if (id === "acid303") {
+    playAcid303(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+  if (id === "sub808") {
+    playSub808(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+  if (id === "chiptune") {
+    playChiptune(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+  if (id === "cymbal") {
+    playCymbal(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+  if (id === "reeseBass") {
+    playReeseBass(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
     return
   }
   if (id === "patch") {

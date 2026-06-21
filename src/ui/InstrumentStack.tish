@@ -29,21 +29,22 @@ import { MacroDesignerPanel } from './MacroDesignerPanel.tish'
 import { RichTplEditor } from './RichTplEditor.tish'
 
 let VOICE_GROUPS = [
-  { title: "Oscillators", voices: [["basicOsc", "Osc"], ["fmTone", "FM"]] },
+  { title: "Oscillators", voices: [["basicOsc", "Osc"], ["fmTone", "FM"], ["chiptune", "Chiptune"]] },
   { title: "Texture", voices: [["noiseBurst", "Noise"], ["pad", "Pad"], ["bell", "Bell"]] },
   { title: "Strings", voices: [["guitar", "Guitar"], ["arco", "Arco"]] },
   { title: "Keys", voices: [["tine", "Tine EP"]] },
   { title: "Mallets", voices: [["halo", "Halo"]] },
   { title: "Vox", voices: [["formantVocal", "Formant"], ["ttsVocal", "TTS"], ["meSpeakVocal", "meSpeak"]] },
   { title: "Lead", voices: [["aether", "Aether"]] },
-  { title: "Percussion", voices: [["drumSynth", "Drum"], ["clap", "Clap"]] },
+  { title: "Percussion", voices: [["drumSynth", "Drum"], ["clap", "Clap"], ["cymbal", "Cymbal"]] },
   { title: "Modular", voices: [["matrixFm", "Matrix FM"], ["patch", "Patch"]] },
   { title: "Kick designer", voices: [["kick_edm", "EDM"], ["kick_deep", "Deep"], ["kick_distorted", "Distort"]] },
   {
     title: "Bass designer",
     voices: [
-      ["bass_acid", "Acid"],
-      ["bass_reese", "Reese"],
+      ["acid303", "Acid 303"],
+      ["sub808", "Sub 808"],
+      ["reeseBass", "Reese Bass"],
       ["bass_reese_punch", "Punch"],
       ["bass_reese_sc", "Reese SC"],
       ["bass_wobble", "Wobble"]

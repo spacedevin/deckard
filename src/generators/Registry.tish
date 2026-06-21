@@ -78,6 +78,31 @@ export fn generatorCatalog() {
       description: "Web Speech API Text-to-Speech engine for robotic vocal sequences."
     },
     {
+      id: "acid303",
+      label: "Acid Synth",
+      description: "Classic 303-style bassline with resonant filter and envMod sweep."
+    },
+    {
+      id: "sub808",
+      label: "Sub 808",
+      description: "Heavy sine wave sub-bass with punch and drive saturation."
+    },
+    {
+      id: "chiptune",
+      label: "Chiptune",
+      description: "Retro 8-bit pulse-width modulation and decimation crush."
+    },
+    {
+      id: "cymbal",
+      label: "Cymbal",
+      description: "TR-808 style cymbal cluster (6 tuned squares + noise + highpass)."
+    },
+    {
+      id: "reeseBass",
+      label: "Reese Bass",
+      description: "Thick, multi-oscillator detuned Supersaw bass with filter wobble."
+    },
+    {
       id: "meSpeakVocal",
       label: "meSpeak Vocal",
       description: "Retro robotic TTS using meSpeak.js with sample-accurate timing."
@@ -280,6 +305,48 @@ export fn defaultParamsForGeneratorId(id) {
       wordgap: 0,
       variant: "m1",
       amplitude: 100
+    }
+  }
+  if (id === "acid303") {
+    return {
+      waveform: "sawtooth",
+      cutoff: 800,
+      resonance: 15,
+      envMod: 4000,
+      decay: 0.4
+    }
+  }
+  if (id === "sub808") {
+    return {
+      punch: 60,
+      decay: 1.2,
+      drive: 0,
+      glide: 0.05
+    }
+  }
+  if (id === "chiptune") {
+    return {
+      pulseWidth: 0.5,
+      pwmSpeed: 0,
+      bitcrush: 0,
+      decay: 0.3
+    }
+  }
+  if (id === "cymbal") {
+    return {
+      tune: 300,
+      metallic: 0.8,
+      decay: 0.4,
+      highpass: 7000
+    }
+  }
+  if (id === "reeseBass") {
+    return {
+      voices: 3,
+      detune: 30,
+      cutoff: 1500,
+      wobble: 0,
+      decay: 1.0
     }
   }
   if (id === "patch") {

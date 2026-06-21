@@ -1,0 +1,48 @@
+import { normalizeBasicOscWaveform } from './Registry.tish'
+
+export fn playAcid303(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  let gp = ch.generatorParams ? ch.generatorParams : {}
+  let wave = normalizeBasicOscWaveform(gp.waveform != null ? gp.waveform : "sawtooth")
+  let cutoff = gp.cutoff != null ? gp.cutoff : 800
+  let res = gp.resonance != null ? gp.resonance : 15
+  let envMod = gp.envMod != null ? gp.envMod : 4000
+  let decay = gp.decay != null ? gp.decay : 0.4
+
+  let f0 = 440 * Math.pow(2, (midi + bendSemis - 69) / 12)
+  let v = vel / 127
+  if (v < 0) v = 0
+  if (v > 1) v = 1
+
+  let osc = ctx.createOscillator()
+  osc.type = wave
+  osc.frequency.value = f0
+
+  let filter = ctx.createBiquadFilter()
+  filter.type = "lowpass"
+  filter.Q.value = res
+
+  let gain = ctx.createGain()
+
+  osc.connect(filter)
+  filter.connect(gain)
+  gain.connect(bus.input)
+
+  // Filter envelope
+  filter.frequency.setValueAtTime(cutoff + envMod * v, t)
+  filter.frequency.setTargetAtTime(cutoff, t + 0.01, decay / 3)
+
+  // Amp envelope
+  gain.gain.setValueAtTime(0, t)
+  gain.gain.linearRampToValueAtTime(v * 0.8, t + 0.01)
+  gain.gain.setTargetAtTime(0, t + 0.01, decay / 3)
+
+  osc.start(t)
+  osc.stop(t + decay + 0.5)
+
+  // Cleanup
+  setTimeout(() => {
+    osc.disconnect()
+    filter.disconnect()
+    gain.disconnect()
+  }, (decay + 1) * 1000)
+}

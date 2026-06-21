@@ -1,0 +1,93 @@
+export fn playChiptune(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  let gp = ch.generatorParams ? ch.generatorParams : {}
+  let pw = gp.pulseWidth != null ? gp.pulseWidth : 0.5
+  let pwmSpeed = gp.pwmSpeed != null ? gp.pwmSpeed : 0
+  let crush = gp.bitcrush != null ? gp.bitcrush : 0
+  let decay = gp.decay != null ? gp.decay : 0.3
+
+  let f0 = 440 * Math.pow(2, (midi + bendSemis - 69) / 12)
+  let v = vel / 127
+  if (v < 0) v = 0
+  if (v > 1) v = 1
+
+  let osc1 = ctx.createOscillator()
+  osc1.type = "sawtooth"
+  osc1.frequency.value = f0
+
+  let osc2 = ctx.createOscillator()
+  osc2.type = "sawtooth"
+  osc2.frequency.value = f0
+
+  let invGain = ctx.createGain()
+  invGain.gain.value = -1
+
+  // Delay the second oscillator to shift phase, creating the pulse width
+  // A delay of 1 / f0 represents a full cycle (1.0 pulse width)
+  // We constrain pulse width between 0.05 and 0.95
+  let delayNode = ctx.createDelay()
+  let maxDelay = 1 / Math.max(f0, 10)
+  delayNode.delayTime.value = maxDelay * Math.max(0.05, Math.min(pw, 0.95))
+
+  if (pwmSpeed > 0) {
+    let lfo = ctx.createOscillator()
+    lfo.type = "sine"
+    lfo.frequency.value = pwmSpeed
+    let lfoGain = ctx.createGain()
+    // modulate pulse width by +/- 25%
+    lfoGain.gain.value = maxDelay * 0.25
+    lfo.connect(lfoGain)
+    lfoGain.connect(delayNode.delayTime)
+    lfo.start(t)
+    lfo.stop(t + decay + 0.5)
+    setTimeout(() => { lfo.disconnect(); lfoGain.disconnect() }, (decay + 1) * 1000)
+  }
+
+  let mergeGain = ctx.createGain()
+  mergeGain.gain.value = 0.5 // mix down the two saws
+
+  osc1.connect(mergeGain)
+  osc2.connect(invGain)
+  invGain.connect(delayNode)
+  delayNode.connect(mergeGain)
+
+  let finalGain = ctx.createGain()
+  finalGain.gain.setValueAtTime(0, t)
+  finalGain.gain.linearRampToValueAtTime(v * 0.8, t + 0.01)
+  finalGain.gain.setTargetAtTime(0, t + 0.01, decay / 3)
+
+  let shaper = null
+  if (crush > 0) {
+    shaper = ctx.createWaveShaper()
+    let steps = Math.max(2, Math.floor(16 - crush * 14)) // 16 bits down to 2 bits
+    let n = 4096
+    let curve = new Float32Array(n)
+    let i = 0
+    while (i < n) {
+      let x = (i * 2 / n) - 1
+      curve[i] = Math.round(x * steps) / steps
+      i = i + 1
+    }
+    shaper.curve = curve
+    mergeGain.connect(shaper)
+    shaper.connect(finalGain)
+  } else {
+    mergeGain.connect(finalGain)
+  }
+
+  finalGain.connect(bus.input)
+
+  osc1.start(t)
+  osc2.start(t)
+  osc1.stop(t + decay + 0.5)
+  osc2.stop(t + decay + 0.5)
+
+  setTimeout(() => {
+    osc1.disconnect()
+    osc2.disconnect()
+    invGain.disconnect()
+    delayNode.disconnect()
+    mergeGain.disconnect()
+    if (shaper) shaper.disconnect()
+    finalGain.disconnect()
+  }, (decay + 1) * 1000)
+}
