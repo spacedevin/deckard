@@ -565,9 +565,42 @@ export fn graftRackOntoDeck(project, deckId, rackTpl, keepClips) {
   // Parse the rack into a throwaway project, then graft its channels onto this deck.
   let tmp = emptyProjectShell()
   applyTplSource(tmp, rackTpl)
+  if (tmp.session && tmp.session.sceneCount > 0) {
+    if (tmp.session.sceneCount > project.session.sceneCount) {
+      project.session.sceneCount = tmp.session.sceneCount
+    }
+  }
+
+  if (tmp.session && tmp.session.follow && tmp.session.follow.length > 0) {
+    let fi = 0
+    if (!project.session.follow) {
+      project.session.follow = []
+    }
+    while (fi < tmp.session.follow.length) {
+      let f = tmp.session.follow[fi]
+      if (f) {
+        while (project.session.follow.length <= f.scene) {
+          project.session.follow.push(null)
+        }
+        project.session.follow[f.scene] = { action: f.action, target: f.target }
+      }
+      fi = fi + 1
+    }
+  }
+
+  if (tmp.bpm > 0 && tmp.bpm !== 120) {
+    project.bpm = tmp.bpm
+  }
+  if (tmp.swing > 0) {
+    project.swing = tmp.swing
+  }
+
+  let loadedSlots = {}
+
   let k = 0
   while (k < tmp.channels.length) {
     let ch = tmp.channels[k]
+    let origId = ch.id
     ch.id = prefix + ch.id
     ch.actorLane = lane
     ch.deck = deckField
@@ -583,6 +616,20 @@ export fn graftRackOntoDeck(project, deckId, rackTpl, keepClips) {
       // Catalog racks have no clips; rebuild empty so the main clip id matches the channel.
       ch.sessionClips = []
     }
+    
+    let chSlots = tmp.session && tmp.session.slots && k < tmp.session.slots.length ? tmp.session.slots[k] : []
+    let prefixChSlots = []
+    let csi = 0
+    while (csi < chSlots.length) {
+      if (chSlots[csi] && chSlots[csi].length > 0) {
+        prefixChSlots.push(prefix + chSlots[csi])
+      } else {
+        prefixChSlots.push("")
+      }
+      csi = csi + 1
+    }
+    loadedSlots[ch.id] = prefixChSlots
+
     project.channels.push(ch)
     k = k + 1
   }
@@ -607,7 +654,7 @@ export fn graftRackOntoDeck(project, deckId, rackTpl, keepClips) {
     let ci = 0
     while (ci < project.channels.length) {
       let cid = project.channels[ci].id
-      newSlots.push(prevSlots[cid] != null ? prevSlots[cid] : [])
+      newSlots.push(prevSlots[cid] != null ? prevSlots[cid] : (loadedSlots[cid] != null ? loadedSlots[cid] : []))
       ci = ci + 1
     }
     project.session.slots = newSlots

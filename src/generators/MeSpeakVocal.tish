@@ -1,30 +1,62 @@
 
 
-let mespeakInitialized = false
-let mespeakInitializing = false
+let worker = null
+let workerInitialized = false
+let ttsCache = {}
+let ttsCacheKeys = []
+let loadedVoices = {}
+let lastSpeakCall = 0
+let lastCtx = null
 
-fn initMeSpeak() {
-  if (mespeakInitialized || mespeakInitializing) {
-    return
+fn initWorker() {
+  if (worker) return
+  if (typeof window === "undefined" || typeof Worker === "undefined") return
+  
+  worker = new Worker('/mespeak-worker.js')
+  worker.onmessage = (e) => {
+    let d = e.data
+    if (d.type === 'init_done') {
+      workerInitialized = true
+    } else if (d.type === 'voice_done') {
+      loadedVoices[d.voiceId] = 'ready'
+    } else if (d.type === 'speak_done') {
+      let cacheKey = d.key
+      if (d.buffer && lastCtx) {
+        lastCtx.decodeAudioData(d.buffer, (audioBuf) => {
+          if (ttsCache[cacheKey]) {
+            ttsCache[cacheKey] = { isReady: true, buffer: audioBuf }
+          }
+        }, (err) => {
+          console.log("decodeAudioData error", err)
+          delete ttsCache[cacheKey]
+        })
+      } else {
+        delete ttsCache[cacheKey]
+      }
+    } else if (d.type === 'worker_tired') {
+      console.log("Recycling meSpeak worker to prevent WASM heap exhaustion")
+      worker.terminate()
+      worker = null
+      workerInitialized = false
+      loadedVoices = {}
+      initWorker()
+    }
   }
-  if (typeof window === "undefined") {
-    return
+  worker.onerror = (e) => {
+    console.warn("MeSpeak worker crashed or OOM. Restarting...", e)
+    worker.terminate()
+    worker = null
+    workerInitialized = false
+    loadedVoices = {}
+    initWorker()
   }
-  mespeakInitializing = true
+  
   fetch('/mespeak/mespeak_config.json')
     .then((r) => r.json())
     .then((cfg) => {
-      window.meSpeak.loadConfig(cfg)
-      mespeakInitialized = true
-      mespeakInitializing = false
-    }, (e) => {
-      console.log("window.meSpeak init error", e)
-      mespeakInitializing = false
+      worker.postMessage({ type: 'init', config: cfg })
     })
 }
-
-let ttsCache = {}
-let ttsCacheKeys = []
 
 fn playCachedBuffer(ctx, bus, t, v, audioBuf) {
   let src = ctx.createBufferSource()
@@ -36,11 +68,11 @@ fn playCachedBuffer(ctx, bus, t, v, audioBuf) {
   src.start(t)
 }
 
-let loadedVoices = {}
-
 export fn playMeSpeakVocal(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric) {
-  initMeSpeak()
-  if (!mespeakInitialized) {
+  lastCtx = ctx
+  initWorker()
+  
+  if (!workerInitialized) {
     return
   }
 
@@ -52,8 +84,7 @@ export fn playMeSpeakVocal(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
     fetch('/mespeak/voices/' + voicePath + '.json')
       .then((r) => r.json())
       .then((vc) => {
-        window.meSpeak.loadVoice(vc)
-        loadedVoices[voicePath] = "ready"
+        worker.postMessage({ type: 'loadVoice', voiceId: voicePath, voice: vc })
       })
   }
   
@@ -98,6 +129,12 @@ export fn playMeSpeakVocal(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
     return
   }
 
+  let now = Date.now()
+  if (now - lastSpeakCall < 150) {
+    return
+  }
+  lastSpeakCall = now
+
   if (ttsCacheKeys.length > 100) {
     let oldest = ttsCacheKeys.shift()
     delete ttsCache[oldest]
@@ -106,27 +143,18 @@ export fn playMeSpeakVocal(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
   ttsCache[cacheKey] = { isReady: false }
   ttsCacheKeys.push(cacheKey)
 
-  let wavBuf = window.meSpeak.speak(l, {
-    pitch: calculatedPitch,
-    speed: calculatedSpeed,
-    wordgap: wordgap,
-    variant: variant,
-    amplitude: amplitude,
-    voice: voicePath,
-    rawdata: true
+  worker.postMessage({
+    type: 'speak',
+    key: cacheKey,
+    text: l,
+    opts: {
+      pitch: calculatedPitch,
+      speed: calculatedSpeed,
+      wordgap: wordgap,
+      variant: variant,
+      amplitude: amplitude,
+      voice: voicePath,
+      rawdata: true
+    }
   })
-
-  if (wavBuf) {
-    // Copy the ArrayBuffer to avoid detached buffer issues when decoding multiple times
-    let copy = wavBuf.slice(0)
-    ctx.decodeAudioData(copy, (audioBuf) => {
-      ttsCache[cacheKey] = { isReady: true, buffer: audioBuf }
-      playCachedBuffer(ctx, bus, t, v, audioBuf)
-    }, (err) => {
-      console.log("decodeAudioData error", err)
-      delete ttsCache[cacheKey]
-    })
-  } else {
-    delete ttsCache[cacheKey]
-  }
 }

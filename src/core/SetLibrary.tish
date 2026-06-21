@@ -153,6 +153,18 @@ export fn emitSet(project, deckLetters) {
   while (pi < deckLetters.length) {
     let L = deckLetters[pi]
     body = body + PLAYER_MARK + " " + String(pi) + "\n"
+    
+    if (pi === 0) {
+      let b0 = 0
+      while (b0 < blocks.length) {
+        let h = blocks[b0].head
+        if (h === "session_scenes" || h === "follow" || h === "bpm" || h === "swing") {
+          body = body + blockText(blocks[b0])
+        }
+        b0 = b0 + 1
+      }
+    }
+
     let bi = 0
     while (bi < blocks.length) {
       let blk = blocks[bi]
@@ -164,6 +176,7 @@ export fn emitSet(project, deckLetters) {
       }
       bi = bi + 1
     }
+    
     let ci = 0
     while (ci < blocks.length) {
       let cb = blocks[ci]
@@ -176,6 +189,23 @@ export fn emitSet(project, deckLetters) {
       }
       ci = ci + 1
     }
+
+    let si = 0
+    while (si < blocks.length) {
+      let sb = blocks[si]
+      if (sb.head === "session_slot") {
+        let toks = wsplit(sb.header)
+        if (toks.length >= 2) {
+          let trId = toks[1]
+          let och = findChannelById(project, trId)
+          if (och && channelDeck(project, och) === L) {
+            body = body + blockText(sb)
+          }
+        }
+      }
+      si = si + 1
+    }
+
     pi = pi + 1
   }
   body = body + SONG_MARK + "\n" + emitSetArrangement(project)
