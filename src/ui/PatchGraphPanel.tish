@@ -1171,6 +1171,35 @@ export fn PatchGraphPanel(ch, project, setProject, rt, mayEdit) {
           <svg id="patch-cables" class="patch-cables" />
           <div class="patch-node-masonry">
             {orderedNodeCards}
+            {envCards}
+            <div class="patch-mod sytrus-op-card" key="voicelen">
+              <div class="patch-mod-head">
+                <span class="patch-mod-badge">{"VOICE"}</span>
+                <span class="patch-mod-id">{"length"}</span>
+              </div>
+              <div class="patch-node-body">
+                <div class="ik-knob-grid">
+                  {Knob({
+                    label: "Length",
+                    value: durIsSet ? Math.round(durVal * 1000) : 0,
+                    min: 0,
+                    max: 2000,
+                    step: 1,
+                    accent: accent,
+                    fmt: (v) => Math.round(v) === 0 ? "Auto" : String(Math.round(v)) + " ms",
+                    onInput: (v) => {
+                      if (Math.round(v) === 0) {
+                        g.dur = null
+                      } else {
+                        g.dur = v / 1000
+                      }
+                      liveEdit()
+                    },
+                    onCommit: () => commitEdit()
+                  })}
+                </div>
+              </div>
+            </div>
             <div class="patch-sink patch-sink-out" id="pmsink-out" key="pmsink-out">
               <span class="patch-sink-label">{"▶ OUT"}</span>
             </div>
@@ -1180,12 +1209,6 @@ export fn PatchGraphPanel(ch, project, setProject, rt, mayEdit) {
               </div>
             ) : null}
           </div>
-          {g.envs.length > 0 ? (
-            <div class="patch-env-row">
-              <span class="patch-env-row-label">{editMode ? "Envelopes — wire each to its target" : "Envelopes — cables shown in Edit"}</span>
-              <div class="patch-env-row-cards">{envCards}</div>
-            </div>
-          ) : null}
         </div>
       )}
 
@@ -1198,32 +1221,6 @@ export fn PatchGraphPanel(ch, project, setProject, rt, mayEdit) {
           <div class="sytrus-routes">{orphans}</div>
         </section>
       ) : null}
-
-      <section class="sytrus-section patch-voicelen">
-        <div class="sytrus-section-h">
-          <span>{"Voice length"}</span>
-        </div>
-        <div class="ik-knob-grid">
-          {Knob({
-            label: "Length",
-            value: durIsSet ? Math.round(durVal * 1000) : 0,
-            min: 0,
-            max: 2000,
-            step: 1,
-            accent: accent,
-            fmt: (v) => Math.round(v) === 0 ? "Auto" : String(Math.round(v)) + " ms",
-            onInput: (v) => {
-              if (Math.round(v) === 0) {
-                g.dur = null
-              } else {
-                g.dur = v / 1000
-              }
-              liveEdit()
-            },
-            onCommit: () => commitEdit()
-          })}
-        </div>
-      </section>
       </div>
     </div>
   )
