@@ -197,8 +197,20 @@ export fn Knob(opts) {
   let cy = 23
   let r = 17
   let trackD = dialArc(cx, cy, r, -135, 135)
-  let valD = dialArc(cx, cy, r, -135, -135 + t * 270)
-  let dot = dialPoint(cx, cy, r, -135 + t * 270)
+  let curAngle = -135 + t * 270
+  let valD = ""
+  if (min < 0 && max > 0) {
+    let zeroT = (0 - min) / (max - min)
+    let zeroAngle = -135 + zeroT * 270
+    if (curAngle < zeroAngle) {
+      valD = dialArc(cx, cy, r, curAngle, zeroAngle)
+    } else {
+      valD = dialArc(cx, cy, r, zeroAngle, curAngle)
+    }
+  } else {
+    valD = dialArc(cx, cy, r, -135, curAngle)
+  }
+  let dot = dialPoint(cx, cy, r, curAngle)
   let detents = opts.detents != null && opts.detents >= 2 ? Math.round(opts.detents) : 0
   let detentDots = []
   if (detents > 0) {
