@@ -543,17 +543,23 @@ export fn playPatch(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
                 }
               }
             } else {
-              // node→node AUDIO connection: apply the conn WEIGHT via a scaling gain (it was silently dropped —
-              // a long-standing bug that made every `conn x y 0.5` connect at full gain, so e.g. aether's two
-              // `conn o1/o2 f1 0.5` summed to 2× and aahs's `conn bpN a1 0.5` mixed 2× hot).
-              if (cn.vol !== 1) {
-                let cg = ctx.createGain()
-                cg.gain.value = cn.vol
-                srcNode.connect(cg)
-                cg.connect(dstNode)
-                disconnectList.push(cg)
+              // node→node AUDIO connection: guard against source nodes (osc/noise/string) which have
+              // 0 audio inputs — connecting to them throws IndexSizeError.
+              if (dstNode.numberOfInputs != null && dstNode.numberOfInputs === 0) {
+                // skip — can't feed audio into a source node
               } else {
-                srcNode.connect(dstNode)
+                // Apply the conn WEIGHT via a scaling gain (it was silently dropped —
+                // a long-standing bug that made every `conn x y 0.5` connect at full gain, so e.g. aether's two
+                // `conn o1/o2 f1 0.5` summed to 2× and aahs's `conn bpN a1 0.5` mixed 2× hot).
+                if (cn.vol !== 1) {
+                  let cg = ctx.createGain()
+                  cg.gain.value = cn.vol
+                  srcNode.connect(cg)
+                  cg.connect(dstNode)
+                  disconnectList.push(cg)
+                } else {
+                  srcNode.connect(dstNode)
+                }
               }
             }
           }

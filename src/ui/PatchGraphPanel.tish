@@ -232,31 +232,43 @@ fn oscCard(nd, edit, accent) {
 fn filterCard(nd, edit, accent) {
   let q = numOr(nd.q, 0.7)
   let freq = numOr(nd.freq, 1200)
+  let ftypeOpts = ["lowpass", "highpass", "bandpass", "notch", "peaking", "lowshelf", "highshelf", "allpass"]
+  let ftypeLabels = ["LP", "HP", "BP", "Notch", "Peak", "LoSh", "HiSh", "AP"]
+  let curFtype = nd.ftype ? nd.ftype : "lowpass"
+  let ftypeIdx = 0
+  let fi = 0
+  while (fi < ftypeOpts.length) {
+    if (ftypeOpts[fi] === curFtype) {
+      ftypeIdx = fi
+    }
+    fi = fi + 1
+  }
   return (
     <div class="patch-node-body">
-      <label class="gen-row">
-        {"Type "}
-        <select
-          class="sytrus-route-sel"
-          value={nd.ftype ? nd.ftype : "lowpass"}
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={(e) => e.stopPropagation()}
-          onchange={(e) => {
-            nd.ftype = e.target.value
-            edit.commit()
-          }}
-        >
-          {selOpt("lowpass", "Lowpass", nd.ftype ? nd.ftype : "lowpass", "ft-lp")}
-          {selOpt("highpass", "Highpass", nd.ftype ? nd.ftype : "lowpass", "ft-hp")}
-          {selOpt("bandpass", "Bandpass", nd.ftype ? nd.ftype : "lowpass", "ft-bp")}
-          {selOpt("notch", "Notch", nd.ftype ? nd.ftype : "lowpass", "ft-no")}
-          {selOpt("peaking", "Peaking", nd.ftype ? nd.ftype : "lowpass", "ft-pk")}
-          {selOpt("lowshelf", "Low shelf", nd.ftype ? nd.ftype : "lowpass", "ft-ls")}
-          {selOpt("highshelf", "High shelf", nd.ftype ? nd.ftype : "lowpass", "ft-hs")}
-          {selOpt("allpass", "Allpass", nd.ftype ? nd.ftype : "lowpass", "ft-ap")}
-        </select>
-      </label>
       <div class="ik-knob-grid">
+        {Knob({
+          label: "Type",
+          value: ftypeIdx,
+          min: 0,
+          max: ftypeOpts.length - 1,
+          step: 1,
+          detents: ftypeOpts.length,
+          accent: accent,
+          fmt: (v) => {
+            let k = Math.round(v)
+            if (k < 0) k = 0
+            if (k > ftypeOpts.length - 1) k = ftypeOpts.length - 1
+            return ftypeLabels[k]
+          },
+          onInput: (v) => {
+            let k = Math.round(v)
+            if (k < 0) k = 0
+            if (k > ftypeOpts.length - 1) k = ftypeOpts.length - 1
+            nd.ftype = ftypeOpts[k]
+            edit.live()
+          },
+          onCommit: () => edit.commit()
+        })}
         {Knob({
           label: "Freq",
           value: freqToSlider(freq),
@@ -553,7 +565,6 @@ fn routeRow(g, cidx, ids, accent, edit) {
   return (
     <div class="patch-route" id={"pmroute-" + String(cidx)} key={"rt" + String(cidx)}>
       <span class="patch-route-arrow">{"→"}</span>
-      <span class="patch-route-dst-lbl">{cn.dst + (cn.dstParam ? "." + cn.dstParam : "")}</span>
       {dstKnob}
       {paramKnob}
       <span class="patch-route-vol">
@@ -1145,7 +1156,28 @@ export fn PatchGraphPanel(ch, project, setProject, rt, mayEdit) {
     if (!canEdit) {
       return
     }
-    addPatchNode(g, kind)
+    let newId = addPatchNode(g, kind)
+    let isProcessor = kind === "filter" || kind === "shaper" || kind === "gain" || kind === "pan"
+    if (isProcessor) {
+      // Splice into chain: find the last audio conn → out and reroute through the new node
+      let spliced = false
+      let ci = g.conns.length - 1
+      while (ci >= 0 && !spliced) {
+        let cn = g.conns[ci]
+        if (cn.dst === "out" && (cn.dstParam == null || cn.dstParam === "")) {
+          // Reroute: source → newNode instead of source → out
+          cn.dst = newId
+          cn.dstParam = null
+          spliced = true
+        }
+        ci = ci - 1
+      }
+      // New node → out
+      g.conns.push({ src: newId, dst: "out", dstParam: null, vol: 1 })
+    } else {
+      // Source nodes (osc/noise/string) just route to out
+      g.conns.push({ src: newId, dst: "out", dstParam: null, vol: 1 })
+    }
     commitEdit()
   }
   fn addEnvMod() {

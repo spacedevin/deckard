@@ -62,15 +62,23 @@ fn syncoscLine(nd) {
   return s
 }
 
+// Append ` gain <v>` to a node line when the per-node level is non-default (not 1).
+fn gainSuffix(nd) {
+  if (nd.gain != null && Math.abs(nd.gain - 1) > 0.00001) {
+    return " gain " + formatTplFloat(nd.gain)
+  }
+  return ""
+}
+
 fn nodeLine(nd) {
   if (nd.kind === "osc") {
-    return oscLine(nd)
+    return oscLine(nd) + gainSuffix(nd)
   }
   if (nd.kind === "syncosc") {
-    return syncoscLine(nd)
+    return syncoscLine(nd) + gainSuffix(nd)
   }
   if (nd.kind === "noise") {
-    return "noise " + nd.id
+    return "noise " + nd.id + gainSuffix(nd)
   }
   if (nd.kind === "string") {
     // Always emit tone/damping/decay (round-trip fixpoint); mute only when non-zero.
@@ -81,20 +89,20 @@ fn nodeLine(nd) {
     if (nd.mute != null && nd.mute > 0.00001) {
       st = st + " mute " + formatTplFloat(nd.mute)
     }
-    return st
+    return st + gainSuffix(nd)
   }
   if (nd.kind === "filter") {
-    return filterLine(nd)
+    return filterLine(nd) + gainSuffix(nd)
   }
   if (nd.kind === "shaper") {
     let ss = "shaper " + nd.id + " amount " + formatTplFloat(nd.amount != null ? nd.amount : 50)
     if (nd.curve != null && nd.curve !== "hard" && String(nd.curve).length > 0) {
       ss = ss + " curve " + String(nd.curve)
     }
-    return ss
+    return ss + gainSuffix(nd)
   }
   if (nd.kind === "pan") {
-    return "pan " + nd.id + " " + formatTplFloat(nd.pos != null ? nd.pos : 0)
+    return "pan " + nd.id + " " + formatTplFloat(nd.pos != null ? nd.pos : 0) + gainSuffix(nd)
   }
   if (nd.kind === "gain") {
     return "gain " + nd.id + " " + formatTplFloat(nd.value != null ? nd.value : 1)
