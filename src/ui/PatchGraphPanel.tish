@@ -41,6 +41,24 @@ fn numOr(x, def) {
   return def
 }
 
+fn levelKnob(nd, edit, accent) {
+  let value = numOr(nd.gain, 1)
+  return Knob({
+    label: "Level",
+    value: Math.round(value * 100),
+    min: 0,
+    max: 200,
+    step: 1,
+    accent: accent,
+    fmt: (v) => String(Math.round(v) / 100),
+    onInput: (v) => {
+      nd.gain = v / 100
+      edit.live()
+    },
+    onCommit: () => edit.commit()
+  })
+}
+
 fn freqToSlider(hz) {
   let lo = Math.log(20)
   let hi = Math.log(18000)
@@ -205,6 +223,7 @@ fn oscCard(nd, edit, accent) {
           },
           onCommit: () => edit.commit()
         })}
+        {levelKnob(nd, edit, accent)}
       </div>
     </div>
   )
@@ -266,6 +285,7 @@ fn filterCard(nd, edit, accent) {
           },
           onCommit: () => edit.commit()
         })}
+        {levelKnob(nd, edit, accent)}
       </div>
     </div>
   )
@@ -290,6 +310,7 @@ fn shaperCard(nd, edit, accent) {
           },
           onCommit: () => edit.commit()
         })}
+        {levelKnob(nd, edit, accent)}
       </div>
     </div>
   )
@@ -344,15 +365,18 @@ fn panCard(nd, edit, accent) {
           },
           onCommit: () => edit.commit()
         })}
+        {levelKnob(nd, edit, accent)}
       </div>
     </div>
   )
 }
 
-fn noiseCard() {
+fn noiseCard(nd, edit, accent) {
   return (
     <div class="patch-node-body">
-      <p class="sytrus-hint">{"White noise source."}</p>
+      <div class="ik-knob-grid">
+        {levelKnob(nd, edit, accent)}
+      </div>
     </div>
   )
 }
@@ -385,8 +409,8 @@ fn stringCard(nd, edit, accent) {
         {stringKnob(nd, "damping", "Damping", 0.4, accent, edit)}
         {stringKnob(nd, "decay", "Decay", 0.6, accent, edit)}
         {stringKnob(nd, "mute", "Mute", 0, accent, edit)}
+        {levelKnob(nd, edit, accent)}
       </div>
-      <p class="sytrus-hint">{"Karplus-Strong plucked string — pitched by the played note."}</p>
     </div>
   )
 }
@@ -410,7 +434,7 @@ fn nodeCardBody(nd, edit, accent) {
   if (nd.kind === "pan") {
     return panCard(nd, edit, accent)
   }
-  return noiseCard()
+  return noiseCard(nd, edit, accent)
 }
 
 fn kindLabel(kind) {
@@ -439,41 +463,99 @@ fn kindLabel(kind) {
 fn routeRow(g, cidx, ids, accent, edit) {
   let cn = g.conns[cidx]
   let isNodeDst = cn.dst !== "out" && cn.dst !== "reverb"
+
+  // Build flat destination list: other node ids + out + reverb
+  let dstList = []
+  let di = 0
+  while (di < ids.length) {
+    if (ids[di] !== cn.src || ids[di] === cn.dst) {
+      dstList.push(ids[di])
+    }
+    di = di + 1
+  }
+  dstList.push("out")
+  dstList.push("reverb")
+  let curDstIdx = 0
+  let dfi = 0
+  while (dfi < dstList.length) {
+    if (dstList[dfi] === cn.dst) {
+      curDstIdx = dfi
+    }
+    dfi = dfi + 1
+  }
+
+  let paramList = ["", "gain", "freq", "detune", "q", "pan"]
+  let paramLabels = ["sig", "gain", "freq", "det", "Q", "pan"]
+  let curParamIdx = 0
+  let pfi = 0
+  while (pfi < paramList.length) {
+    if (paramList[pfi] === (cn.dstParam ? cn.dstParam : "")) {
+      curParamIdx = pfi
+    }
+    pfi = pfi + 1
+  }
+
+  let dstKnob = Knob({
+    label: "Dst",
+    value: curDstIdx,
+    min: 0,
+    max: dstList.length - 1,
+    step: 1,
+    detents: dstList.length,
+    size: "xs",
+    accent: accent,
+    fmt: (v) => {
+      let k = Math.round(v)
+      if (k < 0) k = 0
+      if (k > dstList.length - 1) k = dstList.length - 1
+      return dstList[k]
+    },
+    onInput: (v) => {
+      let k = Math.round(v)
+      if (k < 0) k = 0
+      if (k > dstList.length - 1) k = dstList.length - 1
+      let nv = dstList[k]
+      g.conns[cidx].dst = nv
+      if (nv === "out" || nv === "reverb") {
+        g.conns[cidx].dstParam = null
+      }
+      edit.live()
+    },
+    onCommit: () => edit.commit()
+  })
+
+  let curDstIsNode = cn.dst !== "out" && cn.dst !== "reverb"
+  let paramKnob = curDstIsNode ? Knob({
+    label: "Param",
+    value: curParamIdx,
+    min: 0,
+    max: paramList.length - 1,
+    step: 1,
+    detents: paramList.length,
+    size: "xs",
+    accent: accent,
+    fmt: (v) => {
+      let k = Math.round(v)
+      if (k < 0) k = 0
+      if (k > paramList.length - 1) k = paramList.length - 1
+      return paramLabels[k]
+    },
+    onInput: (v) => {
+      let k = Math.round(v)
+      if (k < 0) k = 0
+      if (k > paramList.length - 1) k = paramList.length - 1
+      g.conns[cidx].dstParam = paramList[k] === "" ? null : paramList[k]
+      edit.live()
+    },
+    onCommit: () => edit.commit()
+  }) : null
+
   return (
     <div class="patch-route" id={"pmroute-" + String(cidx)} key={"rt" + String(cidx)}>
       <span class="patch-route-arrow">{"→"}</span>
       <span class="patch-route-dst-lbl">{cn.dst + (cn.dstParam ? "." + cn.dstParam : "")}</span>
-      <select
-        class="sytrus-route-sel"
-        value={cn.dst}
-        onmousedown={(e) => e.stopPropagation()}
-        onclick={(e) => e.stopPropagation()}
-        onchange={(e) => {
-          let nv = e.target.value
-          g.conns[cidx].dst = nv
-          if (nv === "out" || nv === "reverb") {
-            g.conns[cidx].dstParam = null
-          }
-          edit.commit()
-        }}
-      >
-        {destOptions(ids, cn.src, cn.dst, "rd" + cidx)}
-      </select>
-      {isNodeDst ? (
-        <select
-          class="sytrus-route-sel patch-route-param"
-          value={cn.dstParam ? cn.dstParam : ""}
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={(e) => e.stopPropagation()}
-          onchange={(e) => {
-            let pv = e.target.value
-            g.conns[cidx].dstParam = pv === "" ? null : pv
-            edit.commit()
-          }}
-        >
-          {paramOptions("rp" + cidx, true, cn.dstParam ? cn.dstParam : "")}
-        </select>
-      ) : null}
+      {dstKnob}
+      {paramKnob}
       <span class="patch-route-vol">
         {Knob({
           label: "Vol",
