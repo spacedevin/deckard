@@ -18,6 +18,9 @@ import { playPatch } from './Patch.tish'
 import { playAcid303 } from './Acid303.tish'
 import { playSub808 } from './Sub808.tish'
 import { playChiptune } from './Chiptune.tish'
+import { playNes2a03 } from './Nes2a03.tish'
+import { playC64Sid } from './C64Sid.tish'
+import { playGameBoyDmg } from './GameBoyDmg.tish'
 import { playCymbal } from './Cymbal.tish'
 import { playReeseBass } from './ReeseBass.tish'
 import { playSyncLead } from './SyncLead.tish'
@@ -106,6 +109,18 @@ export fn dispatchPlayNote(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
   }
   if (id === "chiptune") {
     playChiptune(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+  if (id === "nes2a03") {
+    playNes2a03(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+  if (id === "c64sid") {
+    playC64Sid(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+  if (id === "gameBoyDmg") {
+    playGameBoyDmg(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
     return
   }
   if (id === "cymbal") {

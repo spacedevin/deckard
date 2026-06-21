@@ -251,6 +251,9 @@ export fn Knob(opts) {
   if (opts.size === "xs") {
     rootCls = "ik-knob ik-knob-xs"
   }
+  if (opts.disabled) {
+    rootCls = rootCls + " ik-knob-disabled"
+  }
 
   // Shared drag from a starting Y. Mouse and touch both funnel through here so the value math + the
   // emit-coalescing are identical; each binds its own move/up pair on document (touch needs the
@@ -354,8 +357,8 @@ export fn Knob(opts) {
   }
 
   return (
-    <div class={rootCls}>
-      <svg class="ik-knob-dial" viewBox="0 0 48 48" onmousedown={onDown} ontouchstart={onTouchStart} onwheel={onWheel}>
+    <div class={rootCls} style={opts.disabled ? { opacity: "0.4", pointerEvents: "none" } : {}}>
+      <svg class="ik-knob-dial" viewBox="0 0 48 48" onmousedown={opts.disabled ? null : onDown} ontouchstart={opts.disabled ? null : onTouchStart} onwheel={opts.disabled ? null : onWheel}>
         <path class="ik-knob-track" d={trackD} fill="none" />
         <path class="ik-knob-val" d={valD} fill="none" style={{ stroke: accent }} />
         {detents > 0 ? detentDots : (

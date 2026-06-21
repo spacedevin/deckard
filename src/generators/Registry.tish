@@ -93,6 +93,21 @@ export fn generatorCatalog() {
       description: "Retro 8-bit pulse-width modulation and decimation crush."
     },
     {
+      id: "nes2a03",
+      label: "NES (2A03)",
+      description: "Accurate emulation of the NES pulse, triangle, and noise channels."
+    },
+    {
+      id: "c64sid",
+      label: "C64 (SID)",
+      description: "Commodore 64 SID chip emulator with resonant multimode filter."
+    },
+    {
+      id: "gameBoyDmg",
+      label: "Game Boy (DMG)",
+      description: "Game Boy emulator with 4-bit wavetable crunch and pulse channels."
+    },
+    {
       id: "cymbal",
       label: "Cymbal",
       description: "TR-808 style cymbal cluster (6 tuned squares + noise + highpass)."
@@ -359,6 +374,52 @@ export fn defaultParamsForGeneratorId(id) {
       release: 0.05
     }
   }
+  if (id === "nes2a03") {
+    return {
+      type: "pulse",
+      duty: "50",
+      envMode: "decay",
+      vol: 10,
+      sweep: 0,
+      noiseMode: "long",
+      attack: 0,
+      decay: 0,
+      sustain: 15,
+      release: 0,
+      vibRate: 0,
+      vibAmt: 0,
+      arpRate: 0,
+      arpSemis: 0,
+      pitchDrop: 0,
+      pitchDec: 0.05,
+      dutySweep: 0,
+      dpcmSample: "kick"
+    }
+  }
+  if (id === "gameBoyDmg") {
+    return {
+      channel: "pulse_50",
+      waveShape: "sawtooth",
+      decay: 0.2,
+      sweep: 0
+    }
+  }
+  if (id === "c64sid") {
+    return {
+      waveform: "sawtooth",
+      pulseWidth: 0.5,
+      filterType: "lowpass",
+      cutoff: 2000,
+      resonance: 5,
+      attack: 0,
+      decay: 5,
+      sustain: 15,
+      release: 6,
+      hardSync: false,
+      ringMod: false
+    }
+  }
+
   if (id === "cymbal") {
     return {
       tune: 300,

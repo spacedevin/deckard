@@ -183,96 +183,94 @@ export fn generatorFactoryPresets() {
     {
       presetId: "factory_nes_pulse50",
       name: "NES Pulse 50%",
-      generatorId: "chiptune",
-      params: { waveform: "pulse", pulseWidth: 0.5, bitcrush: 0.5, lowpass: 0, attack: 0.005, decay: 0.2, sustain: 0.6, release: 0.05 }
+      generatorId: "nes2a03",
+      params: { channel: "pulse_50", decay: 0.2, sweep: 0 }
     },
     {
       presetId: "factory_nes_pulse25",
       name: "NES Pulse 25%",
-      generatorId: "chiptune",
-      params: { waveform: "pulse", pulseWidth: 0.25, bitcrush: 0.5, lowpass: 0, attack: 0.005, decay: 0.2, sustain: 0.6, release: 0.05 }
+      generatorId: "nes2a03",
+      params: { channel: "pulse_25", decay: 0.2, sweep: 0 }
     },
     {
       presetId: "factory_nes_pulse12",
       name: "NES Pulse 12.5%",
-      generatorId: "chiptune",
-      params: { waveform: "pulse", pulseWidth: 0.125, bitcrush: 0.5, lowpass: 0, attack: 0.005, decay: 0.25, sustain: 0.5, release: 0.05 }
+      generatorId: "nes2a03",
+      params: { channel: "pulse_12_5", decay: 0.25, sweep: 0 }
     },
     {
       presetId: "factory_nes_triangle",
       name: "NES Triangle",
-      generatorId: "chiptune",
-      params: { waveform: "triangle", bitcrush: 0.6, lowpass: 0.1, attack: 0.003, decay: 0.4, sustain: 0.7, release: 0.08 }
+      generatorId: "nes2a03",
+      params: { channel: "triangle", decay: 0.4, sweep: 0 }
     },
     {
       presetId: "factory_nes_noise",
       name: "NES Noise",
-      generatorId: "chiptune",
-      params: { waveform: "noise", bitcrush: 0.5, lowpass: 0, attack: 0.002, decay: 0.1, sustain: 0, release: 0.02 }
+      generatorId: "nes2a03",
+      params: { channel: "noise", decay: 0.1, sweep: 0 }
     },
 
     // ──── CHIPTUNE — GAME BOY (DMG) ──────────────────────────────
     {
       presetId: "factory_gb_lead",
       name: "GB Pulse Lead",
-      generatorId: "chiptune",
-      params: { waveform: "pulse", pulseWidth: 0.5, bitcrush: 0.55, lowpass: 0.15, attack: 0.005, decay: 0.15, sustain: 0.7, release: 0.05 }
+      generatorId: "gameBoyDmg",
+      params: { channel: "pulse_50", decay: 0.15, sweep: 0 }
     },
     {
       presetId: "factory_gb_bass",
       name: "GB Bass",
-      generatorId: "chiptune",
-      params: { waveform: "pulse", pulseWidth: 0.25, bitcrush: 0.6, lowpass: 0.4, attack: 0.003, decay: 0.3, sustain: 0.5, release: 0.06 }
+      generatorId: "gameBoyDmg",
+      params: { channel: "wavetable", waveShape: "sawtooth", decay: 0.3, sweep: 0 }
     },
 
     // ──── CHIPTUNE — C64 (SID) ───────────────────────────────────
     {
       presetId: "factory_sid_lead",
       name: "C64 SID Lead",
-      generatorId: "chiptune",
-      params: { waveform: "sawtooth", bitcrush: 0.3, lowpass: 0.2, attack: 0.008, decay: 0.2, sustain: 0.6, release: 0.1 }
+      generatorId: "c64sid",
+      params: { waveform: "sawtooth", pulseWidth: 0.5, filterType: "lowpass", cutoff: 3500, resonance: 6, attack: 0.008, decay: 0.2, sustain: 0.6, release: 0.1 }
     },
     {
       presetId: "factory_sid_bass",
       name: "C64 SID Bass",
-      generatorId: "chiptune",
-      params: { waveform: "pulse", pulseWidth: 0.4, bitcrush: 0.25, lowpass: 0.5, attack: 0.005, decay: 0.35, sustain: 0.4, release: 0.08 }
+      generatorId: "c64sid",
+      params: { waveform: "pulse", pulseWidth: 0.4, filterType: "lowpass", cutoff: 1200, resonance: 8, attack: 0.005, decay: 0.35, sustain: 0.4, release: 0.08 }
     },
     {
       presetId: "factory_sid_pwm",
       name: "C64 PWM Pad",
-      generatorId: "chiptune",
-      params: { waveform: "pulse", pulseWidth: 0.3, pwmSpeed: 3.5, bitcrush: 0.2, lowpass: 0.3, attack: 0.08, decay: 0.5, sustain: 0.7, release: 0.3 }
+      generatorId: "c64sid",
+      params: { waveform: "pulse", pulseWidth: 0.3, filterType: "lowpass", cutoff: 2000, resonance: 4, attack: 0.08, decay: 0.5, sustain: 0.7, release: 0.3 }
     },
 
-    // ──── CHIPTUNE — SNES (SPC700) ───────────────────────────────
+    // ──── CHIPTUNE — SNES & GENESIS (Mapped to SID for filter) ───
     {
       presetId: "factory_snes_pad",
       name: "SNES Warm Pad",
-      generatorId: "chiptune",
-      params: { waveform: "pulse", pulseWidth: 0.5, bitcrush: 0.2, lowpass: 0.6, attack: 0.12, decay: 0.5, sustain: 0.65, release: 0.4 }
+      generatorId: "c64sid",
+      params: { waveform: "pulse", pulseWidth: 0.5, filterType: "lowpass", cutoff: 1500, resonance: 2, attack: 0.12, decay: 0.5, sustain: 0.65, release: 0.4 }
     },
     {
       presetId: "factory_snes_lead",
       name: "SNES Lead",
-      generatorId: "chiptune",
-      params: { waveform: "sawtooth", bitcrush: 0.15, lowpass: 0.45, attack: 0.008, decay: 0.25, sustain: 0.6, release: 0.12 }
+      generatorId: "c64sid",
+      params: { waveform: "sawtooth", pulseWidth: 0.5, filterType: "lowpass", cutoff: 2500, resonance: 3, attack: 0.008, decay: 0.25, sustain: 0.6, release: 0.12 }
     },
-
-    // ──── CHIPTUNE — SEGA GENESIS (YM2612 approx) ────────────────
     {
       presetId: "factory_genesis_brass",
       name: "Genesis Brass",
-      generatorId: "chiptune",
-      params: { waveform: "sawtooth", bitcrush: 0.1, lowpass: 0.1, attack: 0.03, decay: 0.3, sustain: 0.7, release: 0.15 }
+      generatorId: "c64sid",
+      params: { waveform: "sawtooth", pulseWidth: 0.5, filterType: "lowpass", cutoff: 4000, resonance: 2, attack: 0.03, decay: 0.3, sustain: 0.7, release: 0.15 }
     },
 
-    // ──── CHIPTUNE — ARP ─────────────────────────────────────────
+    // ──── CHIPTUNE — SWEEP ───────────────────────────────────────
     {
-      presetId: "factory_chip_arp",
-      name: "Chip Arp Lead",
-      generatorId: "chiptune",
-      params: { waveform: "pulse", pulseWidth: 0.5, bitcrush: 0.4, lowpass: 0, arpRate: 15, arpSemis: 3, attack: 0.005, decay: 0.15, sustain: 0.7, release: 0.05 }
+      presetId: "factory_chip_sweep",
+      name: "NES Laser Sweep",
+      generatorId: "nes2a03",
+      params: { channel: "pulse_50", decay: 0.2, sweep: -12 }
     },
 
     // ──── CYMBAL ─────────────────────────────────────────────────

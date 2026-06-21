@@ -29,7 +29,8 @@ import { MacroDesignerPanel } from './MacroDesignerPanel.tish'
 import { RichTplEditor } from './RichTplEditor.tish'
 
 let VOICE_GROUPS = [
-  { title: "Oscillators", voices: [["basicOsc", "Osc"], ["fmTone", "FM"], ["chiptune", "Chiptune"]] },
+  { title: "Oscillators", voices: [["basicOsc", "Osc"], ["fmTone", "FM"]] },
+  { title: "Retro Chips", voices: [["nes2a03", "NES 2A03"], ["gameBoyDmg", "Game Boy"], ["c64sid", "C64 SID"]] },
   { title: "Texture", voices: [["noiseBurst", "Noise"], ["pad", "Pad"], ["bell", "Bell"]] },
   { title: "Strings", voices: [["guitar", "Guitar"], ["arco", "Arco"]] },
   { title: "Keys", voices: [["tine", "Tine EP"]] },
