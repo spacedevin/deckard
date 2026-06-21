@@ -1027,6 +1027,27 @@ fn getRetroVolComp(pVol, maxVol) {
   return f((v / maxVol) * VOL_COMP * 0.8)
 }
 
+fn addRetroGlobals(lines, p, targetOsc) {
+  let pitchDrop = p.pitchDrop != null ? p.pitchDrop : 0
+  let pitchDec = p.pitchDec != null ? p.pitchDec : 0.05
+  let vibRate = p.vibRate != null ? p.vibRate : 0
+  let vibAmt = p.vibAmt != null ? p.vibAmt : 0
+
+  if (pitchDrop !== 0) {
+    let dropRatio = Math.pow(2, pitchDrop / 12.0)
+    lines.push("env " + targetOsc + ".freq set 0 note*" + f(dropRatio) + " exp " + f(pitchDec) + " note")
+  }
+
+  if (vibRate > 0 && vibAmt > 0) {
+    let vibDepthFactor = Math.pow(2, vibAmt / 1200.0) - 1
+    lines.push("osc vib sine " + f(vibRate))
+    lines.push("gain gvib 0")
+    lines.push("env gvib.gain set 0 note*" + f(vibDepthFactor))
+    lines.push("conn vib gvib 1")
+    lines.push("conn gvib " + targetOsc + ".freq 1")
+  }
+}
+
 fn nes2a03Lines(p) {
   let type = p.type ? p.type : "pulse"
   let isNoise = type === "noise"
@@ -1036,13 +1057,15 @@ fn nes2a03Lines(p) {
   let s = p.sustain != null ? p.sustain / 15.0 : 0.5
   let r = p.release != null ? p.release / 10.0 : 0.1
   let vComp = getRetroVolComp(p.vol, 15.0)
-  return [
+  let lines = [
     isNoise ? "noise o1" : ("osc o1 " + wave + " note"),
     "gain a1 0",
     "conn o1 a1 1",
     "conn a1 out " + vComp,
     adsrAmpEnv("a1", a, d, s, r)
   ]
+  if (!isNoise) addRetroGlobals(lines, p, "o1")
+  return lines
 }
 
 fn gameBoyDmgLines(p) {
@@ -1054,13 +1077,15 @@ fn gameBoyDmgLines(p) {
   let s = p.sustain != null ? p.sustain / 15.0 : 0.5
   let r = p.release != null ? p.release / 10.0 : 0.1
   let vComp = getRetroVolComp(p.vol, 15.0)
-  return [
+  let lines = [
     isNoise ? "noise o1" : ("osc o1 " + wave + " note"),
     "gain a1 0",
     "conn o1 a1 1",
     "conn a1 out " + vComp,
     adsrAmpEnv("a1", a, d, s, r)
   ]
+  if (!isNoise) addRetroGlobals(lines, p, "o1")
+  return lines
 }
 
 fn c64sidLines(p) {
@@ -1073,7 +1098,7 @@ fn c64sidLines(p) {
   let ftype = p.filterType ? p.filterType : "lowpass"
   let fcut = p.cutoff ? p.cutoff : 2000
   let vComp = getRetroVolComp(p.vol, 15.0)
-  return [
+  let lines = [
     "osc o1 " + wave + " note",
     "filter f1 " + ftype + " freq " + f(fcut) + " q " + f(p.resonance ? p.resonance : 0.7),
     "gain a1 0",
@@ -1082,6 +1107,8 @@ fn c64sidLines(p) {
     "conn a1 out " + vComp,
     adsrAmpEnv("a1", a, d, s, r)
   ]
+  addRetroGlobals(lines, p, "o1")
+  return lines
 }
 
 fn getRateTime(rate) {
@@ -1216,7 +1243,7 @@ fn spc700Lines(p) {
   let s = p.sustainLevel != null ? p.sustainLevel / 7.0 : 0.5
   let r = 0.2
   let vComp = getRetroVolComp(p.vol, 10.0)
-  return [
+  let lines = [
     "osc o1 " + wave + " note",
     "filter f1 lowpass freq 3000 q 0.7",
     "gain a1 0",
@@ -1225,6 +1252,8 @@ fn spc700Lines(p) {
     "conn a1 out " + vComp,
     adsrAmpEnv("a1", a, d, s, r)
   ]
+  addRetroGlobals(lines, p, "o1")
+  return lines
 }
 
 fn gbaDirectSoundLines(p) {
@@ -1235,13 +1264,15 @@ fn gbaDirectSoundLines(p) {
   let s = p.sustain != null ? p.sustain / 15.0 : 0.5
   let r = p.release != null ? p.release / 10.0 : 0.1
   let vComp = getRetroVolComp(p.vol, 15.0)
-  return [
+  let lines = [
     "osc o1 " + wave + " note",
     "gain a1 0",
     "conn o1 a1 1",
     "conn a1 out " + vComp,
     adsrAmpEnv("a1", a, d, s, r)
   ]
+  addRetroGlobals(lines, p, "o1")
+  return lines
 }
 
 /// True when this generator can be reduced to an equivalent patch graph (sound-preserving switch).
