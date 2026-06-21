@@ -77,7 +77,8 @@ fn pianoNotesArray(ch) {
       vel: n.vel != null ? n.vel : 100,
       prob: n.prob != null ? n.prob : 1,
       ratchet: n.ratchet != null ? n.ratchet : 1,
-      nudge: n.nudge != null ? n.nudge : 0
+      nudge: n.nudge != null ? n.nudge : 0,
+      lyric: n.lyric != null ? n.lyric : ""
     })
     i = i + 1
   }
@@ -115,7 +116,7 @@ fn emitPianoNotes(rt, project, chIdx, arr) {
 
 fn pianoAddNote(rt, project, chIdx, pitch, startBeat) {
   let arr = pianoNotesArray(project.channels[chIdx])
-  arr.push({ startBeat: startBeat, durBeats: 0.25, pitch: Math.floor(pitch), vel: 100, prob: 1, ratchet: 1, nudge: 0 })
+  arr.push({ startBeat: startBeat, durBeats: 0.25, pitch: Math.floor(pitch), vel: 100, prob: 1, ratchet: 1, nudge: 0, lyric: "" })
   emitPianoNotes(rt, project, chIdx, arr)
 }
 

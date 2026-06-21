@@ -1124,8 +1124,8 @@ export fn setMainAutoSync(store, on) {
   }
 }
 
-export fn playHitAt(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
-  dispatchPlayNote(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+export fn playHitAt(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric) {
+  dispatchPlayNote(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
 }
 
 export fn anySolo(project) {

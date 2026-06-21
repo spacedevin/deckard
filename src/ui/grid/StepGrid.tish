@@ -151,6 +151,9 @@ fn lockLaneCfg(field) {
   if (field === "ratchet") {
     return { label: "RCH", lo: 1, hi: 8, dflt: 1, bip: false }
   }
+  if (field === "lyric") {
+    return { label: "LYR", lo: 0, hi: 1, dflt: "", bip: false }
+  }
   return { label: "NDG", lo: -0.5, hi: 0.5, dflt: 0, bip: true }
 }
 
@@ -196,7 +199,8 @@ fn emitStepLock(rt, project, chIdx, stepIdx, field, value) {
       vel: s.vel != null ? s.vel : 100,
       prob: s.prob != null ? s.prob : 1,
       ratchet: s.ratchet != null ? s.ratchet : 1,
-      nudge: s.nudge != null ? s.nudge : 0
+      nudge: s.nudge != null ? s.nudge : 0,
+      lyric: s.lyric != null ? s.lyric : ""
     })
     i = i + 1
   }
@@ -228,7 +232,8 @@ fn emitStepToggle(rt, project, chIdx, stepIdx, forceOff) {
       vel: s.vel != null ? s.vel : 100,
       prob: s.prob != null ? s.prob : 1,
       ratchet: s.ratchet != null ? s.ratchet : 1,
-      nudge: s.nudge != null ? s.nudge : 0
+      nudge: s.nudge != null ? s.nudge : 0,
+      lyric: s.lyric != null ? s.lyric : ""
     })
     i = i + 1
   }
@@ -260,7 +265,8 @@ fn paintStep(rt, project, chIdx, absStep, value) {
       vel: s.vel != null ? s.vel : 100,
       prob: s.prob != null ? s.prob : 1,
       ratchet: s.ratchet != null ? s.ratchet : 1,
-      nudge: s.nudge != null ? s.nudge : 0
+      nudge: s.nudge != null ? s.nudge : 0,
+      lyric: s.lyric != null ? s.lyric : ""
     })
     i = i + 1
   }
@@ -477,6 +483,25 @@ fn LockLaneCell(project, chIdx, i, field, rt, st) {
   if (!on) {
     cls = cls + " sg-lk-dim"
   }
+
+  if (field === "lyric") {
+    let txt = st && st.lyric ? st.lyric : ""
+    return (
+      <div class={cls} title={"LYR · step " + String(i + 1)}>
+        <input
+          type="text"
+          value={txt}
+          placeholder="..."
+          style={{ width: "100%", height: "100%", background: "transparent", border: "none", color: "#e2e8f0", fontSize: "10px", textAlign: "center", padding: "0" }}
+          onkeydown={(e) => { e.stopPropagation() }}
+          oninput={(e) => {
+            emitStepLock(rt, project, chIdx, i, "lyric", e.target.value.trim().split(" ")[0])
+          }}
+        />
+      </div>
+    )
+  }
+
   let pct = Math.round(frac * 100)
   let fill = null
   if (cfg.bip) {
@@ -523,7 +548,8 @@ fn lockLanesForChannel(project, ch, chIdx, rt) {
     lockLaneRow(project, ch, chIdx, "vel", rt),
     lockLaneRow(project, ch, chIdx, "prob", rt),
     lockLaneRow(project, ch, chIdx, "ratchet", rt),
-    lockLaneRow(project, ch, chIdx, "nudge", rt)
+    lockLaneRow(project, ch, chIdx, "nudge", rt),
+    lockLaneRow(project, ch, chIdx, "lyric", rt)
   ]
 }
 
@@ -638,7 +664,8 @@ fn emitNoteLock(rt, project, chIdx, absStep, field, value) {
       vel: n.vel != null ? n.vel : 100,
       prob: n.prob != null ? n.prob : 1,
       ratchet: n.ratchet != null ? n.ratchet : 1,
-      nudge: n.nudge != null ? n.nudge : 0
+      nudge: n.nudge != null ? n.nudge : 0,
+      lyric: n.lyric != null ? n.lyric : ""
     }
     if (Math.floor(n.startBeat * 4 + 0.0001) === absStep) {
       c[field] = value
@@ -670,6 +697,19 @@ fn PianoLockLaneCell(project, chIdx, i, field, rt, ch, viewBar) {
     cls = cls + " sg-beat"
   }
   if (idxs.length === 0) {
+    if (field === "lyric") {
+      return (
+        <div class={cls + " sg-lk-dim"} title={"LYR · step " + String(i + 1) + " (no note here)"}>
+          <input
+            type="text"
+            value=""
+            disabled={true}
+            placeholder="..."
+            style={{ width: "100%", height: "100%", background: "transparent", border: "none", color: "#94a3b8", fontSize: "10px", textAlign: "center", padding: "0" }}
+          />
+        </div>
+      )
+    }
     return <div class={cls + " sg-lk-dim"} title={cfg.label + " · step " + String(i + 1) + " (no note here)"} />
   }
   let v = stepLockVal(ch.pianoNotes[idxs[0]], field)
@@ -680,6 +720,24 @@ fn PianoLockLaneCell(project, chIdx, i, field, rt, ch, viewBar) {
   if (frac > 1) {
     frac = 1
   }
+  if (field === "lyric") {
+    let txt = ch.pianoNotes[idxs[0]].lyric ? ch.pianoNotes[idxs[0]].lyric : ""
+    return (
+      <div class={cls} title={"LYR · step " + String(i + 1) + " (" + String(idxs.length) + " note)"}>
+        <input
+          type="text"
+          value={txt}
+          placeholder="..."
+          style={{ width: "100%", height: "100%", background: "transparent", border: "none", color: "#e2e8f0", fontSize: "10px", textAlign: "center", padding: "0" }}
+          onkeydown={(e) => { e.stopPropagation() }}
+          oninput={(e) => {
+            emitNoteLock(rt, project, chIdx, absStep, "lyric", e.target.value.trim().split(" ")[0])
+          }}
+        />
+      </div>
+    )
+  }
+
   let pct = Math.round(frac * 100)
   let fill = null
   if (cfg.bip) {
@@ -726,7 +784,8 @@ fn pianoLockLanesForChannel(project, ch, chIdx, rt, viewBar) {
     pianoLockLaneRow(project, ch, chIdx, "vel", rt, viewBar),
     pianoLockLaneRow(project, ch, chIdx, "prob", rt, viewBar),
     pianoLockLaneRow(project, ch, chIdx, "ratchet", rt, viewBar),
-    pianoLockLaneRow(project, ch, chIdx, "nudge", rt, viewBar)
+    pianoLockLaneRow(project, ch, chIdx, "nudge", rt, viewBar),
+    pianoLockLaneRow(project, ch, chIdx, "lyric", rt, viewBar)
   ]
 }
 
@@ -1265,6 +1324,15 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
       let arow = autoLaneRow(project, ch, ci, rt)
       if (arow != null) {
         rows.push(arow)
+      }
+    }
+    // Automatically render the LYRIC row at the bottom for vocal generators, always.
+    let isVocal = ch.generatorId === "formantVocal" || ch.generatorId === "ttsVocal"
+    if (isVocal) {
+      if (expanded) {
+        rows.push(pianoLockLaneRow(project, ch, ci, "lyric", rt, viewBar))
+      } else if (isStepCh) {
+        rows.push(lockLaneRow(project, ch, ci, "lyric", rt))
       }
     }
     ci = ci + 1

@@ -24,6 +24,9 @@ export fn noteLine(n) {
   if (nudge > 0.0005 || nudge < -0.0005) {
     o = o + " n " + formatTplFloat(nudge)
   }
+  if (n.lyric != null && n.lyric !== "") {
+    o = o + " l " + n.lyric
+  }
   return o
 }
 
@@ -58,6 +61,31 @@ export fn stepLaneLine(steps, label, field, dflt, isInt) {
     } else {
       o = o + " " + formatTplFloat(v)
     }
+    j = j + 1
+  }
+  return o + "\n"
+}
+
+export fn stepLyricLaneLine(steps) {
+  if (!steps) {
+    return ""
+  }
+  let any = false
+  let i = 0
+  while (i < 16) {
+    if (steps[i] && steps[i].lyric != null && steps[i].lyric !== "") {
+      any = true
+    }
+    i = i + 1
+  }
+  if (!any) {
+    return ""
+  }
+  let o = "  step_lyric"
+  let j = 0
+  while (j < 16) {
+    let l = (steps[j] && steps[j].lyric != null && steps[j].lyric !== "") ? steps[j].lyric : "."
+    o = o + " " + l
     j = j + 1
   }
   return o + "\n"
@@ -231,7 +259,7 @@ export fn emitProjectInner(project, skipSync) {
         formatTplFloat(p.release) +
         "\n"
     }
-    if (gid === "pad" || gid === "bell" || gid === "drumSynth" || gid === "guitar" || gid === "clap" || gid === "arco" || gid === "tine" || gid === "aether" || gid === "halo" || gid === "aahs") {
+    if (gid === "pad" || gid === "bell" || gid === "drumSynth" || gid === "guitar" || gid === "clap" || gid === "arco" || gid === "tine" || gid === "aether" || gid === "halo" || gid === "formantVocal" || gid === "ttsVocal") {
       let keys = Object.keys(p)
       if (keys.length > 0) {
         o = o + "  gen"
@@ -319,6 +347,7 @@ export fn emitProjectInner(project, skipSync) {
       o = o + stepLaneLine(ch.steps, "step_prob", "prob", 1, false)
       o = o + stepLaneLine(ch.steps, "step_ratchet", "ratchet", 1, true)
       o = o + stepLaneLine(ch.steps, "step_nudge", "nudge", 0, false)
+      o = o + stepLyricLaneLine(ch.steps)
     }
 
     let ni = 0

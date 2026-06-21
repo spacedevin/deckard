@@ -4,6 +4,7 @@ import { channelDeck, crossfadeValue, crossfadeValueY } from '../model/DeckRouti
 import { freshSetEnergy, freshActiveDecks, foldSetEnergyStep } from '../model/SetEnergy.tish'
 import { loadDefaultDeckardProject, loadProjectFromTpl } from '../model/ProjectLoad.tish'
 import { createStationPresets } from '../core/StationPresets.tish'
+import { cancelTtsVocal } from '../generators/TTSVocal.tish'
 import { emitLevel, retargetTpl } from '../core/Levels.tish'
 import { createSetLibrary, emitSet, loadSet, freeDecks, emitSetStream, parseSetStream, isStreamSet } from '../core/SetLibrary.tish'
 import { loadDeckSet, deckSetCatalog } from '../model/DeckSets.tish'
@@ -388,7 +389,7 @@ export fn App() {
       return
     }
     let gch = generatorChannelAtBeat(project, ch, 0)
-    playHitAt(ctx, bus, ctx.currentTime + 0.005, note, vel, 0.5, gch, 0)
+    playHitAt(ctx, bus, ctx.currentTime + 0.005, note, vel, 0.5, gch, 0, null)
   }
   // A mapped CC (value 0..1) → resolve its target to one emit. Keep these ids in sync with midiTargetList.
   fn midiControl(targetId, v01) {
@@ -1001,8 +1002,16 @@ export fn App() {
   }
 
   // mode: "sequence" = play the rack / pattern you are editing (monitor); "song" = play the live
-  // arrangement of launched patterns (session arming). Space → sequence, Enter → song.
+  // arrangement of launched patterns (session arming). Space -> sequence, Enter -> song.
   fn onPlay(mode, startTick, songScene) {
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      if (!window.__ttsUnlocked) {
+        let u = new SpeechSynthesisUtterance("")
+        u.volume = 0
+        window.speechSynthesis.speak(u)
+        window.__ttsUnlocked = true
+      }
+    }
     let pm = mode === "song" ? "song" : "sequence"
     rt.playMode = pm
     setPlayMode(pm)
@@ -1441,6 +1450,7 @@ export fn App() {
     transport.stop()
     rt.playing = false
     rt.transportNextTick = null
+    cancelTtsVocal()
     setPlaying(false)
   }
   rt.stopPlayback = onStop

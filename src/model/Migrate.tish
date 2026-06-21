@@ -4,6 +4,10 @@ import { ensureActorMixerEntries, ensureMasterMixer } from './MixerRouting.tish'
 import { ensureProjectSession } from './Session.tish'
 
 export fn migrateChannelGenerator(ch) {
+  if (ch.generatorId === "aahs") {
+    ch.generatorId = "formantVocal"
+    ch.generatorParams = defaultParamsForGeneratorId("formantVocal")
+  }
   if (!ch.generatorId || ch.generatorId === "") {
     ch.generatorId = "basicOsc"
     ch.generatorParams = defaultParamsForGeneratorId("basicOsc")

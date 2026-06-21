@@ -34,7 +34,7 @@ let VOICE_GROUPS = [
   { title: "Strings", voices: [["guitar", "Guitar"], ["arco", "Arco"]] },
   { title: "Keys", voices: [["tine", "Tine EP"]] },
   { title: "Mallets", voices: [["halo", "Halo"]] },
-  { title: "Vox", voices: [["aahs", "Aahs"]] },
+  { title: "Vox", voices: [["formantVocal", "Formant"], ["ttsVocal", "TTS"]] },
   { title: "Lead", voices: [["aether", "Aether"]] },
   { title: "Percussion", voices: [["drumSynth", "Drum"], ["clap", "Clap"]] },
   { title: "Modular", voices: [["matrixFm", "Matrix FM"], ["patch", "Patch"]] },
@@ -410,6 +410,83 @@ fn PitchModule(ctx) {
   )
 }
 
+fn QuickLyricsModule(ctx) {
+  let ch = ctx.ch
+  let rt = ctx.rt
+  return ModuleCard(
+    "Quick Lyrics (Space separated)",
+    null,
+    null,
+    ctx,
+    <div class="instr-lyrics" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+      <input 
+        type="text" 
+        id={"qlyr-" + ch.id} 
+        placeholder="e.g. we are the ro bots in the web" 
+        style={{ width: "100%", background: "transparent", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", padding: "6px", borderRadius: "4px" }} 
+      />
+      <button 
+        type="button" 
+        class="sg-barbtn" 
+        style={{ width: "100%", textAlign: "center", padding: "6px" }} 
+        onclick={() => {
+          let el = document.getElementById("qlyr-" + ch.id)
+          if (!el || !rt || !rt.emit) return
+          let words = el.value.trim().split(" ")
+          if (words.length === 0 || words[0] === "") return
+          let isMelodic = (ch.pianoNotes && ch.pianoNotes.length > 0) || ch.octave != null
+          if (ch.pianoNotes && ch.pianoNotes.length > 0) {
+            let arr = []
+            let wi = 0
+            let ni = 0
+            while (ni < ch.pianoNotes.length) {
+              let n = ch.pianoNotes[ni]
+              let w = wi < words.length ? words[wi] : ""
+              let c = {
+                startBeat: n.startBeat,
+                durBeats: n.durBeats,
+                pitch: n.pitch,
+                vel: n.vel != null ? n.vel : 100,
+                prob: n.prob != null ? n.prob : 1,
+                ratchet: n.ratchet != null ? n.ratchet : 1,
+                nudge: n.nudge != null ? n.nudge : 0,
+                lyric: w
+              }
+              arr.push(c)
+              ni = ni + 1
+              wi = wi + 1
+            }
+            rt.emit("track/" + ch.id + "/notes", arr)
+          } else if (ch.steps) {
+            let arr = []
+            let wi = 0
+            let si = 0
+            while (si < ch.steps.length) {
+              let s = ch.steps[si]
+              let w = (s.on && wi < words.length) ? words[wi] : ""
+              arr.push({
+                on: s.on === true,
+                vel: s.vel != null ? s.vel : 100,
+                prob: s.prob != null ? s.prob : 1,
+                ratchet: s.ratchet != null ? s.ratchet : 1,
+                nudge: s.nudge != null ? s.nudge : 0,
+                lyric: w
+              })
+              if (s.on) {
+                wi = wi + 1
+              }
+              si = si + 1
+            }
+            rt.emit("track/" + ch.id + "/pattern", arr)
+          }
+        }}
+      >
+        {"Apply to Sequence"}
+      </button>
+    </div>
+  )
+}
+
 export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush, rt) {
   ensureInstrumentPresets(project)
   let ch = null
@@ -439,6 +516,7 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
         {VoiceModule(ctx)}
         {SoundModule(ctx, gid)}
         {PitchModule(ctx)}
+        {gid === "formantVocal" || gid === "ttsVocal" ? QuickLyricsModule(ctx) : null}
       </div>
     </section>
   )

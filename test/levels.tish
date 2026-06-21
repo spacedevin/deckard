@@ -402,7 +402,7 @@ fn validatePatchVoice(lines) {
   return ""
 }
 
-let patchVoices = ["basicOsc", "fmTone", "noiseBurst", "pad", "bell", "drumSynth", "guitar", "clap", "arco", "tine", "aether", "halo", "aahs"]
+let patchVoices = ["basicOsc", "fmTone", "noiseBurst", "pad", "bell", "drumSynth", "guitar", "clap", "arco", "tine", "aether", "halo"]
 let pvi = 0
 while (pvi < patchVoices.length) {
   let pvid = patchVoices[pvi]
@@ -415,14 +415,12 @@ while (pvi < patchVoices.length) {
   pvi = pvi + 1
 }
 // Parameter-variation coverage for the rebuilt voices (the branches that add/drop nodes).
-check("[patch] aahs 7-singer eeh variation valid", validatePatchVoice(compileGeneratorToPatchLines("aahs", { ensemble: 1, vowel: "eeh" }, null)) === "")
-check("[patch] aahs 2-singer ooh variation valid", validatePatchVoice(compileGeneratorToPatchLines("aahs", { ensemble: 0, vowel: "ooh" }, null)) === "")
 check("[patch] aether tone=0 (no 3rd harmonic) valid", validatePatchVoice(compileGeneratorToPatchLines("aether", { tone: 0 }, null)) === "")
 check("[patch] halo lows=0 (no body sub) valid", validatePatchVoice(compileGeneratorToPatchLines("halo", { lows: 0 }, null)) === "")
 check("[patch] tine drive=0 (no shaper) valid", validatePatchVoice(compileGeneratorToPatchLines("tine", { drive: 0.5 }, null)) === "")
 check("[patch] guitar drive=0 (no shaper) valid", validatePatchVoice(compileGeneratorToPatchLines("guitar", { drive: 0 }, null)) === "")
 check("[patch] arco cello variation valid", validatePatchVoice(compileGeneratorToPatchLines("arco", { voice: "cello" }, null)) === "")
-check("[patch] canCompileToPatch covers all rebuilt voices", canCompileToPatch("tine") && canCompileToPatch("halo") && canCompileToPatch("aahs") && canCompileToPatch("aether") && canCompileToPatch("guitar") && canCompileToPatch("arco"))
+check("[patch] canCompileToPatch covers all rebuilt voices", canCompileToPatch("tine") && canCompileToPatch("halo") && canCompileToPatch("aether") && canCompileToPatch("guitar") && canCompileToPatch("arco"))
 // `rand` (per-note pitch jitter / humanize) parses, round-trips, and is emitted by the conversions.
 let randG = parsePatchGraph(["osc o0 sawtooth note detune 5 rand 2.5", "osc lfo sine 5.5 rand 0.6", "conn o0 out 1"])
 let randOsc = randG.nodes[0]
@@ -431,8 +429,7 @@ check("[patch] rand parses on a pitched osc (detune + rand)", randOsc.detune ===
 check("[patch] rand parses on a fixed LFO", randLfo.freqMode === "fixed" && randLfo.fixedHz === 5.5 && randLfo.rand === 0.6)
 let randRT = patchGraphToLines(randG)
 check("[patch] rand round-trips through emit", String(randRT).indexOf("rand 2.5") >= 0 && String(randRT).indexOf("rand 0.6") >= 0)
-let aahsRand = compileGeneratorToPatchLines("aahs", {}, null).join("\n")
-check("[patch] aahs conversion emits per-singer rand jitter", aahsRand.indexOf(" rand 2.5") >= 0)
+
 let aetherRand = compileGeneratorToPatchLines("aether", {}, null).join("\n")
 check("[patch] aether conversion emits LFO rand jitter", aetherRand.indexOf(" rand 0.6") >= 0 && aetherRand.indexOf(" rand 0.4") >= 0)
 // `tone` folds in odd harmonics (3rd/5th/7th) so the Tone knob is an obvious mellow↔reedy sweep — guard the

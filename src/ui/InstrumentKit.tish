@@ -131,8 +131,11 @@ export fn accentForGenerator(gid) {
   if (gid === "halo") {
     return "#86b8cc"
   }
-  if (gid === "aahs") {
+  if (gid === "formantVocal") {
     return "#c9a6e0"
+  }
+  if (gid === "ttsVocal") {
+    return "#b8a6e0"
   }
   if (gid === "matrixFm") {
     return "#5aa9e8"

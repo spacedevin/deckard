@@ -1,0 +1,125 @@
+import { midiToHz } from '../schedule/Engine.tish'
+
+export fn extractVowel(str) {
+  if (!str) return 'A'
+  let s = str.toUpperCase()
+  if (s.indexOf('A') >= 0) return 'A'
+  if (s.indexOf('E') >= 0) return 'E'
+  if (s.indexOf('I') >= 0) return 'I'
+  if (s.indexOf('O') >= 0) return 'O'
+  if (s.indexOf('U') >= 0) return 'U'
+  return 'A'
+}
+
+let VOWEL_FORMANTS = {
+  'A': [730, 1090, 2440],
+  'E': [530, 1840, 2480],
+  'I': [240, 2400, 3200],
+  'O': [570,  840, 2410],
+  'U': [300,  870, 2240]
+}
+
+let lastFreqByChannel = {}
+
+export fn playFormantVocal(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric) {
+  let p = ch.generatorParams
+  let release = 0.2
+  let vibDepth = 0.02
+  let vibRate = 5.0
+  let glide = 0.1
+  let humanize = 0.5
+  if (p) {
+    if (p.release != null) release = p.release
+    if (p.vibDepth != null) vibDepth = p.vibDepth
+    if (p.vibRate != null) vibRate = p.vibRate
+    if (p.glide != null) glide = p.glide
+    if (p.humanize != null) humanize = p.humanize
+  }
+
+  let n = Math.floor(midi + bendSemis)
+  let hz = 440
+  if (n >= 0 && n <= 127) {
+    hz = midiToHz(n)
+  }
+  
+  if (humanize > 0) {
+    hz = hz * (1 + (Math.random() - 0.5) * 0.02 * humanize)
+  }
+
+  let vowel = extractVowel(lyric)
+  let formants = VOWEL_FORMANTS[vowel]
+  if (!formants) formants = VOWEL_FORMANTS['A']
+
+  let lastFreq = lastFreqByChannel[ch.id]
+  if (!lastFreq) lastFreq = hz
+  lastFreqByChannel[ch.id] = hz
+
+  let glottis = ctx.createOscillator()
+  glottis.type = "sawtooth"
+
+  if (glide > 0 && lastFreq > 0) {
+    glottis.frequency.setValueAtTime(lastFreq, t)
+    glottis.frequency.setTargetAtTime(hz, t, glide / 3)
+  } else {
+    glottis.frequency.setValueAtTime(hz, t)
+  }
+
+  let vibratoOsc = null
+  if (vibDepth > 0) {
+    vibratoOsc = ctx.createOscillator()
+    vibratoOsc.frequency.value = vibRate
+    let vibratoGain = ctx.createGain()
+    vibratoGain.gain.value = hz * vibDepth
+    vibratoOsc.connect(vibratoGain)
+    vibratoGain.connect(glottis.frequency)
+    vibratoOsc.start(t)
+    vibratoOsc.stop(t + durSec + release)
+  }
+
+  let masterGain = ctx.createGain()
+  let v = vel / 127
+  if (v < 0) v = 0
+  if (v > 1) v = 1
+  
+  masterGain.gain.setValueAtTime(0, t)
+  masterGain.gain.linearRampToValueAtTime(v, t + 0.05)
+  masterGain.gain.setValueAtTime(v, t + durSec - 0.02)
+  masterGain.gain.linearRampToValueAtTime(0, t + durSec + release)
+
+  let qValue = 12
+  let gains = [1.0, 0.4, 0.1]
+
+  let f1 = ctx.createBiquadFilter()
+  f1.type = "bandpass"
+  f1.frequency.value = formants[0]
+  f1.Q.value = qValue
+  let fg1 = ctx.createGain()
+  fg1.gain.value = gains[0]
+  glottis.connect(f1)
+  f1.connect(fg1)
+  fg1.connect(masterGain)
+
+  let f2 = ctx.createBiquadFilter()
+  f2.type = "bandpass"
+  f2.frequency.value = formants[1]
+  f2.Q.value = qValue
+  let fg2 = ctx.createGain()
+  fg2.gain.value = gains[1]
+  glottis.connect(f2)
+  f2.connect(fg2)
+  fg2.connect(masterGain)
+
+  let f3 = ctx.createBiquadFilter()
+  f3.type = "bandpass"
+  f3.frequency.value = formants[2]
+  f3.Q.value = qValue
+  let fg3 = ctx.createGain()
+  fg3.gain.value = gains[2]
+  glottis.connect(f3)
+  f3.connect(fg3)
+  fg3.connect(masterGain)
+
+  masterGain.connect(bus.input)
+  glottis.start(t)
+  glottis.stop(t + durSec + release)
+}

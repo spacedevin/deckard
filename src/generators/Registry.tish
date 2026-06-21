@@ -68,9 +68,14 @@ export fn generatorCatalog() {
       description: "Hang drum / handpan — lush inharmonic octave + compound-fifth shimmer triad over a long ethereal ring, with a soft fingertip strike and a warm 'gu' body."
     },
     {
-      id: "aahs",
-      label: "Aahs",
-      description: "Formant choir — detuned-unison saws sung through real vowel formants (aah · eeh · ooh · ohh · mmm), with breath noise, a wide ensemble, and a swelling vibrato."
+      id: "formantVocal",
+      label: "Formant Vocal",
+      description: "Expressive formant synthesizer with gliding notes and vibrato."
+    },
+    {
+      id: "ttsVocal",
+      label: "TTS Vocal",
+      description: "Web Speech API Text-to-Speech engine for robotic vocal sequences."
     },
     {
       id: "patch",
@@ -248,13 +253,19 @@ export fn defaultParamsForGeneratorId(id) {
       lows: 0.45
     }
   }
-  if (id === "aahs") {
+  if (id === "formantVocal") {
     return {
-      vowel: "aah",
-      breath: 0.3,
-      ensemble: 0.5,
-      vibrato: 0.4,
-      tone: 0.5
+      glide: 0.1,
+      vibDepth: 0.02,
+      vibRate: 5.0,
+      humanize: 0.5,
+      release: 0.2
+    }
+  }
+  if (id === "ttsVocal") {
+    return {
+      voice: 0,
+      rate: 1.5
     }
   }
   if (id === "patch") {

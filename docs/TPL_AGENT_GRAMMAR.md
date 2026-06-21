@@ -36,7 +36,7 @@ Per-step locks ride parallel lanes after `steps` (emit only when a step deviates
 | `basic_osc` | `osc waveform sine\|square\|…` + `adsr a d s r` |
 | `matrix_fm` | `gen_block matrix_fm … end gen_block` graph (see [TPL_GRAMMAR.md](TPL_GRAMMAR.md) / [TPL_EXTENSION.md](TPL_EXTENSION.md)) |
 | `patch` | the universal modular voice: `gen_block patch … end gen_block` with `osc`/`noise`/`string`/`filter`/`shaper`/`pan`/`gain` nodes, `conn` wiring, breakpoint `env` (expressions incl. `note*vel`, `max()`/`min()`). See [TPL_GRAMMAR.md](TPL_GRAMMAR.md). |
-| named voices (`aether`, `aahs`, `guitar`, `tine`, `halo`, `arco`, `clap`, `pad`, `bell`, `drum_synth`) | `gen <param> <value> …` (0–1 designer params; e.g. `gen tone 0.5 swell 0.45`) |
+| named voices (`aether`, `formantVocal`, `ttsVocal`, `guitar`, `tine`, `halo`, `arco`, `clap`, `pad`, `bell`, `drum_synth`) | `gen <param> <value> …` (0–1 designer params; e.g. `gen tone 0.5 swell 0.45`) |
 
 Live **control directives** (`@ launch`/`transport`/`cue`/`throw`/`fx`/`deck`) are a separate transient surface — see [TPL_GRAMMAR.md § Control directives](TPL_GRAMMAR.md#control-directives--).
 

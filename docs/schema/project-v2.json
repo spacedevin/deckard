@@ -116,7 +116,8 @@
             "required": ["on", "vel"],
             "properties": {
               "on": { "type": "boolean" },
-              "vel": { "type": "number" }
+              "vel": { "type": "number" },
+              "lyric": { "type": "string" }
             }
           }
         },

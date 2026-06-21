@@ -142,6 +142,27 @@ export fn applyStepLane(ch, toks, field, dflt, lo, hi, isInt) {
   }
 }
 
+export fn applyStepLyricLane(ch, toks) {
+  if (!ch.steps) {
+    return
+  }
+  let si = 0
+  while (si < 16) {
+    let ti = 1 + si
+    let v = ""
+    if (ti < toks.length) {
+      let l = toks[ti]
+      if (l !== ".") {
+        v = l
+      }
+    }
+    if (ch.steps[si]) {
+      ch.steps[si].lyric = v
+    }
+    si = si + 1
+  }
+}
+
 export fn parseBoolish(s) {
   if (s === "1" || s === "true" || s === "on" || s === "yes") {
     return true
@@ -334,6 +355,8 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
         applyStepLane(ch, t, "ratchet", 1, 1, 8, true)
       } else if (h === "step_nudge") {
         applyStepLane(ch, t, "nudge", 0, -0.5, 0.5, false)
+      } else if (h === "step_lyric") {
+        applyStepLyricLane(ch, t)
       } else {
         if (h === "note") {
           if (t.length >= 6 && t[4] === "v") {
@@ -346,6 +369,7 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
             let nprob = 1
             let nratchet = 1
             let nnudge = 0
+            let nlyric = ""
             let ti = 6
             while (ti + 1 < t.length) {
               let key = t[ti]
@@ -367,6 +391,8 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
                 if (nv === nv) {
                   nnudge = nv < -0.5 ? -0.5 : (nv > 0.5 ? 0.5 : nv)
                 }
+              } else if (key === "l") {
+                nlyric = val
               }
               ti = ti + 2
             }
@@ -379,12 +405,12 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
               let pitch = Math.floor(Number(t[1]))
               let vel = Math.floor(Number(t[5]))
               if (sel === null) {
-                noteLines.push({ pitch: pitch, startBeat: sb, durBeats: db, vel: vel, prob: nprob, ratchet: nratchet, nudge: nnudge })
+                noteLines.push({ pitch: pitch, startBeat: sb, durBeats: db, vel: vel, prob: nprob, ratchet: nratchet, nudge: nnudge, lyric: nlyric })
               } else {
                 let b = 0
                 while (b < nbars) {
                   if (barSelectorMatches(sel, b)) {
-                    noteLines.push({ pitch: pitch, startBeat: sb + b * 4, durBeats: db, vel: vel, prob: nprob, ratchet: nratchet, nudge: nnudge })
+                    noteLines.push({ pitch: pitch, startBeat: sb + b * 4, durBeats: db, vel: vel, prob: nprob, ratchet: nratchet, nudge: nnudge, lyric: nlyric })
                   }
                   b = b + 1
                 }
@@ -453,7 +479,8 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
         vel: noteLines[ni].vel,
         prob: noteLines[ni].prob != null ? noteLines[ni].prob : 1,
         ratchet: noteLines[ni].ratchet != null ? noteLines[ni].ratchet : 1,
-        nudge: noteLines[ni].nudge != null ? noteLines[ni].nudge : 0
+        nudge: noteLines[ni].nudge != null ? noteLines[ni].nudge : 0,
+        lyric: noteLines[ni].lyric != null ? noteLines[ni].lyric : ""
       })
       ni = ni + 1
     }
@@ -601,6 +628,7 @@ export fn applyClipPatternBody(ch, clip, body, errors) {
             let cprob = 1
             let cratchet = 1
             let cnudge = 0
+            let clyric = ""
             let cti = 6
             while (cti + 1 < t.length) {
               let ckey = t[cti]
@@ -620,6 +648,8 @@ export fn applyClipPatternBody(ch, clip, body, errors) {
                 if (nv === nv) {
                   cnudge = nv < -0.5 ? -0.5 : (nv > 0.5 ? 0.5 : nv)
                 }
+              } else if (ckey === "l") {
+                clyric = cval
               }
               cti = cti + 2
             }
@@ -636,7 +666,8 @@ export fn applyClipPatternBody(ch, clip, body, errors) {
                 vel: Math.floor(Number(t[5])),
                 prob: cprob,
                 ratchet: cratchet,
-                nudge: cnudge
+                nudge: cnudge,
+                lyric: clyric
               })
             }
           }
@@ -664,7 +695,8 @@ export fn applyClipPatternBody(ch, clip, body, errors) {
         vel: noteLines[ni].vel,
         prob: noteLines[ni].prob != null ? noteLines[ni].prob : 1,
         ratchet: noteLines[ni].ratchet != null ? noteLines[ni].ratchet : 1,
-        nudge: noteLines[ni].nudge != null ? noteLines[ni].nudge : 0
+        nudge: noteLines[ni].nudge != null ? noteLines[ni].nudge : 0,
+        lyric: noteLines[ni].lyric != null ? noteLines[ni].lyric : ""
       })
       ni = ni + 1
     }

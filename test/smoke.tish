@@ -411,25 +411,13 @@ check("aether→patch keeps the portamento (a freq glide envelope)", aetherPg.en
 let haloPg = parsePatchGraph(compileGeneratorToPatchLines("halo", defaultParamsForGeneratorId("halo"), null))
 let haloOscs = haloPg.nodes.filter(n => n.kind === "osc")
 check("halo→patch keeps the beating triad (octave+fifth detuned pairs)", haloOscs.length >= 6 && haloOscs.some(o => o.ratio > 1.9 && o.ratio < 2.1) && haloOscs.some(o => o.ratio > 2.9 && o.ratio < 3.1) && haloOscs.some(o => o.detune > 0) && haloOscs.some(o => o.detune < 0))
-let aahsPg = parsePatchGraph(compileGeneratorToPatchLines("aahs", defaultParamsForGeneratorId("aahs"), null))
-let aahsOscs = aahsPg.nodes.filter(n => n.kind === "osc")
-check("aahs→patch keeps the detuned ensemble (unison saws, both directions)", aahsOscs.length >= 3 && aahsOscs.some(o => o.detune > 0) && aahsOscs.some(o => o.detune < 0))
+
 // Tine round-trip through emit + ingest.
 let tineProj = loadDefaultDeckardProject().project
 applyTplSource(tineProj, "tpl 1\ntrack EP id ep gen tine\n  gen bark 0.8 tine 0.4 tremolo 0.6 decay 0.7 drive 0.3\n  note 60 0 1 v 110")
 let tineCh = findChannelById(tineProj, "ep")
 check("tine: gen params parse", tineCh.generatorId === "tine" && tineCh.generatorParams.bark === 0.8 && tineCh.generatorParams.tremolo === 0.6)
 check("tine: survives emit→re-parse", emitProject(tineProj).indexOf("bark 0.8") >= 0 && emitProject(tineProj).indexOf("tremolo 0.6") >= 0)
-// Aahs: the STRING vowel param round-trips + folds through the ingest door.
-let aahsProj = loadDefaultDeckardProject().project
-applyTplSource(aahsProj, "tpl 1\ntrack Choir id ch2 gen aahs\n  gen vowel ooh breath 0.5 ensemble 0.8 vibrato 0.6 tone 0.4\n  note 60 0 2 v 90")
-let aahsCh = findChannelById(aahsProj, "ch2")
-check("aahs: string vowel + knobs parse", aahsCh.generatorId === "aahs" && aahsCh.generatorParams.vowel === "ooh" && aahsCh.generatorParams.ensemble === 0.8)
-check("aahs: survives emit→re-parse (vowel token)", emitProject(aahsProj).indexOf("vowel ooh") >= 0)
-let aahsIng = loadDefaultDeckardProject().project
-applyCoDjTplSource(aahsIng, "tpl 1\ntrack Choir id ch2 gen aahs\n  steps x . . .", "host", "host", 0, ["master_mixer"])
-applyCoDjTplSource(aahsIng, "tpl 1\n" + fragmentForEdit(aahsIng, "track/ch2/gen/vowel", "mmm") + "\n", "host", "host", 0, ["master_mixer"])
-check("aahs: vowel change folds through ingest", findChannelById(aahsIng, "ch2").generatorParams.vowel === "mmm")
 
 // 5d-v. Instrument preset captures + restores the WHOLE sound (every panel), not just the generator.
 let prProj = loadDefaultDeckardProject().project

@@ -460,30 +460,130 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
       </article>
     )
   }
-  if (id === "aahs") {
-    let vowel = p.vowel ? p.vowel : "aah"
-    let breath = p.breath != null ? p.breath : 0.3
-    let ensemble = p.ensemble != null ? p.ensemble : 0.5
-    let vibrato = p.vibrato != null ? p.vibrato : 0.4
-    let toneA = p.tone != null ? p.tone : 0.5
-    let vowelOpts = [["aah", "Aah"], ["eeh", "Eeh"], ["ooh", "Ooh"], ["ohh", "Ohh"], ["mmm", "Mmm"]]
+  if (id === "formantVocal" || id === "ttsVocal") {
+    let applyLyrics = (str) => {
+      let words = str.trim().split(" ")
+      let validWords = []
+      let wIdx = 0
+      while (wIdx < words.length) {
+        if (words[wIdx] !== "") {
+          validWords.push(words[wIdx])
+        }
+        wIdx = wIdx + 1
+      }
+      if (validWords.length === 0) return
+      
+      let wi = 0
+      let emitted = false
+
+      if (ch.pianoNotes && ch.pianoNotes.length > 0) {
+        let arr = []
+        let i = 0
+        while (i < ch.pianoNotes.length) {
+          let n = ch.pianoNotes[i]
+          let nlyr = validWords[wi % validWords.length]
+          wi = wi + 1
+          arr.push({
+            startBeat: n.startBeat,
+            durBeats: n.durBeats,
+            pitch: n.pitch,
+            vel: n.vel != null ? n.vel : 100,
+            prob: n.prob != null ? n.prob : 1,
+            ratchet: n.ratchet != null ? n.ratchet : 1,
+            nudge: n.nudge != null ? n.nudge : 0,
+            lyric: nlyr
+          })
+          i = i + 1
+        }
+        if (rt && rt.emit) {
+          rt.emit("track/" + ch.id + "/notes", arr)
+        }
+      } else if (ch.steps) {
+        let arr = []
+        let i = 0
+        while (i < ch.steps.length) {
+          let s = ch.steps[i]
+          arr.push({
+            on: s.on === true,
+            vel: s.vel != null ? s.vel : 100,
+            prob: s.prob != null ? s.prob : 1,
+            ratchet: s.ratchet != null ? s.ratchet : 1,
+            nudge: s.nudge != null ? s.nudge : 0,
+            lyric: s.lyric != null ? s.lyric : ""
+          })
+          i = i + 1
+        }
+        i = 0
+        while (i < 16) {
+          if (arr[i].on) {
+            arr[i].lyric = validWords[wi % validWords.length]
+            wi = wi + 1
+            emitted = true
+          }
+          i = i + 1
+        }
+        if (emitted && rt && rt.emit) {
+          rt.emit("track/" + ch.id + "/pattern", arr)
+        }
+      }
+    }
+
+    let genSpecific = null
+    if (id === "formantVocal") {
+      let glide = p.glide != null ? p.glide : 0.1
+      let vibDepth = p.vibDepth != null ? p.vibDepth : 0.02
+      let vibRate = p.vibRate != null ? p.vibRate : 5.0
+      let humanize = p.humanize != null ? p.humanize : 0.5
+      let release = p.release != null ? p.release : 0.2
+      genSpecific = (
+        <div class="ik-card">
+          <div class="ik-card-h">{"Formant"}</div>
+          <div class="ik-knob-grid">
+            {pctKnob("Glide", glide, rt, ch, "glide", accent)}
+            {msKnob("Release", release, 2.0, rt, ch, "release", accent)}
+            {pctKnob("Vib.Dpt", vibDepth, rt, ch, "vib_depth", accent)}
+            {numKnob("Vib.Rt", vibRate, 0, 10, 0.1, "Hz", rt, ch, "vib_rate", accent)}
+            {pctKnob("Human", humanize, rt, ch, "humanize", accent)}
+          </div>
+        </div>
+      )
+    } else {
+      let voice = p.voice != null ? p.voice : 0
+      let rate = p.rate != null ? p.rate : 1.5
+      genSpecific = (
+        <div class="ik-card">
+          <div class="ik-card-h">{"TTS Voice"}</div>
+          <div class="ik-knob-grid">
+            {numKnob("Voice", voice, 0, 10, 1, "", rt, ch, "voice", accent)}
+            {numKnob("Rate", rate, 0.5, 3.0, 0.1, "x", rt, ch, "rate", accent)}
+          </div>
+        </div>
+      )
+    }
+
+    let lyricsUi = (
+      <div class="ik-card">
+        <div class="ik-card-h">{"Quick Lyrics"}</div>
+        <div style={{ padding: "0 8px 8px" }}>
+          <input
+            type="text"
+            placeholder="Type words separated by spaces..."
+            class="ik-lyrics-input"
+            style={{ width: "100%", background: "var(--ik-card-bg)", border: "1px solid " + accent, color: "inherit", padding: "6px", borderRadius: "4px", fontSize: "11px", fontFamily: "monospace", boxSizing: "border-box" }}
+            onkeydown={(e) => { e.stopPropagation() }}
+            onchange={(e) => applyLyrics(e.target.value)}
+          />
+          <div style={{ marginTop: "4px", fontSize: "10px", color: "var(--ik-text-dim, #94a3b8)", textAlign: "center" }}>
+            Press Enter to map words to active notes
+          </div>
+        </div>
+      </div>
+    )
+
     return (
       <article class="gen-params ik-cols">
-        <div class="ik-card">
-          <div class="ik-card-h">{"Vowel"}</div>
-          {pickPills(vowel, vowelOpts, rt, ch, "vowel", accent)}
-          <div class="ik-knob-grid">
-            {pctKnob("Tone", toneA, rt, ch, "tone", accent)}
-            {pctKnob("Breath", breath, rt, ch, "breath", accent)}
-          </div>
-        </div>
-        <div class="ik-card">
-          <div class="ik-card-h">{"Ensemble"}</div>
-          <div class="ik-knob-grid">
-            {pctKnob("Singers", ensemble, rt, ch, "ensemble", accent)}
-            {pctKnob("Vibrato", vibrato, rt, ch, "vibrato", accent)}
-          </div>
-        </div>
+        {genSpecific}
+        {lyricsUi}
       </article>
     )
   }
