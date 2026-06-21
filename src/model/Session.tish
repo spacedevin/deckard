@@ -3,6 +3,68 @@
 
 import { makeStep, cloneStep, clonePianoNote } from './Project.tish'
 import { promoteChannelToBars } from './Edits.tish'
+import { deepCloneParams } from './InstrumentPresets.tish'
+
+// ---- Per-clip instrument snapshot ("store" mode) ----
+// When ch.clipInstrMode === "store", saving a scene also captures the full instrument.
+
+/// Snapshot every sound-relevant field from a channel into a plain object.
+fn snapshotInstrument(ch) {
+  let snap = {
+    generatorId: ch.generatorId,
+    generatorParams: deepCloneParams(ch.generatorParams)
+  }
+  if (ch.generatorSpec) {
+    snap.generatorSpec = deepCloneParams(ch.generatorSpec)
+  }
+  if (ch.macroName != null) {
+    snap.macroName = ch.macroName
+  }
+  if (ch.macroParams) {
+    snap.macroParams = deepCloneParams(ch.macroParams)
+  }
+  snap.fx = {
+    reverbSend: ch.reverbSend,
+    drive: ch.drive,
+    filterCutoff: ch.filterCutoff,
+    filterQ: ch.filterQ,
+    lfoRate: ch.lfoRate,
+    lfoDepth: ch.lfoDepth
+  }
+  snap.voice = {
+    octave: ch.octave,
+    arp: ch.arp,
+    chord: ch.chord
+  }
+  return snap
+}
+
+/// Apply a previously-snapshotted instrument back onto a channel.
+fn applyInstrument(ch, snap) {
+  if (!snap) {
+    return
+  }
+  ch.generatorId = snap.generatorId
+  ch.generatorParams = deepCloneParams(snap.generatorParams)
+  if (snap.generatorSpec) {
+    ch.generatorSpec = deepCloneParams(snap.generatorSpec)
+  } else {
+    ch.generatorSpec = null
+  }
+  ch.macroName = snap.macroName != null ? snap.macroName : null
+  ch.macroParams = snap.macroParams ? deepCloneParams(snap.macroParams) : null
+  let fx = snap.fx ? snap.fx : {}
+  ch.reverbSend = fx.reverbSend != null ? fx.reverbSend : 0
+  ch.drive = fx.drive != null ? fx.drive : 0
+  ch.filterCutoff = fx.filterCutoff != null ? fx.filterCutoff : 20000
+  ch.filterQ = fx.filterQ != null ? fx.filterQ : 0.7
+  ch.lfoRate = fx.lfoRate != null ? fx.lfoRate : 0
+  ch.lfoDepth = fx.lfoDepth != null ? fx.lfoDepth : 0
+  let voice = snap.voice ? snap.voice : {}
+  ch.octave = voice.octave != null ? voice.octave : 0
+  ch.arp = voice.arp != null ? voice.arp : "off"
+  ch.chord = voice.chord != null ? voice.chord : "off"
+}
 
 // --- single-bar copy helpers (for "load/save 1 bar" into the currently-viewed bar) ---
 fn barOfBeat(beat) {
@@ -724,6 +786,7 @@ export fn sessionWriteRackToSceneClip(project, sceneIdx) {
     let baseSteps = stepsForClip(ch, bars)
     let spb = copyStepPitchByBar(ch.stepPitchByBar)
     let clip = findClipOnChannel(ch, clipId)
+    let storeInstr = ch.clipInstrMode === "store"
     if (!clip) {
       let nm = String(ch.name) + " ·S" + String(s + 1)
       clip = {
@@ -735,6 +798,9 @@ export fn sessionWriteRackToSceneClip(project, sceneIdx) {
         stepPitchByBar: spb,
         tplLoopBars: ch.tplLoopBars != null ? ch.tplLoopBars : null
       }
+      if (storeInstr) {
+        clip.instrument = snapshotInstrument(ch)
+      }
       ch.sessionClips.push(clip)
     } else {
       clip.bars = bars
@@ -742,6 +808,9 @@ export fn sessionWriteRackToSceneClip(project, sceneIdx) {
       clip.pianoNotes = copyPianoNotes(ch.pianoNotes)
       clip.stepPitchByBar = spb
       clip.tplLoopBars = ch.tplLoopBars != null ? ch.tplLoopBars : null
+      if (storeInstr) {
+        clip.instrument = snapshotInstrument(ch)
+      }
     }
     normalizeClipStepLength(clip)
     if (project.session.slots[ti] && project.session.slots[ti][s] !== undefined) {
@@ -782,6 +851,10 @@ export fn loadSceneIntoRack(project, sceneIdx) {
       ch.pianoNotes = copyPianoNotes(clip.pianoNotes)
       ch.patternBars = (clip.bars != null && Math.floor(clip.bars) >= 1) ? Math.floor(clip.bars) : 1
       ch.stepPitchByBar = copyStepPitchByBar(clip.stepPitchByBar)
+      // Restore the instrument when this track is in "store" mode and the clip has one.
+      if (ch.clipInstrMode === "store" && clip.instrument) {
+        applyInstrument(ch, clip.instrument)
+      }
     }
     ti = ti + 1
   }
@@ -823,6 +896,10 @@ export fn loadSceneBarIntoRack(project, sceneIdx, barIdx) {
           ch.stepPitchByBar.push(36)
         }
         ch.stepPitchByBar[b] = clip.stepPitchByBar[srcBar]
+      }
+      // Also restore instrument on per-bar load when store mode is enabled.
+      if (ch.clipInstrMode === "store" && clip.instrument) {
+        applyInstrument(ch, clip.instrument)
       }
     }
     ti = ti + 1
@@ -870,6 +947,7 @@ export fn sessionWriteRackBarToSceneClip(project, sceneIdx, barIdx) {
       onePitch = [ch.stepPitchByBar[srcBar]]
     }
     let clip = findClipOnChannel(ch, clipId)
+    let storeInstr = ch.clipInstrMode === "store"
     if (!clip) {
       clip = {
         id: clipId,
@@ -880,12 +958,18 @@ export fn sessionWriteRackBarToSceneClip(project, sceneIdx, barIdx) {
         stepPitchByBar: onePitch,
         tplLoopBars: ch.tplLoopBars != null ? ch.tplLoopBars : null
       }
+      if (storeInstr) {
+        clip.instrument = snapshotInstrument(ch)
+      }
       ch.sessionClips.push(clip)
     } else {
       clip.bars = 1
       clip.steps = oneSteps
       clip.pianoNotes = oneNotes
       clip.stepPitchByBar = onePitch
+      if (storeInstr) {
+        clip.instrument = snapshotInstrument(ch)
+      }
     }
     if (project.session.slots[ti] && project.session.slots[ti][s] !== undefined) {
       project.session.slots[ti][s] = clipId

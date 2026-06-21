@@ -236,7 +236,6 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     let ratio = p.ratio > 0 ? p.ratio : 2
     let idx = p.modIndex >= 0 ? p.modIndex : 4
     let cw = normalizeBasicOscWaveform(p.carrierWave ? p.carrierWave : "sine")
-    let mw = normalizeBasicOscWaveform(p.modWave ? p.modWave : "sine")
     let a = p.attack > 0 ? p.attack : 0.005
     let d = p.decay > 0 ? p.decay : 0.08
     let s = p.sustain >= 0 && p.sustain <= 1 ? p.sustain : 0.4
@@ -250,12 +249,8 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
             {numKnob("Index", idx, 0, 48, 0.1, "", rt, ch, "mod_index", accent)}
           </div>
           <div class="ik-wave-pair">
-            <span class="ik-wave-lbl">{"Carrier"}</span>
+            <span class="ik-wave-lbl">{"Wave"}</span>
             {WaveIconPicker(cw, (x) => genEmit(rt, ch, "carrier_wave", x), { accent: accent })}
-          </div>
-          <div class="ik-wave-pair">
-            <span class="ik-wave-lbl">{"Mod"}</span>
-            {WaveIconPicker(mw, (x) => genEmit(rt, ch, "mod_wave", x), { accent: accent })}
           </div>
         </div>
         <div class="ik-card">

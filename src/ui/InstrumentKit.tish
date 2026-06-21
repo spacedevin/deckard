@@ -618,3 +618,81 @@ export fn Switch(opts) {
     </div>
   )
 }
+
+/**
+ * Custom software dropdown — replaces native OS `<select>`.
+ * opts: { value, options: [{value, label}], onChange, class?, accent?, placeholder? }
+ * Renders a styled trigger button; clicking opens a positioned option list.
+ */
+export fn IkSelect(opts) {
+  let curVal = opts.value != null ? String(opts.value) : ""
+  let items = opts.options ? opts.options : []
+  let accent = opts.accent ? opts.accent : "var(--accent-warm, #e8945c)"
+  let cls = "ik-sel"
+  if (opts.class) {
+    cls = cls + " " + opts.class
+  }
+  // Find current label
+  let curLabel = opts.placeholder ? opts.placeholder : ""
+  let ii = 0
+  while (ii < items.length) {
+    if (String(items[ii].value) === curVal) {
+      curLabel = items[ii].label
+    }
+    ii = ii + 1
+  }
+
+  fn toggle(e) {
+    if (e.stopPropagation) e.stopPropagation()
+    if (e.preventDefault) e.preventDefault()
+    // Find or create the dropdown overlay relative to the trigger
+    let trigger = e.currentTarget
+    let existing = trigger.querySelector(".ik-sel-list")
+    if (existing) {
+      existing.remove()
+      return
+    }
+    // Build option list
+    let list = document.createElement("div")
+    list.className = "ik-sel-list"
+    let oi = 0
+    while (oi < items.length) {
+      let item = items[oi]
+      let row = document.createElement("div")
+      row.className = String(item.value) === curVal ? "ik-sel-opt ik-sel-opt-on" : "ik-sel-opt"
+      if (String(item.value) === curVal) {
+        row.style.color = accent
+      }
+      row.textContent = item.label
+      let itemVal = item.value
+      row.onmousedown = (ev) => {
+        ev.stopPropagation()
+        ev.preventDefault()
+        if (opts.onChange) {
+          opts.onChange(itemVal)
+        }
+        list.remove()
+      }
+      list.appendChild(row)
+      oi = oi + 1
+    }
+    trigger.appendChild(list)
+    // Close on any outside click
+    fn closeList(ev) {
+      if (!trigger.contains(ev.target)) {
+        list.remove()
+        document.removeEventListener("mousedown", closeList, true)
+      }
+    }
+    setTimeout(() => {
+      document.addEventListener("mousedown", closeList, true)
+    }, 0)
+  }
+
+  return (
+    <div class={cls} onmousedown={toggle}>
+      <span class="ik-sel-label">{curLabel}</span>
+      <span class="ik-sel-arrow">{"▾"}</span>
+    </div>
+  )
+}

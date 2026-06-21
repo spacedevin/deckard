@@ -566,6 +566,8 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
     let icon = muted ? "⏸" : "▶"
     let stateText = muted ? "muted — tap to unmute" : (live ? "playing — tap to mute" : "ready — tap to mute")
     let stopCls = stopped ? "session-track-stop session-track-stop-on" : "session-track-stop"
+    let isStore = ch.clipInstrMode === "store"
+    let instrCls = isStore ? "session-track-instr session-track-instr-on" : "session-track-instr"
     rows.push(
       <div class="session-track-row" key={"row-" + String(tix)}>
         <button
@@ -584,6 +586,21 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
           onclick={() => stopTrack(tix)}
         >
           {"■"}
+        </button>
+        <button
+          type="button"
+          class={instrCls}
+          title={isStore ? "STORE — each pattern saves/loads its own instrument. Click to switch to SYNC (shared instrument)." : "SYNC — all patterns share this track's instrument. Click to switch to STORE (per-pattern instruments)."}
+          onclick={(e) => {
+            e.stopPropagation()
+            ch.clipInstrMode = isStore ? "sync" : "store"
+            if (bumpSessionUi) {
+              bumpSessionUi()
+            }
+            setProjectFromUI(project)
+          }}
+        >
+          {isStore ? "🎹" : "🔗"}
         </button>
         <div class="session-cells">{cells}</div>
       </div>
