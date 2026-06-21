@@ -589,13 +589,27 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
         <div class="ik-card">
           <div class="ik-card-h">{"Formant"}</div>
           <div style={{ padding: "0 8px 8px" }}>
-            <div style={{ fontSize: "10px", color: "var(--ik-text-dim, #94a3b8)", marginBottom: "4px" }}>Individual Vowels</div>
-            <div style={{ display: "flex", gap: "4px" }}>
-              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px" }} onclick={() => applyLyrics("A")}>Ah</button>
-              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px" }} onclick={() => applyLyrics("E")}>Eh</button>
-              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px" }} onclick={() => applyLyrics("I")}>Ee</button>
-              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px" }} onclick={() => applyLyrics("O")}>Oh</button>
-              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px" }} onclick={() => applyLyrics("U")}>Oo</button>
+            <div style={{ fontSize: "10px", color: "var(--ik-text-dim, #94a3b8)", marginBottom: "4px" }}>Front vowels</div>
+            <div style={{ display: "flex", gap: "3px", marginBottom: "4px" }}>
+              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }} onclick={() => applyLyrics("I")} title="heed / see">/i/ Ee</button>
+              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }} onclick={() => applyLyrics("IH")} title="hid / bit">/ɪ/ Ih</button>
+              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }} onclick={() => applyLyrics("EY")} title="bait / hey">/e/ Ay</button>
+              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }} onclick={() => applyLyrics("E")} title="bed / said">/ɛ/ Eh</button>
+              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }} onclick={() => applyLyrics("AE")} title="cat / bat">/æ/ Ae</button>
+            </div>
+            <div style={{ fontSize: "10px", color: "var(--ik-text-dim, #94a3b8)", marginBottom: "4px" }}>Open & back vowels</div>
+            <div style={{ display: "flex", gap: "3px", marginBottom: "4px" }}>
+              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }} onclick={() => applyLyrics("A")} title="father / palm">/ɑ/ Ah</button>
+              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }} onclick={() => applyLyrics("O")} title="law / caught">/ɔ/ Aw</button>
+              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }} onclick={() => applyLyrics("OH")} title="boat / go">/o/ Oh</button>
+              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }} onclick={() => applyLyrics("OO")} title="book / put">/ʊ/ Uu</button>
+              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }} onclick={() => applyLyrics("U")} title="boot / who">/u/ Oo</button>
+            </div>
+            <div style={{ fontSize: "10px", color: "var(--ik-text-dim, #94a3b8)", marginBottom: "4px" }}>Central vowels</div>
+            <div style={{ display: "flex", gap: "3px" }}>
+              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }} onclick={() => applyLyrics("UH")} title="cup / bus">/ʌ/ Uh</button>
+              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }} onclick={() => applyLyrics("ER")} title="bird / her">/ɝ/ Er</button>
+              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }} onclick={() => applyLyrics("UX")} title="about / sofa">/ə/ Ux</button>
             </div>
           </div>
           <div class="ik-knob-grid">
