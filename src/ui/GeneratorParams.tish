@@ -860,7 +860,6 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     )
   }
   if (id === "reeseBass") {
-    let voices = p.voices != null ? p.voices : 3
     let detune = p.detune != null ? p.detune : 30
     let cutoff = p.cutoff != null ? p.cutoff : 1500
     let wobble = p.wobble != null ? p.wobble : 0
@@ -868,18 +867,32 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     return (
       <article class="gen-params ik-cols">
         <div class="ik-card">
-          <div class="ik-card-h">{"Supersaw"}</div>
+          <div class="ik-card-h">{"Reese Bass"}</div>
           <div class="ik-knob-grid">
-            {numKnob("Voices", voices, 1, 7, 1, "", rt, ch, "voices", accent)}
-            {numKnob("Detune", detune, 0, 100, 1, "¢", rt, ch, "detune", accent)}
-          </div>
-        </div>
-        <div class="ik-card">
-          <div class="ik-card-h">{"Filter"}</div>
-          <div class="ik-knob-grid">
+            {numKnob("Detune", detune, 0, 100, 1, "ct", rt, ch, "detune", accent)}
             {freqKnob("Cutoff", cutoff, rt, ch, "cutoff", accent)}
             {numKnob("Wobble", wobble, 0, 10, 0.1, "Hz", rt, ch, "wobble", accent)}
             {msKnob("Decay", decay, 3.0, rt, ch, "decay", accent)}
+          </div>
+        </div>
+      </article>
+    )
+  }
+  if (id === "syncLead") {
+    let sweepAmt = p.sweepAmt != null ? p.sweepAmt : 4.0
+    let sweepDecay = p.sweepDecay != null ? p.sweepDecay : 0.4
+    let cutoff = p.cutoff != null ? p.cutoff : 3000
+    let res = p.resonance != null ? p.resonance : 5
+    let decay = p.decay != null ? p.decay : 0.8
+    return (
+      <article class="gen-params ik-cols">
+        <div class="ik-card">
+          <div class="ik-card-h">{"Hard Sync"}</div>
+          <div class="ik-knob-grid">
+            {numKnob("Sweep Amt", sweepAmt, 1, 10, 0.1, "x", rt, ch, "sweepAmt", accent)}
+            {msKnob("Sweep Dec", sweepDecay, 2.0, rt, ch, "sweepDecay", accent)}
+            {freqKnob("Cutoff", cutoff, rt, ch, "cutoff", accent)}
+            {numKnob("Resonance", res, 1, 30, 0.5, "", rt, ch, "resonance", accent)}
           </div>
         </div>
       </article>

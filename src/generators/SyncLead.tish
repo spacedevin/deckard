@@ -1,0 +1,62 @@
+export fn playSyncLead(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  let gp = ch.generatorParams ? ch.generatorParams : {}
+  let sweepAmt = gp.sweepAmt != null ? gp.sweepAmt : 4.0
+  let sweepDecay = gp.sweepDecay != null ? gp.sweepDecay : 0.4
+  let cutoff = gp.cutoff != null ? gp.cutoff : 3000
+  let res = gp.resonance != null ? gp.resonance : 5
+  let decay = gp.decay != null ? gp.decay : 0.8
+  
+  let f0 = 440 * Math.pow(2, (midi + bendSemis - 69) / 12)
+  let v = vel / 127
+  if (v < 0) v = 0
+  if (v > 1) v = 1
+
+  let osc = null
+  try {
+    osc = new AudioWorkletNode(ctx, "sync-oscillator")
+  } catch (e) {
+    // Fallback if worklet didn't load
+    let fallback = ctx.createOscillator()
+    fallback.type = "sawtooth"
+    fallback.frequency.value = f0
+    osc = fallback
+  }
+
+  let filter = ctx.createBiquadFilter()
+  filter.type = "lowpass"
+  filter.frequency.value = cutoff
+  filter.Q.value = res
+
+  let gain = ctx.createGain()
+  gain.gain.value = 0
+  gain.gain.setValueAtTime(0, t)
+  gain.gain.linearRampToValueAtTime(v * 0.8, t + 0.05)
+  gain.gain.setTargetAtTime(0, t + 0.05, decay / 3)
+
+  osc.connect(filter)
+  filter.connect(gain)
+  gain.connect(bus.input)
+
+  if (osc.parameters) {
+    let masterParam = osc.parameters.get("masterFreq")
+    let slaveParam = osc.parameters.get("slaveFreq")
+    
+    masterParam.setValueAtTime(f0, t)
+    
+    // Envelope sweep on the slave pitch
+    let startFreq = f0 * sweepAmt
+    slaveParam.setValueAtTime(startFreq, t)
+    slaveParam.exponentialRampToValueAtTime(f0, t + sweepDecay + 0.01)
+  } else {
+    // If it fell back to regular oscillator
+    osc.start(t)
+    osc.stop(t + decay + 0.5)
+  }
+
+  // Worklet nodes don't have start/stop, they just run while connected
+  setTimeout(() => {
+    osc.disconnect()
+    filter.disconnect()
+    gain.disconnect()
+  }, (decay + 1) * 1000)
+}

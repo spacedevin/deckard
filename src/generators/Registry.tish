@@ -103,6 +103,11 @@ export fn generatorCatalog() {
       description: "Thick, multi-oscillator detuned Supersaw bass with filter wobble."
     },
     {
+      id: "syncLead",
+      label: "Sync Lead",
+      description: "Aggressive true hard sync analog lead with an automated sweep envelope."
+    },
+    {
       id: "meSpeakVocal",
       label: "meSpeak Vocal",
       description: "Retro robotic TTS using meSpeak.js with sample-accurate timing."
@@ -347,6 +352,15 @@ export fn defaultParamsForGeneratorId(id) {
       cutoff: 1500,
       wobble: 0,
       decay: 1.0
+    }
+  }
+  if (id === "syncLead") {
+    return {
+      sweepAmt: 4.0,
+      sweepDecay: 0.4,
+      cutoff: 3000,
+      resonance: 5,
+      decay: 0.8
     }
   }
   if (id === "patch") {

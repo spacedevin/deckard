@@ -20,6 +20,7 @@ import { playSub808 } from './Sub808.tish'
 import { playChiptune } from './Chiptune.tish'
 import { playCymbal } from './Cymbal.tish'
 import { playReeseBass } from './ReeseBass.tish'
+import { playSyncLead } from './SyncLead.tish'
 
 export fn dispatchPlayNote(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric) {
   if (!bus || !bus.input) {
@@ -110,6 +111,10 @@ export fn dispatchPlayNote(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
   }
   if (id === "reeseBass") {
     playReeseBass(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    return
+  }
+  if (id === "syncLead") {
+    playSyncLead(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
     return
   }
   if (id === "patch") {

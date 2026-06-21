@@ -335,6 +335,8 @@ export fn ensureAudio(project, store) {
   store.clockNode = null
   if (typeof ctx.audioWorklet !== "undefined" && ctx.audioWorklet && ctx.audioWorklet.addModule) {
     let pmod = ctx.audioWorklet.addModule("/clock-worklet.js")
+    let smod = ctx.audioWorklet.addModule("/sync-worklet.js")
+
     if (pmod && pmod.then) {
       pmod.then(() => {
         let node = new AudioWorkletNode(ctx, "deckard-clock")
