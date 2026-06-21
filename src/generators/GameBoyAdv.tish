@@ -1,0 +1,206 @@
+// Game Boy Advance (DirectSound) Emulator
+// Emulates the software mixing 8-bit DAC of the GBA (often max 16kHz-32kHz).
+
+export fn defaultParamsForGameBoyAdv() {
+  return {
+    waveform: "pulse", // GBA software synths commonly used pulse/saw
+    duty: "50",
+    vol: 15,
+    attack: 0,
+    decay: 2,
+    sustain: 15,
+    release: 0,
+    bitcrush: true, // 8-bit DAC simulation
+    pitchDrop: 0,
+    pitchDec: 0.05,
+    vibRate: 0,
+    vibAmt: 0,
+    arpRate: 0,
+    arpSemis: 0
+  }
+}
+
+fn getGbaDacCurve(ctx) {
+  if (ctx.gbaDacCurve) return ctx.gbaDacCurve
+  // Create a staircase curve to force an audio signal into 8-bit (256 steps)
+  let steps = 8192
+  let curve = new Float32Array(steps)
+  let i = 0
+  while (i < steps) {
+    let norm = i / (steps - 1)
+    let quant = Math.round(norm * 255) / 255.0
+    curve[i] = quant * 2.0 - 1.0
+    i = i + 1
+  }
+  ctx.gbaDacCurve = curve
+  return curve
+}
+
+fn getGbaBuffer(ctx, shape, duty) {
+  let cacheKey = "gba_" + shape + "_" + duty
+  if (ctx[cacheKey]) return ctx[cacheKey]
+  
+  // A tiny 32-sample buffer mimics the GBA software mixing "aliasing"
+  // at high frequencies, simulating a low sample rate output.
+  let len = 32
+  let buf = ctx.createBuffer(1, len, ctx.sampleRate)
+  let data = buf.getChannelData(0)
+  
+  let dThresh = 0.5
+  if (duty === "12_5") dThresh = 0.125
+  if (duty === "25") dThresh = 0.25
+  if (duty === "75") dThresh = 0.75
+  
+  let i = 0
+  while (i < len) {
+    let phase = i / len
+    let v = 0
+    if (shape === "pulse") {
+      v = phase < dThresh ? 1.0 : -1.0
+    } else if (shape === "sawtooth") {
+      v = (phase * 2.0) - 1.0
+    } else if (shape === "triangle") {
+      v = phase < 0.5 ? (phase * 4.0 - 1.0) : (3.0 - phase * 4.0)
+    } else {
+      v = Math.sin(phase * Math.PI * 2)
+    }
+    data[i] = v
+    i = i + 1
+  }
+  
+  ctx[cacheKey] = buf
+  return buf
+}
+
+export fn playGameBoyAdv(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  let gp = ch.generatorParams
+  if (!gp) gp = {}
+  
+  let waveform = gp.waveform ? gp.waveform : "pulse"
+  let duty = gp.duty ? gp.duty : "50"
+  let vol = gp.vol != null ? Math.round(gp.vol) : 15
+  let attack = gp.attack != null ? gp.attack : 0
+  let decay = gp.decay != null ? gp.decay : 2
+  let sustain = gp.sustain != null ? gp.sustain : 15
+  let release = gp.release != null ? gp.release : 0
+  
+  let bitcrush = gp.bitcrush !== false
+  let pitchDrop = gp.pitchDrop != null ? Math.round(gp.pitchDrop) : 0
+  let pitchDec = gp.pitchDec != null ? gp.pitchDec : 0.05
+  let vibRate = gp.vibRate != null ? gp.vibRate : 0
+  let vibAmt = gp.vibAmt != null ? gp.vibAmt : 0
+  let arpRate = gp.arpRate != null ? gp.arpRate : 0
+  let arpSemis = gp.arpSemis != null ? Math.round(gp.arpSemis) : 0
+
+  let f0 = 440 * Math.pow(2, (midi + bendSemis - 69) / 12)
+  let v = vel / 127
+  if (v < 0) v = 0
+  if (v > 1) v = 1
+
+  let buf = getGbaBuffer(ctx, waveform, duty)
+  let src = ctx.createBufferSource()
+  src.buffer = buf
+  src.loop = true
+  
+  let baseFreq = (ctx.sampleRate / buf.length)
+  let rate0 = f0 / baseFreq
+  src.playbackRate.value = rate0
+
+  let disconnects = []
+  
+  if (pitchDrop !== 0) {
+    let rateDrop = rate0 * Math.pow(2, pitchDrop / 12)
+    src.playbackRate.setValueAtTime(rateDrop, t)
+    src.playbackRate.setTargetAtTime(rate0, t, Math.max(pitchDec, 0.001))
+  } else if (arpRate > 0 && arpSemis !== 0) {
+    let arpStep = 1.0 / arpRate
+    let steps = Math.ceil((durSec + release + 2.0) / arpStep)
+    let ai = 0
+    src.playbackRate.setValueAtTime(rate0, t)
+    while (ai < steps) {
+      let semi = (ai % 2 === 1) ? arpSemis : 0
+      src.playbackRate.setValueAtTime(rate0 * Math.pow(2, semi / 12), t + ai * arpStep)
+      ai = ai + 1
+    }
+  }
+
+  if (vibRate > 0 && vibAmt > 0) {
+    let lfo = ctx.createOscillator()
+    lfo.type = "sine"
+    lfo.frequency.value = vibRate
+    let lfoGain = ctx.createGain()
+    lfoGain.gain.value = rate0 * (vibAmt / 1200)
+    lfo.connect(lfoGain)
+    lfoGain.connect(src.playbackRate)
+    lfo.start(t)
+    lfo.stop(t + durSec + release + 2.0)
+    disconnects.push(lfo)
+    disconnects.push(lfoGain)
+  }
+
+  // Envelope logic
+  let maxAmp = (vol / 15.0) * v * 0.8
+  let sLevel = maxAmp * (sustain / 15.0)
+  
+  let finalGain = ctx.createGain()
+  finalGain.gain.setValueAtTime(0, t)
+  
+  let safeDur = Math.max(durSec, 0.01)
+  let tA = t + attack
+  let tD = tA + (decay / 10.0)
+  let tOff = Math.max(t + safeDur, tD)
+  
+  if (attack > 0) {
+    finalGain.gain.linearRampToValueAtTime(maxAmp, tA)
+  } else {
+    finalGain.gain.setValueAtTime(maxAmp, tA)
+  }
+  
+  if (decay > 0) {
+    finalGain.gain.setTargetAtTime(sLevel, tA, decay / 30.0)
+  } else {
+    finalGain.gain.setValueAtTime(sLevel, tA)
+  }
+  
+  finalGain.gain.setValueAtTime(sLevel, tOff)
+  if (release > 0) {
+    finalGain.gain.setTargetAtTime(0, tOff, release / 30.0)
+  } else {
+    finalGain.gain.setValueAtTime(0, tOff)
+  }
+
+  src.start(t)
+  src.stop(tOff + release + 0.1)
+  disconnects.push(src)
+  disconnects.push(finalGain)
+
+  if (bitcrush) {
+    let shaper = ctx.createWaveShaper()
+    shaper.curve = getGbaDacCurve(ctx)
+    // Avoid interpolation in the wave shaper by using oversample
+    shaper.oversample = "none"
+    
+    // GBA software mixing often had a sharp roll-off due to sample rate
+    let mixFilter = ctx.createBiquadFilter()
+    mixFilter.type = "lowpass"
+    mixFilter.frequency.value = 16000 // Typical max GBA mixing frequency Nyquist limit
+    
+    src.connect(shaper)
+    shaper.connect(mixFilter)
+    mixFilter.connect(finalGain)
+    disconnects.push(shaper)
+    disconnects.push(mixFilter)
+  } else {
+    src.connect(finalGain)
+  }
+
+  finalGain.connect(bus.input)
+  
+  setTimeout(() => {
+    let di = 0
+    while (di < disconnects.length) {
+      disconnects[di].disconnect()
+      di = di + 1
+    }
+  }, (tOff - t + release + 0.5) * 1000)
+}

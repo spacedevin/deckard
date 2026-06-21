@@ -1007,6 +1007,58 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
       </article>
     )
   }
+  if (id === "gbaDirectSound") {
+    let wf = p.waveform ? p.waveform : "pulse"
+    let duty = p.duty ? p.duty : "50"
+    let att = p.attack != null ? p.attack : 0
+    let dec = p.decay != null ? p.decay : 2
+    let sus = p.sustain != null ? Math.round(p.sustain) : 15
+    let rel = p.release != null ? p.release : 0
+    
+    let bitcrush = p.bitcrush !== false
+    
+    let pitchDrop = p.pitchDrop != null ? Math.round(p.pitchDrop) : 0
+    let pitchDec = p.pitchDec != null ? p.pitchDec : 0.05
+    let vibRate = p.vibRate != null ? p.vibRate : 0
+    let vibAmt = p.vibAmt != null ? p.vibAmt : 0
+    let arpRate = p.arpRate != null ? p.arpRate : 0
+    let arpSemis = p.arpSemis != null ? Math.round(p.arpSemis) : 0
+
+    return (
+      <article class="gen-params ik-cols">
+        {waveCard("Software Osc", wf, "waveform", rt, ch, accent, null, { choices: ["pulse", "sawtooth", "triangle", "sine"] })}
+        <div class="ik-card">
+          <div class="ik-card-h">{"GBA Envelope"}</div>
+          <div class="ik-knob-grid">
+            {numKnob("Att.s", att, 0, 2, 0.01, "s", rt, ch, "attack", accent)}
+            {numKnob("Dec.s", dec, 0, 5, 0.01, "s", rt, ch, "decay", accent)}
+            {numKnob("Sus", sus, 0, 15, 1, "", rt, ch, "sustain", accent)}
+            {numKnob("Rel.s", rel, 0, 5, 0.01, "s", rt, ch, "release", accent)}
+          </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"DirectSound"}</div>
+          <div style={{ marginBottom: "12px" }}>
+            {pickPills(bitcrush ? "8bit" : "16bit", [["16bit", "Smooth"], ["8bit", "8-bit DAC"]], rt, ch, "bitcrush", accent, (v) => v === "8bit")}
+          </div>
+          <div class="ik-knob-grid">
+            {pickPills(duty, [["12_5", "12.5%"], ["25", "25%"], ["50", "50%"], ["75", "75%"]], rt, ch, "duty", accent, null, wf !== "pulse")}
+          </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"Tracker Macros"}</div>
+          <div class="ik-knob-grid">
+            {numKnob("Drop.st", pitchDrop, -48, 48, 1, "st", rt, ch, "pitchDrop", accent)}
+            {msKnob("Drop.ms", pitchDec, 1, rt, ch, "pitchDec", accent)}
+            {numKnob("Vib.Hz", vibRate, 0, 20, 0.5, "Hz", rt, ch, "vibRate", accent)}
+            {numKnob("Vib.¢", vibAmt, 0, 200, 1, "ct", rt, ch, "vibAmt", accent)}
+            {numKnob("Arp.Hz", arpRate, 0, 40, 1, "Hz", rt, ch, "arpRate", accent)}
+            {numKnob("Arp.st", arpSemis, -24, 24, 1, "st", rt, ch, "arpSemis", accent)}
+          </div>
+        </div>
+      </article>
+    )
+  }
   if (id === "ym2612") {
     let algo = p.algorithm != null ? p.algorithm : 0
     let fdbk = p.feedback != null ? p.feedback : 0

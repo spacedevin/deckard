@@ -123,6 +123,11 @@ export fn generatorCatalog() {
       description: "Super Nintendo S-DSP emulator (References: bsnes, snes9x)."
     },
     {
+      id: "gbaDirectSound",
+      label: "GBA DirectSound",
+      description: "Game Boy Advance 8-bit DAC software mixing simulator."
+    },
+    {
       id: "cymbal",
       label: "Cymbal",
       description: "TR-808 style cymbal cluster (6 tuned squares + noise + highpass)."
@@ -216,6 +221,7 @@ import { defaultParamsForC64Sid } from "./C64Sid.tish"
 import { defaultParamsForYm2612 } from "./Ym2612.tish"
 import { defaultParamsForSn76489 } from "./Sn76489.tish"
 import { defaultParamsForSnesSpc } from "./SnesSpc.tish"
+import { defaultParamsForGameBoyAdv } from "./GameBoyAdv.tish"
 
 export let generators = [
   { id: "basicOsc", name: "Basic Osc" },
@@ -241,7 +247,8 @@ export let generators = [
   { id: "c64sid", name: "MOS 6581" },
   { id: "ym2612", name: "YM2612" },
   { id: "sn76489", name: "SN76489" },
-  { id: "spc700", name: "SPC700" }
+  { id: "spc700", name: "SPC700" },
+  { id: "gbaDirectSound", name: "GBA PCM" }
 ]
 
 export fn defaultParamsForGeneratorId(id) {
@@ -440,6 +447,9 @@ export fn defaultParamsForGeneratorId(id) {
   }
   if (id === "spc700") {
     return defaultParamsForSnesSpc()
+  }
+  if (id === "gbaDirectSound") {
+    return defaultParamsForGameBoyAdv()
   }
 
   if (id === "cymbal") {

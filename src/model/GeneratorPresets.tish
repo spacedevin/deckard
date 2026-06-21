@@ -525,6 +525,20 @@ export fn generatorFactoryPresets() {
       name: "Warm Brass",
       generatorId: "spc700",
       params: { waveform: "brass", attack: 6, decay: 5, sustainLevel: 5, sustainRate: 0, echoEnable: false, echoDelay: 4, echoFeedback: 0 }
+    },
+
+    // ──── GBA PCM (DirectSound) ───────────────────────────────────
+    {
+      presetId: "factory_gba_pcm_saw",
+      name: "Software Saw Lead",
+      generatorId: "gbaDirectSound",
+      params: { waveform: "sawtooth", duty: "50", attack: 0, decay: 1, sustain: 15, release: 0, bitcrush: true }
+    },
+    {
+      presetId: "factory_gba_pcm_pulse",
+      name: "Pulse Chug",
+      generatorId: "gbaDirectSound",
+      params: { waveform: "pulse", duty: "25", attack: 0, decay: 0.1, sustain: 0, release: 0.2, bitcrush: true }
     }
   ]
 

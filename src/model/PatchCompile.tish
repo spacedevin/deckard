@@ -1022,6 +1022,228 @@ fn laserSyncLines(p) {
   return lines
 }
 
+fn getRetroVolComp(pVol, maxVol) {
+  let v = pVol != null ? pVol : (maxVol * 0.66)
+  return f((v / maxVol) * VOL_COMP * 0.8)
+}
+
+fn nes2a03Lines(p) {
+  let type = p.type ? p.type : "pulse"
+  let isNoise = type === "noise"
+  let wave = type === "triangle" ? "triangle" : "square"
+  let a = p.attack ? p.attack : 0.005
+  let d = (p.decay != null ? p.decay : 3) / 10.0
+  let s = p.sustain != null ? p.sustain / 15.0 : 0.5
+  let r = p.release != null ? p.release / 10.0 : 0.1
+  let vComp = getRetroVolComp(p.vol, 15.0)
+  return [
+    isNoise ? "noise o1" : ("osc o1 " + wave + " note"),
+    "gain a1 0",
+    "conn o1 a1 1",
+    "conn a1 out " + vComp,
+    adsrAmpEnv("a1", a, d, s, r)
+  ]
+}
+
+fn gameBoyDmgLines(p) {
+  let type = p.type ? p.type : "pulse"
+  let isNoise = type === "noise"
+  let wave = type === "wave" ? "sine" : "square"
+  let a = p.attack ? p.attack : 0.005
+  let d = p.decay != null ? p.decay / 10.0 : 0.2
+  let s = p.sustain != null ? p.sustain / 15.0 : 0.5
+  let r = p.release != null ? p.release / 10.0 : 0.1
+  let vComp = getRetroVolComp(p.vol, 15.0)
+  return [
+    isNoise ? "noise o1" : ("osc o1 " + wave + " note"),
+    "gain a1 0",
+    "conn o1 a1 1",
+    "conn a1 out " + vComp,
+    adsrAmpEnv("a1", a, d, s, r)
+  ]
+}
+
+fn c64sidLines(p) {
+  let wave = p.waveform ? p.waveform : "pulse"
+  if (wave === "pulse") wave = "square"
+  let a = p.attack ? p.attack / 5.0 : 0.05
+  let d = p.decay ? p.decay / 5.0 : 0.2
+  let s = p.sustain != null ? p.sustain / 15.0 : 0.5
+  let r = p.release ? p.release / 5.0 : 0.2
+  let ftype = p.filterType ? p.filterType : "lowpass"
+  let fcut = p.cutoff ? p.cutoff : 2000
+  let vComp = getRetroVolComp(p.vol, 15.0)
+  return [
+    "osc o1 " + wave + " note",
+    "filter f1 " + ftype + " freq " + f(fcut) + " q " + f(p.resonance ? p.resonance : 0.7),
+    "gain a1 0",
+    "conn o1 f1 1",
+    "conn f1 a1 1",
+    "conn a1 out " + vComp,
+    adsrAmpEnv("a1", a, d, s, r)
+  ]
+}
+
+fn getRateTime(rate) {
+  if (rate >= 31) return 0.002
+  if (rate === 0) return 100.0
+  return Math.pow(2, (15 - rate) / 2.0)
+}
+
+fn ymEnvToAdsr(p, opId) {
+  let ar = p[opId + "_ar"] != null ? p[opId + "_ar"] : 31
+  let dr = p[opId + "_dr"] != null ? p[opId + "_dr"] : 5
+  let sr = p[opId + "_sr"] != null ? p[opId + "_sr"] : 5
+  let rr = p[opId + "_rr"] != null ? p[opId + "_rr"] : 5
+  let sl = p[opId + "_sl"] != null ? p[opId + "_sl"] : 0
+  
+  let atkTime = getRateTime(ar)
+  let decTime = getRateTime(dr)
+  let susLevel = Math.pow(10, -(sl / 15.0) * 4.0)
+  let relTime = getRateTime(rr)
+
+  return { a: atkTime, d: decTime, s: susLevel, r: relTime }
+}
+
+fn ym2612Lines(p) {
+  let algo = p.algorithm != null ? Math.round(p.algorithm) : 0
+  let fdbk = p.feedback != null ? p.feedback : 0
+  
+  let ops = {}
+  let opEnvs = {}
+  
+  let i = 1
+  while (i <= 4) {
+    let mul = p["op" + i + "_mul"] != null ? p["op" + i + "_mul"] : 1
+    if (mul === 0) mul = 0.5
+    
+    let oid = String(i)
+    ops[oid] = { wave: "sine", ratio: mul }
+    
+    let envObj = ymEnvToAdsr(p, "op" + i)
+    opEnvs[oid] = { a: envObj.a, d: envObj.d, s: envObj.s, r: envObj.r }
+    
+    i = i + 1
+  }
+  
+  let mods = []
+  let routes = []
+  
+  let fAmt = (fdbk / 7.0) * 0.5
+  if (fdbk > 0) mods.push({ type: "fm", src: "1", dst: "1", amount: fAmt })
+  
+  fn getTl(opId) {
+    let tl = p["op" + opId + "_tl"] != null ? p["op" + opId + "_tl"] : 0
+    return Math.pow(10, -(tl / 127.0) * 4.0)
+  }
+  
+  let tl1 = getTl(1)
+  let tl2 = getTl(2)
+  let tl3 = getTl(3)
+  let tl4 = getTl(4)
+  
+  let modScale = 2.0
+
+  if (algo === 0) {
+    mods.push({ type: "fm", src: "1", dst: "2", amount: tl1 * modScale })
+    mods.push({ type: "fm", src: "2", dst: "3", amount: tl2 * modScale })
+    mods.push({ type: "fm", src: "3", dst: "4", amount: tl3 * modScale })
+    routes.push({ srcKind: "op", srcId: "4", dstKind: "out", volume: tl4 })
+  } else if (algo === 1) {
+    mods.push({ type: "fm", src: "1", dst: "3", amount: tl1 * modScale })
+    mods.push({ type: "fm", src: "2", dst: "3", amount: tl2 * modScale })
+    mods.push({ type: "fm", src: "3", dst: "4", amount: tl3 * modScale })
+    routes.push({ srcKind: "op", srcId: "4", dstKind: "out", volume: tl4 })
+  } else if (algo === 2) {
+    mods.push({ type: "fm", src: "1", dst: "2", amount: tl1 * modScale })
+    mods.push({ type: "fm", src: "3", dst: "4", amount: tl3 * modScale })
+    mods.push({ type: "fm", src: "2", dst: "4", amount: tl2 * modScale })
+    routes.push({ srcKind: "op", srcId: "4", dstKind: "out", volume: tl4 })
+  } else if (algo === 3) {
+    mods.push({ type: "fm", src: "1", dst: "2", amount: tl1 * modScale })
+    mods.push({ type: "fm", src: "2", dst: "3", amount: tl2 * modScale })
+    routes.push({ srcKind: "op", srcId: "3", dstKind: "out", volume: tl3 })
+    routes.push({ srcKind: "op", srcId: "4", dstKind: "out", volume: tl4 })
+  } else if (algo === 4) {
+    mods.push({ type: "fm", src: "1", dst: "2", amount: tl1 * modScale })
+    routes.push({ srcKind: "op", srcId: "2", dstKind: "out", volume: tl2 })
+    mods.push({ type: "fm", src: "3", dst: "4", amount: tl3 * modScale })
+    routes.push({ srcKind: "op", srcId: "4", dstKind: "out", volume: tl4 })
+  } else if (algo === 5) {
+    mods.push({ type: "fm", src: "1", dst: "2", amount: tl1 * modScale })
+    mods.push({ type: "fm", src: "1", dst: "3", amount: tl1 * modScale })
+    mods.push({ type: "fm", src: "1", dst: "4", amount: tl1 * modScale })
+    routes.push({ srcKind: "op", srcId: "2", dstKind: "out", volume: tl2 })
+    routes.push({ srcKind: "op", srcId: "3", dstKind: "out", volume: tl3 })
+    routes.push({ srcKind: "op", srcId: "4", dstKind: "out", volume: tl4 })
+  } else if (algo === 6) {
+    mods.push({ type: "fm", src: "1", dst: "2", amount: tl1 * modScale })
+    routes.push({ srcKind: "op", srcId: "2", dstKind: "out", volume: tl2 })
+    routes.push({ srcKind: "op", srcId: "3", dstKind: "out", volume: tl3 })
+    routes.push({ srcKind: "op", srcId: "4", dstKind: "out", volume: tl4 })
+  } else if (algo === 7) {
+    routes.push({ srcKind: "op", srcId: "1", dstKind: "out", volume: tl1 })
+    routes.push({ srcKind: "op", srcId: "2", dstKind: "out", volume: tl2 })
+    routes.push({ srcKind: "op", srcId: "3", dstKind: "out", volume: tl3 })
+    routes.push({ srcKind: "op", srcId: "4", dstKind: "out", volume: tl4 })
+  }
+
+  let graph = { ops: ops, opEnvs: opEnvs, mods: mods, routes: routes }
+  return matrixFmLines(graph)
+}
+
+fn sn76489Lines(p) {
+  let isNoise = p.type === "noise"
+  let wave = "square"
+  let a = p.attack ? p.attack : 0.005
+  let d = p.decay ? p.decay : 0.1
+  let s = p.sustain != null ? p.sustain / 15.0 : 0.5
+  let r = p.release ? p.release : 0.1
+  let vComp = getRetroVolComp(p.vol, 15.0)
+  return [
+    isNoise ? "noise o1" : ("osc o1 " + wave + " note"),
+    "gain a1 0",
+    "conn o1 a1 1",
+    "conn a1 out " + vComp,
+    adsrAmpEnv("a1", a, d, s, r)
+  ]
+}
+
+fn spc700Lines(p) {
+  let wave = p.waveform === "sine" ? "sine" : p.waveform === "brass" ? "sawtooth" : "square"
+  let a = p.attack ? p.attack / 15.0 : 0.05
+  let d = p.decay ? p.decay / 7.0 : 0.2
+  let s = p.sustainLevel != null ? p.sustainLevel / 7.0 : 0.5
+  let r = 0.2
+  let vComp = getRetroVolComp(p.vol, 10.0)
+  return [
+    "osc o1 " + wave + " note",
+    "filter f1 lowpass freq 3000 q 0.7",
+    "gain a1 0",
+    "conn o1 f1 1",
+    "conn f1 a1 1",
+    "conn a1 out " + vComp,
+    adsrAmpEnv("a1", a, d, s, r)
+  ]
+}
+
+fn gbaDirectSoundLines(p) {
+  let wave = p.waveform ? p.waveform : "pulse"
+  if (wave === "pulse") wave = "square"
+  let a = p.attack ? p.attack : 0.005
+  let d = p.decay != null ? p.decay / 10.0 : 0.2
+  let s = p.sustain != null ? p.sustain / 15.0 : 0.5
+  let r = p.release != null ? p.release / 10.0 : 0.1
+  let vComp = getRetroVolComp(p.vol, 15.0)
+  return [
+    "osc o1 " + wave + " note",
+    "gain a1 0",
+    "conn o1 a1 1",
+    "conn a1 out " + vComp,
+    adsrAmpEnv("a1", a, d, s, r)
+  ]
+}
+
 /// True when this generator can be reduced to an equivalent patch graph (sound-preserving switch).
 export fn canCompileToPatch(generatorId) {
   return (
@@ -1042,7 +1264,14 @@ export fn canCompileToPatch(generatorId) {
     generatorId === "syncLead" ||
     generatorId === "syncChoir" ||
     generatorId === "obSync" ||
-    generatorId === "laserSync"
+    generatorId === "laserSync" ||
+    generatorId === "nes2a03" ||
+    generatorId === "gameBoyDmg" ||
+    generatorId === "c64sid" ||
+    generatorId === "ym2612" ||
+    generatorId === "sn76489" ||
+    generatorId === "spc700" ||
+    generatorId === "gbaDirectSound"
   )
 }
 
@@ -1103,6 +1332,27 @@ export fn compileGeneratorToPatchLines(generatorId, params, spec) {
   }
   if (generatorId === "matrixFm") {
     return spec && spec.graph ? matrixFmLines(spec.graph) : null
+  }
+  if (generatorId === "nes2a03") {
+    return nes2a03Lines(p)
+  }
+  if (generatorId === "gameBoyDmg") {
+    return gameBoyDmgLines(p)
+  }
+  if (generatorId === "c64sid") {
+    return c64sidLines(p)
+  }
+  if (generatorId === "ym2612") {
+    return ym2612Lines(p)
+  }
+  if (generatorId === "sn76489") {
+    return sn76489Lines(p)
+  }
+  if (generatorId === "spc700") {
+    return spc700Lines(p)
+  }
+  if (generatorId === "gbaDirectSound") {
+    return gbaDirectSoundLines(p)
   }
   return null
 }

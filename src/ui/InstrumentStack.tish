@@ -30,7 +30,7 @@ import { RichTplEditor } from './RichTplEditor.tish'
 
 let VOICE_GROUPS = [
   { title: "Oscillators", voices: [["basicOsc", "Osc"], ["fmTone", "FM"]] },
-  { title: "Retro Chips", voices: [["nes2a03", "2A03"], ["gameBoyDmg", "LR35902"], ["c64sid", "MOS 6581"], ["ym2612", "YM2612"], ["sn76489", "SN76489"], ["spc700", "SPC700"]] },
+  { title: "Retro Chips", voices: [["nes2a03", "2A03"], ["gameBoyDmg", "LR35902"], ["c64sid", "MOS 6581"], ["ym2612", "YM2612"], ["sn76489", "SN76489"], ["spc700", "SPC700"], ["gbaDirectSound", "GBA PCM"]] },
   { title: "Texture", voices: [["noiseBurst", "Noise"], ["pad", "Pad"], ["bell", "Bell"]] },
   { title: "Strings", voices: [["guitar", "Guitar"], ["arco", "Arco"]] },
   { title: "Keys", voices: [["tine", "Tine EP"]] },
