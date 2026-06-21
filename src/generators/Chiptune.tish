@@ -1,93 +1,208 @@
 export fn playChiptune(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let gp = ch.generatorParams ? ch.generatorParams : {}
+  let waveform = gp.waveform ? gp.waveform : "pulse"
   let pw = gp.pulseWidth != null ? gp.pulseWidth : 0.5
   let pwmSpeed = gp.pwmSpeed != null ? gp.pwmSpeed : 0
   let crush = gp.bitcrush != null ? gp.bitcrush : 0
-  let decay = gp.decay != null ? gp.decay : 0.3
+  let lpAmt = gp.lowpass != null ? gp.lowpass : 0
+  let arpRate = gp.arpRate != null ? gp.arpRate : 0
+  let arpSemis = gp.arpSemis != null ? gp.arpSemis : 0
+  let att = gp.attack != null ? gp.attack : 0.005
+  let dec = gp.decay != null ? gp.decay : 0.3
+  let sus = gp.sustain != null ? gp.sustain : 0
+  let rel = gp.release != null ? gp.release : 0.05
 
   let f0 = 440 * Math.pow(2, (midi + bendSemis - 69) / 12)
   let v = vel / 127
   if (v < 0) v = 0
   if (v > 1) v = 1
 
-  let osc1 = ctx.createOscillator()
-  osc1.type = "sawtooth"
-  osc1.frequency.value = f0
+  let totalTime = durSec + rel + 0.5
+  let stopTime = t + totalTime
+  let disconnects = []
 
-  let osc2 = ctx.createOscillator()
-  osc2.type = "sawtooth"
-  osc2.frequency.value = f0
+  // ─── Source oscillator (waveform switch) ───────────────────────
+  let sourceNode = null
 
-  let invGain = ctx.createGain()
-  invGain.gain.value = -1
+  if (waveform === "noise") {
+    // White noise buffer (looped)
+    let sr = ctx.sampleRate
+    let len = Math.floor(sr * 0.5)
+    if (len < 128) len = 128
+    let buf = ctx.createBuffer(1, len, sr)
+    let data = buf.getChannelData(0)
+    let ni = 0
+    while (ni < len) {
+      data[ni] = Math.random() * 2 - 1
+      ni = ni + 1
+    }
+    let src = ctx.createBufferSource()
+    src.buffer = buf
+    src.loop = true
+    src.start(t)
+    src.stop(stopTime)
+    sourceNode = src
+    disconnects.push(src)
 
-  // Delay the second oscillator to shift phase, creating the pulse width
-  // A delay of 1 / f0 represents a full cycle (1.0 pulse width)
-  // We constrain pulse width between 0.05 and 0.95
-  let delayNode = ctx.createDelay()
-  let maxDelay = 1 / Math.max(f0, 10)
-  delayNode.delayTime.value = maxDelay * Math.max(0.05, Math.min(pw, 0.95))
+  } else if (waveform === "triangle") {
+    let osc = ctx.createOscillator()
+    osc.type = "triangle"
+    osc.frequency.value = f0
+    osc.start(t)
+    osc.stop(stopTime)
+    sourceNode = osc
+    disconnects.push(osc)
 
-  if (pwmSpeed > 0) {
-    let lfo = ctx.createOscillator()
-    lfo.type = "sine"
-    lfo.frequency.value = pwmSpeed
-    let lfoGain = ctx.createGain()
-    // modulate pulse width by +/- 25%
-    lfoGain.gain.value = maxDelay * 0.25
-    lfo.connect(lfoGain)
-    lfoGain.connect(delayNode.delayTime)
-    lfo.start(t)
-    lfo.stop(t + decay + 0.5)
-    setTimeout(() => { lfo.disconnect(); lfoGain.disconnect() }, (decay + 1) * 1000)
+    // Arp on triangle
+    if (arpRate > 0 && arpSemis !== 0) {
+      let f1 = f0 * Math.pow(2, arpSemis / 12)
+      let interval = 1.0 / arpRate
+      let at = t
+      let toggle = false
+      while (at < stopTime) {
+        osc.frequency.setValueAtTime(toggle ? f1 : f0, at)
+        at = at + interval
+        toggle = !toggle
+      }
+    }
+
+  } else if (waveform === "sawtooth") {
+    let osc = ctx.createOscillator()
+    osc.type = "sawtooth"
+    osc.frequency.value = f0
+    osc.start(t)
+    osc.stop(stopTime)
+    sourceNode = osc
+    disconnects.push(osc)
+
+    // Arp on sawtooth
+    if (arpRate > 0 && arpSemis !== 0) {
+      let f1 = f0 * Math.pow(2, arpSemis / 12)
+      let interval = 1.0 / arpRate
+      let at = t
+      let toggle = false
+      while (at < stopTime) {
+        osc.frequency.setValueAtTime(toggle ? f1 : f0, at)
+        at = at + interval
+        toggle = !toggle
+      }
+    }
+
+  } else {
+    // Default: pulse wave (two saws with phase delay trick)
+    let osc1 = ctx.createOscillator()
+    osc1.type = "sawtooth"
+    osc1.frequency.value = f0
+    let osc2 = ctx.createOscillator()
+    osc2.type = "sawtooth"
+    osc2.frequency.value = f0
+
+    let invGain = ctx.createGain()
+    invGain.gain.value = -1
+
+    let delayNode = ctx.createDelay()
+    let maxDelay = 1 / Math.max(f0, 10)
+    let clampedPw = Math.max(0.05, Math.min(pw, 0.95))
+    delayNode.delayTime.value = maxDelay * clampedPw
+
+    if (pwmSpeed > 0) {
+      let lfo = ctx.createOscillator()
+      lfo.type = "sine"
+      lfo.frequency.value = pwmSpeed
+      let lfoGain = ctx.createGain()
+      lfoGain.gain.value = maxDelay * 0.25
+      lfo.connect(lfoGain)
+      lfoGain.connect(delayNode.delayTime)
+      lfo.start(t)
+      lfo.stop(stopTime)
+      disconnects.push(lfo)
+      disconnects.push(lfoGain)
+    }
+
+    let mergeGain = ctx.createGain()
+    mergeGain.gain.value = 0.5
+
+    osc1.connect(mergeGain)
+    osc2.connect(invGain)
+    invGain.connect(delayNode)
+    delayNode.connect(mergeGain)
+
+    osc1.start(t)
+    osc2.start(t)
+    osc1.stop(stopTime)
+    osc2.stop(stopTime)
+
+    // Arp on pulse
+    if (arpRate > 0 && arpSemis !== 0) {
+      let f1 = f0 * Math.pow(2, arpSemis / 12)
+      let interval = 1.0 / arpRate
+      let at = t
+      let toggle = false
+      while (at < stopTime) {
+        let fNow = toggle ? f1 : f0
+        osc1.frequency.setValueAtTime(fNow, at)
+        osc2.frequency.setValueAtTime(fNow, at)
+        at = at + interval
+        toggle = !toggle
+      }
+    }
+
+    sourceNode = mergeGain
+    disconnects.push(osc1)
+    disconnects.push(osc2)
+    disconnects.push(invGain)
+    disconnects.push(delayNode)
+    disconnects.push(mergeGain)
   }
 
-  let mergeGain = ctx.createGain()
-  mergeGain.gain.value = 0.5 // mix down the two saws
-
-  osc1.connect(mergeGain)
-  osc2.connect(invGain)
-  invGain.connect(delayNode)
-  delayNode.connect(mergeGain)
-
-  let finalGain = ctx.createGain()
-  finalGain.gain.setValueAtTime(0, t)
-  finalGain.gain.linearRampToValueAtTime(v * 0.8, t + 0.01)
-  finalGain.gain.setTargetAtTime(0, t + 0.01, decay / 3)
-
-  let shaper = null
+  // ─── Bitcrush (waveshaper quantizer) ───────────────────────────
+  let afterCrush = sourceNode
   if (crush > 0) {
-    shaper = ctx.createWaveShaper()
-    let steps = Math.max(2, Math.floor(16 - crush * 14)) // 16 bits down to 2 bits
+    let shaper = ctx.createWaveShaper()
+    let steps = Math.max(2, Math.floor(16 - crush * 14))
     let n = 4096
     let curve = new Float32Array(n)
-    let i = 0
-    while (i < n) {
-      let x = (i * 2 / n) - 1
-      curve[i] = Math.round(x * steps) / steps
-      i = i + 1
+    let ci = 0
+    while (ci < n) {
+      let x = (ci * 2 / n) - 1
+      curve[ci] = Math.round(x * steps) / steps
+      ci = ci + 1
     }
     shaper.curve = curve
-    mergeGain.connect(shaper)
-    shaper.connect(finalGain)
-  } else {
-    mergeGain.connect(finalGain)
+    sourceNode.connect(shaper)
+    afterCrush = shaper
+    disconnects.push(shaper)
   }
 
-  finalGain.connect(bus.input)
+  // ─── Lowpass filter (chip character) ───────────────────────────
+  let afterFilter = afterCrush
+  if (lpAmt > 0.01) {
+    let lp = ctx.createBiquadFilter()
+    lp.type = "lowpass"
+    lp.Q.value = 0.7
+    lp.frequency.value = 300 + (1 - lpAmt) * 8000
+    afterCrush.connect(lp)
+    afterFilter = lp
+    disconnects.push(lp)
+  }
 
-  osc1.start(t)
-  osc2.start(t)
-  osc1.stop(t + decay + 0.5)
-  osc2.stop(t + decay + 0.5)
+  // ─── Amplitude envelope (full ADSR) ────────────────────────────
+  let finalGain = ctx.createGain()
+  finalGain.gain.setValueAtTime(0, t)
+  finalGain.gain.linearRampToValueAtTime(v * 0.8, t + att)
+  finalGain.gain.setTargetAtTime(v * 0.8 * sus, t + att, dec / 3)
+  finalGain.gain.setValueAtTime(v * 0.8 * sus, t + durSec)
+  finalGain.gain.setTargetAtTime(0, t + durSec, rel / 3)
+
+  afterFilter.connect(finalGain)
+  finalGain.connect(bus.input)
+  disconnects.push(finalGain)
 
   setTimeout(() => {
-    osc1.disconnect()
-    osc2.disconnect()
-    invGain.disconnect()
-    delayNode.disconnect()
-    mergeGain.disconnect()
-    if (shaper) shaper.disconnect()
-    finalGain.disconnect()
-  }, (decay + 1) * 1000)
+    let di = 0
+    while (di < disconnects.length) {
+      disconnects[di].disconnect()
+      di = di + 1
+    }
+  }, totalTime * 1000)
 }

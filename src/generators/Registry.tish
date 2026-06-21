@@ -346,10 +346,17 @@ export fn defaultParamsForGeneratorId(id) {
   }
   if (id === "chiptune") {
     return {
+      waveform: "pulse",
       pulseWidth: 0.5,
       pwmSpeed: 0,
       bitcrush: 0,
-      decay: 0.3
+      lowpass: 0,
+      arpRate: 0,
+      arpSemis: 0,
+      attack: 0.005,
+      decay: 0.3,
+      sustain: 0,
+      release: 0.05
     }
   }
   if (id === "cymbal") {

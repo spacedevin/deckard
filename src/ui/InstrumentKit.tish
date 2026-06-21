@@ -88,6 +88,15 @@ export fn matrixFmLucideIconSvg(shape, strokeHex) {
       "/></svg>"
     )
   }
+  if (shape === "pulse") {
+    // Pulse / variable-width square wave icon
+    return (
+      "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">" +
+      "<path d=\"M2 18h3V6h5v12h5V6h5v12h2\"" +
+      st +
+      "/></svg>"
+    )
+  }
   return (
     "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M3 12h18\"" + st + "/></svg>"
   )
@@ -359,15 +368,21 @@ export fn Knob(opts) {
   )
 }
 
-/// Wave-shape icon picker (sine/square/sawtooth/triangle, + noise when allowNoise). onPick(shape).
+/// Wave-shape icon picker. Default: sine/square/sawtooth/triangle (+ noise when allowNoise).
+/// Pass opts.choices = ["pulse", "triangle", ...] to override the wave list entirely.
 export fn WaveIconPicker(current, onPick, opts) {
   let allowNoise = opts && opts.allowNoise === true
   let accent = opts && opts.accent ? opts.accent : "var(--accent-warm, #e8945c)"
-  let choices = ["sine", "square", "sawtooth", "triangle"]
-  if (allowNoise) {
-    choices = ["sine", "square", "sawtooth", "triangle", "noise"]
+  let choices = null
+  if (opts && opts.choices) {
+    choices = opts.choices
+  } else {
+    choices = ["sine", "square", "sawtooth", "triangle"]
+    if (allowNoise) {
+      choices = ["sine", "square", "sawtooth", "triangle", "noise"]
+    }
   }
-  let titles = { sine: "Sine", square: "Square", sawtooth: "Saw", triangle: "Triangle", noise: "Noise" }
+  let titles = { sine: "Sine", square: "Square", sawtooth: "Saw", triangle: "Triangle", noise: "Noise", pulse: "Pulse" }
   let btns = []
   let i = 0
   while (i < choices.length) {

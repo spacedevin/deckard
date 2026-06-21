@@ -86,11 +86,13 @@ fn freqKnob(label, hz, rt, ch, key, accent) {
   })
 }
 
-fn waveCard(title, current, tplKey, rt, ch, accent, extra) {
+fn waveCard(title, current, tplKey, rt, ch, accent, extra, pickerOpts) {
+  let popts = pickerOpts ? pickerOpts : {}
+  popts.accent = accent
   return (
     <div class="ik-card">
       <div class="ik-card-h">{title}</div>
-      {WaveIconPicker(current, (w) => genEmit(rt, ch, tplKey, w), { accent: accent })}
+      {WaveIconPicker(current, (w) => genEmit(rt, ch, tplKey, w), popts)}
       {extra}
     </div>
   )
@@ -822,20 +824,48 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     )
   }
   if (id === "chiptune") {
+    let wf = p.waveform ? p.waveform : "pulse"
     let pw = p.pulseWidth != null ? p.pulseWidth : 0.5
     let pwmSpeed = p.pwmSpeed != null ? p.pwmSpeed : 0
     let crush = p.bitcrush != null ? p.bitcrush : 0
-    let decay = p.decay != null ? p.decay : 0.3
+    let lpAmt = p.lowpass != null ? p.lowpass : 0
+    let arpRate = p.arpRate != null ? p.arpRate : 0
+    let arpSemis = p.arpSemis != null ? p.arpSemis : 0
+    let att = p.attack != null ? p.attack : 0.005
+    let dec = p.decay != null ? p.decay : 0.3
+    let sus = p.sustain != null ? p.sustain : 0
+    let rel = p.release != null ? p.release : 0.05
+    let isPulse = wf === "pulse"
+    let pulseKnobs = null
+    if (isPulse) {
+      pulseKnobs = (
+        <div class="ik-knob-grid">
+          {pctKnob("Width", pw, rt, ch, "pulseWidth", accent)}
+          {numKnob("PWM", pwmSpeed, 0, 10, 0.1, "Hz", rt, ch, "pwmSpeed", accent)}
+        </div>
+      )
+    }
     return (
       <article class="gen-params ik-cols">
+        {waveCard("Waveform", wf, "waveform", rt, ch, accent, pulseKnobs, { choices: ["pulse", "triangle", "sawtooth", "noise"] })}
         <div class="ik-card">
-          <div class="ik-card-h">{"Pulse Wave"}</div>
+          <div class="ik-card-h">{"Character"}</div>
           <div class="ik-knob-grid">
-            {pctKnob("Width", pw, rt, ch, "pulseWidth", accent)}
-            {numKnob("PWM Speed", pwmSpeed, 0, 10, 0.1, "Hz", rt, ch, "pwmSpeed", accent)}
             {pctKnob("Crush", crush, rt, ch, "bitcrush", accent)}
-            {msKnob("Decay", decay, 1.5, rt, ch, "decay", accent)}
+            {pctKnob("Lowpass", lpAmt, rt, ch, "lowpass", accent)}
+            {numKnob("Arp Rate", arpRate, 0, 30, 0.5, "Hz", rt, ch, "arpRate", accent)}
+            {numKnob("Arp Semi", arpSemis, -12, 12, 1, "st", rt, ch, "arpSemis", accent)}
           </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"Envelope"}</div>
+          <div class="ik-knob-grid">
+            {msKnob("Attack", att, 0.5, rt, ch, "attack", accent)}
+            {msKnob("Decay", dec, 1.5, rt, ch, "decay", accent)}
+            {pctKnob("Sustain", sus, rt, ch, "sustain", accent)}
+            {msKnob("Release", rel, 1.0, rt, ch, "release", accent)}
+          </div>
+          {EnvDisplay(att, dec, sus, rel, { accent: accent })}
         </div>
       </article>
     )
