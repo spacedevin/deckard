@@ -97,6 +97,30 @@ export fn matrixFmLucideIconSvg(shape, strokeHex) {
       "/></svg>"
     )
   }
+  if (shape === "strings") {
+    return (
+      "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">" +
+      "<path d=\"M2 12 C 5 2, 8 20, 12 12 C 16 4, 19 22, 22 12\"" +
+      st +
+      "/></svg>"
+    )
+  }
+  if (shape === "brass") {
+    return (
+      "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">" +
+      "<path d=\"M2 16 L 6 6 L 9 14 L 14 4 L 18 16 L 22 8\"" +
+      st +
+      "/></svg>"
+    )
+  }
+  if (shape === "bass") {
+    return (
+      "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">" +
+      "<path d=\"M2 14 Q 7 4, 12 14 T 22 14\"" +
+      st +
+      "/></svg>"
+    )
+  }
   return (
     "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M3 12h18\"" + st + "/></svg>"
   )
@@ -393,16 +417,14 @@ export fn WaveIconPicker(current, onPick, opts) {
     let w = choices[i]
     let wCopy = w
     let active = current === w
-    let stroke = active ? "#0a0a0a" : "#cfcfd6"
-    let cls = active ? "ik-wave-btn ik-wave-on" : "ik-wave-btn"
-    let style = active ? { background: accent, borderColor: accent } : {}
+    let stroke = active ? accent : "#777782"
+    let cls = active ? "ik-wave-btn ik-wave-btn-on" : "ik-wave-btn"
     btns.push(
       <button
         type="button"
         class={cls}
         key={"ikw" + w}
         title={titles[w]}
-        style={style}
         onmousedown={(e) => e.stopPropagation()}
         onclick={() => onPick(wCopy)}
       >

@@ -1214,8 +1214,6 @@ input[type="range"]::-moz-range-thumb {
 .sytrus-op-env-wrap .sytrus-env-bg { height: 30px; }
 /* Shrink the knobs inside op/filter cards so the 4 ADSR knobs (and filter env knobs) sit on ONE row in a
    ~14rem card instead of wrapping to two — this is what kept each card ~380px tall. */
-.sytrus-op-card .ik-knob,
-.sytrus-filter-card .ik-knob { width: 2.6rem; }
 .sytrus-op-card .ik-knob-dial,
 .sytrus-filter-card .ik-knob-dial { width: 1.9rem; height: 1.9rem; }
 .sytrus-op-card .ik-knob-label,
@@ -1223,7 +1221,7 @@ input[type="range"]::-moz-range-thumb {
 .sytrus-op-card .ik-knob-value,
 .sytrus-filter-card .ik-knob-value { font-size: 0.5rem; }
 .sytrus-op-card .ik-knob-grid,
-.sytrus-filter-card .ik-knob-grid { gap: 0.25rem 0.2rem; }
+.sytrus-filter-card .ik-knob-grid { gap: 0.25rem 0.2rem; flex-wrap: nowrap; }
 
 .sytrus-op-card {
   background: rgba(0, 0, 0, 0.35);
@@ -5449,11 +5447,36 @@ input[type="range"]::-moz-range-thumb {
   color: #e3a877;
 }
 
-.ik-wave-row { display: inline-flex; gap: 0.25rem; flex-wrap: wrap; }
-.ik-wave-btn { width: 2rem; height: 2rem; display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border, #2a2a2a); border-radius: 7px; background: rgba(0, 0, 0, 0.25);
-  cursor: pointer; padding: 0; }
-.ik-wave-btn:hover { border-color: #555; }
+.ik-wave-row { display: inline-flex; gap: 0.35rem; flex-wrap: wrap; }
+.ik-wave-btn {
+  width: 2.1rem;
+  height: 2.1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, #2c2c32 0%, #1c1c22 100%);
+  border: 1px solid #0a0a0a;
+  border-top-color: #3c3c44;
+  border-radius: 5px;
+  box-shadow: 0 3px 5px rgba(0,0,0,0.6);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.05s ease, box-shadow 0.05s ease, border-top-color 0.05s ease, background 0.05s ease;
+}
+
+.ik-wave-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  border-top-color: #2c2c32;
+  background: #1a1a20;
+}
+
+.ik-wave-btn-on {
+  transform: translateY(1px);
+  box-shadow: 0 2px 3px rgba(0,0,0,0.6);
+  background: linear-gradient(180deg, #222228 0%, #16161c 100%);
+  border-top-color: #2a2a30;
+}
 .ik-wave-img { width: 1.15rem; height: 1.15rem; display: block; pointer-events: none; }
 
 .ik-env { width: 100%; height: 3.2rem; display: block; }
@@ -5465,9 +5488,8 @@ input[type="range"]::-moz-range-thumb {
   margin-bottom: 0.5rem; }
 .ik-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0.55rem; }
 @media (max-width: 720px) { .ik-cols { grid-template-columns: 1fr; } }
-.ik-wave-pair { display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.4rem; }
-.ik-wave-lbl { font-size: 0.56rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);
-  min-width: 3rem; }
+.ik-wave-pair { display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; margin-bottom: 0.6rem; }
+.ik-wave-lbl { font-size: 0.56rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
 .gen-params.ik-cols { border: none; padding: 0; }
 
 /* ---- Euclidean fill, rehomed into the channel rack header ---- */

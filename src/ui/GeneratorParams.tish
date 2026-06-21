@@ -788,30 +788,13 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     let rosin = p.rosin != null ? p.rosin : 0.3
     let bodyAmt = p.body != null ? p.body : 0.6
     let voiceOpts = [["violin", "Violin"], ["fiddle", "Fiddle"], ["viola", "Viola"], ["cello", "Cello"], ["bass", "Bass"]]
-    let vpills = []
-    let vi = 0
-    while (vi < voiceOpts.length) {
-      let vid = voiceOpts[vi][0]
-      let vlabel = voiceOpts[vi][1]
-      let vidCopy = vid
-      vpills.push(
-        <button
-          type="button"
-          class={voice === vid ? "arco-voice-pill arco-voice-pill-on" : "arco-voice-pill"}
-          key={"av" + vid}
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={() => genEmit(rt, ch, "voice", vidCopy)}
-        >
-          {vlabel}
-        </button>
-      )
-      vi = vi + 1
-    }
     return (
       <article class="gen-params ik-cols">
         <div class="ik-card">
           <div class="ik-card-h">{"Instrument"}</div>
-          <div class="arco-voice-row">{vpills}</div>
+          <div class="ik-knob-grid">
+            {genSelectorKnob("Type", voice, voiceOpts, rt, ch, "voice", accent)}
+          </div>
         </div>
         <div class="ik-card">
           <div class="ik-card-h">{"Bow"}</div>

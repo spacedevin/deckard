@@ -17,7 +17,7 @@ import {
 } from '../tpl/MatrixFmGraph.tish'
 import { parseGenBlock, defaultMatrixFmRawLines } from '../tpl/TplExtension.tish'
 import { matrixFmPatches } from '../model/MatrixFmPresets.tish'
-import { Knob, accentForGenerator, matrixFmSvgDataUrl, matrixFmLucideIconSvg, isKnobDragging, selOpt } from './InstrumentKit.tish'
+import { Knob, accentForGenerator, matrixFmSvgDataUrl, matrixFmLucideIconSvg, isKnobDragging, selOpt, WaveIconPicker } from './InstrumentKit.tish'
 import { emitInstrumentModuleTpl } from '../core/Levels.tish'
 
 fn numOr(x, def) {
@@ -121,48 +121,6 @@ fn matrixFmEnvPreviewBlock(a, d, s, r) {
   )
 }
 
-fn matrixFmWaveIconDataUrl(shape, active) {
-  let stroke = active ? "#0a0a0a" : "#f0f0f0"
-  return matrixFmSvgDataUrl(matrixFmLucideIconSvg(shape, stroke))
-}
-
-fn matrixFmOpWavePicker(waveVal, oidCopy, g, commit) {
-  let choices = ["sine", "square", "sawtooth", "triangle", "noise"]
-  let titles = ["Sine", "Square", "Saw", "Triangle", "Noise"]
-  let btns = []
-  let ci = 0
-  while (ci < choices.length) {
-    let w = choices[ci]
-    let cls = "sytrus-wave-ic-btn"
-    if (waveVal === w) {
-      cls = cls + " sytrus-wave-ic-btn-active"
-    }
-    let wCopy = w
-    let isAct = waveVal === w
-    btns.push(
-      <button
-        type="button"
-        class={cls}
-        title={titles[ci]}
-        key={"wav" + oidCopy + w}
-        onmousedown={(e) => e.stopPropagation()}
-        onclick={() => {
-          g.ops[oidCopy].wave = wCopy
-          commit()
-        }}
-      >
-        <img
-          class="sytrus-wave-ic-img"
-          src={matrixFmWaveIconDataUrl(w, isAct)}
-          alt=""
-          draggable={false}
-        />
-      </button>
-    )
-    ci = ci + 1
-  }
-  return <div class="sytrus-wave-ic-row">{btns}</div>
-}
 
 // Pure: which FILTERS reach `out` — directly, or through another filter (filter→filter resolved to a
 // fixpoint). Exported for tests + the flow cues.
@@ -550,23 +508,7 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
         <div class="sytrus-op-card-top">
           <span class="sytrus-op-badge">{"OP " + oid}</span>
           {reachOut[oid] === true ? <span class="sytrus-op-out-tag">{"→ OUT"}</span> : null}
-          <div class="sytrus-op-card-mid">
-            {matrixFmOpWavePicker(wv, oidCopy, g, commit)}
-            {Knob({
-              label: "Ratio",
-              value: Math.round(ratio * 100),
-              min: 25,
-              max: 3200,
-              step: 1,
-              size: "md",
-              accent: accent,
-              fmt: (v) => String(Math.round(v) / 100) + "×",
-              onInput: (v) => {
-                g.ops[oidCopy].ratio = v / 100
-                commit()
-              }
-            })}
-          </div>
+          <div style={{ flex: 1 }} />
           <button
             type="button"
             class="sytrus-icon-btn"
@@ -580,16 +522,28 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
             {"×"}
           </button>
         </div>
-        <div class="sytrus-op-adsr">
-          <span class="sytrus-adsr-lbl">{"ADSR"}</span>
+        <div class="sytrus-op-card-mid">
+          {WaveIconPicker(wv, (w) => { g.ops[oidCopy].wave = w; commit() }, { accent: accent, choices: ["sine", "triangle", "sawtooth", "square", "noise"] })}
           <div class="ik-knob-grid">
+            {Knob({
+              label: "Ratio",
+              value: Math.round(ratio * 100),
+              min: 25,
+              max: 3200,
+              step: 1,
+              accent: accent,
+              fmt: (v) => String(Math.round(v) / 100) + "×",
+              onInput: (v) => {
+                g.ops[oidCopy].ratio = v / 100
+                commit()
+              }
+            })}
             {Knob({
               label: "A",
               value: Math.round(a * 1000),
               min: 1,
               max: 500,
               step: 1,
-              size: "md",
               accent: accent,
               fmt: (v) => String(Math.round(v)) + " ms",
               onInput: (v) => {
@@ -603,7 +557,6 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
               min: 1,
               max: 800,
               step: 1,
-              size: "md",
               accent: accent,
               fmt: (v) => String(Math.round(v)) + " ms",
               onInput: (v) => {
@@ -617,7 +570,6 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
               min: 0,
               max: 100,
               step: 1,
-              size: "md",
               accent: accent,
               fmt: (v) => String(Math.round(v)) + "%",
               onInput: (v) => {
@@ -631,7 +583,6 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
               min: 1,
               max: 800,
               step: 1,
-              size: "md",
               accent: accent,
               fmt: (v) => String(Math.round(v)) + " ms",
               onInput: (v) => {
