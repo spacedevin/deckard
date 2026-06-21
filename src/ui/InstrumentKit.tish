@@ -413,3 +413,127 @@ export fn EnvDisplay(a, d, s, r, opts) {
     </svg>
   )
 }
+
+/**
+ * Infinitely spinning rotary knob. opts: { label, value, step?, fmt?, onInput, onCommit?, accent? }.
+ * Vertical drag = change (up increases). No bounds.
+ */
+export fn InfiniteKnob(opts) {
+  let v = opts.value != null ? opts.value : 0
+  let accent = opts.accent ? opts.accent : "var(--accent-warm, #e8945c)"
+  let cx = 24
+  let cy = 23
+  let r = 17
+  
+  let trackD = "M 24 6 A 17 17 0 1 1 23.99 6"
+  let deg = (v * 15) % 360
+  if (deg < 0) {
+    deg = deg + 360
+  }
+  let dot = dialPoint(cx, cy, r, deg)
+
+  let label = opts.label ? opts.label : ""
+  let valText = opts.fmt ? opts.fmt(v) : String(Math.round(v))
+  let rootCls = "ik-knob"
+  if (opts.size === "sm") {
+    rootCls = "ik-knob ik-knob-sm"
+  }
+  if (opts.size === "xs") {
+    rootCls = "ik-knob ik-knob-xs"
+  }
+
+  fn startDrag(startY) {
+    knobDragging = true
+    let startV = v
+    let lastEmit = startV
+    let didChange = false
+    fn onMove(ev) {
+      let cy2 = ev.clientY != null ? ev.clientY : (ev.touches != null && ev.touches.length > 0 ? ev.touches[0].clientY : startY)
+      let dy = startY - cy2
+      let nv = startV + (dy / 20)
+      if (opts.step != null && opts.step > 0) {
+        nv = Math.round(nv / opts.step) * opts.step
+      }
+      if (nv !== lastEmit) {
+        lastEmit = nv
+        didChange = true
+        if (opts.onInput) {
+          opts.onInput(nv)
+        }
+      }
+    }
+    fn onUp() {
+      knobDragging = false
+      document.removeEventListener("mousemove", onMove)
+      document.removeEventListener("mouseup", onUp)
+      document.removeEventListener("touchmove", onMove)
+      document.removeEventListener("touchend", onUp)
+      document.removeEventListener("touchcancel", onUp)
+      document.removeEventListener("pointercancel", onUp)
+      if (didChange && opts.onCommit) {
+        opts.onCommit(lastEmit)
+      }
+    }
+    document.addEventListener("mousemove", onMove)
+    document.addEventListener("mouseup", onUp)
+    document.addEventListener("touchmove", onMove)
+    document.addEventListener("touchend", onUp)
+    document.addEventListener("touchcancel", onUp)
+    document.addEventListener("pointercancel", onUp)
+  }
+
+  fn onDown(e) {
+    if (e.preventDefault) {
+      e.preventDefault()
+    }
+    if (e.stopPropagation) {
+      e.stopPropagation()
+    }
+    startDrag(e.clientY)
+  }
+
+  fn onTouchStart(e) {
+    if (e.touches == null || e.touches.length === 0) {
+      return
+    }
+    if (e.preventDefault) {
+      e.preventDefault()
+    }
+    if (e.stopPropagation) {
+      e.stopPropagation()
+    }
+    startDrag(e.touches[0].clientY)
+  }
+
+  fn onWheel(e) {
+    if (e.deltaY === 0) {
+      return
+    }
+    if (e.preventDefault) {
+      e.preventDefault()
+    }
+    let stepV = opts.step != null && opts.step > 0 ? opts.step : 1
+    let dir = e.deltaY < 0 ? 1 : -1
+    let nv = v + dir * stepV
+    if (nv !== v) {
+      if (opts.onInput) {
+        opts.onInput(nv)
+      }
+      if (opts.onCommit) {
+        opts.onCommit(nv)
+      }
+    }
+  }
+
+  return (
+    <div class={rootCls}>
+      <svg class="ik-knob-dial" viewBox="0 0 48 48" onmousedown={onDown} ontouchstart={onTouchStart} onwheel={onWheel}>
+        <path class="ik-knob-track" d={trackD} fill="none" />
+        <circle class="ik-knob-dot" cx={String(dot[0])} cy={String(dot[1])} r="2.6" style={{ fill: accent }} />
+      </svg>
+      <div class="ik-knob-label">{label}</div>
+      <div class="ik-knob-value">{valText}</div>
+    </div>
+  )
+}
+

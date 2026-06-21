@@ -2,7 +2,7 @@ import { h } from '@tishlang/lattish'
 import { defaultParamsForGeneratorId, normalizeBasicOscWaveform } from '../generators/Registry.tish'
 import { parseGenBlock, defaultMatrixFmRawLines } from '../tpl/TplExtension.tish'
 import { defaultPatchRawLines } from '../tpl/PatchGraph.tish'
-import { Knob, WaveIconPicker, EnvDisplay, accentForGenerator } from './InstrumentKit.tish'
+import { Knob, InfiniteKnob, WaveIconPicker, EnvDisplay, accentForGenerator } from './InstrumentKit.tish'
 
 // Every instrument edit routes one param through the single gated write door (rt.emit → `gen <snake> <v>`,
 // merged into generatorParams). The TPL key is snake_case so apply's snakeToCamel lands the right field;
@@ -538,6 +538,16 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
       genSpecific = (
         <div class="ik-card">
           <div class="ik-card-h">{"Formant"}</div>
+          <div style={{ padding: "0 8px 8px" }}>
+            <div style={{ fontSize: "10px", color: "var(--ik-text-dim, #94a3b8)", marginBottom: "4px" }}>Individual Vowels</div>
+            <div style={{ display: "flex", gap: "4px" }}>
+              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px" }} onclick={() => applyLyrics("A")}>Ah</button>
+              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px" }} onclick={() => applyLyrics("E")}>Eh</button>
+              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px" }} onclick={() => applyLyrics("I")}>Ee</button>
+              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px" }} onclick={() => applyLyrics("O")}>Oh</button>
+              <button class="ik-btn" style={{ flex: 1, padding: "4px", minHeight: "24px" }} onclick={() => applyLyrics("U")}>Oo</button>
+            </div>
+          </div>
           <div class="ik-knob-grid">
             {pctKnob("Glide", glide, rt, ch, "glide", accent)}
             {msKnob("Release", release, 2.0, rt, ch, "release", accent)}
@@ -550,11 +560,50 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     } else {
       let voice = p.voice != null ? p.voice : 0
       let rate = p.rate != null ? p.rate : 1.5
+      
+      let voiceList = []
+      if (typeof window !== "undefined" && window.speechSynthesis) {
+        let all = window.speechSynthesis.getVoices()
+        let i = 0
+        while (i < all.length) {
+          if (all[i].lang.indexOf("en-") === 0) {
+            voiceList.push(all[i])
+          }
+          i = i + 1
+        }
+        if (voiceList.length === 0) {
+          voiceList = all
+        }
+      }
+
+      let voiceFullName = "Voice " + Math.round(voice)
+      let voiceShortName = String(Math.round(voice))
+      if (voiceList.length > 0) {
+        let vidx = Math.round(voice) % voiceList.length
+        if (vidx < 0) {
+          vidx = vidx + voiceList.length
+        }
+        let nm = voiceList[vidx].name
+        voiceFullName = String(vidx) + ". " + nm
+        let shortNm = nm.length > 6 ? nm.substring(0, 5) + ".." : nm
+        voiceShortName = String(vidx) + ". " + shortNm
+      }
+
       genSpecific = (
         <div class="ik-card">
           <div class="ik-card-h">{"TTS Voice"}</div>
+          <div style={{ padding: "0 8px", fontSize: "11px", color: accent, marginBottom: "8px", textAlign: "center", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={voiceFullName}>
+            {voiceFullName}
+          </div>
           <div class="ik-knob-grid">
-            {numKnob("Voice", voice, 0, 10, 1, "", rt, ch, "voice", accent)}
+            {InfiniteKnob({
+              label: "Voice",
+              value: voice,
+              step: 1,
+              accent: accent,
+              fmt: (v) => voiceShortName,
+              onInput: (x) => genEmit(rt, ch, "voice", x)
+            })}
             {numKnob("Rate", rate, 0.5, 3.0, 0.1, "x", rt, ch, "rate", accent)}
           </div>
         </div>
