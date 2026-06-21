@@ -856,6 +856,12 @@ fn syncLeadLines(p) {
     filterPeak = 20000
   }
   let filterSus = cutoff + (filterPeak - cutoff) * sus
+  // Native signal chain: osc → filter → gain → bus.input
+  // Native amp envelope: 0→v (lin att), setTargetAtTime(v*sus, att, dec/3), hold, setTargetAtTime(0, dur, rel/3)
+  // In patch: velocity applied at conn→out, envelope peak = 1.0
+  // setTargetAtTime(target, start, τ) ≈ exp segment reaching ~95% in 3τ
+  let decayTime = dec
+  let releaseTime = rel
 
   let lines = [
     "syncosc s1",
@@ -863,14 +869,14 @@ fn syncLeadLines(p) {
     "gain a1 0",
     "conn s1 f1 1",
     "conn f1 a1 1",
-    "conn a1 out " + f(VOL_COMP * 0.8),
+    "conn a1 out " + f(VOL_COMP * 1.0),
     // Sync oscillator frequency envelopes
     "env s1.masterFreq set 0 note",
     "env s1.slaveFreq set 0 note*" + f(sweepStartRatio) + " exp " + f(sweepDecay + 0.01) + " note*" + f(slaveRatio),
-    // Filter envelope
-    "env f1.freq set 0 " + f(cutoff) + " lin " + f(att) + " " + f(filterPeak) + " exp " + f(filterDecay) + " " + f(filterSus),
-    // Amplitude ADSR
-    adsrAmpEnv("a1", att, dec, sus, rel)
+    // Filter envelope (full ADSR: attack→peak, decay→sustain, hold, release→base)
+    "env f1.freq set 0 " + f(cutoff) + " lin " + f(att) + " " + f(filterPeak) + " exp " + f(att + filterDecay) + " " + f(filterSus) + " set dur " + f(filterSus) + " exp dur+" + f(rel) + " " + f(cutoff > 20 ? cutoff : 20),
+    // Amplitude ADSR with exp decay/release to match native setTargetAtTime
+    "env a1.gain set 0 0 lin " + f(att) + " 1 exp " + f(att + decayTime) + " " + f(sus) + " set dur " + f(sus) + " exp dur+" + f(releaseTime) + " 0.0001"
   ]
   // LFO on slave freq (optional)
   if (lfoRate > 0 && lfoAmt > 0) {
@@ -907,6 +913,17 @@ fn syncChoirLines(p) {
   // vibrato depth: native uses masterFreq * (2^(vibAmt/1200) - 1)
   let vibDepthFactor = Math.pow(2, vibAmtCents / 1200) - 1
 
+  // Native signal chain: osc → pan → outGain → hp → lp → bus.input
+  // Native envelope on outGain: attack lin to v*0.8, decay exp to v*0.8*sus, hold, release exp to 0
+  // In patch: velocity applied at conn→out (v * connWeight), so envelope peak = 1.0
+  // and connWeight handles the 0.8 scaling.
+  //
+  // setTargetAtTime(target, start, τ) ≈ 95% reached in 3τ. We approximate with exp segment.
+  // Native: dec=1.0, τ=dec/3=0.333, ~95% in 1.0s. Patch: exp 1.0 <target>.
+  // Native: rel=1.5, τ=rel/3=0.5, ~95% in 1.5s. Patch: exp 1.5 <target>.
+  let decayTime = dec
+  let releaseTime = rel
+
   let lines = [
     "syncosc s1 detune " + f(0 - detuneCents),
     "syncosc s2 detune " + f(detuneCents),
@@ -919,15 +936,14 @@ fn syncChoirLines(p) {
     "gain a1 0",
     "pan p1 -0.7",
     "pan p2 0.7",
-    // Signal chain: syncosc → a1 → hp → lp → pans → out
-    "conn s1 a1 1",
-    "conn s2 a1 1",
+    // Signal chain: osc → pan → a1 → hp → lp → out (matches native)
+    "conn s1 p1 1",
+    "conn s2 p2 1",
+    "conn p1 a1 1",
+    "conn p2 a1 1",
     "conn a1 hp 1",
     "conn hp lp 1",
-    "conn lp p1 1",
-    "conn lp p2 1",
-    "conn p1 out " + f(VOL_COMP * 0.4),
-    "conn p2 out " + f(VOL_COMP * 0.4),
+    "conn lp out " + f(VOL_COMP * 0.8),
     // Set master/slave frequencies from note
     "env s1.masterFreq set 0 note",
     "env s2.masterFreq set 0 note",
@@ -943,8 +959,11 @@ fn syncChoirLines(p) {
     "conn gvib s1.masterFreq 1",
     "conn gvib s2.masterFreq 1",
     "env gvib.gain set 0 note*" + f(vibDepthFactor),
-    // Amplitude envelope: matches native setTargetAtTime behavior approximated with lin segments
-    "env a1.gain set 0 0 lin " + f(att) + " 0.8 lin " + f(att + dec) + " " + f(0.8 * sus) + " lin dur " + f(0.8 * sus) + " lin dur+" + f(rel) + " 0"
+    // Amplitude envelope: exp decay/release to approximate setTargetAtTime
+    // Native: 0 → v*0.8 (lin att) → v*0.8*sus (exp decay τ=dec/3) → hold → 0 (exp release τ=rel/3)
+    // Patch: 0 → 1.0 (lin att) → sus (exp decayTime) → hold at dur → 0 (exp releaseTime)
+    // The 0.8 is in the conn out weight, velocity applied by playPatch
+    "env a1.gain set 0 0 lin " + f(att) + " 1 exp " + f(att + decayTime) + " " + f(sus) + " set dur " + f(sus) + " exp dur+" + f(releaseTime) + " 0.0001"
   ]
   return lines
 }
