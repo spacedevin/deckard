@@ -279,7 +279,7 @@ export fn playPatch(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   if (nMidi >= 0 && nMidi <= 127) {
     note = midiToHz(nMidi)
   }
-  let v = vel / 127
+  let v = vel / 100
   if (v < 0) {
     v = 0
   }
@@ -330,6 +330,7 @@ export fn playPatch(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
         try {
           osc = new AudioWorkletNode(ctx, "sync-oscillator")
         } catch (e) {
+          console.error("PATCH syncosc FALLBACK to sawtooth:", e)
           osc = ctx.createOscillator()
           osc.type = "sawtooth"
         }
