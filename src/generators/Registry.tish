@@ -118,6 +118,11 @@ export fn generatorCatalog() {
       description: "Sega Master System / Genesis PSG emulator (References: MAME)."
     },
     {
+      id: "spc700",
+      label: "SPC700",
+      description: "Super Nintendo S-DSP emulator (References: bsnes, snes9x)."
+    },
+    {
       id: "cymbal",
       label: "Cymbal",
       description: "TR-808 style cymbal cluster (6 tuned squares + noise + highpass)."
@@ -210,6 +215,7 @@ import { playGameBoyDmg, defaultParamsForGameBoyDmg } from "./GameBoyDmg.tish"
 import { defaultParamsForC64Sid } from "./C64Sid.tish"
 import { defaultParamsForYm2612 } from "./Ym2612.tish"
 import { defaultParamsForSn76489 } from "./Sn76489.tish"
+import { defaultParamsForSnesSpc } from "./SnesSpc.tish"
 
 export let generators = [
   { id: "basicOsc", name: "Basic Osc" },
@@ -234,7 +240,8 @@ export let generators = [
   { id: "gameBoyDmg", name: "LR35902" },
   { id: "c64sid", name: "MOS 6581" },
   { id: "ym2612", name: "YM2612" },
-  { id: "sn76489", name: "SN76489" }
+  { id: "sn76489", name: "SN76489" },
+  { id: "spc700", name: "SPC700" }
 ]
 
 export fn defaultParamsForGeneratorId(id) {
@@ -430,6 +437,9 @@ export fn defaultParamsForGeneratorId(id) {
   }
   if (id === "sn76489") {
     return defaultParamsForSn76489()
+  }
+  if (id === "spc700") {
+    return defaultParamsForSnesSpc()
   }
 
   if (id === "cymbal") {

@@ -70,7 +70,7 @@ export fn playSn76489(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let vibRate = gp.vibRate != null ? gp.vibRate : 0
   let vibAmt = gp.vibAmt != null ? gp.vibAmt : 0
   let arpRate = gp.arpRate != null ? gp.arpRate : 0
-  let arpSemis = gp.arpSemis != null ? Math.round(p.arpSemis) : 0
+  let arpSemis = gp.arpSemis != null ? Math.round(gp.arpSemis) : 0
 
   let f0 = 440 * Math.pow(2, (midi + bendSemis - 69) / 12)
   let v = vel / 127

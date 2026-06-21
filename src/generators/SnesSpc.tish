@@ -1,0 +1,262 @@
+// SPC700 / S-DSP (Super Nintendo) Emulator
+// References and Algorithmic Parity:
+// 1. bsnes (smp/dsp) - For understanding the S-DSP non-linear ADSR envelope logic 
+//    (Linear Attack, Exponential Decay/Sustain).
+// 2. snes9x (apu/biquad) - For the 4-point Gaussian interpolation low-pass equivalent.
+// 3. SNES Dev Manual - 8-tap FIR global echo implementation details.
+
+export fn defaultParamsForSnesSpc() {
+  return {
+    waveform: "strings",
+    attack: 0,
+    decay: 3,
+    sustainLevel: 7,
+    sustainRate: 0,
+    echoEnable: false,
+    echoDelay: 4,     // x 16ms
+    echoFeedback: 0,  // %
+    echoFir: 0,       // FIR filter preset
+    pitchDrop: 0,
+    pitchDec: 0.05,
+    vibRate: 0,
+    vibAmt: 0,
+    arpRate: 0,
+    arpSemis: 0
+  }
+}
+
+// Generates typical 16-bit SNES waveforms, processed through a simulated BRR quantization pass
+fn getSpcSampleBuffer(ctx, shape) {
+  let cacheKey = "snes_" + shape
+  if (ctx[cacheKey]) return ctx[cacheKey]
+  
+  // SNES samples are typically short loops (e.g. 64, 128, 256 samples)
+  // Played back at up to 32kHz
+  let len = 256
+  let buf = ctx.createBuffer(1, len, ctx.sampleRate)
+  let data = buf.getChannelData(0)
+  
+  let i = 0
+  while (i < len) {
+    let phase = i / len
+    let v = 0
+    if (shape === "strings") {
+      v = Math.sin(phase * Math.PI * 2) + 0.5 * Math.sin(phase * Math.PI * 4) + 0.25 * Math.sin(phase * Math.PI * 6)
+    } else if (shape === "brass") {
+      v = (phase * 2 - 1) * (1.0 - phase) // Sawtooth with a slight roll-off
+    } else if (shape === "bass") {
+      v = Math.sin(phase * Math.PI * 2) + 0.3 * (phase < 0.5 ? 1 : -1)
+    } else {
+      v = Math.sin(phase * Math.PI * 2)
+    }
+    
+    // Normalize
+    if (v > 1.0) v = 1.0
+    if (v < -1.0) v = -1.0
+    
+    // BRR roughly equates to adaptive 4-bit ADPCM, which introduces a specific noise floor.
+    // For pure Web Audio synthesis without actual BRR block compression, we quantize to ~9 bits 
+    // to simulate the internal compounding precision loss of the S-DSP before the Gaussian filter.
+    v = Math.round(v * 256.0) / 256.0
+    
+    data[i] = v
+    i = i + 1
+  }
+  
+  ctx[cacheKey] = buf
+  return buf
+}
+
+// S-DSP AR maps 0-15 to linear times (from 4100ms down to 1.5ms)
+fn getSpcAttackTime(ar) {
+  if (ar >= 15) return 0.001
+  let times = [4.100, 2.600, 1.500, 1.000, 0.640, 0.380, 0.260, 0.160, 0.096, 0.064, 0.040, 0.024, 0.016, 0.010, 0.006, 0.001]
+  return times[Math.min(15, Math.max(0, ar))]
+}
+
+// S-DSP DR maps 0-7 to exponential times (from 1200ms down to 14ms)
+fn getSpcDecayTime(dr) {
+  let times = [1.200, 0.740, 0.440, 0.290, 0.180, 0.110, 0.074, 0.014]
+  return times[Math.min(7, Math.max(0, dr))]
+}
+
+// S-DSP SR maps 0-31 to exponential times
+fn getSpcSustainRateTime(sr) {
+  if (sr >= 31) return 0.001
+  if (sr === 0) return 100.0 // infinite
+  // Approximation of the 31 exponential steps
+  return 38.0 * Math.pow(0.75, sr)
+}
+
+// Global Echo State (since SNES has 1 global DSP echo per APU)
+let globalSpcEchoNode = null
+let globalSpcEchoDelay = null
+let globalSpcEchoFeedback = null
+let globalSpcEchoFir = null
+
+fn initSpcEcho(ctx, bus) {
+  if (globalSpcEchoNode) return
+  
+  globalSpcEchoNode = ctx.createGain()
+  globalSpcEchoNode.gain.value = 1.0
+  
+  globalSpcEchoDelay = ctx.createDelay(1.0) // Max SNES delay is ~240ms (15 * 16ms)
+  globalSpcEchoFeedback = ctx.createGain()
+  
+  // S-DSP 8-Tap FIR filter approximation via IIR
+  // The actual S-DSP lets users set 8 coefficients. We provide a generic low-pass echo reflection
+  // typical of SNES games (e.g. Secret of Mana, Chrono Trigger).
+  globalSpcEchoFir = ctx.createBiquadFilter()
+  globalSpcEchoFir.type = "lowpass"
+  globalSpcEchoFir.frequency.value = 3000
+  globalSpcEchoFir.Q.value = 0.5
+  
+  globalSpcEchoNode.connect(globalSpcEchoDelay)
+  globalSpcEchoDelay.connect(globalSpcEchoFir)
+  globalSpcEchoFir.connect(globalSpcEchoFeedback)
+  globalSpcEchoFeedback.connect(globalSpcEchoDelay)
+  
+  // Output the echo to the main bus
+  globalSpcEchoFir.connect(bus.input)
+}
+
+export fn playSnesSpc(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  let gp = ch.generatorParams
+  if (!gp) gp = {}
+  
+  let waveform = gp.waveform ? gp.waveform : "strings"
+  let attack = gp.attack != null ? Math.round(gp.attack) : 0
+  let decay = gp.decay != null ? Math.round(gp.decay) : 3
+  let sustainLevel = gp.sustainLevel != null ? Math.round(gp.sustainLevel) : 7
+  let sustainRate = gp.sustainRate != null ? Math.round(gp.sustainRate) : 0
+  
+  let echoEnable = gp.echoEnable === true
+  let echoDelay = gp.echoDelay != null ? Math.round(gp.echoDelay) : 4
+  let echoFeedback = gp.echoFeedback != null ? gp.echoFeedback : 0
+  
+  let pitchDrop = gp.pitchDrop != null ? Math.round(gp.pitchDrop) : 0
+  let pitchDec = gp.pitchDec != null ? gp.pitchDec : 0.05
+  let vibRate = gp.vibRate != null ? gp.vibRate : 0
+  let vibAmt = gp.vibAmt != null ? gp.vibAmt : 0
+  let arpRate = gp.arpRate != null ? gp.arpRate : 0
+  let arpSemis = gp.arpSemis != null ? Math.round(gp.arpSemis) : 0
+
+  let f0 = 440 * Math.pow(2, (midi + bendSemis - 69) / 12)
+  let v = vel / 127
+  if (v < 0) v = 0
+  if (v > 1) v = 1
+
+  let buf = getSpcSampleBuffer(ctx, waveform)
+  let src = ctx.createBufferSource()
+  src.buffer = buf
+  src.loop = true
+  
+  // The base frequency of our 256-sample buffer at 44.1kHz is 172.26Hz.
+  // Playback rate scaling
+  let baseFreq = (ctx.sampleRate / buf.length)
+  let rate0 = f0 / baseFreq
+  src.playbackRate.value = rate0
+
+  let disconnects = []
+  
+  if (pitchDrop !== 0) {
+    let rateDrop = rate0 * Math.pow(2, pitchDrop / 12)
+    src.playbackRate.setValueAtTime(rateDrop, t)
+    src.playbackRate.setTargetAtTime(rate0, t, Math.max(pitchDec, 0.001))
+  } else if (arpRate > 0 && arpSemis !== 0) {
+    let arpStep = 1.0 / arpRate
+    let steps = Math.ceil((durSec + 2.0) / arpStep)
+    let ai = 0
+    src.playbackRate.setValueAtTime(rate0, t)
+    while (ai < steps) {
+      let semi = (ai % 2 === 1) ? arpSemis : 0
+      src.playbackRate.setValueAtTime(rate0 * Math.pow(2, semi / 12), t + ai * arpStep)
+      ai = ai + 1
+    }
+  }
+
+  if (vibRate > 0 && vibAmt > 0) {
+    let lfo = ctx.createOscillator()
+    lfo.type = "sine"
+    lfo.frequency.value = vibRate
+    let lfoGain = ctx.createGain()
+    lfoGain.gain.value = rate0 * (vibAmt / 1200)
+    lfo.connect(lfoGain)
+    lfoGain.connect(src.playbackRate)
+    lfo.start(t)
+    lfo.stop(t + durSec + 2.0)
+    disconnects.push(lfo)
+    disconnects.push(lfoGain)
+  }
+
+  // Gaussian Interpolation Simulator
+  // The SNES S-DSP 4-point Gaussian interpolator effectively acts as a low-pass filter
+  // that rolls off heavily above ~11kHz, giving the SNES its famous "muffled" but warm sound.
+  let gaussianFilter = ctx.createBiquadFilter()
+  gaussianFilter.type = "lowpass"
+  gaussianFilter.frequency.value = 11000 // Fixed cutoff simulating the Gaussian roll-off
+  gaussianFilter.Q.value = 0.5 // Gentle curve
+
+  // S-DSP Envelopes
+  let aTime = getSpcAttackTime(attack)
+  let dTime = getSpcDecayTime(decay)
+  let sLevel = (sustainLevel + 1) / 8.0 // 0=1/8, 7=8/8 (1.0)
+  let srTime = getSpcSustainRateTime(sustainRate)
+  
+  let safeDur = Math.max(durSec, 0.01)
+  let maxAmp = v * 0.8
+  
+  let finalGain = ctx.createGain()
+  finalGain.gain.setValueAtTime(0, t)
+  
+  let tA = t + aTime
+  // S-DSP Attack is Linear
+  finalGain.gain.linearRampToValueAtTime(maxAmp, tA)
+  
+  // S-DSP Decay is Exponential
+  finalGain.gain.setTargetAtTime(maxAmp * sLevel, tA, Math.max(0.001, dTime / 3.0))
+  
+  let tOff = Math.max(t + safeDur, tA + dTime)
+  
+  // S-DSP Sustain is Exponential down to 0
+  if (sustainRate < 31) {
+    finalGain.gain.setTargetAtTime(0, tA + dTime, Math.max(0.001, srTime / 3.0))
+  }
+  
+  // S-DSP Release is a fixed exponential fade (~8ms time constant)
+  finalGain.gain.cancelScheduledValues(tOff)
+  finalGain.gain.setValueAtTime(finalGain.gain.value, tOff)
+  finalGain.gain.setTargetAtTime(0, tOff, 0.008)
+
+  src.start(t)
+  src.stop(tOff + 0.1)
+  disconnects.push(src)
+  disconnects.push(gaussianFilter)
+  disconnects.push(finalGain)
+
+  src.connect(gaussianFilter)
+  gaussianFilter.connect(finalGain)
+  finalGain.connect(bus.input)
+  
+  // Global Echo Bus Routing
+  if (echoEnable) {
+    initSpcEcho(ctx, bus)
+    globalSpcEchoDelay.delayTime.setValueAtTime(echoDelay * 0.016, t) // EDP sets delay in 16ms increments
+    globalSpcEchoFeedback.gain.setValueAtTime(echoFeedback / 127.0, t) // Feedback is -128 to 127
+    
+    // SNES routes specific channels to echo via EON (Echo On) register
+    let echoSend = ctx.createGain()
+    echoSend.gain.value = 0.5 // EVOL (Echo Volume) approximation
+    finalGain.connect(echoSend)
+    echoSend.connect(globalSpcEchoNode)
+    disconnects.push(echoSend)
+  }
+
+  setTimeout(() => {
+    let di = 0
+    while (di < disconnects.length) {
+      disconnects[di].disconnect()
+      di = di + 1
+    }
+  }, (tOff - t + 0.5) * 1000)
+}
