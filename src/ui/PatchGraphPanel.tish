@@ -572,25 +572,47 @@ fn nodeCard(g, nd, ids, accent, edit) {
 fn envCard(g, en, eidx, ids, edit) {
   let segRows = []
   let si = 0
+  let segTypeOpts = ["set", "lin", "exp"]
   while (si < en.segs.length) {
     let sg = en.segs[si]
     let sidx = si
+    let curSegIdx = 0
+    let sti = 0
+    while (sti < segTypeOpts.length) {
+      if (segTypeOpts[sti] === sg.type) {
+        curSegIdx = sti
+      }
+      sti = sti + 1
+    }
+    let segTypeLabels = ["Set", "Lin", "Exp"]
     segRows.push(
       <div class="patch-seg-row" key={"sg" + eidx + "_" + si}>
-        <select
-          class="sytrus-route-sel"
-          value={sg.type}
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={(e) => e.stopPropagation()}
-          onchange={(e) => {
-            g.envs[eidx].segs[sidx].type = e.target.value
-            edit.commit()
-          }}
-        >
-          {selOpt("set", "Set", sg.type, "st-set-" + eidx + "-" + sidx)}
-          {selOpt("lin", "Lin", sg.type, "st-lin-" + eidx + "-" + sidx)}
-          {selOpt("exp", "Exp", sg.type, "st-exp-" + eidx + "-" + sidx)}
-        </select>
+        <span class="patch-seg-knob">
+          {Knob({
+            label: "Seg",
+            value: curSegIdx,
+            min: 0,
+            max: 2,
+            step: 1,
+            detents: 3,
+            size: "xs",
+            accent: "#a78bfa",
+            fmt: (v) => {
+              let k = Math.round(v)
+              if (k < 0) k = 0
+              if (k > 2) k = 2
+              return segTypeLabels[k]
+            },
+            onInput: (v) => {
+              let k = Math.round(v)
+              if (k < 0) k = 0
+              if (k > 2) k = 2
+              g.envs[eidx].segs[sidx].type = segTypeOpts[k]
+              edit.live()
+            },
+            onCommit: () => edit.commit()
+          })}
+        </span>
         <input
           class="patch-expr"
           type="text"
@@ -629,38 +651,85 @@ fn envCard(g, en, eidx, ids, edit) {
     )
     si = si + 1
   }
+
+  // --- ENV header: node target knob + param knob ---
+  let nodeIdx = 0
+  let ni = 0
+  while (ni < ids.length) {
+    if (ids[ni] === en.node) {
+      nodeIdx = ni
+    }
+    ni = ni + 1
+  }
+  let paramOpts = ["gain", "freq", "detune", "q", "pan"]
+  let paramLabels = ["gain", "freq", "det", "Q", "pan"]
+  let paramIdx = 0
+  let pi = 0
+  while (pi < paramOpts.length) {
+    if (paramOpts[pi] === (en.param ? en.param : "gain")) {
+      paramIdx = pi
+    }
+    pi = pi + 1
+  }
+  let nodeKnob = ids.length > 0 ? Knob({
+    label: "Node",
+    value: nodeIdx,
+    min: 0,
+    max: ids.length - 1,
+    step: 1,
+    detents: ids.length,
+    size: "xs",
+    accent: "#a78bfa",
+    fmt: (v) => {
+      let k = Math.round(v)
+      if (k < 0) k = 0
+      if (k > ids.length - 1) k = ids.length - 1
+      return ids[k]
+    },
+    onInput: (v) => {
+      let k = Math.round(v)
+      if (k < 0) k = 0
+      if (k > ids.length - 1) k = ids.length - 1
+      g.envs[eidx].node = ids[k]
+      edit.live()
+    },
+    onCommit: () => edit.commit()
+  }) : null
+  let paramKnob = Knob({
+    label: "Param",
+    value: paramIdx,
+    min: 0,
+    max: paramOpts.length - 1,
+    step: 1,
+    detents: paramOpts.length,
+    size: "xs",
+    accent: "#a78bfa",
+    fmt: (v) => {
+      let k = Math.round(v)
+      if (k < 0) k = 0
+      if (k > paramOpts.length - 1) k = paramOpts.length - 1
+      return paramLabels[k]
+    },
+    onInput: (v) => {
+      let k = Math.round(v)
+      if (k < 0) k = 0
+      if (k > paramOpts.length - 1) k = paramOpts.length - 1
+      g.envs[eidx].param = paramOpts[k]
+      edit.live()
+    },
+    onCommit: () => edit.commit()
+  })
+
   return (
     <div class="patch-mod patch-env sytrus-op-card" id={"pmenv-" + String(eidx)} key={"env" + String(eidx)}
       onmouseenter={() => setCableHover("env:" + String(eidx))}
       onmouseleave={() => setCableHover(null)}>
       <div class="patch-mod-head">
         <span class="patch-mod-badge patch-env-badge">{"ENV"}</span>
-        <span class="patch-env-target">
-          <select
-            class="sytrus-route-sel"
-            value={en.node}
-            onmousedown={(e) => e.stopPropagation()}
-            onclick={(e) => e.stopPropagation()}
-            onchange={(e) => {
-              g.envs[eidx].node = e.target.value
-              edit.commit()
-            }}
-          >
-            {nodeOptions(ids, "en" + eidx, en.node)}
-          </select>
+        <span class="patch-env-target" style={{ display: "flex", alignItems: "center", gap: "2px" }}>
+          {nodeKnob}
           <span class="patch-dot">{"."}</span>
-          <select
-            class="sytrus-route-sel"
-            value={en.param ? en.param : "gain"}
-            onmousedown={(e) => e.stopPropagation()}
-            onclick={(e) => e.stopPropagation()}
-            onchange={(e) => {
-              g.envs[eidx].param = e.target.value
-              edit.commit()
-            }}
-          >
-            {paramOptions("ep" + eidx, false, en.param ? en.param : "gain")}
-          </select>
+          {paramKnob}
         </span>
         <button
           type="button"
@@ -1134,40 +1203,26 @@ export fn PatchGraphPanel(ch, project, setProject, rt, mayEdit) {
         <div class="sytrus-section-h">
           <span>{"Voice length"}</span>
         </div>
-        <label class="gen-row">
-          <input
-            type="checkbox"
-            checked={durIsSet}
-            onmousedown={(e) => e.stopPropagation()}
-            onchange={(e) => {
-              if (e.target.checked) {
-                g.dur = durVal
-              } else {
+        <div class="ik-knob-grid">
+          {Knob({
+            label: "Length",
+            value: durIsSet ? Math.round(durVal * 1000) : 0,
+            min: 0,
+            max: 2000,
+            step: 1,
+            accent: accent,
+            fmt: (v) => Math.round(v) === 0 ? "Auto" : String(Math.round(v)) + " ms",
+            onInput: (v) => {
+              if (Math.round(v) === 0) {
                 g.dur = null
-              }
-              commitEdit()
-            }}
-          />
-          {durIsSet ? "Fixed" : "Auto (note length)"}
-        </label>
-        {durIsSet ? (
-          <div class="ik-knob-grid">
-            {Knob({
-              label: "Length",
-              value: Math.round(durVal * 1000),
-              min: 20,
-              max: 2000,
-              step: 1,
-              accent: accent,
-              fmt: (v) => String(Math.round(v)) + " ms",
-              onInput: (v) => {
+              } else {
                 g.dur = v / 1000
-                liveEdit()
-              },
-              onCommit: () => commitEdit()
-            })}
-          </div>
-        ) : null}
+              }
+              liveEdit()
+            },
+            onCommit: () => commitEdit()
+          })}
+        </div>
       </section>
       </div>
     </div>
