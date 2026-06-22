@@ -5271,6 +5271,8 @@ input[type="range"]::-moz-range-thumb {
    left-to-right flow AND fill the vertical whitespace that a rigid grid/stage-columns leaves under short cards.
    `.patch-mod-grid` is the cable host (position:relative so the absolute SVG overlay covers node + env rows). */
 .patch-mod-grid { position: relative; }
+/* Matrix FM cable region: same concept — position:relative so the absolute SVG overlay covers op + filter cards. */
+.mfm-cable-region { position: relative; }
 .patch-node-masonry { columns: 12rem; column-gap: 0.5rem; position: relative; z-index: 1; }
 .patch-mod { break-inside: avoid; margin: 0 0 0.5rem; padding: 0.45rem 0.5rem;
   display: flex; flex-direction: column; gap: 0.35rem; position: relative; z-index: 1; }

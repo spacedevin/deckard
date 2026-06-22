@@ -1,4 +1,5 @@
 // Sytrus-style Matrix FM editor: operators, modulation matrix, filters, routing.
+// Now with SVG signal-flow cables like the Patch editor.
 
 import { h } from '@tishlang/lattish'
 import {
@@ -19,6 +20,85 @@ import { parseGenBlock, defaultMatrixFmRawLines } from '../tpl/TplExtension.tish
 import { matrixFmPatches } from '../model/MatrixFmPresets.tish'
 import { Knob, WaveIconPicker, IkSelect, accentForGenerator, matrixFmSvgDataUrl, matrixFmLucideIconSvg, isKnobDragging } from './InstrumentKit.tish'
 import { emitInstrumentModuleTpl } from '../core/Levels.tish'
+import { cablePathD } from './PatchGraphPanel.tish'
+
+// ---- Signal-flow cables for Matrix FM ----
+// Module-level state so the imperative SVG repaint works outside the render cycle (like Patch).
+let mfmCableRoutes = []
+let mfmCableModMatrix = []
+let mfmCableDrawPending = false
+let mfmCableListenersWired = false
+
+fn drawMfmCables() {
+  mfmCableDrawPending = false
+  if (typeof globalThis === "undefined" || globalThis.document == null) { return }
+  let doc = globalThis.document
+  let host = doc.getElementById("mfm-cable-host")
+  let svg = doc.getElementById("mfm-cables")
+  if (host == null || svg == null) { return }
+  let hr = host.getBoundingClientRect()
+  let parts = ""
+  // Draw routing cables (op/filter → filter/out)
+  let ri = 0
+  while (ri < mfmCableRoutes.length) {
+    let rt = mfmCableRoutes[ri]
+    let sk = rt.srcKind ? rt.srcKind : "op"
+    let srcElId = sk === "filter" ? "mfm-flt-" + rt.srcId : "mfm-op-" + rt.srcId
+    let dk = rt.dstKind ? rt.dstKind : "out"
+    let dstElId = dk === "out" ? "mfm-sink-out" : "mfm-flt-" + rt.dstId
+    let srcEl = doc.getElementById(srcElId)
+    let dstEl = doc.getElementById(dstElId)
+    if (srcEl != null && dstEl != null) {
+      let sr = srcEl.getBoundingClientRect()
+      let dr = dstEl.getBoundingClientRect()
+      let x1 = sr.right - hr.left
+      let y1 = sr.top - hr.top + sr.height / 2
+      let x2 = dr.left - hr.left
+      let y2 = dr.top - hr.top + dr.height / 2
+      let cableClass = dk === "out" ? "patch-cable patch-cable-out" : "patch-cable patch-cable-audio"
+      parts = parts + "<path class=\"" + cableClass + "\" d=\"" + cablePathD(x1, y1, x2, y2) + "\" />"
+    }
+    ri = ri + 1
+  }
+  // Draw modulation arcs (op → op, from the matrix)
+  let mi = 0
+  while (mi < mfmCableModMatrix.length) {
+    let mm = mfmCableModMatrix[mi]
+    let srcEl = doc.getElementById("mfm-op-" + mm.src)
+    let dstEl = doc.getElementById("mfm-op-" + mm.dst)
+    if (srcEl != null && dstEl != null) {
+      let sr = srcEl.getBoundingClientRect()
+      let dr = dstEl.getBoundingClientRect()
+      let x1 = sr.right - hr.left
+      let y1 = sr.top - hr.top + sr.height / 2
+      let x2 = dr.left - hr.left
+      let y2 = dr.top - hr.top + dr.height / 2
+      parts = parts + "<path class=\"patch-cable patch-cable-mod\" d=\"" + cablePathD(x1, y1, x2, y2) + "\" />"
+    }
+    mi = mi + 1
+  }
+  svg.setAttribute("width", String(Math.round(hr.width)))
+  svg.setAttribute("height", String(Math.round(hr.height)))
+  svg.innerHTML = parts
+}
+
+fn scheduleMfmCableDraw() {
+  if (mfmCableDrawPending) { return }
+  if (typeof globalThis === "undefined" || typeof globalThis.requestAnimationFrame !== "function") { return }
+  mfmCableDrawPending = true
+  globalThis.requestAnimationFrame(drawMfmCables)
+}
+
+fn wireMfmCableListeners() {
+  if (mfmCableListenersWired) { return }
+  if (typeof globalThis === "undefined" || typeof globalThis.addEventListener !== "function") { return }
+  mfmCableListenersWired = true
+  globalThis.addEventListener("resize", scheduleMfmCableDraw)
+  globalThis.addEventListener("scroll", scheduleMfmCableDraw, true)
+  if (globalThis.document != null && typeof globalThis.document.addEventListener === "function") {
+    globalThis.document.addEventListener("visibilitychange", scheduleMfmCableDraw)
+  }
+}
 
 fn numOr(x, def) {
   if (typeof x === "number" && x === x) {
@@ -488,6 +568,104 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
     )
     rdi = rdi + 1
   }
+  // Helper: build inline route knob rows for routes originating from a given source
+  fn inlineRouteRows(srcKind, srcId) {
+    let rows = []
+    let ri = 0
+    while (ri < g.routes.length) {
+      let rt = g.routes[ri]
+      let rsk = rt.srcKind ? rt.srcKind : "op"
+      if (rsk === srcKind && rt.srcId === srcId) {
+        let ridx = ri
+        let dk = rt.dstKind ? rt.dstKind : "out"
+        // Dest kind knob: filter / out
+        let dstKindOpts = ["filter", "out"]
+        let dstKindLabels = ["Flt", "Out"]
+        let dstKindIdx = dk === "out" ? 1 : 0
+        // Dest id knob
+        let dstIdList = filterIds.length > 0 ? filterIds : ["1"]
+        let curDstVal = rt.dstId ? rt.dstId : (filterIds.length > 0 ? filterIds[0] : "1")
+        let curDstIdIdx = 0
+        let dii = 0
+        while (dii < dstIdList.length) {
+          if (dstIdList[dii] === curDstVal) { curDstIdIdx = dii }
+          dii = dii + 1
+        }
+        rows.push(
+          <div class="patch-route" key={"irt" + String(ri)}>
+            <span class="patch-route-arrow">{"→"}</span>
+            {Knob({
+              label: "Dst",
+              value: dstKindIdx,
+              min: 0, max: 1, step: 1, detents: 2,
+              size: "xs", accent: accent,
+              fmt: (v) => dstKindLabels[Math.round(v) < 0 ? 0 : (Math.round(v) > 1 ? 1 : Math.round(v))],
+              onInput: (v) => {
+                let k = Math.round(v)
+                if (k < 0) k = 0
+                if (k > 1) k = 1
+                g.routes[ridx].dstKind = dstKindOpts[k]
+                if (dstKindOpts[k] === "out") {
+                  g.routes[ridx].dstId = ""
+                } else if (filterIds.length > 0) {
+                  g.routes[ridx].dstId = filterIds[0]
+                }
+                commit()
+              }
+            })}
+            {dk !== "out" ? Knob({
+              label: "F#",
+              value: curDstIdIdx,
+              min: 0, max: dstIdList.length - 1, step: 1,
+              detents: dstIdList.length,
+              size: "xs", accent: accent,
+              fmt: (v) => {
+                let k = Math.round(v)
+                if (k < 0) k = 0
+                if (k > dstIdList.length - 1) k = dstIdList.length - 1
+                return dstIdList[k]
+              },
+              onInput: (v) => {
+                let k = Math.round(v)
+                if (k < 0) k = 0
+                if (k > dstIdList.length - 1) k = dstIdList.length - 1
+                g.routes[ridx].dstId = dstIdList[k]
+                commit()
+              }
+            }) : null}
+            {Knob({
+              label: "Vol",
+              value: Math.round(numOr(rt.volume, 1) * 100),
+              min: 0, max: 100, step: 1,
+              size: "xs", accent: accent,
+              fmt: (v) => String(Math.round(v)) + "%",
+              onInput: (v) => {
+                g.routes[ridx].volume = v / 100
+                commit()
+              }
+            })}
+            <button type="button" class="sytrus-icon-btn"
+              onmousedown={(e) => e.stopPropagation()}
+              onclick={() => { removeMatrixFmRouteAt(g, ridx); commit() }}
+            >{"×"}</button>
+          </div>
+        )
+      }
+      ri = ri + 1
+    }
+    return rows
+  }
+
+  fn addRouteFrom(srcKind, srcId) {
+    let dk0 = "out"
+    let did0 = ""
+    if (filterIds.length > 0) {
+      dk0 = "filter"
+      did0 = filterIds[0]
+    }
+    addMatrixFmRoute(g, srcKind, srcId, dk0, did0, 1)
+    commit()
+  }
 
   let opStrips = []
   let oi = 0
@@ -503,11 +681,11 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
     let s = numOr(ev.s, 0.35)
     let rr = numOr(ev.r, 0.12)
     let oidCopy = oid
+    let opRoutes = inlineRouteRows("op", oid)
     opStrips.push(
-      <div class={reachOut[oid] === true ? "sytrus-op-card sytrus-op-audible" : "sytrus-op-card"} key={"op" + oid}>
+      <div class={reachOut[oid] === true ? "sytrus-op-card sytrus-op-audible" : "sytrus-op-card"} id={"mfm-op-" + oid} key={"op" + oid}>
         <div class="sytrus-op-card-top">
           <span class="sytrus-op-badge">{"OP " + oid}</span>
-          {reachOut[oid] === true ? <span class="sytrus-op-out-tag">{"→ OUT"}</span> : null}
           <div style={{ flex: 1 }} />
           <button
             type="button"
@@ -593,6 +771,14 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
           </div>
         </div>
         <div class="sytrus-op-env-wrap">{matrixFmEnvPreviewBlock(a, d, s, rr)}</div>
+        <div class="patch-mod-routes">
+          {opRoutes.length === 0 ? <span class="patch-route-empty">{"not routed"}</span> : opRoutes}
+          <button type="button" class="patch-route-add"
+            title={"Add output route from this operator"}
+            onmousedown={(e) => e.stopPropagation()}
+            onclick={() => addRouteFrom("op", oidCopy)}
+          >{"+ →"}</button>
+        </div>
       </div>
     )
     oi = oi + 1
@@ -630,8 +816,9 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
       typeIdx = 1
     }
 
+    let fltRoutes = inlineRouteRows("filter", fid)
     filterBlocks.push(
-      <div class="sytrus-filter-card" key={"flt" + fid}>
+      <div class="sytrus-filter-card" id={"mfm-flt-" + fid} key={"flt" + fid}>
         <div class="sytrus-filter-top">
           <span class="sytrus-filter-badge">{"F " + fid}</span>
           <button
@@ -776,181 +963,17 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
           </div>
         </div>
         <div class="sytrus-filter-env-wrap">{matrixFmEnvPreviewBlock(fa, fdd, fs, fr)}</div>
+        <div class="patch-mod-routes">
+          {fltRoutes.length === 0 ? <span class="patch-route-empty">{"not routed"}</span> : fltRoutes}
+          <button type="button" class="patch-route-add"
+            title={"Add output route from this filter"}
+            onmousedown={(e) => e.stopPropagation()}
+            onclick={() => addRouteFrom("filter", fidCopy)}
+          >{"+ →"}</button>
+        </div>
       </div>
     )
     fi = fi + 1
-  }
-
-  let routeRows = []
-  let rri = 0
-  while (rri < g.routes.length) {
-    let rt = g.routes[rri]
-    let ridx = rri
-    let sk = rt.srcKind ? rt.srcKind : "op"
-    let dk = rt.dstKind ? rt.dstKind : "out"
-
-    // Source kind knob: op / filter
-    let srcKindOpts = ["op", "filter"]
-    let srcKindLabels = ["Op", "Flt"]
-    let srcKindIdx = sk === "filter" ? 1 : 0
-
-    // Source id knob: cycles through available ids for the chosen kind
-    let srcIdList = sk === "filter" ? filterIds : opIds
-    if (srcIdList.length === 0) {
-      srcIdList = ["1"]
-    }
-    let curSrcIdIdx = 0
-    let sii = 0
-    while (sii < srcIdList.length) {
-      if (srcIdList[sii] === rt.srcId) {
-        curSrcIdIdx = sii
-      }
-      sii = sii + 1
-    }
-
-    // Dest kind knob: filter / out
-    let dstKindOpts = ["filter", "out"]
-    let dstKindLabels = ["Flt", "Out"]
-    let dstKindIdx = dk === "out" ? 1 : 0
-
-    // Dest id knob: cycles through filter ids (disabled when dst=out)
-    let dstIdList = filterIds.length > 0 ? filterIds : ["1"]
-    let curDstVal = rt.dstId ? rt.dstId : (filterIds.length > 0 ? filterIds[0] : "1")
-    let curDstIdIdx = 0
-    let dii = 0
-    while (dii < dstIdList.length) {
-      if (dstIdList[dii] === curDstVal) {
-        curDstIdIdx = dii
-      }
-      dii = dii + 1
-    }
-
-    routeRows.push(
-      <div class="sytrus-route-row" key={"rt" + String(rri)}>
-        {Knob({
-          label: "Src",
-          value: srcKindIdx,
-          min: 0,
-          max: 1,
-          step: 1,
-          detents: 2,
-          size: "xs",
-          accent: accent,
-          fmt: (v) => srcKindLabels[Math.round(v) < 0 ? 0 : (Math.round(v) > 1 ? 1 : Math.round(v))],
-          onInput: (v) => {
-            let k = Math.round(v)
-            if (k < 0) k = 0
-            if (k > 1) k = 1
-            let nk = srcKindOpts[k]
-            g.routes[ridx].srcKind = nk
-            if (nk === "filter") {
-              g.routes[ridx].srcId = filterIds.length > 0 ? filterIds[0] : "1"
-            } else {
-              g.routes[ridx].srcId = opIds.length > 0 ? opIds[0] : "1"
-            }
-            commit()
-          }
-        })}
-        {Knob({
-          label: "Id",
-          value: curSrcIdIdx,
-          min: 0,
-          max: srcIdList.length - 1,
-          step: 1,
-          detents: srcIdList.length,
-          size: "xs",
-          accent: accent,
-          fmt: (v) => {
-            let k = Math.round(v)
-            if (k < 0) k = 0
-            if (k > srcIdList.length - 1) k = srcIdList.length - 1
-            return srcIdList[k]
-          },
-          onInput: (v) => {
-            let k = Math.round(v)
-            if (k < 0) k = 0
-            if (k > srcIdList.length - 1) k = srcIdList.length - 1
-            g.routes[ridx].srcId = srcIdList[k]
-            commit()
-          }
-        })}
-        <span class="sytrus-route-arrow">{"→"}</span>
-        {Knob({
-          label: "Dst",
-          value: dstKindIdx,
-          min: 0,
-          max: 1,
-          step: 1,
-          detents: 2,
-          size: "xs",
-          accent: accent,
-          fmt: (v) => dstKindLabels[Math.round(v) < 0 ? 0 : (Math.round(v) > 1 ? 1 : Math.round(v))],
-          onInput: (v) => {
-            let k = Math.round(v)
-            if (k < 0) k = 0
-            if (k > 1) k = 1
-            g.routes[ridx].dstKind = dstKindOpts[k]
-            if (dstKindOpts[k] === "out") {
-              g.routes[ridx].dstId = ""
-            } else {
-              if (filterIds.length > 0) {
-                g.routes[ridx].dstId = filterIds[0]
-              }
-            }
-            commit()
-          }
-        })}
-        {dk !== "out" ? Knob({
-          label: "F#",
-          value: curDstIdIdx,
-          min: 0,
-          max: dstIdList.length - 1,
-          step: 1,
-          detents: dstIdList.length,
-          size: "xs",
-          accent: accent,
-          fmt: (v) => {
-            let k = Math.round(v)
-            if (k < 0) k = 0
-            if (k > dstIdList.length - 1) k = dstIdList.length - 1
-            return dstIdList[k]
-          },
-          onInput: (v) => {
-            let k = Math.round(v)
-            if (k < 0) k = 0
-            if (k > dstIdList.length - 1) k = dstIdList.length - 1
-            g.routes[ridx].dstId = dstIdList[k]
-            commit()
-          }
-        }) : null}
-        {Knob({
-          label: "Vol",
-          value: Math.round(numOr(rt.volume, 1) * 100),
-          min: 0,
-          max: 100,
-          step: 1,
-          size: "xs",
-          accent: accent,
-          fmt: (v) => String(Math.round(v)) + "%",
-          onInput: (v) => {
-            g.routes[ridx].volume = v / 100
-            commit()
-          }
-        })}
-        <button
-          type="button"
-          class="sytrus-icon-btn"
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={() => {
-            removeMatrixFmRouteAt(g, ridx)
-            commit()
-          }}
-        >
-          {"×"}
-        </button>
-      </div>
-    )
-    rri = rri + 1
   }
 
   let canAddOp = opIds.length < 8
@@ -978,6 +1001,32 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
     commit()
   }
 
+  // Build modulation matrix cable data (non-zero fm/rm arcs between operators)
+  let modCables = []
+  let mci = 0
+  while (mci < opIds.length) {
+    let msrc = opIds[mci]
+    let mcj = 0
+    while (mcj < opIds.length) {
+      let mdst = opIds[mcj]
+      if (msrc !== mdst) {
+        let fmA = findModAmount(g, "fm", msrc, mdst)
+        let rmA = findModAmount(g, "rm", msrc, mdst)
+        if (fmA > 0.0001 || rmA > 0.0001) {
+          modCables.push({ src: msrc, dst: mdst })
+        }
+      }
+      mcj = mcj + 1
+    }
+    mci = mci + 1
+  }
+
+  // Hand routes + mod arcs to the imperative cable layer
+  mfmCableRoutes = g.routes
+  mfmCableModMatrix = modCables
+  scheduleMfmCableDraw()
+  wireMfmCableListeners()
+
   return (
     <div class={canEdit ? "sytrus-panel" : "sytrus-panel instr-readonly-host"}>
       {canEdit ? null : (
@@ -999,33 +1048,51 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
         })}
       </div>
 
-      <section class="sytrus-section mfm-flow-section">
-        <div class="sytrus-section-h">
-          <span>{"Signal flow"}</span>
-          <span class="sytrus-section-hint">{"arcs = modulation · lit boxes reach OUT"}</span>
-        </div>
-        <div class="mfm-flow-wrap">{matrixFlowStrip(g, opIds, filterIds, reachOut, filterReach)}</div>
-      </section>
+      <div class="mfm-cable-region" id="mfm-cable-host">
+        <svg id="mfm-cables" class="patch-cables" />
 
-      <div class="sytrus-row sytrus-row-top">
-      <section class="sytrus-section">
-        <div class="sytrus-section-h">
-          <span>{"Operators"}</span>
-          <button
-            type="button"
-            class="sytrus-add-btn"
-            disabled={!canAddOp}
-            onmousedown={(e) => e.stopPropagation()}
-            onclick={() => {
-              addMatrixFmOperator(g)
-              commit()
-            }}
-          >
-            {"+ Op"}
-          </button>
+        <section class="sytrus-section">
+          <div class="sytrus-section-h">
+            <span>{"Operators"}</span>
+            <button
+              type="button"
+              class="sytrus-add-btn"
+              disabled={!canAddOp}
+              onmousedown={(e) => e.stopPropagation()}
+              onclick={() => {
+                addMatrixFmOperator(g)
+                commit()
+              }}
+            >
+              {"+ Op"}
+            </button>
+          </div>
+          <div class="sytrus-op-grid">{opStrips}</div>
+        </section>
+
+        <section class="sytrus-section">
+          <div class="sytrus-section-h">
+            <span>{"Filters"}</span>
+            <button
+              type="button"
+              class="sytrus-add-btn"
+              disabled={!canAddFlt}
+              onmousedown={(e) => e.stopPropagation()}
+              onclick={() => {
+                addMatrixFmFilter(g)
+                commit()
+              }}
+            >
+              {"+ Filter"}
+            </button>
+          </div>
+          <div class="sytrus-filter-grid">{filterBlocks}</div>
+        </section>
+
+        <div class="patch-sink patch-sink-out" id="mfm-sink-out">
+          <span class="patch-sink-label">{"► OUT"}</span>
         </div>
-        <div class="sytrus-op-grid">{opStrips}</div>
-      </section>
+      </div>
 
       <section class="sytrus-section">
         <div class="sytrus-section-h">
@@ -1048,54 +1115,6 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
           </div>
         )}
       </section>
-      </div>
-
-      <div class="sytrus-row sytrus-row-bottom">
-      <section class="sytrus-section">
-        <div class="sytrus-section-h">
-          <span>{"Filters"}</span>
-          <button
-            type="button"
-            class="sytrus-add-btn"
-            disabled={!canAddFlt}
-            onmousedown={(e) => e.stopPropagation()}
-            onclick={() => {
-              addMatrixFmFilter(g)
-              commit()
-            }}
-          >
-            {"+ Filter"}
-          </button>
-        </div>
-        <div class="sytrus-filter-grid">{filterBlocks}</div>
-      </section>
-
-      <section class="sytrus-section">
-        <div class="sytrus-section-h">
-          <span>{"Routing"}</span>
-          <button
-            type="button"
-            class="sytrus-add-btn"
-            onmousedown={(e) => e.stopPropagation()}
-            onclick={() => {
-              let sk0 = "op"
-              let sid0 = opIds.length > 0 ? opIds[0] : "1"
-              let dk0 = "out"
-              let did0 = ""
-              if (filterIds.length > 0) {
-                dk0 = "filter"
-                did0 = filterIds[0]
-              }
-              addMatrixFmRoute(g, sk0, sid0, dk0, did0, 1)
-              commit()
-            }}
-          >
-            {"+ Route"}
-          </button>
-        </div>
-        <div class="sytrus-routes">{routeRows}</div>
-      </section>
-      </div>
     </div>
   )
 }

@@ -61,7 +61,7 @@ function initGpu () {
       {
         return;
       }
-    if ((((typeof navigator) === "undefined") || !navigator.gpu))
+    if (((((__v) => __v == null ? "null" : typeof __v)(navigator) === "undefined") || !navigator.gpu))
       {
         (gpuState = "failed");
         return;
