@@ -5806,3 +5806,16 @@ input[type="range"]::-moz-range-thumb {
 .ik-sel-opt-on {
   background: rgba(255, 255, 255, 0.05);
 }
+
+.ik-sel-opt-header {
+  padding: 0.28rem 0.6rem;
+  font-size: 0.58rem;
+  font-weight: 800;
+  color: #5a5a64;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: rgba(0, 0, 0, 0.15);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  cursor: default;
+  user-select: none;
+}

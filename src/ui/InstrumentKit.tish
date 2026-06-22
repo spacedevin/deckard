@@ -659,19 +659,28 @@ export fn IkSelect(opts) {
     while (oi < items.length) {
       let item = items[oi]
       let row = document.createElement("div")
-      row.className = String(item.value) === curVal ? "ik-sel-opt ik-sel-opt-on" : "ik-sel-opt"
-      if (String(item.value) === curVal) {
-        row.style.color = accent
-      }
-      row.textContent = item.label
-      let itemVal = item.value
-      row.onmousedown = (ev) => {
-        ev.stopPropagation()
-        ev.preventDefault()
-        if (opts.onChange) {
-          opts.onChange(itemVal)
+      if (item.isHeader) {
+        row.className = "ik-sel-opt-header"
+        row.textContent = item.label
+        row.onmousedown = (ev) => {
+          ev.stopPropagation()
+          ev.preventDefault()
         }
-        list.remove()
+      } else {
+        row.className = String(item.value) === curVal ? "ik-sel-opt ik-sel-opt-on" : "ik-sel-opt"
+        if (String(item.value) === curVal) {
+          row.style.color = accent
+        }
+        row.textContent = item.label
+        let itemVal = item.value
+        row.onmousedown = (ev) => {
+          ev.stopPropagation()
+          ev.preventDefault()
+          if (opts.onChange) {
+            opts.onChange(itemVal)
+          }
+          list.remove()
+        }
       }
       list.appendChild(row)
       oi = oi + 1

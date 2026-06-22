@@ -21,7 +21,7 @@ import { macroCatalog, assignMacroToChannel } from '../model/MacroVoice.tish'
 import { compileGeneratorToPatchLines } from '../model/PatchCompile.tish'
 import { emitInstrumentModuleTpl } from '../core/Levels.tish'
 import { GeneratorParamPanel } from './GeneratorParams.tish'
-import { accentForGenerator, Knob } from './InstrumentKit.tish'
+import { accentForGenerator, Knob, IkSelect } from './InstrumentKit.tish'
 import { actorMayEditTrack } from '../codj/Merge.tish'
 import { MatrixFmPanel } from './MatrixFmPanel.tish'
 import { PatchGraphPanel } from './PatchGraphPanel.tish'
@@ -132,40 +132,40 @@ fn pickVoice(project, ch, key, setProject, tplMirrorFlush) {
   }
 }
 
-fn VoicePicker(project, ch, setProject, tplMirrorFlush) {
+fn voiceDropdown(project, ch, setProject, tplMirrorFlush, rt) {
   let active = activeVoiceKey(ch)
-  let groups = []
+  let opts = []
   let gi = 0
   while (gi < VOICE_GROUPS.length) {
     let grp = VOICE_GROUPS[gi]
-    let tiles = []
+    opts.push({ value: "", label: grp.title, isHeader: true })
     let vi = 0
     while (vi < grp.voices.length) {
-      let key = grp.voices[vi][0]
-      let label = grp.voices[vi][1]
-      let keyCopy = key
-      let cls = active === key ? "voice-tile voice-tile-active" : "voice-tile"
-      tiles.push(
-        <button
-          type="button"
-          class={cls}
-          key={"vt" + key}
-          onclick={() => pickVoice(project, ch, keyCopy, setProject, tplMirrorFlush)}
-        >
-          {label}
-        </button>
-      )
+      let voice = grp.voices[vi]
+      opts.push({ value: voice[0], label: voice[1] })
       vi = vi + 1
     }
-    groups.push(
-      <div class="voice-group" key={"vg" + grp.title}>
-        <div class="voice-group-label">{grp.title}</div>
-        <div class="voice-tiles">{tiles}</div>
-      </div>
-    )
     gi = gi + 1
   }
-  return <div class="voice-picker-groups">{groups}</div>
+
+  let accent = accentForGenerator(active)
+
+  return (
+    <div class="preset-bar">
+      <span class="preset-bar-label">{"Voice"}</span>
+      {IkSelect({
+        class: "preset-bar-select",
+        value: active,
+        options: opts,
+        accent: accent,
+        onChange: (v) => {
+          if (v && v.length > 0) {
+            pickVoice(project, ch, v, setProject, tplMirrorFlush)
+          }
+        }
+      })}
+    </div>
+  )
 }
 
 // Maps a voice/fx field name to its TPL emit address (used by the pitch selector knobs + fx controls);
@@ -399,10 +399,6 @@ fn instrumentPresetBar(project, ch, setProject, tplMirrorFlush) {
   return PresetBar("Preset", project.instrumentPresets, onLoad, onSave, "")
 }
 
-fn VoiceModule(ctx) {
-  return ModuleCard("Voice", "", "", ctx, VoicePicker(ctx.project, ctx.ch, ctx.setProject, ctx.tplMirrorFlush))
-}
-
 fn SoundModule(ctx, gid) {
   // Modular designers (Matrix FM / Patch / a frozen macro graph) need more room than a small box.
   let wide = gid === "matrixFm" || gid === "patch" || ctx.ch.macroName != null
@@ -467,13 +463,14 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
           <h2>{"INSTRUMENT // " + ch.name}</h2>
           <span class="instr-stack-sub">{"rack boxes · pick a track · flip any box to Raw"}</span>
         </Fragment>,
-        instrumentPresetBar(project, ch, setProjectFromUI, tplMirrorFlush)
+        <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+          {voiceDropdown(project, ch, setProjectFromUI, tplMirrorFlush, rt)}
+          {instrumentPresetBar(project, ch, setProjectFromUI, tplMirrorFlush)}
+        </div>
       )}
       <div class="instr-modules-row">
-        {VoiceModule(ctx)}
         {SoundModule(ctx, gid)}
         {PitchModule(ctx)}
-
       </div>
     </section>
   )
