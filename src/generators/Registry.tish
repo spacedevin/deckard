@@ -223,33 +223,6 @@ import { defaultParamsForSn76489 } from "./Sn76489.tish"
 import { defaultParamsForSnesSpc } from "./SnesSpc.tish"
 import { defaultParamsForGameBoyAdv } from "./GameBoyAdv.tish"
 
-export let generators = [
-  { id: "basicOsc", name: "Basic Osc" },
-  { id: "noiseBurst", name: "Noise Burst" },
-  { id: "fmTone", name: "FM Tone" },
-  { id: "pad", name: "Pad" },
-  { id: "bell", name: "Bell" },
-  { id: "drumSynth", name: "Drum Synth" },
-  { id: "guitar", name: "Guitar" },
-  { id: "clap", name: "Clap" },
-  { id: "tine", name: "Electric Tine" },
-  { id: "aether", name: "Aether" },
-  { id: "halo", name: "Halo" },
-  { id: "formantVocal", name: "Vocal (Formant)" },
-  { id: "ttsVocal", name: "Vocal (TTS)" },
-  { id: "meSpeakVocal", name: "Vocal (meSpeak)" },
-  { id: "arco", name: "Arco" },
-  { id: "acid303", name: "Acid 303" },
-  { id: "sub808", name: "Sub 808" },
-  { id: "chiptune", name: "Chiptune (Simple)" },
-  { id: "nes2a03", name: "2A03" },
-  { id: "gameBoyDmg", name: "LR35902" },
-  { id: "c64sid", name: "MOS 6581" },
-  { id: "ym2612", name: "YM2612" },
-  { id: "sn76489", name: "SN76489" },
-  { id: "spc700", name: "SPC700" },
-  { id: "gbaDirectSound", name: "GBA PCM" }
-]
 
 export fn defaultParamsForGeneratorId(id) {
   if (id === "basicOsc") {

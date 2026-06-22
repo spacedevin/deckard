@@ -17,7 +17,7 @@ import {
 } from '../tpl/MatrixFmGraph.tish'
 import { parseGenBlock, defaultMatrixFmRawLines } from '../tpl/TplExtension.tish'
 import { matrixFmPatches } from '../model/MatrixFmPresets.tish'
-import { Knob, accentForGenerator, matrixFmSvgDataUrl, matrixFmLucideIconSvg, isKnobDragging, selOpt, WaveIconPicker } from './InstrumentKit.tish'
+import { Knob, WaveIconPicker, IkSelect, accentForGenerator, matrixFmSvgDataUrl, matrixFmLucideIconSvg, isKnobDragging } from './InstrumentKit.tish'
 import { emitInstrumentModuleTpl } from '../core/Levels.tish'
 
 fn numOr(x, def) {
@@ -451,7 +451,7 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
                   step: 1,
                   size: "xs",
                   accent: accent,
-                  fmt: (v) => String(Math.round(v) / 100),
+                  fmt: (v) => Number(Math.round(v) / 100).toFixed(2),
                   onInput: (v) => {
                     setModAmount(g, "fm", srcCopy, dstCopy, v / 100)
                     commit()
@@ -468,7 +468,7 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
                   step: 1,
                   size: "xs",
                   accent: accent,
-                  fmt: (v) => String(Math.round(v) / 100),
+                  fmt: (v) => Number(Math.round(v) / 100).toFixed(2),
                   onInput: (v) => {
                     setModAmount(g, "rm", srcCopy, dstCopy, v / 100)
                     commit()
@@ -532,7 +532,7 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
               max: 3200,
               step: 1,
               accent: accent,
-              fmt: (v) => String(Math.round(v) / 100) + "×",
+              fmt: (v) => Number(Math.round(v) / 100).toFixed(2) + "×",
               onInput: (v) => {
                 g.ops[oidCopy].ratio = v / 100
                 commit()
@@ -615,25 +615,25 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
     let famt = numOr(fe.amount, 0)
     let fidCopy = fid
     let coSlider = freqToSliderStep(co)
+
+    let typeOpts = ["lp12", "lp24", "hp12", "hp24"]
+    let typeLabels = ["LP12", "LP24", "HP12", "HP24"]
+    let typeIdx = 0
+    let tti = 0
+    while (tti < typeOpts.length) {
+      if (typeOpts[tti] === ftype) {
+        typeIdx = tti
+      }
+      tti = tti + 1
+    }
+    if (typeIdx < 0) {
+      typeIdx = 1
+    }
+
     filterBlocks.push(
       <div class="sytrus-filter-card" key={"flt" + fid}>
         <div class="sytrus-filter-top">
           <span class="sytrus-filter-badge">{"F " + fid}</span>
-          <select
-            class="sytrus-op-wave"
-            value={ftype}
-            onmousedown={(e) => e.stopPropagation()}
-            onclick={(e) => e.stopPropagation()}
-            onchange={(e) => {
-              g.filters[fidCopy].type = e.target.value
-              commit()
-            }}
-          >
-            {selOpt("lp12", "LP 12dB", ftype, "ft-lp12-" + fid)}
-            {selOpt("lp24", "LP 24dB", ftype, "ft-lp24-" + fid)}
-            {selOpt("hp12", "HP 12dB", ftype, "ft-hp12-" + fid)}
-            {selOpt("hp24", "HP 24dB", ftype, "ft-hp24-" + fid)}
-          </select>
           <button
             type="button"
             class="sytrus-icon-btn"
@@ -648,6 +648,29 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
           </button>
         </div>
         <div class="ik-knob-grid">
+          {Knob({
+            label: "Type",
+            value: typeIdx,
+            min: 0,
+            max: 3,
+            step: 1,
+            detents: 4,
+            size: "md",
+            accent: accent,
+            fmt: (v) => {
+              let k = Math.round(v)
+              if (k < 0) k = 0
+              if (k > 3) k = 3
+              return typeLabels[k]
+            },
+            onInput: (v) => {
+              let k = Math.round(v)
+              if (k < 0) k = 0
+              if (k > 3) k = 3
+              g.filters[fidCopy].type = typeOpts[k]
+              commit()
+            }
+          })}
           {Knob({
             label: "Cutoff",
             value: coSlider,
@@ -670,7 +693,7 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
             step: 1,
             size: "md",
             accent: accent,
-            fmt: (v) => String(Math.round(v) / 100),
+            fmt: (v) => Number(Math.round(v) / 100).toFixed(2),
             onInput: (v) => {
               g.filters[fidCopy].res = v / 100
               commit()
@@ -767,13 +790,15 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
     let dk = rt.dstKind ? rt.dstKind : "out"
     routeRows.push(
       <div class="sytrus-route-row" key={"rt" + String(rri)}>
-        <select
-          class="sytrus-route-sel"
-          value={sk}
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={(e) => e.stopPropagation()}
-          onchange={(e) => {
-            let nk = e.target.value
+        {IkSelect({
+          class: "sytrus-route-sel",
+          value: sk,
+          options: [
+            { value: "op", label: "op" },
+            { value: "filter", label: "filter" }
+          ],
+          onChange: (v) => {
+            let nk = v
             g.routes[ridx].srcKind = nk
             if (nk === "filter") {
               if (filterIds.length > 0) {
@@ -789,32 +814,28 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
               }
             }
             commit()
-          }}
-        >
-          {selOpt("op", "op", sk, "rsk-op-" + ridx)}
-          {selOpt("filter", "filter", sk, "rsk-flt-" + ridx)}
-        </select>
-        <select
-          class="sytrus-route-sel"
-          value={rt.srcId}
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={(e) => e.stopPropagation()}
-          onchange={(e) => {
-            g.routes[ridx].srcId = e.target.value
+          }
+        })}
+        {IkSelect({
+          class: "sytrus-route-sel",
+          value: rt.srcId,
+          options: sk === "filter" ? filterIds.map(i => ({value: i, label: i})) : opIds.map(i => ({value: i, label: i})),
+          onChange: (v) => {
+            g.routes[ridx].srcId = v
             commit()
-          }}
-        >
-          {routeIdOptions(sk, opIds, filterIds, rt.srcId)}
-        </select>
+          }
+        })}
         <span class="sytrus-route-arrow">{"→"}</span>
-        <select
-          class="sytrus-route-sel"
-          value={dk}
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={(e) => e.stopPropagation()}
-          onchange={(e) => {
-            g.routes[ridx].dstKind = e.target.value
-            if (e.target.value === "out") {
+        {IkSelect({
+          class: "sytrus-route-sel",
+          value: dk,
+          options: [
+            { value: "filter", label: "filter" },
+            { value: "out", label: "main" }
+          ],
+          onChange: (v) => {
+            g.routes[ridx].dstKind = v
+            if (v === "out") {
               g.routes[ridx].dstId = ""
             } else {
               if (filterIds.length > 0) {
@@ -822,24 +843,18 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
               }
             }
             commit()
-          }}
-        >
-          {selOpt("filter", "filter", dk, "rdk-flt-" + ridx)}
-          {selOpt("out", "main", dk, "rdk-out-" + ridx)}
-        </select>
-        <select
-          class="sytrus-route-sel"
-          value={rt.dstId ? rt.dstId : filterIds.length > 0 ? filterIds[0] : "1"}
-          disabled={dk === "filter" ? false : true}
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={(e) => e.stopPropagation()}
-          onchange={(e) => {
-            g.routes[ridx].dstId = e.target.value
+          }
+        })}
+        {IkSelect({
+          class: "sytrus-route-sel",
+          value: rt.dstId ? rt.dstId : filterIds.length > 0 ? filterIds[0] : "1",
+          options: filterIds.map(i => ({value: i, label: i})),
+          disabled: dk === "filter" ? false : true,
+          onChange: (v) => {
+            g.routes[ridx].dstId = v
             commit()
-          }}
-        >
-          {filterIdOptions(filterIds, rt.dstId ? rt.dstId : filterIds.length > 0 ? filterIds[0] : "1")}
-        </select>
+          }
+        })}
         <label class="sytrus-route-vol">
           {Knob({
             label: "Vol",
@@ -878,14 +893,14 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
   // Patch bank: load a factory Sytrus-style patch straight into this voice (re-parse so the channel gets
   // its own graph). Grouped category-first in the dropdown, like Sytrus's preset menu.
   let patches = matrixFmPatches()
-  let patchOpts = [<option value="-1">{"— load patch —"}</option>]
+  let patchOpts = [{ value: "-1", label: "— load patch —" }]
   let lastCat = ""
   let ppi = 0
   while (ppi < patches.length) {
     let pp = patches[ppi]
     let cat = pp.category ? pp.category : "Patch"
     let prefix = cat !== lastCat ? cat + " · " : ""
-    patchOpts.push(<option value={String(ppi)} key={"mxp" + pp.id}>{prefix + pp.name}</option>)
+    patchOpts.push({ value: String(ppi), label: prefix + pp.name })
     lastCat = cat
     ppi = ppi + 1
   }
@@ -908,18 +923,14 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
           <span class="sytrus-panel-sub">{"operators · modulation · filters · bus"}</span>
           {canEdit ? null : <span class="instr-lock-tag">{"read only"}</span>}
         </div>
-        <select
-          class="sytrus-patch-select"
-          value="-1"
-          onmousedown={(e) => e.stopPropagation()}
-          onchange={(e) => {
-            let v = Number(e.target.value)
-            e.target.value = "-1"
-            loadPatch(v)
-          }}
-        >
-          {patchOpts}
-        </select>
+        {IkSelect({
+          class: "sytrus-patch-select",
+          value: "-1",
+          options: patchOpts,
+          onChange: (v) => {
+            loadPatch(Number(v))
+          }
+        })}
       </div>
 
       <section class="sytrus-section mfm-flow-section">

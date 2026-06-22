@@ -51,7 +51,7 @@ export fn coDjLineAllowedForSkills(line, skillIds) {
 }
 
 /** Back-compat facade name. */
-export fn skillAllowsLine(line, skillIds) {
+fn skillAllowsLine(line, skillIds) {
   return coDjLineAllowedForSkills(line, skillIds)
 }
 
@@ -73,7 +73,7 @@ fn skillAiOk(id) {
 }
 
 /** True if an actor with this skillId may use it. Human-like actors get skillHumanOk; agent-like get skillAiOk. */
-export fn actorHasSkill(skillId, actorId) {
+fn actorHasSkill(skillId, actorId) {
   if (!actorId || typeof actorId !== "string") return false
   if (actorId.indexOf("agent") >= 0) return skillAiOk(skillId)
   return skillHumanOk(skillId)

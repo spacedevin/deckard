@@ -27,7 +27,7 @@ export fn coDjMaxSequenceLookahead() {
   return 4
 }
 
-export fn coDjMaxLookaheadPerfSteps() {
+fn coDjMaxLookaheadPerfSteps() {
   return coDjStepsPerSequence() * coDjMaxSequenceLookahead()
 }
 

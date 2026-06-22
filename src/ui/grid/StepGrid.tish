@@ -10,7 +10,8 @@ import { generatorLabelById } from '../../generators/Registry.tish'
 import { tplLoopSkipsChannel } from '../../tpl/LoopState.tish'
 import { setRackBars } from '../../model/RackBars.tish'
 import { channelDeck, channelDeckColor } from '../../model/DeckRouting.tish'
-import { scaleRootNames, scaleModeNames } from '../../model/Scale.tish'
+import { scaleRootNames, scaleModeNames, scaleModeLabel } from '../../model/Scale.tish'
+import { IkSelect } from '../InstrumentKit.tish'
 import { euclidSteps, reseedSteps, mutateSteps, humanizeSteps, sprinkleProbability } from '../../model/Generative.tish'
 import { euclidNotes, reseedNotes, mutateNotes, humanizeNotes, sprinkleNoteProbability, notePitchForChannel, notesAfterFirstBar } from '../../model/Generative.tish'
 import { defaultAutoParam, autoLaneValues, autoNorm, autoDenorm } from '../../model/AutoParams.tish'
@@ -1240,15 +1241,15 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
   let scaleRootOpts = []
   let sri = 0
   while (sri < scRootNames.length) {
-    scaleRootOpts.push(<option value={String(sri)} selected={scaleCurRoot === sri}>{scRootNames[sri]}</option>)
+    scaleRootOpts.push({ value: String(sri), label: scRootNames[sri] })
     sri = sri + 1
   }
   let scaleModeOpts = []
-  scaleModeOpts.push(<option value="off" selected={!scaleActive}>{"off"}</option>)
+  scaleModeOpts.push({ value: "off", label: "off" })
   let smi = 0
   while (smi < scModeNames.length) {
     let smn = scModeNames[smi]
-    scaleModeOpts.push(<option value={smn} selected={scaleActive && scaleCurMode === smn}>{scaleModeLabel(smn)}</option>)
+    scaleModeOpts.push({ value: smn, label: scaleModeLabel(smn) })
     smi = smi + 1
   }
   let viewBar = 0
@@ -1550,42 +1551,40 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
         </button>
         <span class="sg-barpager-sep">{"·"}</span>
         <span class={scaleActive ? "sg-barpager-label sg-scale-lit" : "sg-barpager-label"} title="Scale lock — constrain every melodic note to a key/scale, live. 'off' = chromatic.">{"SCALE"}</span>
-        <select
-          class="sg-scale-sel"
-          title="Root note"
-          disabled={!scaleActive}
-          onchange={(e) => {
+        {IkSelect({
+          class: "sg-scale-sel",
+          value: String(scaleCurRoot),
+          options: scaleRootOpts,
+          disabled: !scaleActive,
+          onChange: (v) => {
             if (rt && rt.emit) {
-              let v = { root: Number(e.target.value), mode: scaleCurMode }
-              rt.emit("scale", v)
+              let nextV = { root: Number(v), mode: scaleCurMode }
+              rt.emit("scale", nextV)
               if (rt.bumpGrid) {
                 rt.bumpGrid()
               }
             }
-          }}
-        >
-          {scaleRootOpts}
-        </select>
-        <select
-          class={scaleActive ? "sg-scale-sel sg-scale-sel-lit" : "sg-scale-sel"}
-          title="Scale / mode ('off' = no constraint)"
-          onchange={(e) => {
+          }
+        })}
+        {IkSelect({
+          class: scaleActive ? "sg-scale-sel sg-scale-sel-lit" : "sg-scale-sel",
+          value: scaleActive ? scaleCurMode : "off",
+          options: scaleModeOpts,
+          onChange: (v) => {
             if (rt && rt.emit) {
-              let m = e.target.value
+              let m = v
               if (m === "off") {
                 rt.emit("scale", "off")
               } else {
-                let v = { root: scaleCurRoot, mode: m }
-                rt.emit("scale", v)
+                let nextV = { root: scaleCurRoot, mode: m }
+                rt.emit("scale", nextV)
               }
               if (rt.bumpGrid) {
                 rt.bumpGrid()
               }
             }
-          }}
-        >
-          {scaleModeOpts}
-        </select>
+          }
+        })}
       </div>
       <div class="sg-grid" onwheel={(e) => handleBarWheel(e, rt, gridBars)}>{rows}</div>
       <div class="sg-ruler">

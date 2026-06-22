@@ -4,6 +4,7 @@
 // <audio> sinks). A cue-level slider sets the headphone volume. Per-deck CUE toggles live in the DeckMixer.
 
 import { h, Fragment, useState, useEffect, useRef } from '@tishlang/lattish'
+import { IkSelect } from './InstrumentKit.tish'
 import { createAudioDeviceSettings } from '../core/AudioDeviceSettings.tish'
 import { applyOutputDevices, setCueLevel, setCueSyncOffset, setMainAutoSync, setDrawDisabled, suspendDrawsAround } from '../audio/Engine.tish'
 
@@ -118,12 +119,12 @@ export fn AudioRackPanel(audioStore) {
   }
 
   fn deviceOptions() {
-    let opts = [<option value="">{"— default —"}</option>]
+    let opts = [{ value: "", label: "— default —" }]
     let di = 0
     while (di < devices.length) {
       let d = devices[di]
       let label = d.label && String(d.label).length > 0 ? String(d.label) : ("Output " + String(di + 1))
-      opts.push(<option value={d.id}>{label}</option>)
+      opts.push({ value: d.id, label: label })
       di = di + 1
     }
     return opts
@@ -137,11 +138,11 @@ export fn AudioRackPanel(audioStore) {
       <span class="io-rack-title">{"I/O RACK"}</span>
       <label class="io-slot">
         <span class="io-slot-label">{"SPEAKERS"}</span>
-        <select class="io-select" value={sel.speakers} onmousedown={(e) => e.stopPropagation()} onchange={(e) => onPick("speakers", e.target.value)}>{deviceOptions()}</select>
+        {IkSelect({ class: "io-select", value: sel.speakers, options: deviceOptions(), onChange: (v) => onPick("speakers", v) })}
       </label>
       <label class="io-slot">
         <span class="io-slot-label io-slot-hp">{"HEADPHONES"}</span>
-        <select class="io-select" value={sel.headphones} onmousedown={(e) => e.stopPropagation()} onchange={(e) => onPick("headphones", e.target.value)}>{deviceOptions()}</select>
+        {IkSelect({ class: "io-select", value: sel.headphones, options: deviceOptions(), onChange: (v) => onPick("headphones", v) })}
       </label>
       <label class="io-slot io-cue">
         <span class="io-slot-label">{"CUE"}</span>

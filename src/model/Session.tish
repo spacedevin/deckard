@@ -185,7 +185,7 @@ export fn defaultMainClipId(ch) {
   return ch.id + "_main"
 }
 
-export fn copySteps16FromChannel(ch) {
+fn copySteps16FromChannel(ch) {
   let out = []
   let si = 0
   while (si < 16) {
@@ -1236,7 +1236,7 @@ export fn sessionQueueScene(project, rt, sceneIdx) {
   rt.sessionQueuedScene = s
 }
 
-export fn sessionArmTrackClip(project, rt, trackIdx, clipId) {
+fn sessionArmTrackClip(project, rt, trackIdx, clipId) {
   ensureProjectSession(project)
   if (!rt.sessionArmedClipIds) {
     rt.sessionArmedClipIds = []
@@ -1249,7 +1249,7 @@ export fn sessionArmTrackClip(project, rt, trackIdx, clipId) {
 }
 
 /** Queue one track’s clip for the next sequence boundary; other tracks keep current playback until then. */
-export fn sessionQueueTrackClip(project, rt, trackIdx, clipId) {
+fn sessionQueueTrackClip(project, rt, trackIdx, clipId) {
   ensureProjectSession(project)
   let tix = Math.floor(Number(trackIdx))
   if (tix < 0 || tix >= project.channels.length || tix !== tix) {

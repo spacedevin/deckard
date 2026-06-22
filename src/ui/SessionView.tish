@@ -13,6 +13,7 @@ import {
   addSessionProgram,
   removeSessionProgram
 } from '../model/Session.tish'
+import { IkSelect } from './InstrumentKit.tish'
 import { channelDeck, channelDeckColor } from '../model/DeckRouting.tish'
 import { launchClipDirective, launchClipStopDirective, cueDirective } from '../codj/Launch.tish'
 
@@ -294,12 +295,12 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
     applyFollow(si, f.a, p, f.b, 100 - p)
   }
   // Short, readable labels (full text fits a full-width select; glyphs alone were illegible when tiny).
-  fn followOptions(selVal) {
+  fn followOptions() {
     let list = [["repeat", "↻ Loop"], ["next", "→ Next"], ["prev", "← Prev"], ["first", "⏮ First"], ["last", "⏭ Last"], ["any", "✦ Any"], ["stop", "■ Stop"]]
     let opts = []
     let i = 0
     while (i < list.length) {
-      opts.push(<option value={list[i][0]} selected={selVal === list[i][0]}>{list[i][1]}</option>)
+      opts.push({ value: list[i][0], label: list[i][1] })
       i = i + 1
     }
     return opts
@@ -318,9 +319,12 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
       line2 = (
         <div class="follow-line2" title={"The rest of the time, do this instead (weighted chance)"}>
           <span class="follow-else">{"↳"}</span>
-          <select class="follow-sel follow-sel-b" value={bVal} onchange={(e) => onFollowB(si, e.target.value)}>
-            {followOptions(bVal)}
-          </select>
+          {IkSelect({
+            class: "follow-sel follow-sel-b",
+            value: bVal,
+            options: followOptions(),
+            onChange: (v) => onFollowB(si, v)
+          })}
           <input type="number" class="follow-pct" min="0" max="100" value={String(100 - pctA)} oninput={(e) => onFollowChance(si, 100 - Number(e.target.value))} title={"Chance of this second action"} />
           <span class="follow-pct-sign">{"%"}</span>
         </div>
@@ -330,9 +334,12 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
       <div class="session-scene-follow" title={"After this pattern plays, do this. Add a weighted second action (⚖) for a deterministic chance (seeded — same for every player)."}>
         <div class="follow-line1">
           <span class="session-scene-oplabel">{"THEN"}</span>
-          <select class="follow-sel" value={aVal} onchange={(e) => onFollowA(si, e.target.value)}>
-            {followOptions(aVal)}
-          </select>
+          {IkSelect({
+            class: "follow-sel",
+            value: aVal,
+            options: followOptions(),
+            onChange: (v) => onFollowA(si, v)
+          })}
           <button type="button" class={mixCls} title={hasB ? "Remove the weighted second action" : "Add a weighted second action (chance ratio)"} onclick={() => toggleFollowB(si)}>
             {"⚖"}
           </button>

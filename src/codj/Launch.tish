@@ -48,13 +48,13 @@ export fn transportDirective(mode, sceneIdx) {
 }
 
 /** Start the SHARED transport in sequence or song mode (master-gated). */
-export fn transportPlayDirective(mode) {
+fn transportPlayDirective(mode) {
   let m = (mode === "sequence" || mode === "seq") ? "seq" : "song"
   return "@ transport play " + m
 }
 
 /** Start the PRIVATE cue/preview transport (local only — never broadcast). */
-export fn transportPreviewDirective() {
+fn transportPreviewDirective() {
   return "@ transport preview"
 }
 
@@ -64,7 +64,7 @@ export fn cueDirective(target) {
 }
 
 /** Commit your cue to the SHARED main (optionally a specific scene). Master/owner gated. */
-export fn throwDirective(sceneIdx) {
+fn throwDirective(sceneIdx) {
   if (sceneIdx == null) {
     return "@ throw"
   }

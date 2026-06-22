@@ -10,6 +10,7 @@ import { createSetLibrary, emitSet, loadSet, freeDecks, emitSetStream, parseSetS
 import { loadDeckSet, deckSetCatalog } from '../model/DeckSets.tish'
 import { levelPresetList, addLevelPreset, findLevelPreset } from '../model/LevelPresets.tish'
 import { PresetBar } from './PresetBar.tish'
+import { IkSelect } from './InstrumentKit.tish'
 import { emitProject, emitLivePlayback } from '../tpl/Emit.tish'
 import { CodeDebugView } from './CodeDebugView.tish'
 import { migrateProjectGenerators } from '../model/Migrate.tish'
@@ -908,7 +909,7 @@ export fn App() {
             if (red != null && red.value !== undefined) {
               red = red.value
             }
-            cg.textContent = String(Math.round(Number(red) * 10) / 10) + "dB"
+            cg.textContent = Number(Math.round(Number(red) * 10) / 10).toFixed(1) + "dB"
           }
         }
       }
@@ -2471,19 +2472,16 @@ export fn App() {
         <button type="button" class="songs-open-btn" title="Browse the song library — load a full song (kit + patterns) onto any deck" onclick={() => setSongBrowserOpen(true)}>{"♫ SONGS"}</button>
         <span class="transport-div" />
         <span class="set-presets-label">{"STATION"}</span>
-        <select
-          class="set-select"
-          value=""
-          onchange={(e) => {
-            let n = e.target.value
-            e.target.value = ""
-            if (n && n.length > 0) {
-              onLoadSet(n)
+        {IkSelect({
+          class: "set-select",
+          value: "",
+          options: setOpts,
+          onChange: (v) => {
+            if (v && v.length > 0) {
+              onLoadSet(v)
             }
-          }}
-        >
-          {setOpts}
-        </select>
+          }
+        })}
         <button type="button" class="set-btn" onclick={onSaveSet} title="Save the whole workspace as a named station">{"Save Station"}</button>
         <label class="set-btn set-import" title="Import a .tpl station file">{"⤒"}
           <input type="file" accept=".tpl,.txt" style={{ display: "none" }} onchange={onImportSetFile} />
@@ -2491,20 +2489,17 @@ export fn App() {
       </div>
       <div class="set-presets set-lib" key={"sl-" + String(setLibGenKey)}>
         <span class="set-presets-label" title={"A Set = 1–4 players + a song arrangement. Loading fills the free deck slots with its players (ghosts you can play alongside)."}>{"SET"}</span>
-        <select
-          class="set-select"
-          value=""
-          title={freeSlotCount === 0 ? "All 4 decks occupied — free a deck to load a Set (or drop one onto a deck from its picker)." : "Load a Set into the " + String(freeSlotCount) + " free deck slot" + (freeSlotCount === 1 ? "" : "s")}
-          onchange={(e) => {
-            let n = e.target.value
-            e.target.value = ""
-            if (n && n.length > 0) {
-              onLoadSetLib(n)
+        {IkSelect({
+          class: "set-select",
+          value: "",
+          title: freeSlotCount === 0 ? "All 4 decks occupied — free a deck to load a Set (or drop one onto a deck from its picker)." : "Load a Set into the " + String(freeSlotCount) + " free deck slot" + (freeSlotCount === 1 ? "" : "s"),
+          options: setLibOpts,
+          onChange: (v) => {
+            if (v && v.length > 0) {
+              onLoadSetLib(v)
             }
-          }}
-        >
-          {setLibOpts}
-        </select>
+          }
+        })}
         <button type="button" class="set-btn" onclick={onSaveSetLib} title="Capture the loaded decks (their racks, clips + arrangement) as a named Set">{"Save Set"}</button>
         <label class="set-btn set-import" title="Import a .tpl Set file">{"⤒"}
           <input type="file" accept=".tpl,.txt" style={{ display: "none" }} onchange={onImportSetLibFile} />

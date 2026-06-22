@@ -26,6 +26,7 @@ import {
   addPatchNode,
   removePatchNode,
   addPatchConnFrom,
+  addPatchConnTo,
   removePatchConnAt,
   addPatchEnv,
   removePatchEnvAt,
@@ -50,7 +51,7 @@ fn levelKnob(nd, edit, accent) {
     max: 200,
     step: 1,
     accent: accent,
-    fmt: (v) => String(Math.round(v) / 100),
+    fmt: (v) => Number(Math.round(v) / 100).toFixed(2),
     onInput: (v) => {
       nd.gain = v / 100
       edit.live()
@@ -179,7 +180,7 @@ fn oscCard(nd, edit, accent) {
       max: 1600,
       step: 1,
       accent: accent,
-      fmt: (v) => "×" + String(Math.round(v) / 100),
+      fmt: (v) => "×" + Number(Math.round(v) / 100).toFixed(2),
       onInput: (v) => {
         nd.ratio = v / 100
         edit.live()
@@ -290,7 +291,7 @@ fn filterCard(nd, edit, accent) {
           max: 2000,
           step: 1,
           accent: accent,
-          fmt: (v) => String(Math.round(v) / 100),
+          fmt: (v) => Number(Math.round(v) / 100).toFixed(2),
           onInput: (v) => {
             nd.q = v / 100
             edit.live()
@@ -340,7 +341,7 @@ fn gainCard(nd, edit, accent) {
           max: 200,
           step: 1,
           accent: accent,
-          fmt: (v) => String(Math.round(v) / 100),
+          fmt: (v) => Number(Math.round(v) / 100).toFixed(2),
           onInput: (v) => {
             nd.value = v / 100
             edit.live()
@@ -576,7 +577,90 @@ fn routeRow(g, cidx, ids, accent, edit) {
           step: 1,
           accent: accent,
           size: "xs",
-          fmt: (v) => String(Math.round(v) / 100),
+          fmt: (v) => Number(Math.round(v) / 100).toFixed(2),
+          onInput: (v) => {
+            g.conns[cidx].vol = v / 100
+            edit.live()
+          },
+          onCommit: () => edit.commit()
+        })}
+      </span>
+      <button
+        type="button"
+        class="sytrus-icon-btn"
+        title={"Remove route"}
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={() => {
+          removePatchConnAt(g, cidx)
+          edit.commit()
+        }}
+      >
+        {"×"}
+      </button>
+    </div>
+  )
+}
+
+fn inRouteRow(g, cidx, ids, accent, edit) {
+  let cn = g.conns[cidx]
+  // Build flat source list: other node ids
+  let srcList = []
+  let di = 0
+  while (di < ids.length) {
+    if (ids[di] !== cn.dst || ids[di] === cn.src) {
+      srcList.push(ids[di])
+    }
+    di = di + 1
+  }
+  let curSrcIdx = 0
+  let sfi = 0
+  while (sfi < srcList.length) {
+    if (srcList[sfi] === cn.src) {
+      curSrcIdx = sfi
+    }
+    sfi = sfi + 1
+  }
+
+  let srcKnob = Knob({
+    label: "Src",
+    value: curSrcIdx,
+    min: 0,
+    max: srcList.length - 1,
+    step: 1,
+    detents: srcList.length,
+    size: "xs",
+    accent: accent,
+    fmt: (v) => {
+      let k = Math.round(v)
+      if (k < 0) k = 0
+      if (k > srcList.length - 1) k = srcList.length - 1
+      return srcList[k]
+    },
+    onInput: (v) => {
+      let k = Math.round(v)
+      if (k < 0) k = 0
+      if (k > srcList.length - 1) k = srcList.length - 1
+      let nv = srcList[k]
+      g.conns[cidx].src = nv
+      edit.live()
+    },
+    onCommit: () => edit.commit()
+  })
+
+  return (
+    <div class="patch-route" id={"pminroute-" + String(cidx)} key={"inrt" + String(cidx)}>
+      {srcKnob}
+      <span class="patch-route-arrow">{"→"}</span>
+      <span class="patch-route-vol">
+        {Knob({
+          label: "Vol",
+          value: Math.round(numOr(cn.vol, 1) * 100),
+          min: 0,
+          max: 200,
+          step: 1,
+          accent: accent,
+          size: "xs",
+          fmt: (v) => Number(Math.round(v) / 100).toFixed(2),
           onInput: (v) => {
             g.conns[cidx].vol = v / 100
             edit.live()
@@ -613,6 +697,18 @@ fn routeIndicesForSrc(g, srcId) {
   return out
 }
 
+fn routeIndicesForDst(g, dstId) {
+  let ins = []
+  let i = 0
+  while (i < g.conns.length) {
+    if (g.conns[i].dst === dstId) {
+      ins.push(i)
+    }
+    i = i + 1
+  }
+  return ins
+}
+
 fn nodeCard(g, nd, ids, accent, edit) {
   let rIdx = routeIndicesForSrc(g, nd.id)
   let routes = []
@@ -620,6 +716,13 @@ fn nodeCard(g, nd, ids, accent, edit) {
   while (ri < rIdx.length) {
     routes.push(routeRow(g, rIdx[ri], ids, accent, edit))
     ri = ri + 1
+  }
+  let inIdx = routeIndicesForDst(g, nd.id)
+  let inRoutes = []
+  let iri = 0
+  while (iri < inIdx.length) {
+    inRoutes.push(inRouteRow(g, inIdx[iri], ids, accent, edit))
+    iri = iri + 1
   }
   let nodeId = nd.id
   return (
@@ -643,6 +746,21 @@ fn nodeCard(g, nd, ids, accent, edit) {
         </button>
       </div>
       {nodeCardBody(nd, edit, accent)}
+      <div class="patch-mod-routes patch-mod-in-routes">
+        {inRoutes.length === 0 ? null : inRoutes}
+        <button
+          type="button"
+          class="patch-route-add"
+          title={"Add an input route to this module"}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={() => {
+            addPatchConnTo(g, nodeId)
+            edit.commit()
+          }}
+        >
+          {"+ In"}
+        </button>
+      </div>
       <div class="patch-mod-routes">
         {routes.length === 0 ? <span class="patch-route-empty">{"not routed"}</span> : routes}
         <button
@@ -655,7 +773,7 @@ fn nodeCard(g, nd, ids, accent, edit) {
             edit.commit()
           }}
         >
-          {"+ →"}
+          {"Out +"}
         </button>
       </div>
     </div>

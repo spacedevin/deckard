@@ -62,7 +62,7 @@ export fn clearStep(ch, stepIdx) {
   ch.steps[stepIdx].on = false
 }
 
-export fn setStepVel(ch, stepIdx, vel) {
+fn setStepVel(ch, stepIdx, vel) {
   ch.steps[stepIdx].vel = vel
 }
 
@@ -94,7 +94,7 @@ export fn setChannelSolo(ch, on) {
 }
 
 // ADSR lives on generatorParams (basicOsc / fmTone / noiseBurst attack).
-export fn setGeneratorAdsr(ch, a, d, s, r) {
+fn setGeneratorAdsr(ch, a, d, s, r) {
   if (!ch.generatorParams) {
     return
   }
@@ -186,7 +186,7 @@ export fn removePianoNoteAt(ch, idx) {
   ch.pianoNotes.splice(idx, 1)
 }
 
-export fn quantizeNoteToStep(note, stepFrac) {
+fn quantizeNoteToStep(note, stepFrac) {
   let q = Math.round(note.startBeat / stepFrac) * stepFrac
   note.startBeat = q
 }

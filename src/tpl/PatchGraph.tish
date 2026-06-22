@@ -284,7 +284,7 @@ export fn removePatchNode(graph, id) {
   graph.envs = newEnvs
 }
 
-export fn addPatchConn(graph) {
+fn addPatchConn(graph) {
   let src = graph.nodes.length > 0 ? graph.nodes[0].id : "o1"
   graph.conns.push({ src: src, dst: "out", dstParam: null, vol: 1 })
 }
@@ -293,6 +293,11 @@ export fn addPatchConn(graph) {
 // its outgoing connections instead of one global connection list).
 export fn addPatchConnFrom(graph, srcId) {
   graph.conns.push({ src: srcId, dst: "out", dstParam: null, vol: 1 })
+}
+
+export fn addPatchConnTo(graph, dstId) {
+  let src = graph.nodes.length > 0 ? graph.nodes[0].id : "o1"
+  graph.conns.push({ src: src, dst: dstId, dstParam: null, vol: 1 })
 }
 
 export fn removePatchConnAt(graph, index) {

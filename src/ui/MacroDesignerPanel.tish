@@ -17,7 +17,15 @@ fn fmtVal(v, step) {
   if (step >= 1) {
     return String(Math.round(v))
   }
-  return String(Math.round(v * 100) / 100)
+  let decs = 0
+  if (step != null && step % 1 !== 0) {
+    let strStep = String(step)
+    let parts = strStep.split(".")
+    if (parts.length > 1) {
+      decs = parts[1].length
+    }
+  }
+  return Number(Math.round(v * 100) / 100).toFixed(decs)
 }
 
 export fn MacroDesignerPanel(ch, project, setProject, tplMirrorFlush) {

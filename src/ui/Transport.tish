@@ -1,4 +1,5 @@
 import { h, Fragment } from '@tishlang/lattish'
+import { IkSelect } from './InstrumentKit.tish'
 
 // Transport bar — global play controls. Two play modes:
 //   Play Sequence (Space) — monitor the pattern you are editing (the rack)
@@ -60,12 +61,17 @@ export fn TransportBar(
       </div>
       <label class="quant-label" title={"Launch quantize — clip / scene launches drop on this grid"}>
         {"Q "}
-        <select class="quant-select" value={qv} onchange={(e) => onLaunchQuant(Number(e.target.value))}>
-          <option value="4" selected={qv === "4"}>{"1/4"}</option>
-          <option value="8" selected={qv === "8"}>{"1/2"}</option>
-          <option value="16" selected={qv === "16"}>{"1 Bar"}</option>
-          <option value="32" selected={qv === "32"}>{"2 Bars"}</option>
-        </select>
+        {IkSelect({
+          class: "quant-select",
+          value: qv,
+          options: [
+            { value: "4", label: "1/4" },
+            { value: "8", label: "1/2" },
+            { value: "16", label: "1 Bar" },
+            { value: "32", label: "2 Bars" }
+          ],
+          onChange: (v) => onLaunchQuant(Number(v))
+        })}
       </label>
       <span class="bpm-debug ok" title={"Transport health — TGT: target bpm · TRUE: measured bpm · BUF: scheduler lookahead headroom (lower = closer to dropping) · ✕N: audio underruns"}>{"TGT — · TRUE — · BUF —"}</span>
       <span class="transport-spacer" />

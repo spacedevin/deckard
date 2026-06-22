@@ -1418,9 +1418,1684 @@ function createRoot (container, host) {
     return { render: render };
   }
 }
+function defaultParamsForNes2a03 () {
+  {
+    return { type: "pulse", duty: "50", envMode: "decay", vol: 10, sweep: 0, noiseMode: "long", attack: 0, decay: 0, sustain: 15, release: 0, vibRate: 0, vibAmt: 0, arpRate: 0, arpSemis: 0, pitchDrop: 0, pitchDec: 0.05, dutySweep: 0, dpcmSample: "kick" };
+  }
+}
+function getNesPulseBuffer (ctx, duty) {
+  {
+    let cacheKey = ("nesPulse_" + duty);
+    if ((ctx[cacheKey] ?? null))
+      {
+        return (ctx[cacheKey] ?? null);
+      }
+    let buf = (ctx.createBuffer(1, 8, ctx.sampleRate) ?? null);
+    let data = (buf.getChannelData(0) ?? null);
+    let seq = [0, 0, 0, 0, 0, 0, 0, 0];
+    if ((duty === "12_5"))
+      {
+        (seq = [0, 1, 0, 0, 0, 0, 0, 0]);
+      }
+    if ((duty === "25"))
+      {
+        (seq = [0, 1, 1, 0, 0, 0, 0, 0]);
+      }
+    if ((duty === "50"))
+      {
+        (seq = [0, 1, 1, 1, 1, 0, 0, 0]);
+      }
+    if ((duty === "25_i"))
+      {
+        (seq = [1, 0, 0, 1, 1, 1, 1, 1]);
+      }
+    let i = 0;
+    while ((i < 8))
+      {
+        (data[i] = (((seq[i] ?? null) === 1) ? 1 : -1));
+        (i = (i + 1));
+      }
+    (ctx[cacheKey] = buf);
+    return buf;
+  }
+}
+function getNesTriangleBuffer (ctx) {
+  {
+    let cacheKey = "nesTriangle";
+    if ((ctx[cacheKey] ?? null))
+      {
+        return (ctx[cacheKey] ?? null);
+      }
+    let buf = (ctx.createBuffer(1, 32, ctx.sampleRate) ?? null);
+    let data = (buf.getChannelData(0) ?? null);
+    let seq = [15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+    let i = 0;
+    while ((i < 32))
+      {
+        (data[i] = (((seq[i] ?? null) / 7.5) - 1));
+        (i = (i + 1));
+      }
+    (ctx[cacheKey] = buf);
+    return buf;
+  }
+}
+function getNesLfsrBuffer (ctx, mode) {
+  {
+    let cacheKey = ("nesLfsr_" + mode);
+    if ((ctx[cacheKey] ?? null))
+      {
+        return (ctx[cacheKey] ?? null);
+      }
+    let steps = ((mode === 15) ? 32767 : 93);
+    let buf = (ctx.createBuffer(1, steps, ctx.sampleRate) ?? null);
+    let data = (buf.getChannelData(0) ?? null);
+    let reg = 1;
+    let i = 0;
+    while ((i < steps))
+      {
+        let bit0 = (reg & 1);
+        let bitOther = ((mode === 15) ? ((reg >> 1) & 1) : ((reg >> 6) & 1));
+        let feedback = (bit0 ^ bitOther);
+        (reg = ((reg >> 1) | (feedback << 14)));
+        (data[i] = (((reg & 1) === 0) ? 1 : -1));
+        (i = (i + 1));
+      }
+    (ctx[cacheKey] = buf);
+    return buf;
+  }
+}
+function getNesDpcmBuffer (ctx, sampleType) {
+  {
+    let cacheKey = ("nesDpcm_" + sampleType);
+    if ((ctx[cacheKey] ?? null))
+      {
+        return (ctx[cacheKey] ?? null);
+      }
+    let len = (Math.floor((ctx.sampleRate * 0.2)) ?? null);
+    let buf = (ctx.createBuffer(1, len, ctx.sampleRate) ?? null);
+    let data = (buf.getChannelData(0) ?? null);
+    let i = 0;
+    while ((i < len))
+      {
+        let t = (i / ctx.sampleRate);
+        let env = (Math.exp(((-t) * 20)) ?? null);
+        if ((sampleType === "kick"))
+          {
+            let freq = (150 * (Math.exp(((-t) * 40)) ?? null));
+            (data[i] = ((Math.sin((((2 * Math.PI) * freq) * t)) ?? null) * env));
+          }
+        else
+          {
+            if ((sampleType === "snare"))
+              {
+                (data[i] = ((((Math.random() ?? null) * 2) - 1) * (Math.exp(((-t) * 30)) ?? null)));
+              }
+            else
+              {
+                if ((sampleType === "hihat"))
+                  {
+                    (data[i] = ((((Math.random() ?? null) * 2) - 1) * (Math.exp(((-t) * 50)) ?? null)));
+                  }
+              }
+          }
+        (data[i] = ((Math.round(((data[i] ?? null) * 7)) ?? null) / 7));
+        (i = (i + 1));
+      }
+    (ctx[cacheKey] = buf);
+    return buf;
+  }
+}
+function playNes2a03 (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  {
+    let gp = (ch.generatorParams ? ch.generatorParams : {  });
+    let type = (gp.type ? gp.type : "pulse");
+    let duty = (gp.duty ? (String(gp.duty) ?? null) : "50");
+    let envMode = (gp.envMode ? gp.envMode : "decay");
+    let vol = ((gp.vol != null) ? gp.vol : 10);
+    let sweep = ((gp.sweep != null) ? gp.sweep : 0);
+    if ((type !== "pulse"))
+      {
+        (sweep = 0);
+      }
+    let noiseMode = (gp.noiseMode ? gp.noiseMode : "long");
+    let attack = ((gp.attack != null) ? gp.attack : 0);
+    let decay = ((gp.decay != null) ? gp.decay : 0);
+    let sustain = ((gp.sustain != null) ? gp.sustain : 15);
+    let release = ((gp.release != null) ? gp.release : 0);
+    let vibRate = ((gp.vibRate != null) ? gp.vibRate : 0);
+    let vibAmt = ((gp.vibAmt != null) ? gp.vibAmt : 0);
+    let arpRate = ((gp.arpRate != null) ? gp.arpRate : 0);
+    let arpSemis = ((gp.arpSemis != null) ? gp.arpSemis : 0);
+    let pitchDrop = ((gp.pitchDrop != null) ? gp.pitchDrop : 0);
+    let pitchDec = ((gp.pitchDec != null) ? gp.pitchDec : 0.05);
+    let dpcmSample = (gp.dpcmSample ? gp.dpcmSample : "kick");
+    let f0 = (440 * (Math.pow(2, (((midi + bendSemis) - 69) / 12)) ?? null));
+    let f1 = (f0 * (Math.pow(2, (sweep / 12)) ?? null));
+    let v = (vel / 127);
+    if ((v < 0))
+      {
+        (v = 0);
+      }
+    if ((v > 1))
+      {
+        (v = 1);
+      }
+    let isNoise = (type === "noise");
+    let isTriangle = (type === "triangle");
+    let isDpcm = (type === "dpcm");
+    if (isTriangle)
+      {
+        (f0 = (f0 / 2));
+        (f1 = (f1 / 2));
+      }
+    let minFreqPulse = 54.619537353515625;
+    let minFreqTri = 27.309768676757813;
+    if (isTriangle)
+      {
+        if ((f0 < minFreqTri))
+          {
+            (f0 = minFreqTri);
+          }
+        if ((f1 < minFreqTri))
+          {
+            (f1 = minFreqTri);
+          }
+      }
+    else
+      {
+        if ((!isNoise && !isDpcm))
+          {
+            if ((f0 < minFreqPulse))
+              {
+                (f0 = minFreqPulse);
+              }
+            if ((f1 < minFreqPulse))
+              {
+                (f1 = minFreqPulse);
+              }
+          }
+      }
+    let src = (ctx.createBufferSource() ?? null);
+    (src.loop = true);
+    if (isDpcm)
+      {
+        (src.buffer = (getNesDpcmBuffer(ctx, dpcmSample) ?? null));
+        (src.loop = false);
+      }
+    else
+      {
+        if (isNoise)
+          {
+            (src.buffer = (getNesLfsrBuffer(ctx, ((noiseMode === "short") ? 9 : 15)) ?? null));
+          }
+        else
+          {
+            if (isTriangle)
+              {
+                (src.buffer = (getNesTriangleBuffer(ctx) ?? null));
+              }
+            else
+              {
+                let d = (((duty === "75") || (duty === "25_i")) ? "25_i" : duty);
+                (src.buffer = (getNesPulseBuffer(ctx, d) ?? null));
+              }
+          }
+      }
+    let rate0 = 1;
+    let rate1 = 1;
+    if (isNoise)
+      {
+        let noisePeriods = [4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068];
+        let noiseIdx = (15 - (Math.floor(((Math.min(127, (Math.max(0, midi) ?? null)) ?? null) / 8)) ?? null));
+        if ((noiseIdx < 0))
+          {
+            (noiseIdx = 0);
+          }
+        if ((noiseIdx > 15))
+          {
+            (noiseIdx = 15);
+          }
+        let pTimer = (noisePeriods[noiseIdx] ?? null);
+        (rate0 = ((1789773 / pTimer) / ctx.sampleRate));
+        (rate1 = rate0);
+      }
+    else
+      {
+        if (isDpcm)
+          {
+            (rate0 = (Math.pow(2, (((midi + bendSemis) - 60) / 12)) ?? null));
+            (rate1 = rate0);
+          }
+        else
+          {
+            (rate0 = ((f0 * src.buffer.length) / ctx.sampleRate));
+            (rate1 = ((f1 * src.buffer.length) / ctx.sampleRate));
+          }
+      }
+    let safeDur = (Math.max(durSec, 0.01) ?? null);
+    let decTime = ((vol + 1) * 0.0625);
+    if ((isDpcm && (envMode !== "adsr")))
+      {
+        let dpcmDur = (0.2 / rate0);
+        (safeDur = dpcmDur);
+        (envMode = "constant");
+      }
+    let totalTime = (safeDur + 0.1);
+    if ((envMode === "adsr"))
+      {
+        let tD = ((attack + decay) + 0.01);
+        let tOff = (Math.max(safeDur, tD) ?? null);
+        (totalTime = ((tOff + release) + 0.1));
+      }
+    else
+      {
+        if ((envMode === "decay"))
+          {
+            (totalTime = ((Math.max(safeDur, decTime) ?? null) + 0.1));
+          }
+      }
+    let stopTime = (t + totalTime);
+    let disconnects = [];
+    (src.playbackRate.setValueAtTime(rate0, t) ?? null);
+    if ((pitchDrop !== 0))
+      {
+        let rateDrop = (rate0 * (Math.pow(2, (pitchDrop / 12)) ?? null));
+        (src.playbackRate.setValueAtTime(rateDrop, t) ?? null);
+        (src.playbackRate.setTargetAtTime(rate0, t, (Math.max(pitchDec, 0.001) ?? null)) ?? null);
+      }
+    else
+      {
+        if ((((arpRate > 0) && (arpSemis !== 0)) && !isDpcm))
+          {
+            let arpStep = (1 / arpRate);
+            let steps = (Math.ceil((totalTime / arpStep)) ?? null);
+            let rateArp = (isNoise ? ((f0 * (Math.pow(2, (arpSemis / 12)) ?? null)) / 440) : (((f0 * (Math.pow(2, (arpSemis / 12)) ?? null)) * src.buffer.length) / ctx.sampleRate));
+            let i = 0;
+            while ((i < steps))
+              {
+                (src.playbackRate.setValueAtTime((((i % 2) === 0) ? rate0 : rateArp), (t + (i * arpStep))) ?? null);
+                (i = (i + 1));
+              }
+          }
+        else
+          {
+            if (((sweep !== 0) && !isDpcm))
+              {
+                (src.playbackRate.exponentialRampToValueAtTime(rate1, (t + decTime)) ?? null);
+              }
+          }
+      }
+    if ((((vibRate > 0) && (vibAmt > 0)) && !isDpcm))
+      {
+        let lfo = (ctx.createOscillator() ?? null);
+        (lfo.type = "sine");
+        (lfo.frequency.value = vibRate);
+        let lfoGain = (ctx.createGain() ?? null);
+        let rateDev = (rate0 * ((Math.pow(2, (vibAmt / 1200)) ?? null) - 1));
+        (lfoGain.gain.value = rateDev);
+        (lfo.connect(lfoGain) ?? null);
+        (lfoGain.connect(src.playbackRate) ?? null);
+        (lfo.start(t) ?? null);
+        (lfo.stop(stopTime) ?? null);
+        (disconnects.push(lfo) ?? null);
+        (disconnects.push(lfoGain) ?? null);
+      }
+    (src.start(t) ?? null);
+    (src.stop(stopTime) ?? null);
+    (disconnects.push(src) ?? null);
+    let finalGain = (ctx.createGain() ?? null);
+    let maxAmp = (((vol / 15) * v) * 0.8);
+    if ((maxAmp < 0))
+      {
+        (maxAmp = 0);
+      }
+    if ((maxAmp > 0.8))
+      {
+        (maxAmp = 0.8);
+      }
+    if (((type === "triangle") && (envMode !== "adsr")))
+      {
+        let tOff = (t + safeDur);
+        (finalGain.gain.setValueAtTime(0, t) ?? null);
+        (finalGain.gain.linearRampToValueAtTime((v * 0.8), (t + 0.005)) ?? null);
+        (finalGain.gain.setValueAtTime((v * 0.8), tOff) ?? null);
+        (finalGain.gain.linearRampToValueAtTime(0, (tOff + 0.005)) ?? null);
+      }
+    else
+      {
+        if ((envMode === "adsr"))
+          {
+            let a = ((attack > 0) ? attack : 0.005);
+            let d = ((decay > 0) ? decay : 0.005);
+            let s = ((sustain / 15) * maxAmp);
+            let r = ((release > 0) ? release : 0.005);
+            let tA = (t + a);
+            let tD = (tA + d);
+            let tOff = (Math.max((t + safeDur), tD) ?? null);
+            (finalGain.gain.setValueAtTime(0, t) ?? null);
+            (finalGain.gain.linearRampToValueAtTime(maxAmp, tA) ?? null);
+            (finalGain.gain.linearRampToValueAtTime(s, tD) ?? null);
+            (finalGain.gain.setValueAtTime(s, tOff) ?? null);
+            (finalGain.gain.linearRampToValueAtTime(0, (tOff + r)) ?? null);
+          }
+        else
+          {
+            let tOff = (t + safeDur);
+            (finalGain.gain.setValueAtTime(0, t) ?? null);
+            (finalGain.gain.linearRampToValueAtTime(maxAmp, (t + 0.005)) ?? null);
+            if ((envMode === "decay"))
+              {
+                let tDec = ((t + 0.005) + decTime);
+                if ((tOff < tDec))
+                  {
+                    (finalGain.gain.linearRampToValueAtTime(0, tOff) ?? null);
+                  }
+                else
+                  {
+                    (finalGain.gain.linearRampToValueAtTime(0, tDec) ?? null);
+                  }
+              }
+            else
+              {
+                (finalGain.gain.setValueAtTime(maxAmp, tOff) ?? null);
+                (finalGain.gain.linearRampToValueAtTime(0, (tOff + 0.01)) ?? null);
+              }
+          }
+      }
+    (src.connect(finalGain) ?? null);
+    (finalGain.connect(bus.input) ?? null);
+    (disconnects.push(finalGain) ?? null);
+    (setTimeout(() => {
+      {
+        let di = 0;
+        while ((di < disconnects.length))
+          {
+            ((disconnects[di] ?? null).disconnect() ?? null);
+            (di = (di + 1));
+          }
+      }
+    }, (totalTime * 1000)) ?? null);
+  }
+}
+function defaultParamsForGameBoyDmg () {
+  {
+    return { type: "pulse", duty: "50", envMode: "step", vol: 15, sweep: 0, noiseMode: "long", waveShape: "saw", attack: 0, decay: 0, sustain: 15, release: 0, pitchDrop: 0, pitchDec: 0.05, vibRate: 0, vibAmt: 0, arpRate: 0, arpSemis: 0 };
+  }
+}
+function getDmgPulseBuffer (ctx, duty) {
+  {
+    let seq = [0, 0, 0, 0, 0, 0, 0, 0];
+    if ((duty === "12_5"))
+      (seq = [0, 1, 0, 0, 0, 0, 0, 0]);
+    if ((duty === "25"))
+      (seq = [0, 1, 1, 0, 0, 0, 0, 0]);
+    if ((duty === "50"))
+      (seq = [0, 1, 1, 1, 1, 0, 0, 0]);
+    if ((duty === "75"))
+      (seq = [1, 0, 0, 1, 1, 1, 1, 1]);
+    let buf = (ctx.createBuffer(1, 8, ctx.sampleRate) ?? null);
+    let data = (buf.getChannelData(0) ?? null);
+    let i = 0;
+    while ((i < 8))
+      {
+        (data[i] = (((seq[i] ?? null) === 1) ? 1 : -1));
+        (i = (i + 1));
+      }
+    return buf;
+  }
+}
+function getDmgLfsrBuffer (ctx, mode) {
+  {
+    let steps = ((mode === 15) ? 32767 : 127);
+    let buf = (ctx.createBuffer(1, steps, ctx.sampleRate) ?? null);
+    let data = (buf.getChannelData(0) ?? null);
+    let reg = 1;
+    let i = 0;
+    while ((i < steps))
+      {
+        let bit0 = (reg & 1);
+        let bitOther = ((reg >> 1) & 1);
+        let feedback = (bit0 ^ bitOther);
+        (reg = ((reg >> 1) | (feedback << 14)));
+        if ((mode === 7))
+          {
+            (reg = ((reg & -65) | (feedback << 6)));
+          }
+        (data[i] = (((reg & 1) === 0) ? 1 : -1));
+        (i = (i + 1));
+      }
+    return buf;
+  }
+}
+function getDmgWaveBuffer (ctx, shape) {
+  {
+    let buf = (ctx.createBuffer(1, 32, ctx.sampleRate) ?? null);
+    let data = (buf.getChannelData(0) ?? null);
+    let i = 0;
+    while ((i < 32))
+      {
+        let v = 0;
+        let phase = (i / 32);
+        if ((shape === "saw"))
+          {
+            (v = ((phase * 2) - 1));
+          }
+        else
+          if ((shape === "square"))
+            {
+              (v = ((phase < 0.5) ? 1 : -1));
+            }
+          else
+            {
+              (v = (Math.sin(((phase * Math.PI) * 2)) ?? null));
+            }
+        (v = ((Math.round((v * 7.5)) ?? null) / 7.5));
+        (data[i] = v);
+        (i = (i + 1));
+      }
+    return buf;
+  }
+}
+function playGameBoyDmg (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  {
+    let gp = ch.generatorParams;
+    if (!gp)
+      (gp = {  });
+    let type = (gp.type ? gp.type : "pulse");
+    let duty = (gp.duty ? (String(gp.duty) ?? null) : "50");
+    let envMode = (gp.envMode ? gp.envMode : "step");
+    let vol = ((gp.vol != null) ? (Math.round(gp.vol) ?? null) : 10);
+    let sweep = ((gp.sweep != null) ? (Math.round(gp.sweep) ?? null) : 0);
+    let noiseMode = (gp.noiseMode ? gp.noiseMode : "long");
+    let waveShape = (gp.waveShape ? gp.waveShape : "saw");
+    let attack = ((gp.attack != null) ? gp.attack : 0);
+    let decay = ((gp.decay != null) ? gp.decay : 0);
+    let sustain = ((gp.sustain != null) ? gp.sustain : 15);
+    let release = ((gp.release != null) ? gp.release : 0);
+    let pitchDrop = ((gp.pitchDrop != null) ? (Math.round(gp.pitchDrop) ?? null) : 0);
+    let pitchDec = ((gp.pitchDec != null) ? gp.pitchDec : 0.05);
+    let vibRate = ((gp.vibRate != null) ? gp.vibRate : 0);
+    let vibAmt = ((gp.vibAmt != null) ? gp.vibAmt : 0);
+    let arpRate = ((gp.arpRate != null) ? gp.arpRate : 0);
+    let arpSemis = ((gp.arpSemis != null) ? (Math.round(gp.arpSemis) ?? null) : 0);
+    let f0 = (440 * (Math.pow(2, (((midi + bendSemis) - 69) / 12)) ?? null));
+    let f1 = (f0 * (Math.pow(2, (sweep / 12)) ?? null));
+    let v = (vel / 127);
+    if ((v < 0))
+      (v = 0);
+    if ((v > 1))
+      (v = 1);
+    let isNoise = (type === "noise");
+    let isWave = (type === "wave");
+    let isPulse = (type === "pulse");
+    if (isWave)
+      {
+        if ((f0 < 32))
+          (f0 = 32);
+        if ((f1 < 32))
+          (f1 = 32);
+      }
+    else
+      if (isPulse)
+        {
+          if ((f0 < 64))
+            (f0 = 64);
+          if ((f1 < 64))
+            (f1 = 64);
+        }
+    let src = (ctx.createBufferSource() ?? null);
+    (src.loop = true);
+    if (isWave)
+      {
+        (src.buffer = (getDmgWaveBuffer(ctx, waveShape) ?? null));
+      }
+    else
+      if (isNoise)
+        {
+          (src.buffer = (getDmgLfsrBuffer(ctx, ((noiseMode === "short") ? 7 : 15)) ?? null));
+        }
+      else
+        {
+          (src.buffer = (getDmgPulseBuffer(ctx, duty) ?? null));
+        }
+    let rate0 = 1;
+    let rate1 = 1;
+    if (isNoise)
+      {
+        (rate0 = ((f0 * 100) / ctx.sampleRate));
+        (rate1 = ((f1 * 100) / ctx.sampleRate));
+      }
+    else
+      {
+        (rate0 = ((f0 * src.buffer.length) / ctx.sampleRate));
+        (rate1 = ((f1 * src.buffer.length) / ctx.sampleRate));
+      }
+    let safeDur = (Math.max(durSec, 0.01) ?? null);
+    let decTime = ((vol + 1) * 0.1);
+    let totalTime = (safeDur + 0.1);
+    if ((envMode === "adsr"))
+      {
+        let tD = ((attack + decay) + 0.01);
+        let tOff = (Math.max(safeDur, tD) ?? null);
+        (totalTime = ((tOff + release) + 0.1));
+      }
+    else
+      if ((envMode === "step"))
+        {
+          (totalTime = ((Math.max(safeDur, decTime) ?? null) + 0.1));
+        }
+    let stopTime = (t + totalTime);
+    let disconnects = [];
+    (src.playbackRate.setValueAtTime(rate0, t) ?? null);
+    if ((pitchDrop !== 0))
+      {
+        let rateDrop = (rate0 * (Math.pow(2, (pitchDrop / 12)) ?? null));
+        (src.playbackRate.setValueAtTime(rateDrop, t) ?? null);
+        (src.playbackRate.setTargetAtTime(rate0, t, (Math.max(pitchDec, 0.001) ?? null)) ?? null);
+      }
+    else
+      if (((arpRate > 0) && (arpSemis !== 0)))
+        {
+          let arpStep = (1 / arpRate);
+          let steps = (Math.ceil((totalTime / arpStep)) ?? null);
+          let ai = 0;
+          while ((ai < steps))
+            {
+              let semi = (((ai % 2) === 1) ? arpSemis : 0);
+              (src.playbackRate.setValueAtTime((rate0 * (Math.pow(2, (semi / 12)) ?? null)), (t + (ai * arpStep))) ?? null);
+              (ai = (ai + 1));
+            }
+        }
+      else
+        if (((sweep !== 0) && isPulse))
+          {
+            (src.playbackRate.exponentialRampToValueAtTime(rate1, (t + decTime)) ?? null);
+          }
+    if ((((vibRate > 0) && (vibAmt > 0)) && !isNoise))
+      {
+        let lfo = (ctx.createOscillator() ?? null);
+        (lfo.type = "sine");
+        (lfo.frequency.value = vibRate);
+        let lfoGain = (ctx.createGain() ?? null);
+        (lfoGain.gain.value = (rate0 * (vibAmt / 1200)));
+        (lfo.connect(lfoGain) ?? null);
+        (lfoGain.connect(src.playbackRate) ?? null);
+        (lfo.start(t) ?? null);
+        (lfo.stop(stopTime) ?? null);
+        (disconnects.push(lfo) ?? null);
+        (disconnects.push(lfoGain) ?? null);
+      }
+    let maxAmp = (((vol / 15) * v) * 0.8);
+    if ((maxAmp < 0))
+      (maxAmp = 0);
+    if ((maxAmp > 0.8))
+      (maxAmp = 0.8);
+    let finalGain = (ctx.createGain() ?? null);
+    if ((envMode === "adsr"))
+      {
+        let a = ((attack > 0) ? attack : 0.005);
+        let d = ((decay > 0) ? decay : 0.005);
+        let s = ((sustain / 15) * maxAmp);
+        let r = ((release > 0) ? release : 0.005);
+        let tA = (t + a);
+        let tD = (tA + d);
+        let tOff = (Math.max((t + safeDur), tD) ?? null);
+        (finalGain.gain.setValueAtTime(0, t) ?? null);
+        (finalGain.gain.linearRampToValueAtTime(maxAmp, tA) ?? null);
+        (finalGain.gain.linearRampToValueAtTime(s, tD) ?? null);
+        (finalGain.gain.setValueAtTime(s, tOff) ?? null);
+        (finalGain.gain.linearRampToValueAtTime(0, (tOff + r)) ?? null);
+      }
+    else
+      {
+        let tOff = (t + safeDur);
+        (finalGain.gain.setValueAtTime(0, t) ?? null);
+        (finalGain.gain.linearRampToValueAtTime(maxAmp, (t + 0.005)) ?? null);
+        if ((envMode === "step"))
+          {
+            let tDec = ((t + 0.005) + decTime);
+            if ((tOff < tDec))
+              {
+                (finalGain.gain.linearRampToValueAtTime(0, tOff) ?? null);
+              }
+            else
+              {
+                (finalGain.gain.linearRampToValueAtTime(0, tDec) ?? null);
+              }
+          }
+        else
+          {
+            (finalGain.gain.setValueAtTime(maxAmp, tOff) ?? null);
+            (finalGain.gain.linearRampToValueAtTime(0, (tOff + 0.01)) ?? null);
+          }
+      }
+    (src.start(t) ?? null);
+    (src.stop(stopTime) ?? null);
+    (disconnects.push(src) ?? null);
+    (src.connect(finalGain) ?? null);
+    (finalGain.connect(bus.input) ?? null);
+    (disconnects.push(finalGain) ?? null);
+    (setTimeout(() => {
+      {
+        let di = 0;
+        while ((di < disconnects.length))
+          {
+            ((disconnects[di] ?? null).disconnect() ?? null);
+            (di = (di + 1));
+          }
+      }
+    }, (totalTime * 1000)) ?? null);
+  }
+}
+function defaultParamsForC64Sid () {
+  {
+    return { waveform: "sawtooth", pulseWidth: 0.5, filterType: "lowpass", cutoff: 2000, resonance: 5, attack: 0, decay: 5, sustain: 15, release: 6, hardSync: false, ringMod: false, pitchDrop: 0, pitchDec: 0.05, vibRate: 0, vibAmt: 0, arpRate: 0, arpSemis: 0 };
+  }
+}
+function getSidNoiseBuffer (ctx) {
+  {
+    let cacheKey = "sidNoise";
+    if ((ctx[cacheKey] ?? null))
+      return (ctx[cacheKey] ?? null);
+    let steps = 8388607;
+    let bufSteps = (ctx.sampleRate * 2);
+    let buf = (ctx.createBuffer(1, bufSteps, ctx.sampleRate) ?? null);
+    let data = (buf.getChannelData(0) ?? null);
+    let reg = 8388607;
+    let i = 0;
+    while ((i < bufSteps))
+      {
+        let bit22 = ((reg >> 22) & 1);
+        let bit17 = ((reg >> 17) & 1);
+        let feedback = (bit22 ^ bit17);
+        (reg = (((reg << 1) | feedback) & 8388607));
+        let out = ((((((((((reg >> 22) & 1) << 7) | (((reg >> 20) & 1) << 6)) | (((reg >> 16) & 1) << 5)) | (((reg >> 13) & 1) << 4)) | (((reg >> 11) & 1) << 3)) | (((reg >> 7) & 1) << 2)) | (((reg >> 4) & 1) << 1)) | ((reg >> 2) & 1));
+        (data[i] = ((out / 128) - 1));
+        (i = (i + 1));
+      }
+    (ctx[cacheKey] = buf);
+    return buf;
+  }
+}
+function getSyncRingModBuffer (ctx, baseFreq, slaveFreqRatio, durSec, doSync, doRing) {
+  {
+    let len = (Math.ceil((durSec * ctx.sampleRate)) ?? null);
+    let buf = (ctx.createBuffer(1, len, ctx.sampleRate) ?? null);
+    let data = (buf.getChannelData(0) ?? null);
+    let phase1 = 0;
+    let phase2 = 0;
+    let inc1 = (baseFreq / ctx.sampleRate);
+    let inc2 = ((baseFreq * slaveFreqRatio) / ctx.sampleRate);
+    let i = 0;
+    while ((i < len))
+      {
+        let prevPhase1 = phase1;
+        (phase1 = (phase1 + inc1));
+        if ((phase1 >= 1))
+          (phase1 = (phase1 - 1));
+        if ((doSync && (phase1 < prevPhase1)))
+          {
+            (phase2 = 0);
+          }
+        (phase2 = (phase2 + inc2));
+        if ((phase2 >= 1))
+          (phase2 = (phase2 - 1));
+        let tri1 = ((phase1 < 0.5) ? ((phase1 * 4) - 1) : (3 - (phase1 * 4)));
+        let tri2 = ((phase2 < 0.5) ? ((phase2 * 4) - 1) : (3 - (phase2 * 4)));
+        let out = tri2;
+        if (doRing)
+          {
+            (out = (tri1 * tri2));
+          }
+        (data[i] = out);
+        (i = (i + 1));
+      }
+    return buf;
+  }
+}
+function playC64Sid (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  {
+    let gp = ch.generatorParams;
+    if (!gp)
+      (gp = {  });
+    let waveform = (gp.waveform ? gp.waveform : "sawtooth");
+    let pw = ((gp.pulseWidth != null) ? gp.pulseWidth : 0.5);
+    let filterType = (gp.filterType ? gp.filterType : "lowpass");
+    let cutoff = ((gp.cutoff != null) ? gp.cutoff : 2000);
+    let resonance = ((gp.resonance != null) ? gp.resonance : 5);
+    let attack = ((gp.attack != null) ? gp.attack : 0);
+    let decay = ((gp.decay != null) ? gp.decay : 5);
+    let sustain = ((gp.sustain != null) ? gp.sustain : 15);
+    let release = ((gp.release != null) ? gp.release : 6);
+    let hardSync = (gp.hardSync === true);
+    let ringMod = (gp.ringMod === true);
+    let pitchDrop = ((gp.pitchDrop != null) ? (Math.round(gp.pitchDrop) ?? null) : 0);
+    let pitchDec = ((gp.pitchDec != null) ? gp.pitchDec : 0.05);
+    let vibRate = ((gp.vibRate != null) ? gp.vibRate : 0);
+    let vibAmt = ((gp.vibAmt != null) ? gp.vibAmt : 0);
+    let arpRate = ((gp.arpRate != null) ? gp.arpRate : 0);
+    let arpSemis = ((gp.arpSemis != null) ? (Math.round(gp.arpSemis) ?? null) : 0);
+    let f0 = (440 * (Math.pow(2, (((midi + bendSemis) - 69) / 12)) ?? null));
+    let v = (vel / 127);
+    if ((v < 0))
+      (v = 0);
+    if ((v > 1))
+      (v = 1);
+    let src = null;
+    let disconnects = [];
+    let atkTable = [0.002, 0.008, 0.016, 0.024, 0.038, 0.056, 0.068, 0.08, 0.1, 0.25, 0.5, 0.8, 1, 3, 5, 8];
+    let decTable = [0.006, 0.024, 0.048, 0.072, 0.114, 0.168, 0.204, 0.24, 0.3, 0.75, 1.5, 2.4, 3, 9, 15, 24];
+    let a = (atkTable[(Math.min(15, (Math.max(0, (Math.round(attack) ?? null)) ?? null)) ?? null)] ?? null);
+    let d = (decTable[(Math.min(15, (Math.max(0, (Math.round(decay) ?? null)) ?? null)) ?? null)] ?? null);
+    let s = (sustain / 15);
+    let r = (decTable[(Math.min(15, (Math.max(0, (Math.round(release) ?? null)) ?? null)) ?? null)] ?? null);
+    let safeDur = (Math.max(durSec, 0.01) ?? null);
+    let tA = (t + a);
+    let tD = (tA + d);
+    let tOff = (Math.max((t + safeDur), tD) ?? null);
+    let totalTime = (((tOff - t) + r) + 0.1);
+    let stopTime = (t + totalTime);
+    if ((hardSync || ringMod))
+      {
+        let slaveFreqRatio = 2;
+        let buf = (getSyncRingModBuffer(ctx, f0, slaveFreqRatio, totalTime, hardSync, ringMod) ?? null);
+        (src = (ctx.createBufferSource() ?? null));
+        (src.buffer = buf);
+        (src.playbackRate.value = 1);
+      }
+    else
+      if ((waveform === "noise"))
+        {
+          (src = (ctx.createBufferSource() ?? null));
+          (src.buffer = (getSidNoiseBuffer(ctx) ?? null));
+          (src.loop = true);
+          (src.playbackRate.value = (f0 / 440));
+        }
+      else
+        if ((waveform === "pulse"))
+          {
+            (src = (ctx.createOscillator() ?? null));
+            (src.type = "sawtooth");
+            (src.frequency.value = f0);
+            let saw1 = (ctx.createOscillator() ?? null);
+            (saw1.type = "sawtooth");
+            (saw1.frequency.value = f0);
+            let saw2 = (ctx.createOscillator() ?? null);
+            (saw2.type = "sawtooth");
+            (saw2.frequency.value = f0);
+            (src.type = "square");
+          }
+        else
+          {
+            (src = (ctx.createOscillator() ?? null));
+            (src.type = waveform);
+            (src.frequency.value = f0);
+          }
+    let freqParam = (src.frequency ? src.frequency : src.playbackRate);
+    let baseFreq = (src.frequency ? f0 : src.playbackRate.value);
+    if ((pitchDrop !== 0))
+      {
+        let rateDrop = (baseFreq * (Math.pow(2, (pitchDrop / 12)) ?? null));
+        (freqParam.setValueAtTime(rateDrop, t) ?? null);
+        (freqParam.setTargetAtTime(baseFreq, t, (Math.max(pitchDec, 0.001) ?? null)) ?? null);
+      }
+    else
+      if (((arpRate > 0) && (arpSemis !== 0)))
+        {
+          let arpStep = (1 / arpRate);
+          let steps = (Math.ceil((totalTime / arpStep)) ?? null);
+          let ai = 0;
+          (freqParam.setValueAtTime(baseFreq, t) ?? null);
+          while ((ai < steps))
+            {
+              let semi = (((ai % 2) === 1) ? arpSemis : 0);
+              (freqParam.setValueAtTime((baseFreq * (Math.pow(2, (semi / 12)) ?? null)), (t + (ai * arpStep))) ?? null);
+              (ai = (ai + 1));
+            }
+        }
+      else
+        {
+          (freqParam.setValueAtTime(baseFreq, t) ?? null);
+        }
+    if ((((((vibRate > 0) && (vibAmt > 0)) && !hardSync) && !ringMod) && (waveform !== "noise")))
+      {
+        let lfo = (ctx.createOscillator() ?? null);
+        (lfo.type = "sine");
+        (lfo.frequency.value = vibRate);
+        let lfoGain = (ctx.createGain() ?? null);
+        (lfoGain.gain.value = (baseFreq * (vibAmt / 1200)));
+        (lfo.connect(lfoGain) ?? null);
+        (lfoGain.connect(freqParam) ?? null);
+        (lfo.start(t) ?? null);
+        (lfo.stop(stopTime) ?? null);
+        (disconnects.push(lfo) ?? null);
+        (disconnects.push(lfoGain) ?? null);
+      }
+    let filter = (ctx.createBiquadFilter() ?? null);
+    (filter.type = filterType);
+    (filter.frequency.value = cutoff);
+    (filter.Q.value = (Math.max(0.1, (resonance / 2)) ?? null));
+    let maxAmp = (v * 0.8);
+    let finalGain = (ctx.createGain() ?? null);
+    (finalGain.gain.setValueAtTime(0, t) ?? null);
+    (finalGain.gain.linearRampToValueAtTime(maxAmp, tA) ?? null);
+    (finalGain.gain.setTargetAtTime((maxAmp * s), tA, (Math.max(0.001, (d / 3)) ?? null)) ?? null);
+    (finalGain.gain.setValueAtTime((maxAmp * s), tOff) ?? null);
+    (finalGain.gain.setTargetAtTime(0, tOff, (Math.max(0.001, (r / 3)) ?? null)) ?? null);
+    (src.start(t) ?? null);
+    (src.stop(stopTime) ?? null);
+    (disconnects.push(src) ?? null);
+    (src.connect(filter) ?? null);
+    (filter.connect(finalGain) ?? null);
+    (finalGain.connect(bus.input) ?? null);
+    (disconnects.push(filter) ?? null);
+    (disconnects.push(finalGain) ?? null);
+    (setTimeout(() => {
+      {
+        let di = 0;
+        while ((di < disconnects.length))
+          {
+            ((disconnects[di] ?? null).disconnect() ?? null);
+            (di = (di + 1));
+          }
+      }
+    }, (totalTime * 1000)) ?? null);
+  }
+}
+function defaultParamsForYm2612 () {
+  {
+    return { algorithm: 0, feedback: 0, op1_mul: 1, op1_tl: 0, op1_ar: 31, op1_dr: 5, op1_sr: 5, op1_rr: 5, op1_sl: 0, op2_mul: 1, op2_tl: 0, op2_ar: 31, op2_dr: 5, op2_sr: 5, op2_rr: 5, op2_sl: 0, op3_mul: 1, op3_tl: 0, op3_ar: 31, op3_dr: 5, op3_sr: 5, op3_rr: 5, op3_sl: 0, op4_mul: 1, op4_tl: 0, op4_ar: 31, op4_dr: 5, op4_sr: 5, op4_rr: 5, op4_sl: 0, pitchDrop: 0, pitchDec: 0.05, vibRate: 0, vibAmt: 0, arpRate: 0, arpSemis: 0 };
+  }
+}
+function getRateTime__m5 (rate) {
+  {
+    if ((rate >= 31))
+      return 0.002;
+    if ((rate === 0))
+      return 1000;
+    return (Math.pow(2, ((15 - rate) / 2)) ?? null);
+  }
+}
+function applyOpEnv (t, tOff, opGain, p, opId, maxVol) {
+  {
+    let ar = (((p[(opId + "_ar")] ?? null) != null) ? (p[(opId + "_ar")] ?? null) : 31);
+    let dr = (((p[(opId + "_dr")] ?? null) != null) ? (p[(opId + "_dr")] ?? null) : 5);
+    let sr = (((p[(opId + "_sr")] ?? null) != null) ? (p[(opId + "_sr")] ?? null) : 5);
+    let rr = (((p[(opId + "_rr")] ?? null) != null) ? (p[(opId + "_rr")] ?? null) : 5);
+    let sl = (((p[(opId + "_sl")] ?? null) != null) ? (p[(opId + "_sl")] ?? null) : 0);
+    let tl = (((p[(opId + "_tl")] ?? null) != null) ? (p[(opId + "_tl")] ?? null) : 0);
+    let opMax = (maxVol * (Math.pow(10, ((-(tl / 127)) * 4)) ?? null));
+    let atkTime = (getRateTime__m5(ar) ?? null);
+    let decTime = (getRateTime__m5(dr) ?? null);
+    let susTime = (getRateTime__m5(sr) ?? null);
+    let relTime = (getRateTime__m5(rr) ?? null);
+    let susLevel = (opMax * (Math.pow(10, ((-(sl / 15)) * 4)) ?? null));
+    (opGain.gain.setValueAtTime(0, t) ?? null);
+    (opGain.gain.linearRampToValueAtTime(opMax, (t + atkTime)) ?? null);
+    (opGain.gain.setTargetAtTime(susLevel, (t + atkTime), (Math.max(0.001, (decTime / 3)) ?? null)) ?? null);
+    (opGain.gain.setValueAtTime(susLevel, tOff) ?? null);
+    (opGain.gain.setTargetAtTime(0, tOff, (Math.max(0.001, (relTime / 3)) ?? null)) ?? null);
+    return ((tOff - t) + relTime);
+  }
+}
+function playYm2612 (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  {
+    let gp = ch.generatorParams;
+    if (!gp)
+      (gp = {  });
+    let algo = ((gp.algorithm != null) ? (Math.round(gp.algorithm) ?? null) : 0);
+    let fdbk = ((gp.feedback != null) ? gp.feedback : 0);
+    let f0 = (440 * (Math.pow(2, (((midi + bendSemis) - 69) / 12)) ?? null));
+    let v = (vel / 127);
+    if ((v < 0))
+      (v = 0);
+    if ((v > 1))
+      (v = 1);
+    let safeDur = (Math.max(durSec, 0.01) ?? null);
+    let tOff = (t + safeDur);
+    let ops = [];
+    let gains = [];
+    let disconnects = [];
+    let i = 1;
+    let maxTime = safeDur;
+    while ((i <= 4))
+      {
+        let mul = (((gp[(("op" + i) + "_mul")] ?? null) != null) ? (gp[(("op" + i) + "_mul")] ?? null) : 1);
+        if ((mul === 0))
+          (mul = 0.5);
+        let osc = (ctx.createOscillator() ?? null);
+        (osc.type = "sine");
+        (osc.frequency.value = (f0 * mul));
+        let gain = (ctx.createGain() ?? null);
+        let isCarrier = false;
+        if (((algo === 0) && (i === 4)))
+          (isCarrier = true);
+        if (((algo === 1) && (i === 4)))
+          (isCarrier = true);
+        if (((algo === 2) && (i === 4)))
+          (isCarrier = true);
+        if (((algo === 3) && (i === 4)))
+          (isCarrier = true);
+        if (((algo === 4) && ((i === 2) || (i === 4))))
+          (isCarrier = true);
+        if (((algo === 5) && (((i === 2) || (i === 3)) || (i === 4))))
+          (isCarrier = true);
+        if (((algo === 6) && (((i === 2) || (i === 3)) || (i === 4))))
+          (isCarrier = true);
+        if ((algo === 7))
+          (isCarrier = true);
+        let maxVol = (isCarrier ? (v * 0.8) : (f0 * 2));
+        let envDur = (applyOpEnv(t, tOff, gain, gp, ("op" + i), maxVol) ?? null);
+        if ((envDur > maxTime))
+          (maxTime = envDur);
+        (ops.push(osc) ?? null);
+        (gains.push(gain) ?? null);
+        (osc.start(t) ?? null);
+        (osc.stop(((t + envDur) + 0.1)) ?? null);
+        (disconnects.push(osc) ?? null);
+        (disconnects.push(gain) ?? null);
+        (i = (i + 1));
+      }
+    if ((fdbk > 0))
+      {
+        let fdbkDelay = (ctx.createDelay() ?? null);
+        (fdbkDelay.delayTime.value = (1 / (f0 * (ops[0] ?? null).frequency.value)));
+        let fdbkGain = (ctx.createGain() ?? null);
+        (fdbkGain.gain.value = ((fdbk / 7) * (f0 * 2)));
+        ((ops[0] ?? null).connect((gains[0] ?? null)) ?? null);
+        ((gains[0] ?? null).connect(fdbkDelay) ?? null);
+        (fdbkDelay.connect(fdbkGain) ?? null);
+        (fdbkGain.connect((ops[0] ?? null).frequency) ?? null);
+        (disconnects.push(fdbkDelay) ?? null);
+        (disconnects.push(fdbkGain) ?? null);
+      }
+    else
+      {
+        ((ops[0] ?? null).connect((gains[0] ?? null)) ?? null);
+      }
+    ((ops[1] ?? null).connect((gains[1] ?? null)) ?? null);
+    ((ops[2] ?? null).connect((gains[2] ?? null)) ?? null);
+    ((ops[3] ?? null).connect((gains[3] ?? null)) ?? null);
+    let outGain = (ctx.createGain() ?? null);
+    (outGain.gain.value = 1);
+    (disconnects.push(outGain) ?? null);
+    if ((algo === 0))
+      {
+        ((gains[0] ?? null).connect((ops[1] ?? null).frequency) ?? null);
+        ((gains[1] ?? null).connect((ops[2] ?? null).frequency) ?? null);
+        ((gains[2] ?? null).connect((ops[3] ?? null).frequency) ?? null);
+        ((gains[3] ?? null).connect(outGain) ?? null);
+      }
+    else
+      if ((algo === 1))
+        {
+          ((gains[0] ?? null).connect((ops[2] ?? null).frequency) ?? null);
+          ((gains[1] ?? null).connect((ops[2] ?? null).frequency) ?? null);
+          ((gains[2] ?? null).connect((ops[3] ?? null).frequency) ?? null);
+          ((gains[3] ?? null).connect(outGain) ?? null);
+        }
+      else
+        if ((algo === 2))
+          {
+            ((gains[0] ?? null).connect((ops[1] ?? null).frequency) ?? null);
+            ((gains[1] ?? null).connect((ops[3] ?? null).frequency) ?? null);
+            ((gains[2] ?? null).connect((ops[3] ?? null).frequency) ?? null);
+            ((gains[3] ?? null).connect(outGain) ?? null);
+          }
+        else
+          if ((algo === 3))
+            {
+              ((gains[0] ?? null).connect((ops[1] ?? null).frequency) ?? null);
+              ((gains[1] ?? null).connect((ops[2] ?? null).frequency) ?? null);
+              ((gains[2] ?? null).connect(outGain) ?? null);
+              ((gains[3] ?? null).connect(outGain) ?? null);
+            }
+          else
+            if ((algo === 4))
+              {
+                ((gains[0] ?? null).connect((ops[1] ?? null).frequency) ?? null);
+                ((gains[1] ?? null).connect(outGain) ?? null);
+                ((gains[2] ?? null).connect((ops[3] ?? null).frequency) ?? null);
+                ((gains[3] ?? null).connect(outGain) ?? null);
+              }
+            else
+              if ((algo === 5))
+                {
+                  ((gains[0] ?? null).connect((ops[1] ?? null).frequency) ?? null);
+                  ((gains[0] ?? null).connect((ops[2] ?? null).frequency) ?? null);
+                  ((gains[0] ?? null).connect((ops[3] ?? null).frequency) ?? null);
+                  ((gains[1] ?? null).connect(outGain) ?? null);
+                  ((gains[2] ?? null).connect(outGain) ?? null);
+                  ((gains[3] ?? null).connect(outGain) ?? null);
+                }
+              else
+                if ((algo === 6))
+                  {
+                    ((gains[0] ?? null).connect((ops[1] ?? null).frequency) ?? null);
+                    ((gains[1] ?? null).connect(outGain) ?? null);
+                    ((gains[2] ?? null).connect(outGain) ?? null);
+                    ((gains[3] ?? null).connect(outGain) ?? null);
+                  }
+                else
+                  if ((algo === 7))
+                    {
+                      ((gains[0] ?? null).connect(outGain) ?? null);
+                      ((gains[1] ?? null).connect(outGain) ?? null);
+                      ((gains[2] ?? null).connect(outGain) ?? null);
+                      ((gains[3] ?? null).connect(outGain) ?? null);
+                    }
+    (outGain.connect(bus.input) ?? null);
+    let stopTime = ((t + maxTime) + 0.1);
+    (setTimeout(() => {
+      {
+        let di = 0;
+        while ((di < disconnects.length))
+          {
+            ((disconnects[di] ?? null).disconnect() ?? null);
+            (di = (di + 1));
+          }
+      }
+    }, ((maxTime + 0.5) * 1000)) ?? null);
+  }
+}
+function defaultParamsForSn76489 () {
+  {
+    return { type: "square", noiseMode: "white", noiseFreq: 0, vol: 15, attack: 0, decay: 0.1, sustain: 15, release: 0, pitchDrop: 0, pitchDec: 0.05, vibRate: 0, vibAmt: 0, arpRate: 0, arpSemis: 0 };
+  }
+}
+function getSnNoiseBuffer (ctx, periodic) {
+  {
+    let cacheKey = (periodic ? "snNoiseP" : "snNoiseW");
+    if ((ctx[cacheKey] ?? null))
+      return (ctx[cacheKey] ?? null);
+    let steps = 32767;
+    let buf = (ctx.createBuffer(1, steps, ctx.sampleRate) ?? null);
+    let data = (buf.getChannelData(0) ?? null);
+    let reg = 16384;
+    let i = 0;
+    while ((i < steps))
+      {
+        let bit0 = (reg & 1);
+        let feedback = bit0;
+        if (!periodic)
+          {
+            let bit3 = ((reg >> 3) & 1);
+            (feedback = (bit0 ^ bit3));
+          }
+        (reg = ((reg >> 1) | (feedback << 14)));
+        (data[i] = ((reg & 1) ? 1 : -1));
+        (i = (i + 1));
+      }
+    (ctx[cacheKey] = buf);
+    return buf;
+  }
+}
+function playSn76489 (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  {
+    let gp = ch.generatorParams;
+    if (!gp)
+      (gp = {  });
+    let type = (gp.type ? gp.type : "square");
+    let noiseMode = (gp.noiseMode ? gp.noiseMode : "white");
+    let vol = ((gp.vol != null) ? (Math.round(gp.vol) ?? null) : 15);
+    let attack = ((gp.attack != null) ? gp.attack : 0);
+    let decay = ((gp.decay != null) ? gp.decay : 0.1);
+    let sustain = ((gp.sustain != null) ? gp.sustain : 15);
+    let release = ((gp.release != null) ? gp.release : 0);
+    let pitchDrop = ((gp.pitchDrop != null) ? (Math.round(gp.pitchDrop) ?? null) : 0);
+    let pitchDec = ((gp.pitchDec != null) ? gp.pitchDec : 0.05);
+    let vibRate = ((gp.vibRate != null) ? gp.vibRate : 0);
+    let vibAmt = ((gp.vibAmt != null) ? gp.vibAmt : 0);
+    let arpRate = ((gp.arpRate != null) ? gp.arpRate : 0);
+    let arpSemis = ((gp.arpSemis != null) ? (Math.round(gp.arpSemis) ?? null) : 0);
+    let f0 = (440 * (Math.pow(2, (((midi + bendSemis) - 69) / 12)) ?? null));
+    let v = (vel / 127);
+    if ((v < 0))
+      (v = 0);
+    if ((v > 1))
+      (v = 1);
+    if (((f0 < 109.3) && (type === "square")))
+      {
+        (f0 = 109.3);
+      }
+    let src = null;
+    let disconnects = [];
+    if ((type === "noise"))
+      {
+        (src = (ctx.createBufferSource() ?? null));
+        (src.buffer = (getSnNoiseBuffer(ctx, (noiseMode === "periodic")) ?? null));
+        (src.loop = true);
+        (src.playbackRate.value = ((f0 * 10) / ctx.sampleRate));
+      }
+    else
+      {
+        (src = (ctx.createOscillator() ?? null));
+        (src.type = "square");
+        (src.frequency.value = f0);
+      }
+    let safeDur = (Math.max(durSec, 0.01) ?? null);
+    let tA = (t + attack);
+    let tD = (tA + decay);
+    let tOff = (Math.max((t + safeDur), tD) ?? null);
+    let freqParam = (src.frequency ? src.frequency : src.playbackRate);
+    let baseFreq = (src.frequency ? f0 : src.playbackRate.value);
+    if ((pitchDrop !== 0))
+      {
+        let rateDrop = (baseFreq * (Math.pow(2, (pitchDrop / 12)) ?? null));
+        (freqParam.setValueAtTime(rateDrop, t) ?? null);
+        (freqParam.setTargetAtTime(baseFreq, t, (Math.max(pitchDec, 0.001) ?? null)) ?? null);
+      }
+    else
+      if (((arpRate > 0) && (arpSemis !== 0)))
+        {
+          let arpStep = (1 / arpRate);
+          let steps = (Math.ceil((((tOff - t) + release) / arpStep)) ?? null);
+          let ai = 0;
+          (freqParam.setValueAtTime(baseFreq, t) ?? null);
+          while ((ai < steps))
+            {
+              let semi = (((ai % 2) === 1) ? arpSemis : 0);
+              (freqParam.setValueAtTime((baseFreq * (Math.pow(2, (semi / 12)) ?? null)), (t + (ai * arpStep))) ?? null);
+              (ai = (ai + 1));
+            }
+        }
+      else
+        {
+          (freqParam.setValueAtTime(baseFreq, t) ?? null);
+        }
+    if ((((vibRate > 0) && (vibAmt > 0)) && (type !== "noise")))
+      {
+        let lfo = (ctx.createOscillator() ?? null);
+        (lfo.type = "sine");
+        (lfo.frequency.value = vibRate);
+        let lfoGain = (ctx.createGain() ?? null);
+        (lfoGain.gain.value = (baseFreq * (vibAmt / 1200)));
+        (lfo.connect(lfoGain) ?? null);
+        (lfoGain.connect(freqParam) ?? null);
+        (lfo.start(t) ?? null);
+        (lfo.stop((tOff + release)) ?? null);
+        (disconnects.push(lfo) ?? null);
+        (disconnects.push(lfoGain) ?? null);
+      }
+    let volStep = (Math.max(0, (Math.min(15, (Math.round(vol) ?? null)) ?? null)) ?? null);
+    let maxAmp = 0;
+    if ((volStep > 0))
+      {
+        (maxAmp = (((Math.pow(10, ((-((15 - volStep) * 2)) / 20)) ?? null) * v) * 0.8));
+      }
+    let finalGain = (ctx.createGain() ?? null);
+    let sLevel = (maxAmp * (sustain / 15));
+    (finalGain.gain.setValueAtTime(0, t) ?? null);
+    if ((attack > 0))
+      {
+        (finalGain.gain.linearRampToValueAtTime(maxAmp, tA) ?? null);
+      }
+    else
+      {
+        (finalGain.gain.setValueAtTime(maxAmp, tA) ?? null);
+      }
+    if ((decay > 0))
+      {
+        (finalGain.gain.setTargetAtTime(sLevel, tA, (decay / 3)) ?? null);
+      }
+    else
+      {
+        (finalGain.gain.setValueAtTime(sLevel, tA) ?? null);
+      }
+    (finalGain.gain.setValueAtTime(sLevel, tOff) ?? null);
+    if ((release > 0))
+      {
+        (finalGain.gain.setTargetAtTime(0, tOff, (release / 3)) ?? null);
+      }
+    else
+      {
+        (finalGain.gain.setValueAtTime(0, tOff) ?? null);
+      }
+    (src.start(t) ?? null);
+    (src.stop(((tOff + release) + 0.1)) ?? null);
+    (disconnects.push(src) ?? null);
+    (src.connect(finalGain) ?? null);
+    (finalGain.connect(bus.input) ?? null);
+    (disconnects.push(finalGain) ?? null);
+    let totalTime = (((tOff - t) + release) + 0.2);
+    (setTimeout(() => {
+      {
+        let di = 0;
+        while ((di < disconnects.length))
+          {
+            ((disconnects[di] ?? null).disconnect() ?? null);
+            (di = (di + 1));
+          }
+      }
+    }, (totalTime * 1000)) ?? null);
+  }
+}
+function defaultParamsForSnesSpc () {
+  {
+    return { waveform: "strings", attack: 0, decay: 3, sustainLevel: 7, sustainRate: 0, echoEnable: false, echoDelay: 4, echoFeedback: 0, echoFir: 0, pitchDrop: 0, pitchDec: 0.05, vibRate: 0, vibAmt: 0, arpRate: 0, arpSemis: 0 };
+  }
+}
+function getSpcSampleBuffer (ctx, shape) {
+  {
+    let cacheKey = ("snes_" + shape);
+    if ((ctx[cacheKey] ?? null))
+      return (ctx[cacheKey] ?? null);
+    let len = 256;
+    let buf = (ctx.createBuffer(1, len, ctx.sampleRate) ?? null);
+    let data = (buf.getChannelData(0) ?? null);
+    let i = 0;
+    while ((i < len))
+      {
+        let phase = (i / len);
+        let v = 0;
+        if ((shape === "strings"))
+          {
+            (v = (((Math.sin(((phase * Math.PI) * 2)) ?? null) + (0.5 * (Math.sin(((phase * Math.PI) * 4)) ?? null))) + (0.25 * (Math.sin(((phase * Math.PI) * 6)) ?? null))));
+          }
+        else
+          if ((shape === "brass"))
+            {
+              (v = (((phase * 2) - 1) * (1 - phase)));
+            }
+          else
+            if ((shape === "bass"))
+              {
+                (v = ((Math.sin(((phase * Math.PI) * 2)) ?? null) + (0.3 * ((phase < 0.5) ? 1 : -1))));
+              }
+            else
+              {
+                (v = (Math.sin(((phase * Math.PI) * 2)) ?? null));
+              }
+        if ((v > 1))
+          (v = 1);
+        if ((v < -1))
+          (v = -1);
+        (v = ((Math.round((v * 256)) ?? null) / 256));
+        (data[i] = v);
+        (i = (i + 1));
+      }
+    (ctx[cacheKey] = buf);
+    return buf;
+  }
+}
+function getSpcAttackTime (ar) {
+  {
+    if ((ar >= 15))
+      return 0.001;
+    let times = [4.1, 2.6, 1.5, 1, 0.64, 0.38, 0.26, 0.16, 0.096, 0.064, 0.04, 0.024, 0.016, 0.01, 0.006, 0.001];
+    return (times[(Math.min(15, (Math.max(0, ar) ?? null)) ?? null)] ?? null);
+  }
+}
+function getSpcDecayTime (dr) {
+  {
+    let times = [1.2, 0.74, 0.44, 0.29, 0.18, 0.11, 0.074, 0.014];
+    return (times[(Math.min(7, (Math.max(0, dr) ?? null)) ?? null)] ?? null);
+  }
+}
+function getSpcSustainRateTime (sr) {
+  {
+    if ((sr >= 31))
+      return 0.001;
+    if ((sr === 0))
+      return 100;
+    return (38 * (Math.pow(0.75, sr) ?? null));
+  }
+}
+let globalSpcEchoNode = null;
+let globalSpcEchoDelay = null;
+let globalSpcEchoFeedback = null;
+let globalSpcEchoFir = null;
+function initSpcEcho (ctx, bus) {
+  {
+    if (globalSpcEchoNode)
+      return;
+    (globalSpcEchoNode = (ctx.createGain() ?? null));
+    (globalSpcEchoNode.gain.value = 1);
+    (globalSpcEchoDelay = (ctx.createDelay(1) ?? null));
+    (globalSpcEchoFeedback = (ctx.createGain() ?? null));
+    (globalSpcEchoFir = (ctx.createBiquadFilter() ?? null));
+    (globalSpcEchoFir.type = "lowpass");
+    (globalSpcEchoFir.frequency.value = 3000);
+    (globalSpcEchoFir.Q.value = 0.5);
+    (globalSpcEchoNode.connect(globalSpcEchoDelay) ?? null);
+    (globalSpcEchoDelay.connect(globalSpcEchoFir) ?? null);
+    (globalSpcEchoFir.connect(globalSpcEchoFeedback) ?? null);
+    (globalSpcEchoFeedback.connect(globalSpcEchoDelay) ?? null);
+    (globalSpcEchoFir.connect(bus.input) ?? null);
+  }
+}
+function playSnesSpc (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  {
+    let gp = ch.generatorParams;
+    if (!gp)
+      (gp = {  });
+    let waveform = (gp.waveform ? gp.waveform : "strings");
+    let attack = ((gp.attack != null) ? (Math.round(gp.attack) ?? null) : 0);
+    let decay = ((gp.decay != null) ? (Math.round(gp.decay) ?? null) : 3);
+    let sustainLevel = ((gp.sustainLevel != null) ? (Math.round(gp.sustainLevel) ?? null) : 7);
+    let sustainRate = ((gp.sustainRate != null) ? (Math.round(gp.sustainRate) ?? null) : 0);
+    let echoEnable = (gp.echoEnable === true);
+    let echoDelay = ((gp.echoDelay != null) ? (Math.round(gp.echoDelay) ?? null) : 4);
+    let echoFeedback = ((gp.echoFeedback != null) ? gp.echoFeedback : 0);
+    let pitchDrop = ((gp.pitchDrop != null) ? (Math.round(gp.pitchDrop) ?? null) : 0);
+    let pitchDec = ((gp.pitchDec != null) ? gp.pitchDec : 0.05);
+    let vibRate = ((gp.vibRate != null) ? gp.vibRate : 0);
+    let vibAmt = ((gp.vibAmt != null) ? gp.vibAmt : 0);
+    let arpRate = ((gp.arpRate != null) ? gp.arpRate : 0);
+    let arpSemis = ((gp.arpSemis != null) ? (Math.round(gp.arpSemis) ?? null) : 0);
+    let f0 = (440 * (Math.pow(2, (((midi + bendSemis) - 69) / 12)) ?? null));
+    let v = (vel / 127);
+    if ((v < 0))
+      (v = 0);
+    if ((v > 1))
+      (v = 1);
+    let buf = (getSpcSampleBuffer(ctx, waveform) ?? null);
+    let src = (ctx.createBufferSource() ?? null);
+    (src.buffer = buf);
+    (src.loop = true);
+    let baseFreq = (ctx.sampleRate / buf.length);
+    let rate0 = (f0 / baseFreq);
+    (src.playbackRate.value = rate0);
+    let disconnects = [];
+    if ((pitchDrop !== 0))
+      {
+        let rateDrop = (rate0 * (Math.pow(2, (pitchDrop / 12)) ?? null));
+        (src.playbackRate.setValueAtTime(rateDrop, t) ?? null);
+        (src.playbackRate.setTargetAtTime(rate0, t, (Math.max(pitchDec, 0.001) ?? null)) ?? null);
+      }
+    else
+      if (((arpRate > 0) && (arpSemis !== 0)))
+        {
+          let arpStep = (1 / arpRate);
+          let steps = (Math.ceil(((durSec + 2) / arpStep)) ?? null);
+          let ai = 0;
+          (src.playbackRate.setValueAtTime(rate0, t) ?? null);
+          while ((ai < steps))
+            {
+              let semi = (((ai % 2) === 1) ? arpSemis : 0);
+              (src.playbackRate.setValueAtTime((rate0 * (Math.pow(2, (semi / 12)) ?? null)), (t + (ai * arpStep))) ?? null);
+              (ai = (ai + 1));
+            }
+        }
+    if (((vibRate > 0) && (vibAmt > 0)))
+      {
+        let lfo = (ctx.createOscillator() ?? null);
+        (lfo.type = "sine");
+        (lfo.frequency.value = vibRate);
+        let lfoGain = (ctx.createGain() ?? null);
+        (lfoGain.gain.value = (rate0 * (vibAmt / 1200)));
+        (lfo.connect(lfoGain) ?? null);
+        (lfoGain.connect(src.playbackRate) ?? null);
+        (lfo.start(t) ?? null);
+        (lfo.stop(((t + durSec) + 2)) ?? null);
+        (disconnects.push(lfo) ?? null);
+        (disconnects.push(lfoGain) ?? null);
+      }
+    let gaussianFilter = (ctx.createBiquadFilter() ?? null);
+    (gaussianFilter.type = "lowpass");
+    (gaussianFilter.frequency.value = 11000);
+    (gaussianFilter.Q.value = 0.5);
+    let aTime = (getSpcAttackTime(attack) ?? null);
+    let dTime = (getSpcDecayTime(decay) ?? null);
+    let sLevel = ((sustainLevel + 1) / 8);
+    let srTime = (getSpcSustainRateTime(sustainRate) ?? null);
+    let safeDur = (Math.max(durSec, 0.01) ?? null);
+    let maxAmp = (v * 0.8);
+    let finalGain = (ctx.createGain() ?? null);
+    (finalGain.gain.setValueAtTime(0, t) ?? null);
+    let tA = (t + aTime);
+    (finalGain.gain.linearRampToValueAtTime(maxAmp, tA) ?? null);
+    (finalGain.gain.setTargetAtTime((maxAmp * sLevel), tA, (Math.max(0.001, (dTime / 3)) ?? null)) ?? null);
+    let tOff = (Math.max((t + safeDur), (tA + dTime)) ?? null);
+    if ((sustainRate < 31))
+      {
+        (finalGain.gain.setTargetAtTime(0, (tA + dTime), (Math.max(0.001, (srTime / 3)) ?? null)) ?? null);
+      }
+    (finalGain.gain.cancelScheduledValues(tOff) ?? null);
+    (finalGain.gain.setValueAtTime(finalGain.gain.value, tOff) ?? null);
+    (finalGain.gain.setTargetAtTime(0, tOff, 0.008) ?? null);
+    (src.start(t) ?? null);
+    (src.stop((tOff + 0.1)) ?? null);
+    (disconnects.push(src) ?? null);
+    (disconnects.push(gaussianFilter) ?? null);
+    (disconnects.push(finalGain) ?? null);
+    (src.connect(gaussianFilter) ?? null);
+    (gaussianFilter.connect(finalGain) ?? null);
+    (finalGain.connect(bus.input) ?? null);
+    if (echoEnable)
+      {
+        (initSpcEcho(ctx, bus) ?? null);
+        (globalSpcEchoDelay.delayTime.setValueAtTime((echoDelay * 0.016), t) ?? null);
+        (globalSpcEchoFeedback.gain.setValueAtTime((echoFeedback / 127), t) ?? null);
+        let echoSend = (ctx.createGain() ?? null);
+        (echoSend.gain.value = 0.5);
+        (finalGain.connect(echoSend) ?? null);
+        (echoSend.connect(globalSpcEchoNode) ?? null);
+        (disconnects.push(echoSend) ?? null);
+      }
+    (setTimeout(() => {
+      {
+        let di = 0;
+        while ((di < disconnects.length))
+          {
+            ((disconnects[di] ?? null).disconnect() ?? null);
+            (di = (di + 1));
+          }
+      }
+    }, (((tOff - t) + 0.5) * 1000)) ?? null);
+  }
+}
+function defaultParamsForGameBoyAdv () {
+  {
+    return { waveform: "pulse", duty: "50", vol: 15, attack: 0, decay: 2, sustain: 15, release: 0, bitcrush: true, pitchDrop: 0, pitchDec: 0.05, vibRate: 0, vibAmt: 0, arpRate: 0, arpSemis: 0 };
+  }
+}
+function getGbaDacCurve (ctx) {
+  {
+    if (ctx.gbaDacCurve)
+      return ctx.gbaDacCurve;
+    let steps = 8192;
+    let curve = (new Float32Array(steps) ?? null);
+    let i = 0;
+    while ((i < steps))
+      {
+        let norm = (i / (steps - 1));
+        let quant = ((Math.round((norm * 255)) ?? null) / 255);
+        (curve[i] = ((quant * 2) - 1));
+        (i = (i + 1));
+      }
+    (ctx.gbaDacCurve = curve);
+    return curve;
+  }
+}
+function getGbaBuffer (ctx, shape, duty) {
+  {
+    let cacheKey = ((("gba_" + shape) + "_") + duty);
+    if ((ctx[cacheKey] ?? null))
+      return (ctx[cacheKey] ?? null);
+    let len = 32;
+    let buf = (ctx.createBuffer(1, len, ctx.sampleRate) ?? null);
+    let data = (buf.getChannelData(0) ?? null);
+    let dThresh = 0.5;
+    if ((duty === "12_5"))
+      (dThresh = 0.125);
+    if ((duty === "25"))
+      (dThresh = 0.25);
+    if ((duty === "75"))
+      (dThresh = 0.75);
+    let i = 0;
+    while ((i < len))
+      {
+        let phase = (i / len);
+        let v = 0;
+        if ((shape === "pulse"))
+          {
+            (v = ((phase < dThresh) ? 1 : -1));
+          }
+        else
+          if ((shape === "sawtooth"))
+            {
+              (v = ((phase * 2) - 1));
+            }
+          else
+            if ((shape === "triangle"))
+              {
+                (v = ((phase < 0.5) ? ((phase * 4) - 1) : (3 - (phase * 4))));
+              }
+            else
+              {
+                (v = (Math.sin(((phase * Math.PI) * 2)) ?? null));
+              }
+        (data[i] = v);
+        (i = (i + 1));
+      }
+    (ctx[cacheKey] = buf);
+    return buf;
+  }
+}
+function playGameBoyAdv (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  {
+    let gp = ch.generatorParams;
+    if (!gp)
+      (gp = {  });
+    let waveform = (gp.waveform ? gp.waveform : "pulse");
+    let duty = (gp.duty ? (String(gp.duty) ?? null) : "50");
+    let vol = ((gp.vol != null) ? (Math.round(gp.vol) ?? null) : 15);
+    let attack = ((gp.attack != null) ? gp.attack : 0);
+    let decay = ((gp.decay != null) ? gp.decay : 2);
+    let sustain = ((gp.sustain != null) ? gp.sustain : 15);
+    let release = ((gp.release != null) ? gp.release : 0);
+    let bitcrush = ((gp.bitcrush !== false) && (gp.bitcrush !== "16bit"));
+    let pitchDrop = ((gp.pitchDrop != null) ? (Math.round(gp.pitchDrop) ?? null) : 0);
+    let pitchDec = ((gp.pitchDec != null) ? gp.pitchDec : 0.05);
+    let vibRate = ((gp.vibRate != null) ? gp.vibRate : 0);
+    let vibAmt = ((gp.vibAmt != null) ? gp.vibAmt : 0);
+    let arpRate = ((gp.arpRate != null) ? gp.arpRate : 0);
+    let arpSemis = ((gp.arpSemis != null) ? (Math.round(gp.arpSemis) ?? null) : 0);
+    let f0 = (440 * (Math.pow(2, (((midi + bendSemis) - 69) / 12)) ?? null));
+    let v = (vel / 127);
+    if ((v < 0))
+      (v = 0);
+    if ((v > 1))
+      (v = 1);
+    let buf = (getGbaBuffer(ctx, waveform, duty) ?? null);
+    let src = (ctx.createBufferSource() ?? null);
+    (src.buffer = buf);
+    (src.loop = true);
+    let baseFreq = (ctx.sampleRate / buf.length);
+    let rate0 = (f0 / baseFreq);
+    (src.playbackRate.value = rate0);
+    let disconnects = [];
+    if ((pitchDrop !== 0))
+      {
+        let rateDrop = (rate0 * (Math.pow(2, (pitchDrop / 12)) ?? null));
+        (src.playbackRate.setValueAtTime(rateDrop, t) ?? null);
+        (src.playbackRate.setTargetAtTime(rate0, t, (Math.max(pitchDec, 0.001) ?? null)) ?? null);
+      }
+    else
+      if (((arpRate > 0) && (arpSemis !== 0)))
+        {
+          let arpStep = (1 / arpRate);
+          let steps = (Math.ceil((((durSec + release) + 2) / arpStep)) ?? null);
+          let ai = 0;
+          (src.playbackRate.setValueAtTime(rate0, t) ?? null);
+          while ((ai < steps))
+            {
+              let semi = (((ai % 2) === 1) ? arpSemis : 0);
+              (src.playbackRate.setValueAtTime((rate0 * (Math.pow(2, (semi / 12)) ?? null)), (t + (ai * arpStep))) ?? null);
+              (ai = (ai + 1));
+            }
+        }
+    if (((vibRate > 0) && (vibAmt > 0)))
+      {
+        let lfo = (ctx.createOscillator() ?? null);
+        (lfo.type = "sine");
+        (lfo.frequency.value = vibRate);
+        let lfoGain = (ctx.createGain() ?? null);
+        (lfoGain.gain.value = (rate0 * (vibAmt / 1200)));
+        (lfo.connect(lfoGain) ?? null);
+        (lfoGain.connect(src.playbackRate) ?? null);
+        (lfo.start(t) ?? null);
+        (lfo.stop((((t + durSec) + release) + 2)) ?? null);
+        (disconnects.push(lfo) ?? null);
+        (disconnects.push(lfoGain) ?? null);
+      }
+    let maxAmp = (((vol / 15) * v) * 0.8);
+    let sLevel = (maxAmp * (sustain / 15));
+    let finalGain = (ctx.createGain() ?? null);
+    (finalGain.gain.value = maxAmp);
+    let safeDur = (Math.max(durSec, 0.01) ?? null);
+    let envGain = (ctx.createGain() ?? null);
+    (envGain.gain.value = 0);
+    let tA = (t + attack);
+    let tD = (tA + (decay / 10));
+    let tOff = (Math.max((t + safeDur), tD) ?? null);
+    let envSLevel = (sustain / 15);
+    if ((attack > 0))
+      {
+        (envGain.gain.linearRampToValueAtTime(1, tA) ?? null);
+      }
+    else
+      {
+        (envGain.gain.setValueAtTime(1, tA) ?? null);
+      }
+    if ((decay > 0))
+      {
+        (envGain.gain.setTargetAtTime(envSLevel, tA, (decay / 30)) ?? null);
+      }
+    else
+      {
+        (envGain.gain.setValueAtTime(envSLevel, tA) ?? null);
+      }
+    (envGain.gain.setValueAtTime(envSLevel, tOff) ?? null);
+    if ((release > 0))
+      {
+        (envGain.gain.setTargetAtTime(0, tOff, (release / 30)) ?? null);
+      }
+    else
+      {
+        (envGain.gain.setValueAtTime(0, tOff) ?? null);
+      }
+    (src.start(t) ?? null);
+    (src.stop(((tOff + release) + 0.1)) ?? null);
+    (src.connect(envGain) ?? null);
+    (disconnects.push(src) ?? null);
+    (disconnects.push(envGain) ?? null);
+    (disconnects.push(finalGain) ?? null);
+    if (bitcrush)
+      {
+        let shaper = (ctx.createWaveShaper() ?? null);
+        (shaper.curve = (getGbaDacCurve(ctx) ?? null));
+        (shaper.oversample = "none");
+        let mixFilter = (ctx.createBiquadFilter() ?? null);
+        (mixFilter.type = "lowpass");
+        (mixFilter.frequency.value = 16000);
+        (envGain.connect(shaper) ?? null);
+        (shaper.connect(mixFilter) ?? null);
+        (mixFilter.connect(finalGain) ?? null);
+        (disconnects.push(shaper) ?? null);
+        (disconnects.push(mixFilter) ?? null);
+      }
+    else
+      {
+        (envGain.connect(finalGain) ?? null);
+      }
+    (finalGain.connect(bus.input) ?? null);
+    (setTimeout(() => {
+      {
+        let di = 0;
+        while ((di < disconnects.length))
+          {
+            ((disconnects[di] ?? null).disconnect() ?? null);
+            (di = (di + 1));
+          }
+      }
+    }, ((((tOff - t) + release) + 0.5) * 1000)) ?? null);
+  }
+}
 function generatorCatalog () {
   {
-    return [{ id: "basicOsc", label: "Basic OSC", description: "Single oscillator + ADSR in generator params." }, { id: "noiseBurst", label: "Noise burst", description: "Filtered noise; attack + decay shape the hit." }, { id: "fmTone", label: "FM tone", description: "Two-operator FM + ADSR in generator params." }, { id: "matrixFm", label: "Matrix FM", description: "Multi-operator FM/RM graph via TPL gen_block (Sytrus-style)." }, { id: "pad", label: "Pad", description: "Detuned triple-osc + lowpass + slow env — ethereal, reverb-friendly." }, { id: "bell", label: "Bell", description: "Inharmonic sine partials + highpass + bell decay — metallic shimmer." }, { id: "drumSynth", label: "Drum", description: "Pitch-envelope drum synth — punchy kicks, snares, toms, 808s (+ noise + drive)." }, { id: "guitar", label: "Guitar", description: "Karplus-Strong plucked electric guitar — string model + palm mute + drive + body. Pairs with the chord voice for strums." }, { id: "clap", label: "Clap", description: "The Clap — handclap engine: hand count, timing spread, hand size, brightness, room tail, and clusters (single / double / many-hand crowd)." }, { id: "arco", label: "Arco", description: "Bowed strings — violin · viola · cello · bass · fiddle. Stick-slip saw through real body-resonance formants, with bow pressure, articulation, vibrato and rosin noise. Only string-player controls." }, { id: "tine", label: "Tine", description: "Rhodes-style electric piano — velocity-barked FM tine (hard = metallic bark, soft = mellow bell), a metal tine ping, EP decay, and lush suitcase tremolo." }, { id: "aether", label: "Aether", description: "Theremin — eerie, voice-like heterodyne tone with a portamento swoop into each note, a living two-hand pitch/amplitude waver, and a breathy volume-hand swell." }, { id: "halo", label: "Halo", description: "Hang drum / handpan — lush inharmonic octave + compound-fifth shimmer triad over a long ethereal ring, with a soft fingertip strike and a warm 'gu' body." }, { id: "formantVocal", label: "Formant Vocal", description: "Expressive formant synthesizer with gliding notes and vibrato." }, { id: "ttsVocal", label: "TTS Vocal", description: "Web Speech API Text-to-Speech engine for robotic vocal sequences." }, { id: "meSpeakVocal", label: "meSpeak Vocal", description: "Retro robotic TTS using meSpeak.js with sample-accurate timing." }, { id: "patch", label: "Patch", description: "Modular synth patch (gen_block patch): osc/noise/filter/shaper/gain + breakpoint envelopes — any voice, written in TPL." }];
+    return [{ id: "basicOsc", label: "Basic OSC", description: "Single oscillator + ADSR in generator params." }, { id: "noiseBurst", label: "Noise burst", description: "Filtered noise; attack + decay shape the hit." }, { id: "fmTone", label: "FM tone", description: "Two-operator FM + ADSR in generator params." }, { id: "matrixFm", label: "Matrix FM", description: "Multi-operator FM/RM graph via TPL gen_block (Sytrus-style)." }, { id: "pad", label: "Pad", description: "Detuned triple-osc + lowpass + slow env — ethereal, reverb-friendly." }, { id: "bell", label: "Bell", description: "Inharmonic sine partials + highpass + bell decay — metallic shimmer." }, { id: "drumSynth", label: "Drum", description: "Pitch-envelope drum synth — punchy kicks, snares, toms, 808s (+ noise + drive)." }, { id: "guitar", label: "Guitar", description: "Karplus-Strong plucked electric guitar — string model + palm mute + drive + body. Pairs with the chord voice for strums." }, { id: "clap", label: "Clap", description: "The Clap — handclap engine: hand count, timing spread, hand size, brightness, room tail, and clusters (single / double / many-hand crowd)." }, { id: "arco", label: "Arco", description: "Bowed strings — violin · viola · cello · bass · fiddle. Stick-slip saw through real body-resonance formants, with bow pressure, articulation, vibrato and rosin noise. Only string-player controls." }, { id: "tine", label: "Tine", description: "Rhodes-style electric piano — velocity-barked FM tine (hard = metallic bark, soft = mellow bell), a metal tine ping, EP decay, and lush suitcase tremolo." }, { id: "aether", label: "Aether", description: "Theremin — eerie, voice-like heterodyne tone with a portamento swoop into each note, a living two-hand pitch/amplitude waver, and a breathy volume-hand swell." }, { id: "halo", label: "Halo", description: "Hang drum / handpan — lush inharmonic octave + compound-fifth shimmer triad over a long ethereal ring, with a soft fingertip strike and a warm 'gu' body." }, { id: "formantVocal", label: "Formant Vocal", description: "Expressive formant synthesizer with gliding notes and vibrato." }, { id: "ttsVocal", label: "TTS Vocal", description: "Web Speech API Text-to-Speech engine for robotic vocal sequences." }, { id: "acid303", label: "Acid Synth", description: "Classic 303-style bassline with resonant filter and envMod sweep." }, { id: "sub808", label: "Sub 808", description: "Heavy sine wave sub-bass with punch and drive saturation." }, { id: "chiptune", label: "Chiptune", description: "Retro 8-bit pulse-width modulation and decimation crush." }, { id: "nes2a03", label: "2A03", description: "NES APU emulator (100% hardware parity)." }, { id: "c64sid", label: "MOS 6581", description: "Commodore 64 SID chip emulator (100% hardware parity)." }, { id: "gameBoyDmg", label: "LR35902", description: "Game Boy DMG APU emulator (100% hardware parity)." }, { id: "ym2612", label: "YM2612", description: "Sega Genesis FM Synth emulator (References: Nuked-OPN2, Genesis Plus GX)." }, { id: "sn76489", label: "SN76489", description: "Sega Master System / Genesis PSG emulator (References: MAME)." }, { id: "spc700", label: "SPC700", description: "Super Nintendo S-DSP emulator (References: bsnes, snes9x)." }, { id: "gbaDirectSound", label: "GBA DirectSound", description: "Game Boy Advance 8-bit DAC software mixing simulator." }, { id: "cymbal", label: "Cymbal", description: "TR-808 style cymbal cluster (6 tuned squares + noise + highpass)." }, { id: "reeseBass", label: "Reese Bass", description: "Thick, multi-oscillator detuned Supersaw bass with filter wobble." }, { id: "syncLead", label: "Sync Lead", description: "Aggressive true hard sync analog lead with an automated sweep envelope." }, { id: "syncChoir", label: "Sync Choir", description: "Lush, robotic 80s analog choir built from detuned hard sync formants." }, { id: "obSync", label: "OB Sync", description: "Massive, creamy dual-oscillator hard sync synth with Oberheim-style width and a sweeping filter." }, { id: "laserSync", label: "Laser Sync", description: "Punchy, retro-arcade zap. A rapid pitch-dropping master oscillator ripping through a static sync slave." }, { id: "meSpeakVocal", label: "meSpeak Vocal", description: "Retro robotic TTS using meSpeak.js with sample-accurate timing." }, { id: "patch", label: "Patch", description: "Modular synth patch (gen_block patch): osc/noise/filter/shaper/gain + breakpoint envelopes — any voice, written in TPL." }];
   }
 }
 function generatorLabelById (id) {
@@ -1544,6 +3219,70 @@ function defaultParamsForGeneratorId (id) {
     if ((id === "meSpeakVocal"))
       {
         return { pitch: 50, speed: 175, wordgap: 0, variant: "m1", amplitude: 100 };
+      }
+    if ((id === "acid303"))
+      {
+        return { waveform: "sawtooth", cutoff: 800, resonance: 15, envMod: 4000, decay: 0.4 };
+      }
+    if ((id === "sub808"))
+      {
+        return { punch: 60, decay: 1.2, drive: 0, glide: 0.05 };
+      }
+    if ((id === "chiptune"))
+      {
+        return { waveform: "pulse", pulseWidth: 0.5, pwmSpeed: 0, bitcrush: 0, lowpass: 0, arpRate: 0, arpSemis: 0, attack: 0.005, decay: 0.3, sustain: 0, release: 0.05 };
+      }
+    if ((id === "nes2a03"))
+      {
+        return (defaultParamsForNes2a03() ?? null);
+      }
+    if ((id === "gameBoyDmg"))
+      {
+        return (defaultParamsForGameBoyDmg() ?? null);
+      }
+    if ((id === "c64sid"))
+      {
+        return (defaultParamsForC64Sid() ?? null);
+      }
+    if ((id === "ym2612"))
+      {
+        return (defaultParamsForYm2612() ?? null);
+      }
+    if ((id === "sn76489"))
+      {
+        return (defaultParamsForSn76489() ?? null);
+      }
+    if ((id === "spc700"))
+      {
+        return (defaultParamsForSnesSpc() ?? null);
+      }
+    if ((id === "gbaDirectSound"))
+      {
+        return (defaultParamsForGameBoyAdv() ?? null);
+      }
+    if ((id === "cymbal"))
+      {
+        return { tune: 300, metallic: 0.8, decay: 0.4, highpass: 7000 };
+      }
+    if ((id === "reeseBass"))
+      {
+        return { voices: 3, detune: 30, cutoff: 1500, wobble: 0, decay: 1 };
+      }
+    if ((id === "syncLead"))
+      {
+        return { masterTune: 0, slaveBase: 12, sweepAmt: 24, sweepDecay: 0.4, lfoRate: 0, lfoAmt: 0, cutoff: 3000, resonance: 5, filterEnvAmt: 0, filterDecay: 0.4, attack: 0.05, decay: 0.3, sustain: 0.8, release: 0.5 };
+      }
+    if ((id === "syncChoir"))
+      {
+        return { vowelShift: 24, morphRate: 0.5, morphAmt: 12, ensembleDetune: 15, vibRate: 5, vibAmt: 10, highpass: 300, attack: 1, decay: 1, sustain: 0.8, release: 1.5 };
+      }
+    if ((id === "obSync"))
+      {
+        return { detune: 15, sweepRate: 0.5, sweepAmt: 24, cutoff: 1200, resonance: 2, filterEnv: 2400, filterDecay: 0.8, attack: 0.1, decay: 0.4, sustain: 0.6, release: 0.5 };
+      }
+    if ((id === "laserSync"))
+      {
+        return { dropRate: 0.8, dropAmt: 36, slaveBase: 18, attack: 0.01, decay: 0.3 };
       }
     if ((id === "patch"))
       {
@@ -2621,19 +4360,10 @@ function parsePatchGraph (lines) {
             (li = (li + 1));
             continue;
           }
-        if (((h === "osc") && (toks.length >= 2)))
+        if (((h === "syncosc") && (toks.length >= 2)))
           {
-            let nd = { kind: "osc", id: (String((toks[1] ?? null)) ?? null), wave: "sine", freqMode: "note", fixedHz: 0, ratio: 1, detune: 0, rand: 0 };
+            let nd = { kind: "syncosc", id: (String((toks[1] ?? null)) ?? null), freqMode: "note", fixedHz: 0, ratio: 1, detune: 0, rand: 0 };
             let idx = 2;
-            if ((idx < toks.length))
-              {
-                let w = (toks[idx] ?? null);
-                if (((((w !== "note") && (w !== "ratio")) && (w !== "detune")) && !(isNumberToken(w) ?? null)))
-                  {
-                    (nd.wave = (String(w) ?? null));
-                    (idx = (idx + 1));
-                  }
-              }
             while ((idx < toks.length))
               {
                 let tk = (toks[idx] ?? null);
@@ -2684,66 +4414,101 @@ function parsePatchGraph (lines) {
           }
         else
           {
-            if (((h === "noise") && (toks.length >= 2)))
+            if (((h === "osc") && (toks.length >= 2)))
               {
-                (nodes.push({ kind: "noise", id: (String((toks[1] ?? null)) ?? null) }) ?? null);
-              }
-            else
-              {
-                if (((h === "filter") && (toks.length >= 2)))
+                let nd = { kind: "osc", id: (String((toks[1] ?? null)) ?? null), wave: "sine", freqMode: "note", fixedHz: 0, ratio: 1, detune: 0, rand: 0 };
+                let idx = 2;
+                if ((idx < toks.length))
                   {
-                    let nd = { kind: "filter", id: (String((toks[1] ?? null)) ?? null), ftype: "lowpass", q: 0.7, freq: 0 };
-                    let idx = 2;
-                    if ((idx < toks.length))
+                    let w = (toks[idx] ?? null);
+                    if (((((w !== "note") && (w !== "ratio")) && (w !== "detune")) && !(isNumberToken(w) ?? null)))
                       {
-                        let ty = (toks[idx] ?? null);
-                        if ((((ty !== "q") && (ty !== "freq")) && !(isNumberToken(ty) ?? null)))
-                          {
-                            (nd.ftype = (normalizePatchFilterType(ty) ?? null));
-                            (idx = (idx + 1));
-                          }
+                        (nd.wave = (String(w) ?? null));
+                        (idx = (idx + 1));
                       }
-                    while (((idx + 1) < toks.length))
+                  }
+                while ((idx < toks.length))
+                  {
+                    let tk = (toks[idx] ?? null);
+                    if ((tk === "note"))
                       {
-                        let tk = (toks[idx] ?? null);
-                        if ((tk === "q"))
+                        (nd.freqMode = "note");
+                        (idx = (idx + 1));
+                      }
+                    else
+                      {
+                        if (((tk === "ratio") && ((idx + 1) < toks.length)))
                           {
-                            (nd.q = (Number((toks[(idx + 1)] ?? null)) ?? null));
+                            (nd.ratio = (Number((toks[(idx + 1)] ?? null)) ?? null));
                             (idx = (idx + 2));
                           }
                         else
                           {
-                            if ((tk === "freq"))
+                            if (((tk === "detune") && ((idx + 1) < toks.length)))
                               {
-                                (nd.freq = (Number((toks[(idx + 1)] ?? null)) ?? null));
+                                (nd.detune = (Number((toks[(idx + 1)] ?? null)) ?? null));
                                 (idx = (idx + 2));
                               }
                             else
                               {
-                                (idx = (idx + 1));
+                                if (((tk === "rand") && ((idx + 1) < toks.length)))
+                                  {
+                                    (nd.rand = (Number((toks[(idx + 1)] ?? null)) ?? null));
+                                    (idx = (idx + 2));
+                                  }
+                                else
+                                  {
+                                    if ((isNumberToken(tk) ?? null))
+                                      {
+                                        (nd.freqMode = "fixed");
+                                        (nd.fixedHz = (Number(tk) ?? null));
+                                        (idx = (idx + 1));
+                                      }
+                                    else
+                                      {
+                                        (idx = (idx + 1));
+                                      }
+                                  }
                               }
                           }
                       }
-                    (nodes.push(nd) ?? null);
+                  }
+                (nodes.push(nd) ?? null);
+              }
+            else
+              {
+                if (((h === "noise") && (toks.length >= 2)))
+                  {
+                    (nodes.push({ kind: "noise", id: (String((toks[1] ?? null)) ?? null) }) ?? null);
                   }
                 else
                   {
-                    if (((h === "shaper") && (toks.length >= 2)))
+                    if (((h === "filter") && (toks.length >= 2)))
                       {
-                        let nd = { kind: "shaper", id: (String((toks[1] ?? null)) ?? null), amount: 50, curve: "hard" };
+                        let nd = { kind: "filter", id: (String((toks[1] ?? null)) ?? null), ftype: "lowpass", q: 0.7, freq: 0 };
                         let idx = 2;
+                        if ((idx < toks.length))
+                          {
+                            let ty = (toks[idx] ?? null);
+                            if ((((ty !== "q") && (ty !== "freq")) && !(isNumberToken(ty) ?? null)))
+                              {
+                                (nd.ftype = (normalizePatchFilterType(ty) ?? null));
+                                (idx = (idx + 1));
+                              }
+                          }
                         while (((idx + 1) < toks.length))
                           {
-                            if ((((toks[idx] ?? null) === "amount") || ((toks[idx] ?? null) === "drive")))
+                            let tk = (toks[idx] ?? null);
+                            if ((tk === "q"))
                               {
-                                (nd.amount = (Number((toks[(idx + 1)] ?? null)) ?? null));
+                                (nd.q = (Number((toks[(idx + 1)] ?? null)) ?? null));
                                 (idx = (idx + 2));
                               }
                             else
                               {
-                                if (((toks[idx] ?? null) === "curve"))
+                                if ((tk === "freq"))
                                   {
-                                    (nd.curve = (String((toks[(idx + 1)] ?? null)) ?? null));
+                                    (nd.freq = (Number((toks[(idx + 1)] ?? null)) ?? null));
                                     (idx = (idx + 2));
                                   }
                                 else
@@ -2756,74 +4521,103 @@ function parsePatchGraph (lines) {
                       }
                     else
                       {
-                        if (((h === "pan") && (toks.length >= 2)))
+                        if (((h === "shaper") && (toks.length >= 2)))
                           {
-                            let pos = 0;
-                            if (((toks.length >= 3) && (isNumberToken((toks[2] ?? null)) ?? null)))
+                            let nd = { kind: "shaper", id: (String((toks[1] ?? null)) ?? null), amount: 50, curve: "hard" };
+                            let idx = 2;
+                            while (((idx + 1) < toks.length))
                               {
-                                (pos = (Number((toks[2] ?? null)) ?? null));
-                              }
-                            (nodes.push({ kind: "pan", id: (String((toks[1] ?? null)) ?? null), pos: pos }) ?? null);
-                          }
-                        else
-                          {
-                            if (((h === "gain") && (toks.length >= 2)))
-                              {
-                                let val = 1;
-                                if (((toks.length >= 3) && (isNumberToken((toks[2] ?? null)) ?? null)))
+                                if ((((toks[idx] ?? null) === "amount") || ((toks[idx] ?? null) === "drive")))
                                   {
-                                    (val = (Number((toks[2] ?? null)) ?? null));
-                                  }
-                                (nodes.push({ kind: "gain", id: (String((toks[1] ?? null)) ?? null), value: val }) ?? null);
-                              }
-                            else
-                              {
-                                if (((h === "conn") && (toks.length >= 3)))
-                                  {
-                                    let src = (String((toks[1] ?? null)) ?? null);
-                                    let dstRaw = (String((toks[2] ?? null)) ?? null);
-                                    let dstNode = dstRaw;
-                                    let dstParam = null;
-                                    let dot = (dstRaw.indexOf(".") ?? null);
-                                    if ((dot >= 0))
-                                      {
-                                        (dstNode = (dstRaw.substring(0, dot) ?? null));
-                                        (dstParam = (dstRaw.substring((dot + 1)) ?? null));
-                                      }
-                                    let vol = 1;
-                                    if (((toks.length >= 4) && (isNumberToken((toks[3] ?? null)) ?? null)))
-                                      {
-                                        (vol = (Number((toks[3] ?? null)) ?? null));
-                                      }
-                                    (conns.push({ src: src, dst: dstNode, dstParam: dstParam, vol: vol }) ?? null);
+                                    (nd.amount = (Number((toks[(idx + 1)] ?? null)) ?? null));
+                                    (idx = (idx + 2));
                                   }
                                 else
                                   {
-                                    if (((h === "env") && (toks.length >= 5)))
+                                    if (((toks[idx] ?? null) === "curve"))
                                       {
-                                        let target = (String((toks[1] ?? null)) ?? null);
-                                        let node = target;
-                                        let param = "gain";
-                                        let dot = (target.indexOf(".") ?? null);
-                                        if ((dot >= 0))
-                                          {
-                                            (node = (target.substring(0, dot) ?? null));
-                                            (param = (target.substring((dot + 1)) ?? null));
-                                          }
-                                        let segs = [];
-                                        let idx = 2;
-                                        while (((idx + 3) <= toks.length))
-                                          {
-                                            (segs.push({ type: (String((toks[idx] ?? null)) ?? null), tExpr: (String((toks[(idx + 1)] ?? null)) ?? null), vExpr: (String((toks[(idx + 2)] ?? null)) ?? null) }) ?? null);
-                                            (idx = (idx + 3));
-                                          }
-                                        (envs.push({ node: node, param: param, segs: segs }) ?? null);
+                                        (nd.curve = (String((toks[(idx + 1)] ?? null)) ?? null));
+                                        (idx = (idx + 2));
                                       }
                                     else
                                       {
-                                        if (((h === "dur") && (toks.length >= 2)))
+                                        (idx = (idx + 1));
+                                      }
+                                  }
+                              }
+                            (nodes.push(nd) ?? null);
+                          }
+                        else
+                          {
+                            if (((h === "pan") && (toks.length >= 2)))
+                              {
+                                let pos = 0;
+                                if (((toks.length >= 3) && (isNumberToken((toks[2] ?? null)) ?? null)))
+                                  {
+                                    (pos = (Number((toks[2] ?? null)) ?? null));
+                                  }
+                                (nodes.push({ kind: "pan", id: (String((toks[1] ?? null)) ?? null), pos: pos }) ?? null);
+                              }
+                            else
+                              {
+                                if (((h === "gain") && (toks.length >= 2)))
+                                  {
+                                    let val = 1;
+                                    if (((toks.length >= 3) && (isNumberToken((toks[2] ?? null)) ?? null)))
+                                      {
+                                        (val = (Number((toks[2] ?? null)) ?? null));
+                                      }
+                                    (nodes.push({ kind: "gain", id: (String((toks[1] ?? null)) ?? null), value: val }) ?? null);
+                                  }
+                                else
+                                  {
+                                    if (((h === "conn") && (toks.length >= 3)))
+                                      {
+                                        let src = (String((toks[1] ?? null)) ?? null);
+                                        let dstRaw = (String((toks[2] ?? null)) ?? null);
+                                        let dstNode = dstRaw;
+                                        let dstParam = null;
+                                        let dot = (dstRaw.indexOf(".") ?? null);
+                                        if ((dot >= 0))
                                           {
-                                            (dur = (Number((toks[1] ?? null)) ?? null));
+                                            (dstNode = (dstRaw.substring(0, dot) ?? null));
+                                            (dstParam = (dstRaw.substring((dot + 1)) ?? null));
+                                          }
+                                        let vol = 1;
+                                        if (((toks.length >= 4) && (isNumberToken((toks[3] ?? null)) ?? null)))
+                                          {
+                                            (vol = (Number((toks[3] ?? null)) ?? null));
+                                          }
+                                        (conns.push({ src: src, dst: dstNode, dstParam: dstParam, vol: vol }) ?? null);
+                                      }
+                                    else
+                                      {
+                                        if (((h === "env") && (toks.length >= 5)))
+                                          {
+                                            let target = (String((toks[1] ?? null)) ?? null);
+                                            let node = target;
+                                            let param = "gain";
+                                            let dot = (target.indexOf(".") ?? null);
+                                            if ((dot >= 0))
+                                              {
+                                                (node = (target.substring(0, dot) ?? null));
+                                                (param = (target.substring((dot + 1)) ?? null));
+                                              }
+                                            let segs = [];
+                                            let idx = 2;
+                                            while (((idx + 3) <= toks.length))
+                                              {
+                                                (segs.push({ type: (String((toks[idx] ?? null)) ?? null), tExpr: (String((toks[(idx + 1)] ?? null)) ?? null), vExpr: (String((toks[(idx + 2)] ?? null)) ?? null) }) ?? null);
+                                                (idx = (idx + 3));
+                                              }
+                                            (envs.push({ node: node, param: param, segs: segs }) ?? null);
+                                          }
+                                        else
+                                          {
+                                            if (((h === "dur") && (toks.length >= 2)))
+                                              {
+                                                (dur = (Number((toks[1] ?? null)) ?? null));
+                                              }
                                           }
                                       }
                                   }
@@ -2868,6 +4662,53 @@ function matrixFmFactoryInstrumentPresets () {
       {
         let d = (data[i] ?? null);
         (out.push({ presetId: d.id, name: ("Matrix · " + d.name), generatorId: "matrixFm", params: {  }, generatorSpec: (parseGenBlock("matrix_fm", d.lines) ?? null) }) ?? null);
+        (i = (i + 1));
+      }
+    return out;
+  }
+}
+function generatorFactoryPresets () {
+  {
+    let raw = [{ presetId: "factory_guitar_clean", name: "Clean Electric", generatorId: "guitar", params: { tone: 0.55, decay: 0.6, damping: 0.35, drive: 0.1, body: 3800, mute: 0 } }, { presetId: "factory_guitar_palm", name: "Palm Mute Chug", generatorId: "guitar", params: { tone: 0.35, decay: 0.3, damping: 0.55, drive: 0.45, body: 2800, mute: 0.7 } }, { presetId: "factory_guitar_nylon", name: "Nylon Acoustic", generatorId: "guitar", params: { tone: 0.72, decay: 0.75, damping: 0.25, drive: 0, body: 4200, mute: 0 } }, { presetId: "factory_guitar_bass", name: "Bass Guitar", generatorId: "guitar", params: { tone: 0.28, decay: 0.55, damping: 0.6, drive: 0.15, body: 1800, mute: 0 } }, { presetId: "factory_arco_violin", name: "Solo Violin", generatorId: "arco", params: { voice: "violin", pressure: 0.55, bow: 0.45, vibrato: 0.4, rosin: 0.25, body: 0.65 } }, { presetId: "factory_arco_cello", name: "Cello Legato", generatorId: "arco", params: { voice: "cello", pressure: 0.6, bow: 0.5, vibrato: 0.5, rosin: 0.2, body: 0.75 } }, { presetId: "factory_arco_fiddle", name: "Country Fiddle", generatorId: "arco", params: { voice: "fiddle", pressure: 0.7, bow: 0.55, vibrato: 0.3, rosin: 0.55, body: 0.5 } }, { presetId: "factory_arco_bass", name: "Upright Bass", generatorId: "arco", params: { voice: "bass", pressure: 0.45, bow: 0.35, vibrato: 0.2, rosin: 0.15, body: 0.8 } }, { presetId: "factory_tine_suitcase", name: "Suitcase Warm", generatorId: "tine", params: { bark: 0.35, tine: 0.4, tremolo: 0.6, decay: 0.65, drive: 0.15 } }, { presetId: "factory_tine_stage", name: "Stage Bright", generatorId: "tine", params: { bark: 0.7, tine: 0.75, tremolo: 0, decay: 0.45, drive: 0.3 } }, { presetId: "factory_tine_neosoul", name: "Neo Soul Keys", generatorId: "tine", params: { bark: 0.45, tine: 0.55, tremolo: 0.25, decay: 0.7, drive: 0.1 } }, { presetId: "factory_acid_classic", name: "Classic Acid", generatorId: "acid303", params: { waveform: "square", cutoff: 600, resonance: 18, envMod: 5000, decay: 0.35 } }, { presetId: "factory_acid_squelch", name: "Acid Squelch", generatorId: "acid303", params: { waveform: "sawtooth", cutoff: 400, resonance: 22, envMod: 6000, decay: 0.2 } }, { presetId: "factory_acid_deep", name: "Deep Acid", generatorId: "acid303", params: { waveform: "sawtooth", cutoff: 500, resonance: 12, envMod: 3000, decay: 0.6 } }, { presetId: "factory_reese_dnb", name: "DnB Reese", generatorId: "reeseBass", params: { voices: 5, detune: 40, cutoff: 1200, wobble: 0.6, decay: 1.5 } }, { presetId: "factory_reese_minimal", name: "Minimal Sub Reese", generatorId: "reeseBass", params: { voices: 2, detune: 15, cutoff: 800, wobble: 0, decay: 1.2 } }, { presetId: "factory_808_long", name: "808 Long Tail", generatorId: "sub808", params: { punch: 48, decay: 2.5, drive: 0.15, glide: 0.08 } }, { presetId: "factory_808_distorted", name: "808 Distorted", generatorId: "sub808", params: { punch: 72, decay: 1, drive: 0.6, glide: 0.03 } }, { presetId: "factory_halo_meditation", name: "Meditation Bowl", generatorId: "halo", params: { temper: 0.3, ring: 0.8, mallet: 0.2, bloom: 0.65, lows: 0.6 } }, { presetId: "factory_halo_tongue", name: "Steel Tongue", generatorId: "halo", params: { temper: 0.55, ring: 0.35, mallet: 0.6, bloom: 0.3, lows: 0.35 } }, { presetId: "factory_aether_classic", name: "Classic Theremin", generatorId: "aether", params: { glide: 0.4, waver: 0.5, tone: 0.3, swell: 0.45, air: 0.25 } }, { presetId: "factory_aether_scifi", name: "Sci-Fi Wail", generatorId: "aether", params: { glide: 0.7, waver: 0.8, tone: 0.5, swell: 0.6, air: 0.4 } }, { presetId: "factory_bell_crystal", name: "Crystal Chime", generatorId: "bell", params: { partial: 3.01, highpass: 1200, decay: 2 } }, { presetId: "factory_bell_dark", name: "Dark Bell", generatorId: "bell", params: { partial: 1.41, highpass: 400, decay: 1.8 } }, { presetId: "factory_pad_warm", name: "Warm Blanket", generatorId: "pad", params: { wave1: "triangle", wave2: "sine", detune: 14, cutoff: 1200, attack: 0.6, decay: 0.8, sustain: 0.75, release: 2 } }, { presetId: "factory_pad_glass", name: "Glass Shimmer", generatorId: "pad", params: { wave1: "sawtooth", wave2: "square", detune: 8, cutoff: 4000, attack: 0.3, decay: 0.4, sustain: 0.6, release: 1.2 } }, { presetId: "factory_nes_pulse50", name: "NES Pulse 50%", generatorId: "nes2a03", params: { channel: "pulse_50", decay: 0.2, sweep: 0 } }, { presetId: "factory_nes_pulse25", name: "NES Pulse 25%", generatorId: "nes2a03", params: { channel: "pulse_25", decay: 0.2, sweep: 0 } }, { presetId: "factory_nes_pulse12", name: "NES Pulse 12.5%", generatorId: "nes2a03", params: { channel: "pulse_12_5", decay: 0.25, sweep: 0 } }, { presetId: "factory_nes_triangle", name: "NES Triangle", generatorId: "nes2a03", params: { channel: "triangle", decay: 0.4, sweep: 0 } }, { presetId: "factory_nes_noise", name: "NES Noise", generatorId: "nes2a03", params: { channel: "noise", decay: 0.1, sweep: 0 } }, { presetId: "factory_gb_lead", name: "GB Pulse Lead", generatorId: "gameBoyDmg", params: { channel: "pulse_50", decay: 0.15, sweep: 0 } }, { presetId: "factory_gb_bass", name: "GB Bass", generatorId: "gameBoyDmg", params: { channel: "wavetable", waveShape: "sawtooth", decay: 0.3, sweep: 0 } }, { presetId: "factory_sid_lead", name: "C64 SID Lead", generatorId: "c64sid", params: { waveform: "sawtooth", pulseWidth: 0.5, filterType: "lowpass", cutoff: 3500, resonance: 6, attack: 0.008, decay: 0.2, sustain: 0.6, release: 0.1 } }, { presetId: "factory_sid_bass", name: "C64 SID Bass", generatorId: "c64sid", params: { waveform: "pulse", pulseWidth: 0.4, filterType: "lowpass", cutoff: 1200, resonance: 8, attack: 0.005, decay: 0.35, sustain: 0.4, release: 0.08 } }, { presetId: "factory_sid_pwm", name: "C64 PWM Pad", generatorId: "c64sid", params: { waveform: "pulse", pulseWidth: 0.3, filterType: "lowpass", cutoff: 2000, resonance: 4, attack: 0.08, decay: 0.5, sustain: 0.7, release: 0.3 } }, { presetId: "factory_snes_pad", name: "SNES Warm Pad", generatorId: "c64sid", params: { waveform: "pulse", pulseWidth: 0.5, filterType: "lowpass", cutoff: 1500, resonance: 2, attack: 0.12, decay: 0.5, sustain: 0.65, release: 0.4 } }, { presetId: "factory_snes_lead", name: "SNES Lead", generatorId: "c64sid", params: { waveform: "sawtooth", pulseWidth: 0.5, filterType: "lowpass", cutoff: 2500, resonance: 3, attack: 0.008, decay: 0.25, sustain: 0.6, release: 0.12 } }, { presetId: "factory_genesis_brass", name: "Genesis Brass", generatorId: "c64sid", params: { waveform: "sawtooth", pulseWidth: 0.5, filterType: "lowpass", cutoff: 4000, resonance: 2, attack: 0.03, decay: 0.3, sustain: 0.7, release: 0.15 } }, { presetId: "factory_chip_sweep", name: "NES Laser Sweep", generatorId: "nes2a03", params: { channel: "pulse_50", decay: 0.2, sweep: -12 } }, { presetId: "factory_cymbal_ride", name: "Ride Cymbal", generatorId: "cymbal", params: { tune: 340, metallic: 0.7, decay: 0.8, highpass: 6000 } }, { presetId: "factory_cymbal_crash", name: "Crash", generatorId: "cymbal", params: { tune: 280, metallic: 0.9, decay: 1.5, highpass: 5000 } }, { presetId: "factory_clap_tight", name: "Tight Clap", generatorId: "clap", params: { hands: 2, spread: 0.2, size: 0.3, tone: 0.6, claps: 1, gap: 0.2, tail: 0.25, body: 0.15 } }, { presetId: "factory_clap_crowd", name: "Crowd Clap", generatorId: "clap", params: { hands: 8, spread: 0.7, size: 0.7, tone: 0.45, claps: 3, gap: 0.4, tail: 0.6, body: 0.35 } }, { presetId: "factory_drum_909kick", name: "TR-909 Kick", generatorId: "drumSynth", params: { tone: "sine", pitchEnv: 30, pitchDecay: 0.035, decay: 0.3, noise: 0.05, drive: 0.2 } }, { presetId: "factory_drum_boombap", name: "Boom Bap Kick", generatorId: "drumSynth", params: { tone: "sine", pitchEnv: 38, pitchDecay: 0.07, decay: 0.55, noise: 0, drive: 0.08 } }, { presetId: "factory_drum_rim", name: "Rim Shot", generatorId: "drumSynth", params: { tone: "triangle", pitchEnv: 12, pitchDecay: 0.015, decay: 0.06, noise: 0.5, noiseHp: 3000, noiseDecay: 0.04, drive: 0.15 } }, { presetId: "factory_drum_tom_low", name: "Tom Low", generatorId: "drumSynth", params: { tone: "sine", pitchEnv: 24, pitchDecay: 0.04, decay: 0.35, noise: 0.1, drive: 0.05 } }, { presetId: "factory_drum_tom_hi", name: "Tom High", generatorId: "drumSynth", params: { tone: "sine", pitchEnv: 18, pitchDecay: 0.03, decay: 0.25, noise: 0.12, drive: 0.05 } }, { presetId: "factory_sync_screamer", name: "Sync Screamer", generatorId: "syncLead", params: { slaveBase: 19, sweepAmt: 36, sweepDecay: 0.25, cutoff: 5000, resonance: 3, filterEnvAmt: 0, attack: 0.02, decay: 0.2, sustain: 0.9, release: 0.3 } }, { presetId: "factory_sync_pluck", name: "Sync Pluck", generatorId: "syncLead", params: { slaveBase: 12, sweepAmt: 24, sweepDecay: 0.15, cutoff: 2400, resonance: 6, filterEnvAmt: 0.3, filterDecay: 0.2, attack: 0.005, decay: 0.15, sustain: 0, release: 0.2 } }, { presetId: "factory_sync_talk", name: "Sync Talk Box", generatorId: "syncLead", params: { slaveBase: 5, sweepAmt: 12, sweepDecay: 0.6, lfoRate: 3.5, lfoAmt: 8, cutoff: 1800, resonance: 8, attack: 0.08, decay: 0.4, sustain: 0.7, release: 0.4 } }, { presetId: "factory_choir_android", name: "Android Choir", generatorId: "syncChoir", params: { vowelShift: 24, morphRate: 0.5, morphAmt: 12, ensembleDetune: 15, vibRate: 5, vibAmt: 10, highpass: 300, attack: 1, decay: 1, sustain: 0.8, release: 1.5 } }, { presetId: "factory_choir_morph", name: "Slow Morph Pad", generatorId: "syncChoir", params: { vowelShift: 19, morphRate: 0.12, morphAmt: 24, ensembleDetune: 20, vibRate: 4, vibAmt: 8, highpass: 200, attack: 2, decay: 1.5, sustain: 0.85, release: 2.5 } }, { presetId: "factory_choir_tight", name: "Tight Ensemble", generatorId: "syncChoir", params: { vowelShift: 12, morphRate: 0.8, morphAmt: 6, ensembleDetune: 6, vibRate: 6.5, vibAmt: 14, highpass: 400, attack: 0.3, decay: 0.5, sustain: 0.9, release: 0.8 } }, { presetId: "factory_ob_jump", name: "Oberheim Jump", generatorId: "obSync", params: { detune: 18, sweepRate: 0.7, sweepAmt: 30, cutoff: 2000, resonance: 3, filterEnv: 3200, filterDecay: 0.5, attack: 0.04, decay: 0.3, sustain: 0.7, release: 0.3 } }, { presetId: "factory_ob_pad", name: "OB Pad", generatorId: "obSync", params: { detune: 12, sweepRate: 0.2, sweepAmt: 12, cutoff: 800, resonance: 1.5, filterEnv: 1600, filterDecay: 1.2, attack: 0.6, decay: 0.8, sustain: 0.8, release: 1.5 } }, { presetId: "factory_laser_zap", name: "Arcade Zap", generatorId: "laserSync", params: { dropRate: 0.9, dropAmt: 48, slaveBase: 24, attack: 0.005, decay: 0.15 } }, { presetId: "factory_laser_sweep", name: "Laser Sweep", generatorId: "laserSync", params: { dropRate: 0.3, dropAmt: 24, slaveBase: 12, attack: 0.02, decay: 0.6 } }, { presetId: "factory_fm_epiano", name: "FM E-Piano", generatorId: "fmTone", params: { ratio: 1, modIndex: 3, carrierWave: "sine", modWave: "sine", attack: 0.003, decay: 0.8, sustain: 0.15, release: 0.4 } }, { presetId: "factory_fm_brass", name: "FM Brass", generatorId: "fmTone", params: { ratio: 1, modIndex: 6, carrierWave: "sine", modWave: "square", attack: 0.06, decay: 0.3, sustain: 0.7, release: 0.25 } }, { presetId: "factory_osc_saw_lead", name: "Saw Lead", generatorId: "basicOsc", params: { waveform: "sawtooth", attack: 0.01, decay: 0.15, sustain: 0.7, release: 0.2 } }, { presetId: "factory_osc_square_sub", name: "Square Sub", generatorId: "basicOsc", params: { waveform: "square", attack: 0.005, decay: 0.3, sustain: 0.8, release: 0.15 } }, { presetId: "factory_nes_pulse_lead", name: "Pulse Lead", generatorId: "nes2a03", params: { type: "pulse", duty: "50", envMode: "decay", vol: 12, attack: 0, decay: 3, sustain: 10, release: 2 } }, { presetId: "factory_nes_pulse_pluck", name: "12.5% Pluck", generatorId: "nes2a03", params: { type: "pulse", duty: "12_5", envMode: "decay", vol: 15, attack: 0, decay: 6, sustain: 0, release: 1 } }, { presetId: "factory_nes_tri_bass", name: "Triangle Bass", generatorId: "nes2a03", params: { type: "triangle", vol: 15, attack: 0, decay: 0, sustain: 15, release: 0 } }, { presetId: "factory_dmg_pulse_25", name: "25% Pulse", generatorId: "gameBoyDmg", params: { type: "pulse", duty: "25", envMode: "step", vol: 15, sweep: 2, attack: 0, decay: 0, sustain: 15, release: 0 } }, { presetId: "factory_dmg_wave_crunch", name: "Wavetable Crunch", generatorId: "gameBoyDmg", params: { type: "wave", waveVol: "100", attack: 0, decay: 0, sustain: 15, release: 0 } }, { presetId: "factory_sid_sync_lead", name: "Hard Sync Lead", generatorId: "c64sid", params: { waveform: "sawtooth", hardSync: true, attack: 2, decay: 5, sustain: 10, release: 6, pitchDrop: -12, pitchDec: 0.2 } }, { presetId: "factory_sid_filter_bass", name: "Filter Bass", generatorId: "c64sid", params: { waveform: "pulse", pulseWidth: 0.5, filterType: "lowpass", cutoff: 600, resonance: 8, attack: 0, decay: 4, sustain: 4, release: 3 } }, { presetId: "factory_ym_epiano", name: "FM E-Piano", generatorId: "ym2612", params: { algorithm: 4, feedback: 0, op1_mul: 1, op1_tl: 0, op1_ar: 31, op1_dr: 12, op1_sr: 5, op1_rr: 8, op1_sl: 5, op2_mul: 1, op2_tl: 20, op2_ar: 31, op2_dr: 15, op2_sr: 5, op2_rr: 8, op2_sl: 5, op3_mul: 4, op3_tl: 30, op3_ar: 31, op3_dr: 18, op3_sr: 5, op3_rr: 8, op3_sl: 5, op4_mul: 1, op4_tl: 10, op4_ar: 31, op4_dr: 10, op4_sr: 5, op4_rr: 8, op4_sl: 5 } }, { presetId: "factory_ym_brass", name: "Genesis Brass", generatorId: "ym2612", params: { algorithm: 1, feedback: 5, op1_mul: 1, op1_tl: 0, op1_ar: 20, op1_dr: 15, op1_sr: 5, op1_rr: 10, op1_sl: 2, op2_mul: 2, op2_tl: 15, op2_ar: 22, op2_dr: 12, op2_sr: 5, op2_rr: 10, op2_sl: 2, op3_mul: 1, op3_tl: 5, op3_ar: 18, op3_dr: 10, op3_sr: 5, op3_rr: 10, op3_sl: 2, op4_mul: 1, op4_tl: 0, op4_ar: 24, op4_dr: 8, op4_sr: 5, op4_rr: 10, op4_sl: 2 } }, { presetId: "factory_sn_square_lead", name: "PSG Square Lead", generatorId: "sn76489", params: { type: "square", vol: 15, attack: 0, decay: 0.1, sustain: 15, release: 0 } }, { presetId: "factory_spc_strings", name: "Echo Strings", generatorId: "spc700", params: { waveform: "strings", attack: 10, decay: 3, sustainLevel: 7, sustainRate: 0, echoEnable: true, echoDelay: 8, echoFeedback: 40 } }, { presetId: "factory_spc_brass", name: "Warm Brass", generatorId: "spc700", params: { waveform: "brass", attack: 6, decay: 5, sustainLevel: 5, sustainRate: 0, echoEnable: false, echoDelay: 4, echoFeedback: 0 } }, { presetId: "factory_gba_pcm_saw", name: "Software Saw Lead", generatorId: "gbaDirectSound", params: { waveform: "sawtooth", duty: "50", attack: 0, decay: 1, sustain: 15, release: 0, bitcrush: true } }, { presetId: "factory_gba_pcm_pulse", name: "Pulse Chug", generatorId: "gbaDirectSound", params: { waveform: "pulse", duty: "25", attack: 0, decay: 0.1, sustain: 0, release: 0.2, bitcrush: true } }];
+    let out = [];
+    let i = 0;
+    while ((i < raw.length))
+      {
+        let p = (raw[i] ?? null);
+        let label = (generatorLabelById(p.generatorId) ?? null);
+        let cleanName = p.name;
+        if (((cleanName.indexOf("NES ") ?? null) === 0))
+          (cleanName = (cleanName.substring(4) ?? null));
+        if (((cleanName.indexOf("GB ") ?? null) === 0))
+          (cleanName = (cleanName.substring(3) ?? null));
+        if (((cleanName.indexOf("C64 ") ?? null) === 0))
+          (cleanName = (cleanName.substring(4) ?? null));
+        if (((cleanName.indexOf("SID ") ?? null) === 0))
+          (cleanName = (cleanName.substring(4) ?? null));
+        if (((cleanName.indexOf("SNES ") ?? null) === 0))
+          (cleanName = (cleanName.substring(5) ?? null));
+        if (((cleanName.indexOf("Genesis ") ?? null) === 0))
+          (cleanName = (cleanName.substring(8) ?? null));
+        if (((cleanName.indexOf("PSG ") ?? null) === 0))
+          (cleanName = (cleanName.substring(4) ?? null));
+        if (((cleanName.indexOf("TR-") ?? null) === 0))
+          (cleanName = (cleanName.substring(3) ?? null));
+        (p.name = ((label + " · ") + cleanName));
+        (out.push(p) ?? null);
+        (i = (i + 1));
+      }
+    return out;
+  }
+}
+function patchFactoryPresets () {
+  {
+    let patches = [{ id: "patch_supersaw", name: "Trance Supersaw", category: "Lead", lines: ["osc o1 sawtooth note", "osc o2 sawtooth note rand 8", "osc o3 sawtooth note rand 12", "osc o4 sawtooth note rand 16", "osc o5 sawtooth note rand 10", "osc o6 sawtooth note rand 14", "osc o7 sawtooth note rand 6", "filter f1 lowpass q 2 freq 3000", "osc lfo sine 0.25", "gain glfo 0", "gain a1 0", "conn o1 f1 1", "conn o2 f1 1", "conn o3 f1 1", "conn o4 f1 1", "conn o5 f1 1", "conn o6 f1 1", "conn o7 f1 1", "conn f1 a1 1", "conn a1 out 0.28", "conn lfo glfo 1", "conn glfo f1.freq 1", "env glfo.gain set 0 1200", "env f1.freq set 0 800 lin 0.6 4500 lin 1.2 3000", "env a1.gain set 0 0 lin 0.15 1 lin 0.6 0.8 set dur 0.8 lin dur+0.5 0"] }, { id: "patch_analog_brass", name: "Analog Brass Stab", category: "Lead", lines: ["osc o1 sawtooth note", "osc o2 square note rand 6", "filter f1 lowpass q 4 freq 1000", "gain a1 0", "conn o1 f1 0.6", "conn o2 f1 0.5", "conn f1 a1 1", "conn a1 out 0.72", "env f1.freq set 0 400 lin 0.08 4800 lin 0.25 1600 set dur 1600 lin dur+0.15 400", "env a1.gain set 0 0 lin 0.04 1 lin 0.18 0.75 set dur 0.75 lin dur+0.15 0"] }, { id: "patch_sub_wobble", name: "Sub Bass Wobble", category: "Bass", lines: ["osc o1 sine note", "osc o2 sawtooth note", "filter f1 lowpass q 5 freq 600", "osc lfo sine 3", "gain glfo 0", "gain a1 0", "conn o1 a1 0.7", "conn o2 f1 0.5", "conn f1 a1 0.5", "conn a1 out 0.72", "conn lfo glfo 1", "conn glfo f1.freq 1", "env glfo.gain set 0 0 lin 0.3 500", "env a1.gain set 0 0 lin 0.02 1 lin 0.2 0.8 set dur 0.8 lin dur+0.3 0"] }, { id: "patch_cinematic_drone", name: "Cinematic Drone", category: "Pad", lines: ["osc o1 sine note", "osc o2 sine note rand 3", "osc o3 triangle note*0.5", "noise n1", "filter f1 lowpass q 1 freq 1200", "filter f2 highpass q 0.7 freq 80", "osc lfo sine 0.08", "gain glfo 0", "gain a1 0", "conn o1 f1 0.4", "conn o2 f1 0.35", "conn o3 f1 0.25", "conn n1 f1 0.06", "conn f1 f2 1", "conn f2 a1 1", "conn a1 out 0.6", "conn lfo glfo 1", "conn glfo f1.freq 1", "env glfo.gain set 0 400", "env a1.gain set 0 0 lin 2.5 0.8 lin 4.0 0.7 set dur 0.7 lin dur+3.0 0"] }, { id: "patch_808_tape", name: "808 Tape Kick", category: "Drums", lines: ["osc o1 sine note", "noise n1", "filter f1 lowpass q 0.7 freq 200", "shaper s1 amount 0.3", "gain gn 0", "gain a1 0", "conn o1 s1 1", "conn s1 f1 1", "conn f1 a1 0.9", "conn n1 gn 1", "conn gn a1 0.4", "conn a1 out 0.8", "env o1.freq set 0 note*8 exp 0.04 note", "env gn.gain set 0 0.8 lin 0.005 0.8 lin 0.04 0", "env a1.gain set 0 1 lin 0.5 0.3 lin 0.8 0"] }, { id: "patch_lofi_keys", name: "Lo-fi Keys", category: "Keys", lines: ["osc o1 triangle note", "osc o2 sine note*2.01", "noise n1", "filter f1 lowpass q 1.5 freq 2800", "filter f2 lowpass q 0.7 freq 3500", "gain gn 0", "gain a1 0", "conn o1 f1 0.6", "conn o2 f1 0.2", "conn f1 a1 1", "conn n1 gn 1", "conn gn f2 1", "conn f2 a1 0.08", "conn a1 out 0.65", "env gn.gain set 0 0.3 lin 0.01 0.3 lin 0.1 0", "env a1.gain set 0 0 lin 0.008 1 lin 0.5 0.4 set dur 0.4 lin dur+0.3 0"] }, { id: "patch_brass_swell", name: "Brass Swell", category: "Brass", lines: ["osc o1 sawtooth note", "osc o2 sawtooth note rand 4", "filter f1 lowpass q 3 freq 800", "filter f2 highpass q 0.7 freq 200", "gain a1 0", "conn o1 f1 0.55", "conn o2 f1 0.45", "conn f1 f2 1", "conn f2 a1 1", "conn a1 out 0.72", "env f1.freq set 0 600 lin 0.15 3200 lin 0.4 2000 set dur 2000 lin dur+0.2 600", "env a1.gain set 0 0 lin 0.1 0.9 lin 0.3 0.75 set dur 0.75 lin dur+0.2 0"] }, { id: "patch_trumpet", name: "Muted Trumpet", category: "Brass", lines: ["osc o1 sawtooth note", "filter f1 bandpass q 5 freq 1500", "filter f2 lowpass q 2 freq 2500", "gain a1 0", "conn o1 f1 1", "conn f1 f2 0.7", "conn f2 a1 1", "conn a1 out 0.7", "env f1.freq set 0 800 lin 0.06 1800 lin 0.2 1400", "env a1.gain set 0 0 lin 0.05 1 lin 0.2 0.8 set dur 0.8 lin dur+0.15 0"] }, { id: "patch_b3_organ", name: "B3 Organ", category: "Keys", lines: ["osc o1 sine note", "osc o2 sine note*2", "osc o3 sine note*3", "osc o4 sine note*4", "osc o5 sine note*6", "osc o6 sine note*8", "noise n1", "filter f1 lowpass q 0.7 freq 4500", "gain gn 0", "gain a1 0", "conn o1 a1 0.35", "conn o2 a1 0.28", "conn o3 a1 0.18", "conn o4 a1 0.12", "conn o5 a1 0.08", "conn o6 a1 0.05", "conn n1 gn 1", "conn gn a1 0.04", "conn a1 f1 1", "conn f1 out 0.65", "env gn.gain set 0 1 lin 0.008 0", "env a1.gain set 0 0 lin 0.006 1 set dur 1 lin dur+0.08 0"] }, { id: "patch_strings_section", name: "Strings Section", category: "Pad", lines: ["osc o1 sawtooth note rand 5", "osc o2 sawtooth note rand 8", "osc o3 sawtooth note rand 4", "osc o4 sawtooth note*2.001", "filter f1 lowpass q 1 freq 3000", "osc lfo sine 5.5", "gain glfo 0", "gain a1 0", "pan p1 -0.4", "pan p2 0.4", "conn o1 p1 0.3", "conn o2 p2 0.3", "conn o3 f1 0.25", "conn o4 f1 0.15", "conn f1 a1 1", "conn p1 a1 1", "conn p2 a1 1", "conn a1 out 0.45", "conn lfo glfo 1", "conn glfo o1.freq 1", "conn glfo o2.freq 1", "env glfo.gain set 0 0 lin 0.6 note*0.006", "env a1.gain set 0 0 lin 0.5 0.9 lin 1.0 0.75 set dur 0.75 lin dur+1.0 0"] }, { id: "patch_flute", name: "Breathy Flute", category: "Wind", lines: ["osc o1 sine note", "noise n1", "filter f1 bandpass q 3 freq 2000", "filter f2 lowpass q 1 freq 3500", "osc lfo sine 5", "gain glfo 0", "gain gn 0", "gain a1 0", "conn o1 f2 0.6", "conn n1 gn 1", "conn gn f1 1", "conn f1 f2 0.3", "conn f2 a1 1", "conn a1 out 0.7", "conn lfo glfo 1", "conn glfo o1.freq 1", "env glfo.gain set 0 0 lin 0.3 note*0.005", "env f1.freq set 0 note*3", "env gn.gain set 0 0 lin 0.08 0.35 lin 0.3 0.15 set dur 0.15 lin dur+0.2 0", "env a1.gain set 0 0 lin 0.08 1 lin 0.3 0.8 set dur 0.8 lin dur+0.2 0"] }, { id: "patch_wurlitzer", name: "Wurlitzer EP", category: "Keys", lines: ["osc o1 sine note", "osc o2 sine note*2", "osc o3 square note*5", "filter f1 lowpass q 2 freq 2400", "gain gmod 0", "gain a1 0", "conn o3 gmod 1", "conn gmod o1.freq 1", "conn o1 f1 0.7", "conn o2 f1 0.2", "conn f1 a1 1", "conn a1 out 0.65", "env gmod.gain set 0 note*2 lin 0.12 note*0.1", "env f1.freq set 0 3600 lin 0.8 1800", "env a1.gain set 0 0 lin 0.004 1 lin 1.0 0.3 set dur 0.3 lin dur+0.25 0"] }];
+    let out = [];
+    let i = 0;
+    while ((i < patches.length))
+      {
+        let p = (patches[i] ?? null);
+        (out.push({ presetId: ("factory_" + p.id), name: ("Patch · " + p.name), generatorId: "patch", params: {  }, generatorSpec: (parseGenBlock("patch", p.lines) ?? null) }) ?? null);
         (i = (i + 1));
       }
     return out;
@@ -2927,6 +4768,20 @@ function emptyProjectShell () {
       {
         (instrumentPresets.push((mxPresets[mxi] ?? null)) ?? null);
         (mxi = (mxi + 1));
+      }
+    let genPresets = (generatorFactoryPresets() ?? null);
+    let gi = 0;
+    while ((gi < genPresets.length))
+      {
+        (instrumentPresets.push((genPresets[gi] ?? null)) ?? null);
+        (gi = (gi + 1));
+      }
+    let patchPresets = (patchFactoryPresets() ?? null);
+    let pi = 0;
+    while ((pi < patchPresets.length))
+      {
+        (instrumentPresets.push((patchPresets[pi] ?? null)) ?? null);
+        (pi = (pi + 1));
       }
     return { version: 2, bpm: 120, transportMainDeck: "live", transportCrossfade: 0.5, transportCrossfadeY: 0.5, swing: 0, channels: [], instrumentPresets: instrumentPresets, automation: { pitchBend: [{ beat: 0, value: 0 }, { beat: 4, value: 0 }], masterGain: [{ beat: 0, value: 1 }, { beat: 16, value: 1 }] }, paramAutomations: [], mixerAutomations: [] };
   }
@@ -3659,6 +5514,113 @@ function quantizeNoteToStep (note, stepFrac) {
   {
     let q = ((Math.round((note.startBeat / stepFrac)) ?? null) * stepFrac);
     (note.startBeat = q);
+  }
+}
+function deepCloneParams (obj) {
+  {
+    return (JSON.parse((JSON.stringify(obj) ?? null)) ?? null);
+  }
+}
+function ensureInstrumentPresets (project) {
+  {
+    if (!project.instrumentPresets)
+      {
+        (project.instrumentPresets = []);
+      }
+  }
+}
+function addInstrumentPreset (project, displayName, ch) {
+  {
+    (ensureInstrumentPresets(project) ?? null);
+    let pid = ((("p_" + (String(project.instrumentPresets.length) ?? null)) + "_") + (String((Math.floor(((Math.random() ?? null) * 99999)) ?? null)) ?? null));
+    let row = { presetId: pid, name: displayName, generatorId: ch.generatorId, params: (deepCloneParams(ch.generatorParams) ?? null), macroName: ((ch.macroName != null) ? ch.macroName : null), macroParams: (ch.macroParams ? (deepCloneParams(ch.macroParams) ?? null) : null), fx: { reverbSend: ch.reverbSend, drive: ch.drive, filterCutoff: ch.filterCutoff, filterQ: ch.filterQ, lfoRate: ch.lfoRate, lfoDepth: ch.lfoDepth }, voice: { octave: ch.octave, arp: ch.arp, chord: ch.chord } };
+    if (ch.generatorSpec)
+      {
+        (row.generatorSpec = (deepCloneParams(ch.generatorSpec) ?? null));
+      }
+    (project.instrumentPresets.push(row) ?? null);
+  }
+}
+function applyInstrumentPresetToChannel (ch, preset) {
+  {
+    (ch.generatorId = preset.generatorId);
+    (ch.generatorParams = (deepCloneParams(preset.params) ?? null));
+    if (preset.generatorSpec)
+      {
+        (ch.generatorSpec = (deepCloneParams(preset.generatorSpec) ?? null));
+      }
+    else
+      {
+        (ch.generatorSpec = null);
+      }
+    if (((ch.generatorId === "matrixFm") && !ch.generatorSpec))
+      {
+        (ch.generatorSpec = (parseGenBlock("matrix_fm", (defaultMatrixFmRawLines() ?? null)) ?? null));
+      }
+    (ch.macroName = ((preset.macroName != null) ? preset.macroName : null));
+    (ch.macroParams = (preset.macroParams ? (deepCloneParams(preset.macroParams) ?? null) : null));
+    let fx = (preset.fx ? preset.fx : {  });
+    (ch.reverbSend = ((fx.reverbSend != null) ? fx.reverbSend : 0));
+    (ch.drive = ((fx.drive != null) ? fx.drive : 0));
+    (ch.filterCutoff = ((fx.filterCutoff != null) ? fx.filterCutoff : 20000));
+    (ch.filterQ = ((fx.filterQ != null) ? fx.filterQ : 0.7));
+    (ch.lfoRate = ((fx.lfoRate != null) ? fx.lfoRate : 0));
+    (ch.lfoDepth = ((fx.lfoDepth != null) ? fx.lfoDepth : 0));
+    let voice = (preset.voice ? preset.voice : {  });
+    (ch.octave = ((voice.octave != null) ? voice.octave : 0));
+    (ch.arp = ((voice.arp != null) ? voice.arp : "off"));
+    (ch.chord = ((voice.chord != null) ? voice.chord : "off"));
+  }
+}
+function snapshotInstrument (ch) {
+  {
+    let snap = { generatorId: ch.generatorId, generatorParams: (deepCloneParams(ch.generatorParams) ?? null) };
+    if (ch.generatorSpec)
+      {
+        (snap.generatorSpec = (deepCloneParams(ch.generatorSpec) ?? null));
+      }
+    if ((ch.macroName != null))
+      {
+        (snap.macroName = ch.macroName);
+      }
+    if (ch.macroParams)
+      {
+        (snap.macroParams = (deepCloneParams(ch.macroParams) ?? null));
+      }
+    (snap.fx = { reverbSend: ch.reverbSend, drive: ch.drive, filterCutoff: ch.filterCutoff, filterQ: ch.filterQ, lfoRate: ch.lfoRate, lfoDepth: ch.lfoDepth });
+    (snap.voice = { octave: ch.octave, arp: ch.arp, chord: ch.chord });
+    return snap;
+  }
+}
+function applyInstrument (ch, snap) {
+  {
+    if (!snap)
+      {
+        return;
+      }
+    (ch.generatorId = snap.generatorId);
+    (ch.generatorParams = (deepCloneParams(snap.generatorParams) ?? null));
+    if (snap.generatorSpec)
+      {
+        (ch.generatorSpec = (deepCloneParams(snap.generatorSpec) ?? null));
+      }
+    else
+      {
+        (ch.generatorSpec = null);
+      }
+    (ch.macroName = ((snap.macroName != null) ? snap.macroName : null));
+    (ch.macroParams = (snap.macroParams ? (deepCloneParams(snap.macroParams) ?? null) : null));
+    let fx = (snap.fx ? snap.fx : {  });
+    (ch.reverbSend = ((fx.reverbSend != null) ? fx.reverbSend : 0));
+    (ch.drive = ((fx.drive != null) ? fx.drive : 0));
+    (ch.filterCutoff = ((fx.filterCutoff != null) ? fx.filterCutoff : 20000));
+    (ch.filterQ = ((fx.filterQ != null) ? fx.filterQ : 0.7));
+    (ch.lfoRate = ((fx.lfoRate != null) ? fx.lfoRate : 0));
+    (ch.lfoDepth = ((fx.lfoDepth != null) ? fx.lfoDepth : 0));
+    let voice = (snap.voice ? snap.voice : {  });
+    (ch.octave = ((voice.octave != null) ? voice.octave : 0));
+    (ch.arp = ((voice.arp != null) ? voice.arp : "off"));
+    (ch.chord = ((voice.chord != null) ? voice.chord : "off"));
   }
 }
 function barOfBeat (beat) {
@@ -4462,10 +6424,15 @@ function sessionWriteRackToSceneClip (project, sceneIdx) {
         let baseSteps = (stepsForClip(ch, bars) ?? null);
         let spb = (copyStepPitchByBar(ch.stepPitchByBar) ?? null);
         let clip = (findClipOnChannel(ch, clipId) ?? null);
+        let storeInstr = (ch.clipInstrMode === "store");
         if (!clip)
           {
             let nm = (((String(ch.name) ?? null) + " ·S") + (String((s + 1)) ?? null));
             (clip = { id: clipId, name: nm, bars: bars, steps: baseSteps, pianoNotes: (copyPianoNotes(ch.pianoNotes) ?? null), stepPitchByBar: spb, tplLoopBars: ((ch.tplLoopBars != null) ? ch.tplLoopBars : null) });
+            if (storeInstr)
+              {
+                (clip.instrument = (snapshotInstrument(ch) ?? null));
+              }
             (ch.sessionClips.push(clip) ?? null);
           }
         else
@@ -4475,6 +6442,10 @@ function sessionWriteRackToSceneClip (project, sceneIdx) {
             (clip.pianoNotes = (copyPianoNotes(ch.pianoNotes) ?? null));
             (clip.stepPitchByBar = spb);
             (clip.tplLoopBars = ((ch.tplLoopBars != null) ? ch.tplLoopBars : null));
+            if (storeInstr)
+              {
+                (clip.instrument = (snapshotInstrument(ch) ?? null));
+              }
           }
         (normalizeClipStepLength(clip) ?? null);
         if (((project.session.slots[ti] ?? null) && (((project.session.slots[ti] ?? null)[s] ?? null) !== undefined)))
@@ -4517,6 +6488,10 @@ function loadSceneIntoRack (project, sceneIdx) {
             (ch.pianoNotes = (copyPianoNotes(clip.pianoNotes) ?? null));
             (ch.patternBars = (((clip.bars != null) && ((Math.floor(clip.bars) ?? null) >= 1)) ? (Math.floor(clip.bars) ?? null) : 1));
             (ch.stepPitchByBar = (copyStepPitchByBar(clip.stepPitchByBar) ?? null));
+            if (((ch.clipInstrMode === "store") && clip.instrument))
+              {
+                (applyInstrument(ch, clip.instrument) ?? null);
+              }
           }
         (ti = (ti + 1));
       }
@@ -4566,6 +6541,10 @@ function loadSceneBarIntoRack (project, sceneIdx, barIdx) {
                   }
                 (ch.stepPitchByBar[b] = (clip.stepPitchByBar[srcBar] ?? null));
               }
+            if (((ch.clipInstrMode === "store") && clip.instrument))
+              {
+                (applyInstrument(ch, clip.instrument) ?? null);
+              }
           }
         (ti = (ti + 1));
       }
@@ -4614,9 +6593,14 @@ function sessionWriteRackBarToSceneClip (project, sceneIdx, barIdx) {
             (onePitch = [(ch.stepPitchByBar[srcBar] ?? null)]);
           }
         let clip = (findClipOnChannel(ch, clipId) ?? null);
+        let storeInstr = (ch.clipInstrMode === "store");
         if (!clip)
           {
             (clip = { id: clipId, name: (((String(ch.name) ?? null) + " ·S") + (String((s + 1)) ?? null)), bars: 1, steps: oneSteps, pianoNotes: oneNotes, stepPitchByBar: onePitch, tplLoopBars: ((ch.tplLoopBars != null) ? ch.tplLoopBars : null) });
+            if (storeInstr)
+              {
+                (clip.instrument = (snapshotInstrument(ch) ?? null));
+              }
             (ch.sessionClips.push(clip) ?? null);
           }
         else
@@ -4625,6 +6609,10 @@ function sessionWriteRackBarToSceneClip (project, sceneIdx, barIdx) {
             (clip.steps = oneSteps);
             (clip.pianoNotes = oneNotes);
             (clip.stepPitchByBar = onePitch);
+            if (storeInstr)
+              {
+                (clip.instrument = (snapshotInstrument(ch) ?? null));
+              }
           }
         if (((project.session.slots[ti] ?? null) && (((project.session.slots[ti] ?? null)[s] ?? null) !== undefined)))
           {
@@ -5934,9 +7922,19 @@ function applyTrackBody (project, ch, body, genBlocks, errors, headerLoopBars) {
                           (ch.generatorParams[key] = num);
                         }
                       else
-                        {
-                          (ch.generatorParams[key] = raw);
-                        }
+                        if ((raw === "true"))
+                          {
+                            (ch.generatorParams[key] = true);
+                          }
+                        else
+                          if ((raw === "false"))
+                            {
+                              (ch.generatorParams[key] = false);
+                            }
+                          else
+                            {
+                              (ch.generatorParams[key] = raw);
+                            }
                       (gi = (gi + 2));
                     }
                 }
@@ -6009,6 +8007,25 @@ function applyTrackBody (project, ch, body, genBlocks, errors, headerLoopBars) {
                                 {
                                   (ch.chord = raw);
                                 }
+                              else
+                                if ((k === "arprate"))
+                                  {
+                                    (ch.arpRate = raw);
+                                  }
+                                else
+                                  if ((k === "inversion"))
+                                    {
+                                      (ch.inversion = raw);
+                                    }
+                                  else
+                                    if ((k === "strum"))
+                                      {
+                                        let s = (Number(raw) ?? null);
+                                        if ((s === s))
+                                          {
+                                            (ch.strum = s);
+                                          }
+                                      }
                           (vi = (vi + 2));
                         }
                     }
@@ -7235,17 +9252,17 @@ function loadDefaultDeckardProject () {
     return (loadProjectFromTpl((defaultDeckardTplText() ?? null)) ?? null);
   }
 }
-let KEY__m25 = "deckard.stationpresets.v1";
+let KEY__m35 = "deckard.stationpresets.v1";
 let OLD_KEY = "deckard.setpresets.v1";
-let TAG__m25 = "# deckard-station";
+let TAG__m35 = "# deckard-station";
 let OLD_TAG = "# deckard-set";
-function defaultBackend__m25 () {
+function defaultBackend__m35 () {
   {
     if (((((__v) => __v == null ? "null" : typeof __v)(localStorage) !== "undefined") && localStorage))
       {
         return { read: () => {
           {
-            let v = (localStorage.getItem(KEY__m25) ?? null);
+            let v = (localStorage.getItem(KEY__m35) ?? null);
             if (((v == null) || ((String(v) ?? null).length === 0)))
               {
                 (v = (localStorage.getItem(OLD_KEY) ?? null));
@@ -7254,7 +9271,7 @@ function defaultBackend__m25 () {
           }
         }, write: (s) => {
           {
-            (localStorage.setItem(KEY__m25, s) ?? null);
+            (localStorage.setItem(KEY__m35, s) ?? null);
           }
         } };
       }
@@ -7273,7 +9290,7 @@ function factoryStations () {
 }
 function createStationPresets (injected) {
   {
-    let be = (injected ? injected : (defaultBackend__m25() ?? null));
+    let be = (injected ? injected : (defaultBackend__m35() ?? null));
     function readLib () {
       {
         let raw = (be.read() ?? null);
@@ -7374,7 +9391,7 @@ function createStationPresets (injected) {
           {
             return null;
           }
-        return ((((TAG__m25 + " name=") + name) + "\n") + s.tpl);
+        return ((((TAG__m35 + " name=") + name) + "\n") + s.tpl);
       }
     }
     function importText (text, fallbackName) {
@@ -7383,7 +9400,7 @@ function createStationPresets (injected) {
         let name = fallbackName;
         let nl = (body.indexOf("\n") ?? null);
         let first = ((nl >= 0) ? (body.substring(0, nl) ?? null) : body);
-        if ((((first.indexOf(TAG__m25) ?? null) === 0) || ((first.indexOf(OLD_TAG) ?? null) === 0)))
+        if ((((first.indexOf(TAG__m35) ?? null) === 0) || ((first.indexOf(OLD_TAG) ?? null) === 0)))
           {
             let ni = (first.indexOf("name=") ?? null);
             if ((ni >= 0))
@@ -7844,7 +9861,7 @@ function emitProjectInner (project, skipSync) {
             (o = (((o + "  osc waveform ") + (String(p.waveform) ?? null)) + "\n"));
             (o = (((((((((o + "  adsr a ") + (formatTplFloat(p.attack) ?? null)) + " d ") + (formatTplFloat(p.decay) ?? null)) + " s ") + (formatTplFloat(p.sustain) ?? null)) + " r ") + (formatTplFloat(p.release) ?? null)) + "\n"));
           }
-        if ((((((((((((gid === "pad") || (gid === "bell")) || (gid === "drumSynth")) || (gid === "guitar")) || (gid === "clap")) || (gid === "arco")) || (gid === "tine")) || (gid === "aether")) || (gid === "halo")) || (gid === "formantVocal")) || (gid === "ttsVocal")))
+        if (((((((((((((((((((gid === "pad") || (gid === "bell")) || (gid === "drumSynth")) || (gid === "guitar")) || (gid === "clap")) || (gid === "arco")) || (gid === "tine")) || (gid === "aether")) || (gid === "halo")) || (gid === "formantVocal")) || (gid === "ttsVocal")) || (gid === "nes2a03")) || (gid === "gameBoyDmg")) || (gid === "c64sid")) || (gid === "ym2612")) || (gid === "sn76489")) || (gid === "spc700")) || (gid === "gbaDirectSound")))
           {
             let keys = (Object.keys(p) ?? null);
             if ((keys.length > 0))
@@ -7903,6 +9920,20 @@ function emitProjectInner (project, skipSync) {
         if ((((ch.chord != null) && (ch.chord !== "")) && (ch.chord !== "off")))
           {
             (voiceParts = ((voiceParts + " chord ") + (String(ch.chord) ?? null)));
+          }
+        if (((ch.arpRate != null) && (ch.arpRate !== "auto")))
+          {
+            (voiceParts = ((voiceParts + " arprate ") + (String(ch.arpRate) ?? null)));
+          }
+        if (((ch.inversion != null) && (ch.inversion !== "root")))
+          {
+            (voiceParts = ((voiceParts + " inversion ") + (String(ch.inversion) ?? null)));
+          }
+        if ((ch.strum != null))
+          {
+            let s = ch.strum;
+            let sStr = (String(((Math.round((s * 1000)) ?? null) / 1000)) ?? null);
+            (voiceParts = ((voiceParts + " strum ") + sStr));
           }
         if ((voiceParts.length > 0))
           {
@@ -8345,7 +10376,7 @@ function splitTplBlocks (tpl) {
     return blocks;
   }
 }
-function blockText__m29 (b) {
+function blockText__m39 (b) {
   {
     if ((b.body.length === 0))
       {
@@ -8405,7 +10436,7 @@ function emitLevel (project, level, scope) {
           {
             if (((blocks[i] ?? null).head === "track"))
               {
-                (out = ((out + (blockText__m29((blocks[i] ?? null)) ?? null)) + "\n"));
+                (out = ((out + (blockText__m39((blocks[i] ?? null)) ?? null)) + "\n"));
               }
             (i = (i + 1));
           }
@@ -8420,7 +10451,7 @@ function emitLevel (project, level, scope) {
             let h = (blocks[i] ?? null).head;
             if ((((((h === "session_scenes") || (h === "session_slot")) || (h === "clip")) || (h === "song")) || (h === "follow")))
               {
-                (out = ((out + (blockText__m29((blocks[i] ?? null)) ?? null)) + "\n"));
+                (out = ((out + (blockText__m39((blocks[i] ?? null)) ?? null)) + "\n"));
               }
             (i = (i + 1));
           }
@@ -8438,7 +10469,7 @@ function emitLevel (project, level, scope) {
                 let dk = ((ch && (ch.deck != null)) ? ch.deck : "live");
                 if ((ch && (dk === scope)))
                   {
-                    (out = ((out + (blockText__m29((blocks[i] ?? null)) ?? null)) + "\n"));
+                    (out = ((out + (blockText__m39((blocks[i] ?? null)) ?? null)) + "\n"));
                   }
               }
             (i = (i + 1));
@@ -8461,7 +10492,7 @@ function emitLevel (project, level, scope) {
       }
     if ((level === "channel"))
       {
-        return (wrap((blockText__m29(blk) ?? null)) ?? null);
+        return (wrap((blockText__m39(blk) ?? null)) ?? null);
       }
     if ((level === "instrument"))
       {
@@ -8805,10 +10836,48 @@ function graftRackOntoDeck (project, deckId, rackTpl, keepClips) {
     (project.channels = kept);
     let tmp = (emptyProjectShell() ?? null);
     (applyTplSource(tmp, rackTpl) ?? null);
+    if ((tmp.session && (tmp.session.sceneCount > 0)))
+      {
+        if ((tmp.session.sceneCount > project.session.sceneCount))
+          {
+            (project.session.sceneCount = tmp.session.sceneCount);
+          }
+      }
+    if (((tmp.session && tmp.session.follow) && (tmp.session.follow.length > 0)))
+      {
+        let fi = 0;
+        if (!project.session.follow)
+          {
+            (project.session.follow = []);
+          }
+        while ((fi < tmp.session.follow.length))
+          {
+            let f = (tmp.session.follow[fi] ?? null);
+            if (f)
+              {
+                while ((project.session.follow.length <= f.scene))
+                  {
+                    (project.session.follow.push(null) ?? null);
+                  }
+                (project.session.follow[f.scene] = { action: f.action, target: f.target });
+              }
+            (fi = (fi + 1));
+          }
+      }
+    if (((tmp.bpm > 0) && (tmp.bpm !== 120)))
+      {
+        (project.bpm = tmp.bpm);
+      }
+    if ((tmp.swing > 0))
+      {
+        (project.swing = tmp.swing);
+      }
+    let loadedSlots = {  };
     let k = 0;
     while ((k < tmp.channels.length))
       {
         let ch = (tmp.channels[k] ?? null);
+        let origId = ch.id;
         (ch.id = (prefix + ch.id));
         (ch.actorLane = lane);
         (ch.deck = deckField);
@@ -8826,6 +10895,22 @@ function graftRackOntoDeck (project, deckId, rackTpl, keepClips) {
           {
             (ch.sessionClips = []);
           }
+        let chSlots = (((tmp.session && tmp.session.slots) && (k < tmp.session.slots.length)) ? (tmp.session.slots[k] ?? null) : []);
+        let prefixChSlots = [];
+        let csi = 0;
+        while ((csi < chSlots.length))
+          {
+            if (((chSlots[csi] ?? null) && ((chSlots[csi] ?? null).length > 0)))
+              {
+                (prefixChSlots.push((prefix + (chSlots[csi] ?? null))) ?? null);
+              }
+            else
+              {
+                (prefixChSlots.push("") ?? null);
+              }
+            (csi = (csi + 1));
+          }
+        (loadedSlots[ch.id] = prefixChSlots);
         (project.channels.push(ch) ?? null);
         (k = (k + 1));
       }
@@ -8852,7 +10937,7 @@ function graftRackOntoDeck (project, deckId, rackTpl, keepClips) {
         while ((ci < project.channels.length))
           {
             let cid = (project.channels[ci] ?? null).id;
-            (newSlots.push((((prevSlots[cid] ?? null) != null) ? (prevSlots[cid] ?? null) : [])) ?? null);
+            (newSlots.push((((prevSlots[cid] ?? null) != null) ? (prevSlots[cid] ?? null) : (((loadedSlots[cid] ?? null) != null) ? (loadedSlots[cid] ?? null) : []))) ?? null);
             (ci = (ci + 1));
           }
         (project.session.slots = newSlots);
@@ -8871,8 +10956,8 @@ function loadDeckSet (project, deckId, setId) {
     return (graftRackOntoDeck(project, deckId, set.tpl, false) ?? null);
   }
 }
-let KEY__m31 = "deckard.sets.v1";
-let TAG__m31 = "# deckard-set";
+let KEY__m41 = "deckard.sets.v1";
+let TAG__m41 = "# deckard-set";
 let PLAYER_MARK = "# player";
 let SONG_MARK = "# song";
 let MODE_MARK = "# mode";
@@ -8913,7 +10998,7 @@ function afterKey (s, key) {
     return ((sp < 0) ? (rest.trim() ?? null) : ((rest.substring(0, sp) ?? null).trim() ?? null));
   }
 }
-function blockText__m31 (b) {
+function blockText__m41 (b) {
   {
     if ((b.body.length === 0))
       {
@@ -9004,6 +11089,19 @@ function emitSet (project, deckLetters) {
       {
         let L = (deckLetters[pi] ?? null);
         (body = ((((body + PLAYER_MARK) + " ") + (String(pi) ?? null)) + "\n"));
+        if ((pi === 0))
+          {
+            let b0 = 0;
+            while ((b0 < blocks.length))
+              {
+                let h = (blocks[b0] ?? null).head;
+                if (((((h === "session_scenes") || (h === "follow")) || (h === "bpm")) || (h === "swing")))
+                  {
+                    (body = (body + (blockText__m41((blocks[b0] ?? null)) ?? null)));
+                  }
+                (b0 = (b0 + 1));
+              }
+          }
         let bi = 0;
         while ((bi < blocks.length))
           {
@@ -9028,10 +11126,29 @@ function emitSet (project, deckLetters) {
                 let och = (cch ? (findChannelById(project, cch) ?? null) : null);
                 if ((och && ((channelDeck(project, och) ?? null) === L)))
                   {
-                    (body = (body + (blockText__m31(cb) ?? null)));
+                    (body = (body + (blockText__m41(cb) ?? null)));
                   }
               }
             (ci = (ci + 1));
+          }
+        let si = 0;
+        while ((si < blocks.length))
+          {
+            let sb = (blocks[si] ?? null);
+            if ((sb.head === "session_slot"))
+              {
+                let toks = (wsplit(sb.header) ?? null);
+                if ((toks.length >= 2))
+                  {
+                    let trId = (toks[1] ?? null);
+                    let och = (findChannelById(project, trId) ?? null);
+                    if ((och && ((channelDeck(project, och) ?? null) === L)))
+                      {
+                        (body = (body + (blockText__m41(sb) ?? null)));
+                      }
+                  }
+              }
+            (si = (si + 1));
           }
         (pi = (pi + 1));
       }
@@ -9063,7 +11180,7 @@ function parseSet (tpl) {
               (inSong = true);
             }
           else
-            if (((t.indexOf(TAG__m31) ?? null) === 0))
+            if (((t.indexOf(TAG__m41) ?? null) === 0))
               {
               }
             else
@@ -9369,13 +11486,13 @@ function factorySets () {
     return out;
   }
 }
-function defaultBackend__m31 () {
+function defaultBackend__m41 () {
   {
     if (((((__v) => __v == null ? "null" : typeof __v)(localStorage) !== "undefined") && localStorage))
       {
-        return { read: () => ((localStorage.getItem(KEY__m31) ?? null)), write: (s) => {
+        return { read: () => ((localStorage.getItem(KEY__m41) ?? null)), write: (s) => {
           {
-            (localStorage.setItem(KEY__m31, s) ?? null);
+            (localStorage.setItem(KEY__m41, s) ?? null);
           }
         } };
       }
@@ -9389,7 +11506,7 @@ function defaultBackend__m31 () {
 }
 function createSetLibrary (injected) {
   {
-    let be = (injected ? injected : (defaultBackend__m31() ?? null));
+    let be = (injected ? injected : (defaultBackend__m41() ?? null));
     function readLib () {
       {
         let raw = (be.read() ?? null);
@@ -9491,7 +11608,7 @@ function createSetLibrary (injected) {
           {
             return null;
           }
-        return ((((((TAG__m31 + " name=") + name) + " players=") + (String(s.players) ?? null)) + "\n") + s.tpl);
+        return ((((((TAG__m41 + " name=") + name) + " players=") + (String(s.players) ?? null)) + "\n") + s.tpl);
       }
     }
     function importText (text, fallbackName) {
@@ -9501,7 +11618,7 @@ function createSetLibrary (injected) {
         let players = null;
         let nl = (body.indexOf("\n") ?? null);
         let first = ((nl >= 0) ? (body.substring(0, nl) ?? null) : body);
-        if (((first.indexOf(TAG__m31) ?? null) === 0))
+        if (((first.indexOf(TAG__m41) ?? null) === 0))
           {
             let nm = (afterKey(first, "name=") ?? null);
             if (((nm != null) && (nm.length > 0)))
@@ -10564,7 +12681,7 @@ function mergeFilterEnv (e) {
     return { a: o.a, d: o.d, s: o.s, r: o.r, amount: amt };
   }
 }
-function clampHz__m42 (h) {
+function clampHz__m52 (h) {
   {
     if ((h < 20))
       {
@@ -10587,9 +12704,9 @@ function scheduleAdsrCutoff (param, t, base, amount, a, d, s, r, durSec) {
       {
         (releaseEnd = (susPlateau + (Math.max(r, 0.02) ?? null)));
       }
-    let peakF = (clampHz__m42((base + amount)) ?? null);
-    let susF = (clampHz__m42((base + (amount * s))) ?? null);
-    let b0 = (clampHz__m42(base) ?? null);
+    let peakF = (clampHz__m52((base + amount)) ?? null);
+    let susF = (clampHz__m52((base + (amount * s))) ?? null);
+    let b0 = (clampHz__m52(base) ?? null);
     (param.setValueAtTime(b0, t) ?? null);
     (param.linearRampToValueAtTime(peakF, (t + a)) ?? null);
     (param.linearRampToValueAtTime(susF, tDecayEnd) ?? null);
@@ -10598,7 +12715,7 @@ function scheduleAdsrCutoff (param, t, base, amount, a, d, s, r, durSec) {
     return releaseEnd;
   }
 }
-function makeNoiseBuffer__m42 (ctx) {
+function makeNoiseBuffer__m52 (ctx) {
   {
     let sr = ctx.sampleRate;
     let n = (Math.floor((sr * 2)) ?? null);
@@ -10686,7 +12803,7 @@ function playMatrixFm (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
         if ((wave === "noise"))
           {
             let nb = (ctx.createBufferSource() ?? null);
-            (nb.buffer = (makeNoiseBuffer__m42(ctx) ?? null));
+            (nb.buffer = (makeNoiseBuffer__m52(ctx) ?? null));
             (nb.loop = true);
             (srcNode = nb);
             (opIsNoise[oid] = true);
@@ -10791,7 +12908,7 @@ function playMatrixFm (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
         let fd = (filtersDef[fid] ?? null);
         let bq1 = (ctx.createBiquadFilter() ?? null);
         (setupBiquadType(bq1, fd.type) ?? null);
-        let c0 = (clampHz__m42(((fd.cutoff != null) ? fd.cutoff : 8000)) ?? null);
+        let c0 = (clampHz__m52(((fd.cutoff != null) ? fd.cutoff : 8000)) ?? null);
         (bq1.frequency.value = c0);
         let qv = ((fd.res != null) ? fd.res : 0.7);
         (bq1.Q.value = (Math.min(40, (Math.max(0.0001, (qv * 8)) ?? null)) ?? null));
@@ -11000,7 +13117,7 @@ function playBell (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
     (o2.stop(((t + decay) + 0.1)) ?? null);
   }
 }
-function makeDriveCurve__m45 (ctx, amount) {
+function makeDriveCurve__m55 (ctx, amount) {
   {
     let k = (amount * 120);
     let n = 1024;
@@ -11051,7 +13168,7 @@ function playDrum (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
     if ((drive > 0))
       {
         let ws = (ctx.createWaveShaper() ?? null);
-        (ws.curve = (makeDriveCurve__m45(ctx, drive) ?? null));
+        (ws.curve = (makeDriveCurve__m55(ctx, drive) ?? null));
         (ws.oversample = "2x");
         (osc.connect(ws) ?? null);
         (ws.connect(env) ?? null);
@@ -12064,6 +14181,22 @@ function extractVowel (str) {
     if (!str)
       return "A";
     let s = (str.toUpperCase() ?? null);
+    if (((s.indexOf("EY") ?? null) >= 0))
+      return "EY";
+    if (((s.indexOf("AE") ?? null) >= 0))
+      return "AE";
+    if (((s.indexOf("OH") ?? null) >= 0))
+      return "OH";
+    if (((s.indexOf("OO") ?? null) >= 0))
+      return "OO";
+    if (((s.indexOf("UH") ?? null) >= 0))
+      return "UH";
+    if (((s.indexOf("ER") ?? null) >= 0))
+      return "ER";
+    if (((s.indexOf("IH") ?? null) >= 0))
+      return "IH";
+    if (((s.indexOf("UX") ?? null) >= 0))
+      return "UX";
     if (((s.indexOf("A") ?? null) >= 0))
       return "A";
     if (((s.indexOf("E") ?? null) >= 0))
@@ -12077,7 +14210,7 @@ function extractVowel (str) {
     return "A";
   }
 }
-let VOWEL_FORMANTS = { A: [730, 1090, 2440], E: [530, 1840, 2480], I: [240, 2400, 3200], O: [570, 840, 2410], U: [300, 870, 2240] };
+let VOWEL_FORMANTS = { I: [270, 2290, 3010], IH: [390, 1990, 2550], EY: [400, 2100, 2800], E: [530, 1840, 2480], AE: [660, 1720, 2410], A: [730, 1090, 2440], O: [570, 840, 2410], OH: [500, 910, 2450], OO: [440, 1020, 2240], U: [300, 870, 2240], UH: [640, 1190, 2390], ER: [490, 1350, 1690], UX: [500, 1500, 2500] };
 let lastFreqByChannel = {  };
 function playFormantVocal (ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric) {
   {
@@ -12183,35 +14316,86 @@ function playFormantVocal (ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
     (glottis.stop(((t + durSec) + release)) ?? null);
   }
 }
-let mespeakInitialized = false;
-let mespeakInitializing = false;
-function initMeSpeak () {
+let worker = null;
+let workerInitialized = false;
+let ttsCache = {  };
+let ttsCacheKeys = [];
+let loadedVoices = {  };
+let lastSpeakCall = 0;
+let lastCtx = null;
+function initWorker () {
   {
-    if ((mespeakInitialized || mespeakInitializing))
+    if (worker)
+      return;
+    if (((((__v) => __v == null ? "null" : typeof __v)(window) === "undefined") || (((__v) => __v == null ? "null" : typeof __v)(Worker) === "undefined")))
+      return;
+    (worker = (new Worker("/mespeak-worker.js") ?? null));
+    (worker.onmessage = (e) => {
       {
-        return;
+        let d = e.data;
+        if ((d.type === "init_done"))
+          {
+            (workerInitialized = true);
+          }
+        else
+          if ((d.type === "voice_done"))
+            {
+              (loadedVoices[d.voiceId] = "ready");
+            }
+          else
+            if ((d.type === "speak_done"))
+              {
+                let cacheKey = d.key;
+                if ((d.buffer && lastCtx))
+                  {
+                    (lastCtx.decodeAudioData(d.buffer, (audioBuf) => {
+                      {
+                        if ((ttsCache[cacheKey] ?? null))
+                          {
+                            (ttsCache[cacheKey] = { isReady: true, buffer: audioBuf });
+                          }
+                      }
+                    }, (err) => {
+                      {
+                        (console.log("decodeAudioData error", err) ?? null);
+                        (delete ttsCache[cacheKey]);
+                      }
+                    }) ?? null);
+                  }
+                else
+                  {
+                    (delete ttsCache[cacheKey]);
+                  }
+              }
+            else
+              if ((d.type === "worker_tired"))
+                {
+                  (console.log("Recycling meSpeak worker to prevent WASM heap exhaustion") ?? null);
+                  (worker.terminate() ?? null);
+                  (worker = null);
+                  (workerInitialized = false);
+                  (loadedVoices = {  });
+                  (initWorker() ?? null);
+                }
       }
-    if ((((__v) => __v == null ? "null" : typeof __v)(window) === "undefined"))
+    });
+    (worker.onerror = (e) => {
       {
-        return;
+        (console.warn("MeSpeak worker crashed or OOM. Restarting...", e) ?? null);
+        (worker.terminate() ?? null);
+        (worker = null);
+        (workerInitialized = false);
+        (loadedVoices = {  });
+        (initWorker() ?? null);
       }
-    (mespeakInitializing = true);
+    });
     (((fetch("/mespeak/mespeak_config.json") ?? null).then((r) => ((r.json() ?? null))) ?? null).then((cfg) => {
       {
-        (window.meSpeak.loadConfig(cfg) ?? null);
-        (mespeakInitialized = true);
-        (mespeakInitializing = false);
-      }
-    }, (e) => {
-      {
-        (console.log("window.meSpeak init error", e) ?? null);
-        (mespeakInitializing = false);
+        (worker.postMessage({ type: "init", config: cfg }) ?? null);
       }
     }) ?? null);
   }
 }
-let ttsCache = {  };
-let ttsCacheKeys = [];
 function playCachedBuffer (ctx, bus, t, v, audioBuf) {
   {
     let src = (ctx.createBufferSource() ?? null);
@@ -12223,11 +14407,11 @@ function playCachedBuffer (ctx, bus, t, v, audioBuf) {
     (src.start(t) ?? null);
   }
 }
-let loadedVoices = {  };
 function playMeSpeakVocal (ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric) {
   {
-    (initMeSpeak() ?? null);
-    if (!mespeakInitialized)
+    (lastCtx = ctx);
+    (initWorker() ?? null);
+    if (!workerInitialized)
       {
         return;
       }
@@ -12238,8 +14422,7 @@ function playMeSpeakVocal (ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
         (loadedVoices[voicePath] = "loading");
         (((fetch((("/mespeak/voices/" + voicePath) + ".json")) ?? null).then((r) => ((r.json() ?? null))) ?? null).then((vc) => {
           {
-            (window.meSpeak.loadVoice(vc) ?? null);
-            (loadedVoices[voicePath] = "ready");
+            (worker.postMessage({ type: "loadVoice", voiceId: voicePath, voice: vc }) ?? null);
           }
         }) ?? null);
       }
@@ -12284,6 +14467,12 @@ function playMeSpeakVocal (ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
           }
         return;
       }
+    let now = (Date.now() ?? null);
+    if (((now - lastSpeakCall) < 150))
+      {
+        return;
+      }
+    (lastSpeakCall = now);
     if ((ttsCacheKeys.length > 100))
       {
         let oldest = (ttsCacheKeys.shift() ?? null);
@@ -12291,26 +14480,7 @@ function playMeSpeakVocal (ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
       }
     (ttsCache[cacheKey] = { isReady: false });
     (ttsCacheKeys.push(cacheKey) ?? null);
-    let wavBuf = (window.meSpeak.speak(l, { pitch: calculatedPitch, speed: calculatedSpeed, wordgap: wordgap, variant: variant, amplitude: amplitude, voice: voicePath, rawdata: true }) ?? null);
-    if (wavBuf)
-      {
-        let copy = (wavBuf.slice(0) ?? null);
-        (ctx.decodeAudioData(copy, (audioBuf) => {
-          {
-            (ttsCache[cacheKey] = { isReady: true, buffer: audioBuf });
-            (playCachedBuffer(ctx, bus, t, v, audioBuf) ?? null);
-          }
-        }, (err) => {
-          {
-            (console.log("decodeAudioData error", err) ?? null);
-            (delete ttsCache[cacheKey]);
-          }
-        }) ?? null);
-      }
-    else
-      {
-        (delete ttsCache[cacheKey]);
-      }
+    (worker.postMessage({ type: "speak", key: cacheKey, text: l, opts: { pitch: calculatedPitch, speed: calculatedSpeed, wordgap: wordgap, variant: variant, amplitude: amplitude, voice: voicePath, rawdata: true } }) ?? null);
   }
 }
 function makeDistortionCurve (amount, curveType) {
@@ -12394,7 +14564,7 @@ function makeStringBuffer (ctx, hz, tone, damping, decayP, mute) {
     return { buffer: buf, ringSec: ringSec };
   }
 }
-function makeNoiseBuffer__m54 (ctx) {
+function makeNoiseBuffer__m64 (ctx) {
   {
     let sr = ctx.sampleRate;
     let n = (Math.floor((sr * 2)) ?? null);
@@ -12602,6 +14772,14 @@ function audioParamFor (node, param) {
       {
         return (node.pan ? node.pan : null);
       }
+    if ((p === "masterFreq"))
+      {
+        return ((node.parameters && node.parameters.get) ? (node.parameters.get("masterFreq") ?? null) : null);
+      }
+    if ((p === "slaveFreq"))
+      {
+        return ((node.parameters && node.parameters.get) ? (node.parameters.get("slaveFreq") ?? null) : null);
+      }
     return null;
   }
 }
@@ -12618,7 +14796,7 @@ function playPatch (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
         (playBasicOsc(ctx, bus, t, midi, vel, durSec, ch, bendSemis) ?? null);
         return;
       }
-    let nMidi = (Math.floor((midi + bendSemis)) ?? null);
+    let nMidi = (midi + bendSemis);
     let note = 440;
     if (((nMidi >= 0) && (nMidi <= 127)))
       {
@@ -12637,6 +14815,7 @@ function playPatch (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
     let byId = {  };
     let oscList = [];
     let noiseList = [];
+    let disconnectList = [];
     let i = 0;
     while ((i < graph.nodes.length))
       {
@@ -12677,69 +14856,128 @@ function playPatch (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
           }
         else
           {
-            if ((nd.kind === "noise"))
+            if ((nd.kind === "syncosc"))
               {
-                let src = (ctx.createBufferSource() ?? null);
-                (src.buffer = (makeNoiseBuffer__m54(ctx) ?? null));
-                (src.loop = true);
-                (byId[nd.id] = src);
-                (noiseList.push(src) ?? null);
+                let osc = null;
+                try {
+                  {
+                    (osc = (new AudioWorkletNode(ctx, "sync-oscillator") ?? null));
+                  }
+                } catch (e) {
+                  {
+                    (console.error("PATCH syncosc FALLBACK to sawtooth:", e) ?? null);
+                    (osc = (ctx.createOscillator() ?? null));
+                    (osc.type = "sawtooth");
+                  }
+                }
+                let hz = ((nd.freqMode === "fixed") ? nd.fixedHz : (note * ((nd.ratio > 0) ? nd.ratio : 1)));
+                if ((hz < 0.0001))
+                  {
+                    (hz = 0.0001);
+                  }
+                let det = (nd.detune ? nd.detune : 0);
+                if ((nd.rand && (nd.rand > 0)))
+                  {
+                    let jit = ((((Math.random() ?? null) * 2) - 1) * nd.rand);
+                    if ((nd.freqMode === "fixed"))
+                      {
+                        (hz = (hz + jit));
+                        if ((hz < 0.0001))
+                          {
+                            (hz = 0.0001);
+                          }
+                      }
+                    else
+                      {
+                        (det = (det + jit));
+                      }
+                  }
+                if (osc.parameters)
+                  {
+                    let mParam = (osc.parameters.get("masterFreq") ?? null);
+                    let sParam = (osc.parameters.get("slaveFreq") ?? null);
+                    let masterHz = (hz * (Math.pow(2, (det / 1200)) ?? null));
+                    (mParam.setValueAtTime(masterHz, t) ?? null);
+                    (sParam.setValueAtTime(masterHz, t) ?? null);
+                  }
+                else
+                  {
+                    (osc.frequency.value = hz);
+                    (osc.detune.value = det);
+                  }
+                (byId[nd.id] = osc);
+                (oscList.push(osc) ?? null);
               }
             else
               {
-                if ((nd.kind === "string"))
+                if ((nd.kind === "noise"))
                   {
-                    let ks = (makeStringBuffer(ctx, note, nd.tone, nd.damping, nd.decay, nd.mute) ?? null);
                     let src = (ctx.createBufferSource() ?? null);
-                    (src.buffer = ks.buffer);
-                    (src.loop = false);
-                    (nd._ringSec = ks.ringSec);
+                    (src.buffer = (makeNoiseBuffer__m64(ctx) ?? null));
+                    (src.loop = true);
                     (byId[nd.id] = src);
                     (noiseList.push(src) ?? null);
                   }
                 else
                   {
-                    if ((nd.kind === "filter"))
+                    if ((nd.kind === "string"))
                       {
-                        let f = (ctx.createBiquadFilter() ?? null);
-                        (f.type = nd.ftype);
-                        if ((nd.freq && (nd.freq > 0)))
-                          {
-                            (f.frequency.value = nd.freq);
-                          }
-                        (f.Q.value = nd.q);
-                        (byId[nd.id] = f);
+                        let ks = (makeStringBuffer(ctx, note, nd.tone, nd.damping, nd.decay, nd.mute) ?? null);
+                        let src = (ctx.createBufferSource() ?? null);
+                        (src.buffer = ks.buffer);
+                        (src.loop = false);
+                        (nd._ringSec = ks.ringSec);
+                        (byId[nd.id] = src);
+                        (noiseList.push(src) ?? null);
                       }
                     else
                       {
-                        if ((nd.kind === "shaper"))
+                        if ((nd.kind === "filter"))
                           {
-                            let ws = (ctx.createWaveShaper() ?? null);
-                            (ws.curve = (makeDistortionCurve(nd.amount, nd.curve) ?? null));
-                            (ws.oversample = "4x");
-                            (byId[nd.id] = ws);
+                            let f = (ctx.createBiquadFilter() ?? null);
+                            (f.type = nd.ftype);
+                            if ((nd.freq && (nd.freq > 0)))
+                              {
+                                (f.frequency.value = nd.freq);
+                              }
+                            (f.Q.value = nd.q);
+                            (byId[nd.id] = f);
+                            (disconnectList.push(f) ?? null);
                           }
                         else
                           {
-                            if ((nd.kind === "gain"))
+                            if ((nd.kind === "shaper"))
                               {
-                                let g = (ctx.createGain() ?? null);
-                                (g.gain.value = nd.value);
-                                (byId[nd.id] = g);
+                                let ws = (ctx.createWaveShaper() ?? null);
+                                (ws.curve = (makeDistortionCurve(nd.amount, nd.curve) ?? null));
+                                (ws.oversample = "4x");
+                                (byId[nd.id] = ws);
+                                (disconnectList.push(ws) ?? null);
                               }
                             else
                               {
-                                if ((nd.kind === "pan"))
+                                if ((nd.kind === "gain"))
                                   {
-                                    if (ctx.createStereoPanner)
+                                    let g = (ctx.createGain() ?? null);
+                                    (g.gain.value = nd.value);
+                                    (byId[nd.id] = g);
+                                    (disconnectList.push(g) ?? null);
+                                  }
+                                else
+                                  {
+                                    if ((nd.kind === "pan"))
                                       {
-                                        let sp = (ctx.createStereoPanner() ?? null);
-                                        (sp.pan.value = ((nd.pos != null) ? nd.pos : 0));
-                                        (byId[nd.id] = sp);
-                                      }
-                                    else
-                                      {
-                                        (byId[nd.id] = (ctx.createGain() ?? null));
+                                        if (ctx.createStereoPanner)
+                                          {
+                                            let sp = (ctx.createStereoPanner() ?? null);
+                                            (sp.pan.value = ((nd.pos != null) ? nd.pos : 0));
+                                            (byId[nd.id] = sp);
+                                            (disconnectList.push(sp) ?? null);
+                                          }
+                                        else
+                                          {
+                                            (byId[nd.id] = (ctx.createGain() ?? null));
+                                          }
                                       }
                                   }
                               }
@@ -12836,6 +15074,7 @@ function playPatch (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
         (og.gain.linearRampToValueAtTime(0, tStop) ?? null);
         (srcNode.connect(og) ?? null);
         (og.connect(target) ?? null);
+        (disconnectList.push(og) ?? null);
       }
     }
     let ci = 0;
@@ -12874,6 +15113,7 @@ function playPatch (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
                                     (sg.gain.value = cn.vol);
                                     (srcNode.connect(sg) ?? null);
                                     (sg.connect(ap) ?? null);
+                                    (disconnectList.push(sg) ?? null);
                                   }
                                 else
                                   {
@@ -12883,16 +15123,23 @@ function playPatch (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
                           }
                         else
                           {
-                            if ((cn.vol !== 1))
+                            if (((dstNode.numberOfInputs != null) && (dstNode.numberOfInputs === 0)))
                               {
-                                let cg = (ctx.createGain() ?? null);
-                                (cg.gain.value = cn.vol);
-                                (srcNode.connect(cg) ?? null);
-                                (cg.connect(dstNode) ?? null);
                               }
                             else
                               {
-                                (srcNode.connect(dstNode) ?? null);
+                                if ((cn.vol !== 1))
+                                  {
+                                    let cg = (ctx.createGain() ?? null);
+                                    (cg.gain.value = cn.vol);
+                                    (srcNode.connect(cg) ?? null);
+                                    (cg.connect(dstNode) ?? null);
+                                    (disconnectList.push(cg) ?? null);
+                                  }
+                                else
+                                  {
+                                    (srcNode.connect(dstNode) ?? null);
+                                  }
                               }
                           }
                       }
@@ -12904,8 +15151,14 @@ function playPatch (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
     let oi = 0;
     while ((oi < oscList.length))
       {
-        ((oscList[oi] ?? null).start(t) ?? null);
-        ((oscList[oi] ?? null).stop(tStop) ?? null);
+        if ((oscList[oi] ?? null).start)
+          {
+            ((oscList[oi] ?? null).start(t) ?? null);
+            if ((oscList[oi] ?? null).stop)
+              {
+                ((oscList[oi] ?? null).stop(tStop) ?? null);
+              }
+          }
         (oi = (oi + 1));
       }
     let ni = 0;
@@ -12915,6 +15168,922 @@ function playPatch (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
         ((noiseList[ni] ?? null).stop(tStop) ?? null);
         (ni = (ni + 1));
       }
+    (setTimeout(() => {
+      {
+        let di = 0;
+        while ((di < oscList.length))
+          {
+            if ((oscList[di] ?? null).disconnect)
+              {
+                ((oscList[di] ?? null).disconnect() ?? null);
+              }
+            (di = (di + 1));
+          }
+        let ni2 = 0;
+        while ((ni2 < noiseList.length))
+          {
+            if ((noiseList[ni2] ?? null).disconnect)
+              {
+                ((noiseList[ni2] ?? null).disconnect() ?? null);
+              }
+            (ni2 = (ni2 + 1));
+          }
+        let cli = 0;
+        while ((cli < disconnectList.length))
+          {
+            if ((disconnectList[cli] ?? null).disconnect)
+              {
+                ((disconnectList[cli] ?? null).disconnect() ?? null);
+              }
+            (cli = (cli + 1));
+          }
+      }
+    }, (((tStop - ctx.currentTime) * 1000) + 200)) ?? null);
+  }
+}
+function playAcid303 (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  {
+    let gp = (ch.generatorParams ? ch.generatorParams : {  });
+    let wave = (normalizeBasicOscWaveform(((gp.waveform != null) ? gp.waveform : "sawtooth")) ?? null);
+    let cutoff = ((gp.cutoff != null) ? gp.cutoff : 800);
+    let res = ((gp.resonance != null) ? gp.resonance : 15);
+    let envMod = ((gp.envMod != null) ? gp.envMod : 4000);
+    let decay = ((gp.decay != null) ? gp.decay : 0.4);
+    let f0 = (440 * (Math.pow(2, (((midi + bendSemis) - 69) / 12)) ?? null));
+    let v = (vel / 127);
+    if ((v < 0))
+      (v = 0);
+    if ((v > 1))
+      (v = 1);
+    let osc = (ctx.createOscillator() ?? null);
+    (osc.type = wave);
+    (osc.frequency.value = f0);
+    let filter = (ctx.createBiquadFilter() ?? null);
+    (filter.type = "lowpass");
+    (filter.Q.value = res);
+    let gain = (ctx.createGain() ?? null);
+    (osc.connect(filter) ?? null);
+    (filter.connect(gain) ?? null);
+    (gain.connect(bus.input) ?? null);
+    (filter.frequency.setValueAtTime((cutoff + (envMod * v)), t) ?? null);
+    (filter.frequency.setTargetAtTime(cutoff, (t + 0.01), (decay / 3)) ?? null);
+    (gain.gain.setValueAtTime(0, t) ?? null);
+    (gain.gain.linearRampToValueAtTime((v * 0.8), (t + 0.01)) ?? null);
+    (gain.gain.setTargetAtTime(0, (t + 0.01), (decay / 3)) ?? null);
+    (osc.start(t) ?? null);
+    (osc.stop(((t + decay) + 0.5)) ?? null);
+    (setTimeout(() => {
+      {
+        (osc.disconnect() ?? null);
+        (filter.disconnect() ?? null);
+        (gain.disconnect() ?? null);
+      }
+    }, ((decay + 1) * 1000)) ?? null);
+  }
+}
+function playSub808 (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  {
+    let gp = (ch.generatorParams ? ch.generatorParams : {  });
+    let punch = ((gp.punch != null) ? gp.punch : 60);
+    let decay = ((gp.decay != null) ? gp.decay : 1.2);
+    let drive = ((gp.drive != null) ? gp.drive : 0);
+    let glide = ((gp.glide != null) ? gp.glide : 0.05);
+    let f0 = (440 * (Math.pow(2, (((midi + bendSemis) - 69) / 12)) ?? null));
+    let v = (vel / 127);
+    if ((v < 0))
+      (v = 0);
+    if ((v > 1))
+      (v = 1);
+    let osc = (ctx.createOscillator() ?? null);
+    (osc.type = "sine");
+    (osc.frequency.setValueAtTime((f0 + (punch * v)), t) ?? null);
+    (osc.frequency.setTargetAtTime(f0, (t + 0.01), 0.05) ?? null);
+    let shaper = null;
+    let gain = (ctx.createGain() ?? null);
+    if ((drive > 0))
+      {
+        (shaper = (ctx.createWaveShaper() ?? null));
+        let k = (drive * 10);
+        let n = 4096;
+        let curve = (new Float32Array(n) ?? null);
+        let deg = (Math.PI / 180);
+        let i = 0;
+        while ((i < n))
+          {
+            let x = (((i * 2) / n) - 1);
+            (curve[i] = (((((3 + k) * x) * 20) * deg) / (Math.PI + (k * (Math.abs(x) ?? null)))));
+            (i = (i + 1));
+          }
+        (shaper.curve = curve);
+        (shaper.oversample = "4x");
+        (gain.gain.setValueAtTime(0, t) ?? null);
+        (gain.gain.linearRampToValueAtTime(((v * 0.8) * (1 - (Math.min((drive / 100), 0.5) ?? null))), (t + 0.01)) ?? null);
+        (gain.gain.setTargetAtTime(0, (t + 0.01), (decay / 3)) ?? null);
+        (osc.connect(shaper) ?? null);
+        (shaper.connect(gain) ?? null);
+      }
+    else
+      {
+        (gain.gain.setValueAtTime(0, t) ?? null);
+        (gain.gain.linearRampToValueAtTime((v * 0.8), (t + 0.01)) ?? null);
+        (gain.gain.setTargetAtTime(0, (t + 0.01), (decay / 3)) ?? null);
+        (osc.connect(gain) ?? null);
+      }
+    (gain.connect(bus.input) ?? null);
+    (osc.start(t) ?? null);
+    (osc.stop(((t + decay) + 0.5)) ?? null);
+    (setTimeout(() => {
+      {
+        (osc.disconnect() ?? null);
+        if (shaper)
+          (shaper.disconnect() ?? null);
+        (gain.disconnect() ?? null);
+      }
+    }, ((decay + 1) * 1000)) ?? null);
+  }
+}
+function playChiptune (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  {
+    let gp = (ch.generatorParams ? ch.generatorParams : {  });
+    let waveform = (gp.waveform ? gp.waveform : "pulse");
+    let pw = ((gp.pulseWidth != null) ? gp.pulseWidth : 0.5);
+    let pwmSpeed = ((gp.pwmSpeed != null) ? gp.pwmSpeed : 0);
+    let crush = ((gp.bitcrush != null) ? gp.bitcrush : 0);
+    let lpAmt = ((gp.lowpass != null) ? gp.lowpass : 0);
+    let arpRate = ((gp.arpRate != null) ? gp.arpRate : 0);
+    let arpSemis = ((gp.arpSemis != null) ? gp.arpSemis : 0);
+    let att = ((gp.attack != null) ? gp.attack : 0.005);
+    let dec = ((gp.decay != null) ? gp.decay : 0.3);
+    let sus = ((gp.sustain != null) ? gp.sustain : 0);
+    let rel = ((gp.release != null) ? gp.release : 0.05);
+    let f0 = (440 * (Math.pow(2, (((midi + bendSemis) - 69) / 12)) ?? null));
+    let v = (vel / 127);
+    if ((v < 0))
+      (v = 0);
+    if ((v > 1))
+      (v = 1);
+    let totalTime = ((durSec + rel) + 0.5);
+    let stopTime = (t + totalTime);
+    let disconnects = [];
+    let sourceNode = null;
+    if ((waveform === "noise"))
+      {
+        let sr = ctx.sampleRate;
+        let len = (Math.floor((sr * 0.5)) ?? null);
+        if ((len < 128))
+          (len = 128);
+        let buf = (ctx.createBuffer(1, len, sr) ?? null);
+        let data = (buf.getChannelData(0) ?? null);
+        let ni = 0;
+        while ((ni < len))
+          {
+            (data[ni] = (((Math.random() ?? null) * 2) - 1));
+            (ni = (ni + 1));
+          }
+        let src = (ctx.createBufferSource() ?? null);
+        (src.buffer = buf);
+        (src.loop = true);
+        (src.start(t) ?? null);
+        (src.stop(stopTime) ?? null);
+        (sourceNode = src);
+        (disconnects.push(src) ?? null);
+      }
+    else
+      if ((waveform === "triangle"))
+        {
+          let osc = (ctx.createOscillator() ?? null);
+          (osc.type = "triangle");
+          (osc.frequency.value = f0);
+          (osc.start(t) ?? null);
+          (osc.stop(stopTime) ?? null);
+          (sourceNode = osc);
+          (disconnects.push(osc) ?? null);
+          if (((arpRate > 0) && (arpSemis !== 0)))
+            {
+              let f1 = (f0 * (Math.pow(2, (arpSemis / 12)) ?? null));
+              let interval = (1 / arpRate);
+              let at = t;
+              let toggle = false;
+              while ((at < stopTime))
+                {
+                  (osc.frequency.setValueAtTime((toggle ? f1 : f0), at) ?? null);
+                  (at = (at + interval));
+                  (toggle = !toggle);
+                }
+            }
+        }
+      else
+        if ((waveform === "sawtooth"))
+          {
+            let osc = (ctx.createOscillator() ?? null);
+            (osc.type = "sawtooth");
+            (osc.frequency.value = f0);
+            (osc.start(t) ?? null);
+            (osc.stop(stopTime) ?? null);
+            (sourceNode = osc);
+            (disconnects.push(osc) ?? null);
+            if (((arpRate > 0) && (arpSemis !== 0)))
+              {
+                let f1 = (f0 * (Math.pow(2, (arpSemis / 12)) ?? null));
+                let interval = (1 / arpRate);
+                let at = t;
+                let toggle = false;
+                while ((at < stopTime))
+                  {
+                    (osc.frequency.setValueAtTime((toggle ? f1 : f0), at) ?? null);
+                    (at = (at + interval));
+                    (toggle = !toggle);
+                  }
+              }
+          }
+        else
+          {
+            let osc1 = (ctx.createOscillator() ?? null);
+            (osc1.type = "sawtooth");
+            (osc1.frequency.value = f0);
+            let osc2 = (ctx.createOscillator() ?? null);
+            (osc2.type = "sawtooth");
+            (osc2.frequency.value = f0);
+            let invGain = (ctx.createGain() ?? null);
+            (invGain.gain.value = -1);
+            let delayNode = (ctx.createDelay() ?? null);
+            let maxDelay = (1 / (Math.max(f0, 10) ?? null));
+            let clampedPw = (Math.max(0.05, (Math.min(pw, 0.95) ?? null)) ?? null);
+            (delayNode.delayTime.value = (maxDelay * clampedPw));
+            if ((pwmSpeed > 0))
+              {
+                let lfo = (ctx.createOscillator() ?? null);
+                (lfo.type = "sine");
+                (lfo.frequency.value = pwmSpeed);
+                let lfoGain = (ctx.createGain() ?? null);
+                (lfoGain.gain.value = (maxDelay * 0.25));
+                (lfo.connect(lfoGain) ?? null);
+                (lfoGain.connect(delayNode.delayTime) ?? null);
+                (lfo.start(t) ?? null);
+                (lfo.stop(stopTime) ?? null);
+                (disconnects.push(lfo) ?? null);
+                (disconnects.push(lfoGain) ?? null);
+              }
+            let mergeGain = (ctx.createGain() ?? null);
+            (mergeGain.gain.value = 0.5);
+            (osc1.connect(mergeGain) ?? null);
+            (osc2.connect(invGain) ?? null);
+            (invGain.connect(delayNode) ?? null);
+            (delayNode.connect(mergeGain) ?? null);
+            (osc1.start(t) ?? null);
+            (osc2.start(t) ?? null);
+            (osc1.stop(stopTime) ?? null);
+            (osc2.stop(stopTime) ?? null);
+            if (((arpRate > 0) && (arpSemis !== 0)))
+              {
+                let f1 = (f0 * (Math.pow(2, (arpSemis / 12)) ?? null));
+                let interval = (1 / arpRate);
+                let at = t;
+                let toggle = false;
+                while ((at < stopTime))
+                  {
+                    let fNow = (toggle ? f1 : f0);
+                    (osc1.frequency.setValueAtTime(fNow, at) ?? null);
+                    (osc2.frequency.setValueAtTime(fNow, at) ?? null);
+                    (at = (at + interval));
+                    (toggle = !toggle);
+                  }
+              }
+            (sourceNode = mergeGain);
+            (disconnects.push(osc1) ?? null);
+            (disconnects.push(osc2) ?? null);
+            (disconnects.push(invGain) ?? null);
+            (disconnects.push(delayNode) ?? null);
+            (disconnects.push(mergeGain) ?? null);
+          }
+    let afterCrush = sourceNode;
+    if ((crush > 0))
+      {
+        let shaper = (ctx.createWaveShaper() ?? null);
+        let steps = (Math.max(2, (Math.floor((16 - (crush * 14))) ?? null)) ?? null);
+        let n = 4096;
+        let curve = (new Float32Array(n) ?? null);
+        let ci = 0;
+        while ((ci < n))
+          {
+            let x = (((ci * 2) / n) - 1);
+            (curve[ci] = ((Math.round((x * steps)) ?? null) / steps));
+            (ci = (ci + 1));
+          }
+        (shaper.curve = curve);
+        (sourceNode.connect(shaper) ?? null);
+        (afterCrush = shaper);
+        (disconnects.push(shaper) ?? null);
+      }
+    let afterFilter = afterCrush;
+    if ((lpAmt > 0.01))
+      {
+        let lp = (ctx.createBiquadFilter() ?? null);
+        (lp.type = "lowpass");
+        (lp.Q.value = 0.7);
+        (lp.frequency.value = (300 + ((1 - lpAmt) * 8000)));
+        (afterCrush.connect(lp) ?? null);
+        (afterFilter = lp);
+        (disconnects.push(lp) ?? null);
+      }
+    let finalGain = (ctx.createGain() ?? null);
+    (finalGain.gain.setValueAtTime(0, t) ?? null);
+    (finalGain.gain.linearRampToValueAtTime((v * 0.8), (t + att)) ?? null);
+    (finalGain.gain.setTargetAtTime(((v * 0.8) * sus), (t + att), (dec / 3)) ?? null);
+    (finalGain.gain.setValueAtTime(((v * 0.8) * sus), (t + durSec)) ?? null);
+    (finalGain.gain.setTargetAtTime(0, (t + durSec), (rel / 3)) ?? null);
+    (afterFilter.connect(finalGain) ?? null);
+    (finalGain.connect(bus.input) ?? null);
+    (disconnects.push(finalGain) ?? null);
+    (setTimeout(() => {
+      {
+        let di = 0;
+        while ((di < disconnects.length))
+          {
+            ((disconnects[di] ?? null).disconnect() ?? null);
+            (di = (di + 1));
+          }
+      }
+    }, (totalTime * 1000)) ?? null);
+  }
+}
+function playCymbal (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  {
+    let gp = (ch.generatorParams ? ch.generatorParams : {  });
+    let tune = ((gp.tune != null) ? gp.tune : 300);
+    let metallic = ((gp.metallic != null) ? gp.metallic : 0.8);
+    let decay = ((gp.decay != null) ? gp.decay : 0.4);
+    let highpass = ((gp.highpass != null) ? gp.highpass : 7000);
+    let v = (vel / 127);
+    if ((v < 0))
+      (v = 0);
+    if ((v > 1))
+      (v = 1);
+    let ratios = [1, 1.447, 2.088, 2.761, 3.483, 4.254];
+    let oscs = [];
+    let metallicGain = (ctx.createGain() ?? null);
+    (metallicGain.gain.value = metallic);
+    let i = 0;
+    while ((i < ratios.length))
+      {
+        let osc = (ctx.createOscillator() ?? null);
+        (osc.type = "square");
+        (osc.frequency.value = (tune * (ratios[i] ?? null)));
+        (osc.connect(metallicGain) ?? null);
+        (oscs.push(osc) ?? null);
+        (i = (i + 1));
+      }
+    let bufferSize = (ctx.sampleRate * 2);
+    let noiseBuffer = (ctx.createBuffer(1, bufferSize, ctx.sampleRate) ?? null);
+    let output = (noiseBuffer.getChannelData(0) ?? null);
+    let ni = 0;
+    while ((ni < bufferSize))
+      {
+        (output[ni] = (((Math.random() ?? null) * 2) - 1));
+        (ni = (ni + 1));
+      }
+    let noise = (ctx.createBufferSource() ?? null);
+    (noise.buffer = noiseBuffer);
+    (noise.loop = true);
+    let noiseGain = (ctx.createGain() ?? null);
+    (noiseGain.gain.value = (1 - metallic));
+    (noise.connect(noiseGain) ?? null);
+    let filter = (ctx.createBiquadFilter() ?? null);
+    (filter.type = "highpass");
+    (filter.frequency.value = highpass);
+    (filter.Q.value = 1);
+    let envGain = (ctx.createGain() ?? null);
+    (envGain.gain.setValueAtTime(0, t) ?? null);
+    (envGain.gain.linearRampToValueAtTime((v * 0.5), (t + 0.005)) ?? null);
+    (envGain.gain.setTargetAtTime(0, (t + 0.005), (decay / 3)) ?? null);
+    (metallicGain.connect(filter) ?? null);
+    (noiseGain.connect(filter) ?? null);
+    (filter.connect(envGain) ?? null);
+    (envGain.connect(bus.input) ?? null);
+    let oi = 0;
+    while ((oi < oscs.length))
+      {
+        ((oscs[oi] ?? null).start(t) ?? null);
+        ((oscs[oi] ?? null).stop(((t + decay) + 0.5)) ?? null);
+        (oi = (oi + 1));
+      }
+    (noise.start(t) ?? null);
+    (noise.stop(((t + decay) + 0.5)) ?? null);
+    (setTimeout(() => {
+      {
+        let di = 0;
+        while ((di < oscs.length))
+          {
+            ((oscs[di] ?? null).disconnect() ?? null);
+            (di = (di + 1));
+          }
+        (noise.disconnect() ?? null);
+        (metallicGain.disconnect() ?? null);
+        (noiseGain.disconnect() ?? null);
+        (filter.disconnect() ?? null);
+        (envGain.disconnect() ?? null);
+      }
+    }, ((decay + 1) * 1000)) ?? null);
+  }
+}
+function playReeseBass (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  {
+    let gp = (ch.generatorParams ? ch.generatorParams : {  });
+    let voices = ((gp.voices != null) ? (Math.floor(gp.voices) ?? null) : 3);
+    let detune = ((gp.detune != null) ? gp.detune : 30);
+    let cutoff = ((gp.cutoff != null) ? gp.cutoff : 1500);
+    let wobble = ((gp.wobble != null) ? gp.wobble : 0);
+    let decay = ((gp.decay != null) ? gp.decay : 1);
+    if ((voices < 1))
+      (voices = 1);
+    if ((voices > 7))
+      (voices = 7);
+    let f0 = (440 * (Math.pow(2, (((midi + bendSemis) - 69) / 12)) ?? null));
+    let v = (vel / 127);
+    if ((v < 0))
+      (v = 0);
+    if ((v > 1))
+      (v = 1);
+    let oscs = [];
+    let filter = (ctx.createBiquadFilter() ?? null);
+    (filter.type = "lowpass");
+    (filter.frequency.value = cutoff);
+    (filter.Q.value = 2);
+    let envGain = (ctx.createGain() ?? null);
+    (envGain.gain.setValueAtTime(0, t) ?? null);
+    (envGain.gain.linearRampToValueAtTime(((v * 0.8) / voices), (t + 0.05)) ?? null);
+    (envGain.gain.setTargetAtTime(0, (t + 0.05), (decay / 3)) ?? null);
+    let i = 0;
+    while ((i < voices))
+      {
+        let osc = (ctx.createOscillator() ?? null);
+        (osc.type = "sawtooth");
+        (osc.frequency.value = f0);
+        let d = 0;
+        if ((voices > 1))
+          {
+            (d = ((i - ((voices - 1) / 2)) * (detune / (Math.max(1, (voices - 1)) ?? null))));
+          }
+        (osc.detune.value = d);
+        (osc.connect(filter) ?? null);
+        (oscs.push(osc) ?? null);
+        (i = (i + 1));
+      }
+    let lfo = null;
+    let lfoGain = null;
+    if ((wobble > 0))
+      {
+        (lfo = (ctx.createOscillator() ?? null));
+        (lfo.type = "sine");
+        (lfo.frequency.value = wobble);
+        (lfoGain = (ctx.createGain() ?? null));
+        (lfoGain.gain.value = (cutoff * 0.8));
+        (lfo.connect(lfoGain) ?? null);
+        (lfoGain.connect(filter.frequency) ?? null);
+        (lfo.start(t) ?? null);
+        (lfo.stop(((t + decay) + 0.5)) ?? null);
+      }
+    (filter.connect(envGain) ?? null);
+    (envGain.connect(bus.input) ?? null);
+    let oi = 0;
+    while ((oi < oscs.length))
+      {
+        ((oscs[oi] ?? null).start(t) ?? null);
+        ((oscs[oi] ?? null).stop(((t + decay) + 0.5)) ?? null);
+        (oi = (oi + 1));
+      }
+    (setTimeout(() => {
+      {
+        let di = 0;
+        while ((di < oscs.length))
+          {
+            ((oscs[di] ?? null).disconnect() ?? null);
+            (di = (di + 1));
+          }
+        if (lfo)
+          {
+            (lfo.disconnect() ?? null);
+            (lfoGain.disconnect() ?? null);
+          }
+        (filter.disconnect() ?? null);
+        (envGain.disconnect() ?? null);
+      }
+    }, ((decay + 1) * 1000)) ?? null);
+  }
+}
+function playSyncLead (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  {
+    let gp = (ch.generatorParams ? ch.generatorParams : {  });
+    let masterTune = ((gp.masterTune != null) ? gp.masterTune : 0);
+    let slaveBase = ((gp.slaveBase != null) ? gp.slaveBase : 12);
+    let sweepAmt = ((gp.sweepAmt != null) ? gp.sweepAmt : 24);
+    let sweepDecay = ((gp.sweepDecay != null) ? gp.sweepDecay : 0.4);
+    let lfoRate = ((gp.lfoRate != null) ? gp.lfoRate : 0);
+    let lfoAmt = ((gp.lfoAmt != null) ? gp.lfoAmt : 0);
+    let cutoff = ((gp.cutoff != null) ? gp.cutoff : 3000);
+    let res = ((gp.resonance != null) ? gp.resonance : 5);
+    let filterEnvAmt = ((gp.filterEnvAmt != null) ? gp.filterEnvAmt : 0);
+    let filterDecay = ((gp.filterDecay != null) ? gp.filterDecay : 0.4);
+    let att = ((gp.attack != null) ? gp.attack : 0.05);
+    let dec = ((gp.decay != null) ? gp.decay : 0.3);
+    let sus = ((gp.sustain != null) ? gp.sustain : 0.8);
+    let rel = ((gp.release != null) ? gp.release : 0.5);
+    let masterPitch = ((midi + bendSemis) + masterTune);
+    let masterFreq = (440 * (Math.pow(2, ((masterPitch - 69) / 12)) ?? null));
+    let slaveBaseFreq = (440 * (Math.pow(2, (((masterPitch + slaveBase) - 69) / 12)) ?? null));
+    let v = (vel / 127);
+    if ((v < 0))
+      (v = 0);
+    if ((v > 1))
+      (v = 1);
+    let osc = null;
+    try {
+      {
+        (osc = (new AudioWorkletNode(ctx, "sync-oscillator") ?? null));
+      }
+    } catch (e) {
+      {
+        let fallback = (ctx.createOscillator() ?? null);
+        (fallback.type = "sawtooth");
+        (fallback.frequency.value = masterFreq);
+        (osc = fallback);
+      }
+    }
+    let filter = (ctx.createBiquadFilter() ?? null);
+    (filter.type = "lowpass");
+    (filter.Q.value = res);
+    let gain = (ctx.createGain() ?? null);
+    (gain.gain.value = 0);
+    (gain.gain.setValueAtTime(0, t) ?? null);
+    (gain.gain.linearRampToValueAtTime(v, (t + att)) ?? null);
+    (gain.gain.setTargetAtTime((v * sus), (t + att), (dec / 3)) ?? null);
+    (gain.gain.setValueAtTime((v * sus), (t + durSec)) ?? null);
+    (gain.gain.setTargetAtTime(0, (t + durSec), (rel / 3)) ?? null);
+    (osc.connect(filter) ?? null);
+    (filter.connect(gain) ?? null);
+    (gain.connect(bus.input) ?? null);
+    let lfo = null;
+    let lfoGain = null;
+    if (osc.parameters)
+      {
+        let masterParam = (osc.parameters.get("masterFreq") ?? null);
+        let slaveParam = (osc.parameters.get("slaveFreq") ?? null);
+        (masterParam.setValueAtTime(masterFreq, t) ?? null);
+        let startFreq = (slaveBaseFreq * (Math.pow(2, (sweepAmt / 12)) ?? null));
+        if ((startFreq > 20000))
+          (startFreq = 20000);
+        (slaveParam.setValueAtTime(startFreq, t) ?? null);
+        (slaveParam.exponentialRampToValueAtTime(slaveBaseFreq, ((t + sweepDecay) + 0.01)) ?? null);
+        if (((lfoRate > 0) && (lfoAmt > 0)))
+          {
+            (lfo = (ctx.createOscillator() ?? null));
+            (lfo.type = "sine");
+            (lfo.frequency.value = lfoRate);
+            (lfoGain = (ctx.createGain() ?? null));
+            (lfoGain.gain.value = (slaveBaseFreq * ((Math.pow(2, (lfoAmt / 12)) ?? null) - 1)));
+            (lfo.connect(lfoGain) ?? null);
+            (lfoGain.connect(slaveParam) ?? null);
+            (lfo.start(t) ?? null);
+            (lfo.stop((((t + durSec) + rel) + 0.5)) ?? null);
+          }
+      }
+    else
+      {
+        (osc.start(t) ?? null);
+        (osc.stop((((t + durSec) + rel) + 0.5)) ?? null);
+      }
+    let cBase = cutoff;
+    if ((cBase < 20))
+      (cBase = 20);
+    let cPeak = (cBase * (Math.pow(2, (filterEnvAmt * 6)) ?? null));
+    if ((cPeak > 20000))
+      (cPeak = 20000);
+    if ((cPeak < 20))
+      (cPeak = 20);
+    (filter.frequency.setValueAtTime(cBase, t) ?? null);
+    (filter.frequency.linearRampToValueAtTime(cPeak, (t + att)) ?? null);
+    (filter.frequency.setTargetAtTime((cBase + ((cPeak - cBase) * sus)), (t + att), (filterDecay / 3)) ?? null);
+    (filter.frequency.setValueAtTime((cBase + ((cPeak - cBase) * sus)), (t + durSec)) ?? null);
+    (filter.frequency.setTargetAtTime(cBase, (t + durSec), (rel / 3)) ?? null);
+    let totalTime = ((durSec + rel) + 0.5);
+    (setTimeout(() => {
+      {
+        (osc.disconnect() ?? null);
+        (filter.disconnect() ?? null);
+        (gain.disconnect() ?? null);
+        if (lfo)
+          {
+            (lfo.disconnect() ?? null);
+            (lfoGain.disconnect() ?? null);
+          }
+      }
+    }, (totalTime * 1000)) ?? null);
+  }
+}
+function playSyncChoir (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  {
+    let gp = (ch.generatorParams ? ch.generatorParams : {  });
+    let vowelShift = ((gp.vowelShift != null) ? gp.vowelShift : 24);
+    let morphRate = ((gp.morphRate != null) ? gp.morphRate : 0.5);
+    let morphAmt = ((gp.morphAmt != null) ? gp.morphAmt : 12);
+    let detune = ((gp.ensembleDetune != null) ? gp.ensembleDetune : 15);
+    let vibRate = ((gp.vibRate != null) ? gp.vibRate : 5);
+    let vibAmt = ((gp.vibAmt != null) ? gp.vibAmt : 10);
+    let highpassFreq = ((gp.highpass != null) ? gp.highpass : 300);
+    let att = ((gp.attack != null) ? gp.attack : 1);
+    let dec = ((gp.decay != null) ? gp.decay : 1);
+    let sus = ((gp.sustain != null) ? gp.sustain : 0.8);
+    let rel = ((gp.release != null) ? gp.release : 1.5);
+    let masterPitch = (midi + bendSemis);
+    let masterFreq = (440 * (Math.pow(2, ((masterPitch - 69) / 12)) ?? null));
+    let slaveBaseFreq = (440 * (Math.pow(2, (((masterPitch + vowelShift) - 69) / 12)) ?? null));
+    let v = (vel / 127);
+    if ((v < 0))
+      (v = 0);
+    if ((v > 1))
+      (v = 1);
+    let outGain = (ctx.createGain() ?? null);
+    (outGain.gain.value = 0);
+    (outGain.gain.setValueAtTime(0, t) ?? null);
+    (outGain.gain.linearRampToValueAtTime((v * 0.8), (t + att)) ?? null);
+    (outGain.gain.setTargetAtTime(((v * 0.8) * sus), (t + att), (dec / 3)) ?? null);
+    (outGain.gain.setValueAtTime(((v * 0.8) * sus), (t + durSec)) ?? null);
+    (outGain.gain.setTargetAtTime(0, (t + durSec), (rel / 3)) ?? null);
+    let hp = (ctx.createBiquadFilter() ?? null);
+    (hp.type = "highpass");
+    (hp.frequency.value = highpassFreq);
+    let lp = (ctx.createBiquadFilter() ?? null);
+    (lp.type = "lowpass");
+    (lp.frequency.value = 8000);
+    (outGain.connect(hp) ?? null);
+    (hp.connect(lp) ?? null);
+    (lp.connect(bus.input) ?? null);
+    let oscL = null;
+    let oscR = null;
+    let useFallback = false;
+    try {
+      {
+        (oscL = (new AudioWorkletNode(ctx, "sync-oscillator") ?? null));
+        (oscR = (new AudioWorkletNode(ctx, "sync-oscillator") ?? null));
+      }
+    } catch (e) {
+      {
+        (useFallback = true);
+        (oscL = (ctx.createOscillator() ?? null));
+        (oscL.type = "sawtooth");
+        (oscR = (ctx.createOscillator() ?? null));
+        (oscR.type = "sawtooth");
+      }
+    }
+    let panL = (ctx.createStereoPanner() ?? null);
+    (panL.pan.value = -0.7);
+    let panR = (ctx.createStereoPanner() ?? null);
+    (panR.pan.value = 0.7);
+    (oscL.connect(panL) ?? null);
+    (oscR.connect(panR) ?? null);
+    (panL.connect(outGain) ?? null);
+    (panR.connect(outGain) ?? null);
+    let lfosToStop = [];
+    if (((!useFallback && oscL.parameters) && oscR.parameters))
+      {
+        let ml = (oscL.parameters.get("masterFreq") ?? null);
+        let sl = (oscL.parameters.get("slaveFreq") ?? null);
+        let mr = (oscR.parameters.get("masterFreq") ?? null);
+        let sr = (oscR.parameters.get("slaveFreq") ?? null);
+        let freqL = (masterFreq * (Math.pow(2, ((-detune) / 1200)) ?? null));
+        let freqR = (masterFreq * (Math.pow(2, (detune / 1200)) ?? null));
+        (ml.setValueAtTime(freqL, t) ?? null);
+        (mr.setValueAtTime(freqR, t) ?? null);
+        (sl.setValueAtTime(slaveBaseFreq, t) ?? null);
+        (sr.setValueAtTime(slaveBaseFreq, t) ?? null);
+        if (((morphRate > 0) && (morphAmt > 0)))
+          {
+            let morphLFO = (ctx.createOscillator() ?? null);
+            (morphLFO.type = "sine");
+            (morphLFO.frequency.value = morphRate);
+            let morphGain = (ctx.createGain() ?? null);
+            (morphGain.gain.value = (slaveBaseFreq * ((Math.pow(2, (morphAmt / 12)) ?? null) - 1)));
+            (morphLFO.connect(morphGain) ?? null);
+            (morphGain.connect(sl) ?? null);
+            (morphGain.connect(sr) ?? null);
+            (morphLFO.start(t) ?? null);
+            (lfosToStop.push(morphLFO) ?? null);
+          }
+        if (((vibRate > 0) && (vibAmt > 0)))
+          {
+            let vibLFO = (ctx.createOscillator() ?? null);
+            (vibLFO.type = "sine");
+            (vibLFO.frequency.value = vibRate);
+            let vibGain = (ctx.createGain() ?? null);
+            (vibGain.gain.value = (masterFreq * ((Math.pow(2, (vibAmt / 1200)) ?? null) - 1)));
+            (vibLFO.connect(vibGain) ?? null);
+            (vibGain.connect(ml) ?? null);
+            (vibGain.connect(mr) ?? null);
+            (vibLFO.start(t) ?? null);
+            (lfosToStop.push(vibLFO) ?? null);
+          }
+      }
+    else
+      {
+        let freqL = (masterFreq * (Math.pow(2, ((-detune) / 1200)) ?? null));
+        let freqR = (masterFreq * (Math.pow(2, (detune / 1200)) ?? null));
+        (oscL.frequency.value = freqL);
+        (oscR.frequency.value = freqR);
+        (oscL.start(t) ?? null);
+        (oscR.start(t) ?? null);
+        (lfosToStop.push(oscL) ?? null);
+        (lfosToStop.push(oscR) ?? null);
+      }
+    let totalTime = ((durSec + rel) + 0.5);
+    (setTimeout(() => {
+      {
+        (oscL.disconnect() ?? null);
+        (oscR.disconnect() ?? null);
+        (panL.disconnect() ?? null);
+        (panR.disconnect() ?? null);
+        (hp.disconnect() ?? null);
+        (lp.disconnect() ?? null);
+        (outGain.disconnect() ?? null);
+        let i = 0;
+        while ((i < lfosToStop.length))
+          {
+            ((lfosToStop[i] ?? null).stop() ?? null);
+            ((lfosToStop[i] ?? null).disconnect() ?? null);
+            (i = (i + 1));
+          }
+      }
+    }, (totalTime * 1000)) ?? null);
+  }
+}
+function playObSync (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  {
+    let gp = (ch.generatorParams ? ch.generatorParams : {  });
+    let detune = ((gp.detune != null) ? gp.detune : 15);
+    let sweepRate = ((gp.sweepRate != null) ? gp.sweepRate : 0.5);
+    let sweepAmt = ((gp.sweepAmt != null) ? gp.sweepAmt : 24);
+    let cutoff = ((gp.cutoff != null) ? gp.cutoff : 1200);
+    let res = ((gp.resonance != null) ? gp.resonance : 2);
+    let filterEnv = ((gp.filterEnv != null) ? gp.filterEnv : 2400);
+    let filterDecay = ((gp.filterDecay != null) ? gp.filterDecay : 0.8);
+    let att = ((gp.attack != null) ? gp.attack : 0.1);
+    let dec = ((gp.decay != null) ? gp.decay : 0.4);
+    let sus = ((gp.sustain != null) ? gp.sustain : 0.6);
+    let rel = ((gp.release != null) ? gp.release : 0.5);
+    let masterPitch = (midi + bendSemis);
+    let masterFreq = (440 * (Math.pow(2, ((masterPitch - 69) / 12)) ?? null));
+    let sweepDecay = (0.05 + ((1 - sweepRate) * 1.5));
+    let cutoffPeak = (cutoff + filterEnv);
+    let v = (vel / 127);
+    if ((v < 0))
+      (v = 0);
+    if ((v > 1))
+      (v = 1);
+    let outGain = (ctx.createGain() ?? null);
+    (outGain.gain.value = 0);
+    (outGain.gain.setValueAtTime(0, t) ?? null);
+    (outGain.gain.linearRampToValueAtTime((v * 0.6), (t + att)) ?? null);
+    (outGain.gain.setTargetAtTime(((v * 0.6) * sus), (t + att), (dec / 3)) ?? null);
+    (outGain.gain.setValueAtTime(((v * 0.6) * sus), (t + durSec)) ?? null);
+    (outGain.gain.setTargetAtTime(0, (t + durSec), (rel / 3)) ?? null);
+    let fL = (ctx.createBiquadFilter() ?? null);
+    (fL.type = "lowpass");
+    (fL.Q.value = res);
+    (fL.frequency.value = cutoffPeak);
+    (fL.frequency.setValueAtTime(cutoffPeak, t) ?? null);
+    (fL.frequency.setTargetAtTime(cutoff, t, (filterDecay / 3)) ?? null);
+    let fR = (ctx.createBiquadFilter() ?? null);
+    (fR.type = "lowpass");
+    (fR.Q.value = res);
+    (fR.frequency.value = cutoffPeak);
+    (fR.frequency.setValueAtTime(cutoffPeak, t) ?? null);
+    (fR.frequency.setTargetAtTime(cutoff, t, (filterDecay / 3)) ?? null);
+    let panL = (ctx.createStereoPanner() ?? null);
+    (panL.pan.value = -0.6);
+    let panR = (ctx.createStereoPanner() ?? null);
+    (panR.pan.value = 0.6);
+    (fL.connect(panL) ?? null);
+    (fR.connect(panR) ?? null);
+    (panL.connect(outGain) ?? null);
+    (panR.connect(outGain) ?? null);
+    (outGain.connect(bus.input) ?? null);
+    let oscL = null;
+    let oscR = null;
+    let useFallback = false;
+    try {
+      {
+        (oscL = (new AudioWorkletNode(ctx, "sync-oscillator") ?? null));
+        (oscR = (new AudioWorkletNode(ctx, "sync-oscillator") ?? null));
+      }
+    } catch (e) {
+      {
+        (useFallback = true);
+        (oscL = (ctx.createOscillator() ?? null));
+        (oscL.type = "sawtooth");
+        (oscR = (ctx.createOscillator() ?? null));
+        (oscR.type = "sawtooth");
+      }
+    }
+    (oscL.connect(fL) ?? null);
+    (oscR.connect(fR) ?? null);
+    if (((!useFallback && oscL.parameters) && oscR.parameters))
+      {
+        let ml = (oscL.parameters.get("masterFreq") ?? null);
+        let sl = (oscL.parameters.get("slaveFreq") ?? null);
+        let mr = (oscR.parameters.get("masterFreq") ?? null);
+        let sr = (oscR.parameters.get("slaveFreq") ?? null);
+        (ml.setValueAtTime(masterFreq, t) ?? null);
+        (mr.setValueAtTime(masterFreq, t) ?? null);
+        let sweepPeakRatio = (Math.pow(2, (sweepAmt / 12)) ?? null);
+        let freqL = (masterFreq * (Math.pow(2, ((-detune) / 1200)) ?? null));
+        let freqR = (masterFreq * (Math.pow(2, (detune / 1200)) ?? null));
+        (sl.setValueAtTime((freqL * sweepPeakRatio), t) ?? null);
+        (sl.setTargetAtTime(freqL, t, (sweepDecay / 3)) ?? null);
+        (sr.setValueAtTime((freqR * sweepPeakRatio), t) ?? null);
+        (sr.setTargetAtTime(freqR, t, (sweepDecay / 3)) ?? null);
+      }
+    else
+      {
+        let freqL = (masterFreq * (Math.pow(2, ((-detune) / 1200)) ?? null));
+        let freqR = (masterFreq * (Math.pow(2, (detune / 1200)) ?? null));
+        (oscL.frequency.value = freqL);
+        (oscR.frequency.value = freqR);
+        (oscL.start(t) ?? null);
+        (oscR.start(t) ?? null);
+      }
+    let totalTime = ((durSec + rel) + 0.5);
+    (setTimeout(() => {
+      {
+        (oscL.disconnect() ?? null);
+        (oscR.disconnect() ?? null);
+        (fL.disconnect() ?? null);
+        (fR.disconnect() ?? null);
+        (panL.disconnect() ?? null);
+        (panR.disconnect() ?? null);
+        (outGain.disconnect() ?? null);
+      }
+    }, (totalTime * 1000)) ?? null);
+  }
+}
+function playLaserSync (ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+  {
+    let gp = (ch.generatorParams ? ch.generatorParams : {  });
+    let dropRate = ((gp.dropRate != null) ? gp.dropRate : 0.8);
+    let dropAmt = ((gp.dropAmt != null) ? gp.dropAmt : 36);
+    let slaveBase = ((gp.slaveBase != null) ? gp.slaveBase : 18);
+    let att = ((gp.attack != null) ? gp.attack : 0.01);
+    let dec = ((gp.decay != null) ? gp.decay : 0.3);
+    let masterPitch = (midi + bendSemis);
+    let masterFreq = (440 * (Math.pow(2, ((masterPitch - 69) / 12)) ?? null));
+    let dropDecay = (0.01 + ((1 - dropRate) * 0.5));
+    let dropRatio = (Math.pow(2, (dropAmt / 12)) ?? null);
+    let slaveRatio = (Math.pow(2, (slaveBase / 12)) ?? null);
+    let v = (vel / 127);
+    if ((v < 0))
+      (v = 0);
+    if ((v > 1))
+      (v = 1);
+    let outGain = (ctx.createGain() ?? null);
+    (outGain.gain.value = 0);
+    (outGain.gain.setValueAtTime(0, t) ?? null);
+    (outGain.gain.linearRampToValueAtTime((v * 0.8), (t + att)) ?? null);
+    (outGain.gain.setTargetAtTime(0.0001, (t + att), (dec / 3)) ?? null);
+    (outGain.gain.setValueAtTime(0.0001, (t + durSec)) ?? null);
+    (outGain.gain.linearRampToValueAtTime(0, ((t + durSec) + 0.1)) ?? null);
+    (outGain.connect(bus.input) ?? null);
+    let osc = null;
+    let useFallback = false;
+    try {
+      {
+        (osc = (new AudioWorkletNode(ctx, "sync-oscillator") ?? null));
+      }
+    } catch (e) {
+      {
+        (useFallback = true);
+        (osc = (ctx.createOscillator() ?? null));
+        (osc.type = "sawtooth");
+      }
+    }
+    (osc.connect(outGain) ?? null);
+    if ((!useFallback && osc.parameters))
+      {
+        let mParam = (osc.parameters.get("masterFreq") ?? null);
+        let sParam = (osc.parameters.get("slaveFreq") ?? null);
+        (mParam.setValueAtTime((masterFreq * dropRatio), t) ?? null);
+        (mParam.setTargetAtTime(masterFreq, t, (dropDecay / 3)) ?? null);
+        (sParam.setValueAtTime((masterFreq * slaveRatio), t) ?? null);
+      }
+    else
+      {
+        (osc.frequency.value = masterFreq);
+        (osc.start(t) ?? null);
+      }
+    let totalTime = (durSec + 0.5);
+    (setTimeout(() => {
+      {
+        (osc.disconnect() ?? null);
+        (outGain.disconnect() ?? null);
+      }
+    }, (totalTime * 1000)) ?? null);
   }
 }
 function dispatchPlayNote (ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric) {
@@ -13007,6 +16176,86 @@ function dispatchPlayNote (ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
         (playMeSpeakVocal(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric) ?? null);
         return;
       }
+    if ((id === "acid303"))
+      {
+        (playAcid303(ctx, bus, t, midi, vel, durSec, ch, bendSemis) ?? null);
+        return;
+      }
+    if ((id === "sub808"))
+      {
+        (playSub808(ctx, bus, t, midi, vel, durSec, ch, bendSemis) ?? null);
+        return;
+      }
+    if ((id === "chiptune"))
+      {
+        (playChiptune(ctx, bus, t, midi, vel, durSec, ch, bendSemis) ?? null);
+        return;
+      }
+    if ((id === "nes2a03"))
+      {
+        (playNes2a03(ctx, bus, t, midi, vel, durSec, ch, bendSemis) ?? null);
+        return;
+      }
+    if ((id === "c64sid"))
+      {
+        (playC64Sid(ctx, bus, t, midi, vel, durSec, ch, bendSemis) ?? null);
+        return;
+      }
+    if ((id === "gameBoyDmg"))
+      {
+        (playGameBoyDmg(ctx, bus, t, midi, vel, durSec, ch, bendSemis) ?? null);
+        return;
+      }
+    if ((id === "ym2612"))
+      {
+        (playYm2612(ctx, bus, t, midi, vel, durSec, ch, bendSemis) ?? null);
+        return;
+      }
+    if ((id === "sn76489"))
+      {
+        (playSn76489(ctx, bus, t, midi, vel, durSec, ch, bendSemis) ?? null);
+        return;
+      }
+    if ((id === "spc700"))
+      {
+        (playSnesSpc(ctx, bus, t, midi, vel, durSec, ch, bendSemis) ?? null);
+        return;
+      }
+    if ((id === "gbaDirectSound"))
+      {
+        (playGameBoyAdv(ctx, bus, t, midi, vel, durSec, ch, bendSemis) ?? null);
+        return;
+      }
+    if ((id === "cymbal"))
+      {
+        (playCymbal(ctx, bus, t, midi, vel, durSec, ch, bendSemis) ?? null);
+        return;
+      }
+    if ((id === "reeseBass"))
+      {
+        (playReeseBass(ctx, bus, t, midi, vel, durSec, ch, bendSemis) ?? null);
+        return;
+      }
+    if ((id === "syncLead"))
+      {
+        (playSyncLead(ctx, bus, t, midi, vel, durSec, ch, bendSemis) ?? null);
+        return;
+      }
+    if ((id === "syncChoir"))
+      {
+        (playSyncChoir(ctx, bus, t, midi, vel, durSec, ch, bendSemis) ?? null);
+        return;
+      }
+    if ((id === "obSync"))
+      {
+        (playObSync(ctx, bus, t, midi, vel, durSec, ch, bendSemis) ?? null);
+        return;
+      }
+    if ((id === "laserSync"))
+      {
+        (playLaserSync(ctx, bus, t, midi, vel, durSec, ch, bendSemis) ?? null);
+        return;
+      }
     if ((id === "patch"))
       {
         (playPatch(ctx, bus, t, midi, vel, durSec, ch, bendSemis) ?? null);
@@ -13015,7 +16264,7 @@ function dispatchPlayNote (ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
     (playBasicOsc(ctx, bus, t, midi, vel, durSec, ch, bendSemis) ?? null);
   }
 }
-function makeDriveCurve__m56 (ctx, amount) {
+function makeDriveCurve__m75 (ctx, amount) {
   {
     let k = (amount * 120);
     let n = 1024;
@@ -13109,7 +16358,7 @@ function buildChannelBus (ctx, ch, actorSummingGain, reverbIn, cueSum) {
     (drive.oversample = "2x");
     if (((ch.drive != null) && (ch.drive > 0)))
       {
-        (drive.curve = (makeDriveCurve__m56(ctx, ch.drive) ?? null));
+        (drive.curve = (makeDriveCurve__m75(ctx, ch.drive) ?? null));
       }
     (drive.connect(filt) ?? null);
     let lfo = (ctx.createOscillator() ?? null);
@@ -13307,6 +16556,7 @@ function ensureAudio (project, store) {
     if ((((((__v) => __v == null ? "null" : typeof __v)(ctx.audioWorklet) !== "undefined") && ctx.audioWorklet) && ctx.audioWorklet.addModule))
       {
         let pmod = (ctx.audioWorklet.addModule("/clock-worklet.js") ?? null);
+        let smod = (ctx.audioWorklet.addModule("/sync-worklet.js") ?? null);
         if ((pmod && pmod.then))
           {
             (pmod.then(() => {
@@ -13663,7 +16913,7 @@ function updateMixerFromProject (project, store, atBeat) {
             let dv = ((ch.drive != null) ? ch.drive : 0);
             if ((b.driveCached !== dv))
               {
-                (b.driveNode.curve = ((dv > 0) ? (makeDriveCurve__m56(store.ctx, dv) ?? null) : null));
+                (b.driveNode.curve = ((dv > 0) ? (makeDriveCurve__m75(store.ctx, dv) ?? null) : null));
                 (b.driveCached = dv);
               }
           }
@@ -14317,14 +17567,14 @@ function channelAudible (project, idx, cuedDecks) {
     return true;
   }
 }
-let KEY__m57 = "deckard.audio.devices.v1";
-function defaultBackend__m57 () {
+let KEY__m76 = "deckard.audio.devices.v1";
+function defaultBackend__m76 () {
   {
     if (((((__v) => __v == null ? "null" : typeof __v)(localStorage) !== "undefined") && localStorage))
       {
-        return { read: () => ((localStorage.getItem(KEY__m57) ?? null)), write: (s) => {
+        return { read: () => ((localStorage.getItem(KEY__m76) ?? null)), write: (s) => {
           {
-            (localStorage.setItem(KEY__m57, s) ?? null);
+            (localStorage.setItem(KEY__m76, s) ?? null);
           }
         } };
       }
@@ -14343,7 +17593,7 @@ function defaults () {
 }
 function createAudioDeviceSettings (injected) {
   {
-    let be = (injected ? injected : (defaultBackend__m57() ?? null));
+    let be = (injected ? injected : (defaultBackend__m76() ?? null));
     function read () {
       {
         let raw = (be.read() ?? null);
@@ -14657,7 +17907,7 @@ function midiTargetLabel (project, targetId) {
   }
 }
 let MIDI_MAP_KEY = "deckard.midi.mappings.v1";
-function defaultBackend__m59 () {
+function defaultBackend__m78 () {
   {
     if ((((__v) => __v == null ? "null" : typeof __v)(localStorage) === "undefined"))
       {
@@ -14695,7 +17945,7 @@ function defaultBackend__m59 () {
 function createMidiController (deps) {
   {
     let d = (deps ? deps : {  });
-    let backend = (d.backend ? d.backend : (defaultBackend__m59() ?? null));
+    let backend = (d.backend ? d.backend : (defaultBackend__m78() ?? null));
     let state = { supported: false, inputs: [], connectedId: "", learn: false, pending: null, mappings: {  } };
     let raw = (backend.read() ?? null);
     if (((raw != null) && ((String(raw) ?? null).length > 0)))
@@ -15025,7 +18275,7 @@ function generatorChannelAtBeat (project, ch, beat) {
             (i = (i + 1));
           }
       }
-    return { generatorId: ch.generatorId, generatorParams: gp, generatorSpec: ch.generatorSpec };
+    return { generatorId: ch.generatorId, generatorParams: gp, generatorSpec: ch.generatorSpec, octave: ch.octave, arp: ch.arp, arpRate: ch.arpRate, chord: ch.chord, inversion: ch.inversion, strum: ch.strum };
   }
 }
 function chordIntervals (name) {
@@ -15069,6 +18319,36 @@ function chordIntervals (name) {
     return [0];
   }
 }
+function applyInversion (intervals, inv) {
+  {
+    if (((inv === "1st") && (intervals.length > 1)))
+      {
+        let out = [];
+        let i = 1;
+        while ((i < intervals.length))
+          {
+            (out.push((intervals[i] ?? null)) ?? null);
+            (i = (i + 1));
+          }
+        (out.push(((intervals[0] ?? null) + 12)) ?? null);
+        return out;
+      }
+    if (((inv === "2nd") && (intervals.length > 2)))
+      {
+        let out = [];
+        let i = 2;
+        while ((i < intervals.length))
+          {
+            (out.push((intervals[i] ?? null)) ?? null);
+            (i = (i + 1));
+          }
+        (out.push(((intervals[0] ?? null) + 12)) ?? null);
+        (out.push(((intervals[1] ?? null) + 12)) ?? null);
+        return out;
+      }
+    return intervals;
+  }
+}
 function isOff (v) {
   {
     return ((!v || (v === "off")) || (v === "Off"));
@@ -15076,6 +18356,10 @@ function isOff (v) {
 }
 function chordStrumDelta (ch) {
   {
+    if ((ch.strum != null))
+      {
+        return (ch.strum / 1000);
+      }
     if ((ch.generatorId === "guitar"))
       {
         return 0.008;
@@ -15151,9 +18435,13 @@ function arpReorder (pitches, arp, basePitch) {
     return out;
   }
 }
-function expandTriggerNotes (ch, basePitch, durSec) {
+function expandTriggerNotes (ch, basePitch, durSec, bpm) {
   {
     let intervals = ((isOff(ch.chord) ?? null) ? [0] : (chordIntervals(ch.chord) ?? null));
+    if (((ch.inversion != null) && (ch.inversion !== "root")))
+      {
+        (intervals = (applyInversion(intervals, ch.inversion) ?? null));
+      }
     let pitches = [];
     let i = 0;
     while ((i < intervals.length))
@@ -15169,14 +18457,31 @@ function expandTriggerNotes (ch, basePitch, durSec) {
       {
         let order = (arpReorder(pitches, ch.arp, basePitch) ?? null);
         let d = (durSec / order.length);
-        if ((d > 0.13))
+        if ((ch.arpRate === "1/8"))
           {
-            (d = 0.13);
+            (d = ((60 / bpm) / 2));
           }
-        if ((d < 0.05))
-          {
-            (d = 0.05);
-          }
+        else
+          if ((ch.arpRate === "1/16"))
+            {
+              (d = ((60 / bpm) / 4));
+            }
+          else
+            if ((ch.arpRate === "1/32"))
+              {
+                (d = ((60 / bpm) / 8));
+              }
+            else
+              {
+                if ((d > 0.13))
+                  {
+                    (d = 0.13);
+                  }
+                if ((d < 0.05))
+                  {
+                    (d = 0.05);
+                  }
+              }
         let out = [];
         let k = 0;
         while ((k < order.length))
@@ -15268,7 +18573,7 @@ function stepTriggers (project, rt, globalStep) {
                       {
                         (ratchet = 8);
                       }
-                    let notes = (expandTriggerNotes(ch, (projectSnapPitch(project, n.pitch) ?? null), ((ratchet > 1) ? (sec / ratchet) : sec)) ?? null);
+                    let notes = (expandTriggerNotes(ch, (projectSnapPitch(project, n.pitch) ?? null), ((ratchet > 1) ? (sec / ratchet) : sec), project.bpm) ?? null);
                     let rj = 0;
                     while ((rj < ratchet))
                       {
@@ -15318,7 +18623,7 @@ function stepTriggers (project, rt, globalStep) {
                   {
                     (ratchet = 8);
                   }
-                let notes = (expandTriggerNotes(ch, (projectSnapPitch(project, basePitch) ?? null), ((ratchet > 1) ? (dur / ratchet) : dur)) ?? null);
+                let notes = (expandTriggerNotes(ch, (projectSnapPitch(project, basePitch) ?? null), ((ratchet > 1) ? (dur / ratchet) : dur), project.bpm) ?? null);
                 let rj = 0;
                 while ((rj < ratchet))
                   {
@@ -16316,7 +19621,7 @@ function createIngest (store) {
     return { ingest: ingest, onOut: onOut, onAdvance: onAdvance, version: () => (version) };
   }
 }
-function f__m70 (v) {
+function f__m89 (v) {
   {
     return (formatTplFloat((Number(v) ?? null)) ?? null);
   }
@@ -16390,7 +19695,7 @@ function mixLine (ch, param, value) {
                   {
                     (hi = (Number(value) ?? null));
                   }
-    return ((((((((((((("  mix gain " + (f__m70(gain) ?? null)) + " pan ") + (f__m70(pan) ?? null)) + " mute ") + (String(mute) ?? null)) + " solo ") + (String(solo) ?? null)) + " eq_lo ") + (f__m70(lo) ?? null)) + " eq_mid ") + (f__m70(mid) ?? null)) + " eq_hi ") + (f__m70(hi) ?? null));
+    return ((((((((((((("  mix gain " + (f__m89(gain) ?? null)) + " pan ") + (f__m89(pan) ?? null)) + " mute ") + (String(mute) ?? null)) + " solo ") + (String(solo) ?? null)) + " eq_lo ") + (f__m89(lo) ?? null)) + " eq_mid ") + (f__m89(mid) ?? null)) + " eq_hi ") + (f__m89(hi) ?? null));
   }
 }
 function fxLine (ch, param, value) {
@@ -16430,7 +19735,7 @@ function fxLine (ch, param, value) {
                 {
                   (res = (Number(value) ?? null));
                 }
-    return ((((((((((("  fx reverb_send " + (f__m70(rev) ?? null)) + " drive ") + (f__m70(drive) ?? null)) + " lfo_rate ") + (f__m70(lfor) ?? null)) + " lfo_depth ") + (f__m70(lfod) ?? null)) + " cutoff ") + (f__m70(cut) ?? null)) + " res ") + (f__m70(res) ?? null));
+    return ((((((((((("  fx reverb_send " + (f__m89(rev) ?? null)) + " drive ") + (f__m89(drive) ?? null)) + " lfo_rate ") + (f__m89(lfor) ?? null)) + " lfo_depth ") + (f__m89(lfod) ?? null)) + " cutoff ") + (f__m89(cut) ?? null)) + " res ") + (f__m89(res) ?? null));
   }
 }
 function voiceLine (ch, param, value) {
@@ -16438,6 +19743,9 @@ function voiceLine (ch, param, value) {
     let oct = ((ch.octave != null) ? (Math.floor(ch.octave) ?? null) : 0);
     let arp = (((ch.arp != null) && (ch.arp !== "")) ? ch.arp : "off");
     let chord = (((ch.chord != null) && (ch.chord !== "")) ? ch.chord : "off");
+    let arpRate = (((ch.arpRate != null) && (ch.arpRate !== "")) ? ch.arpRate : "auto");
+    let inversion = (((ch.inversion != null) && (ch.inversion !== "")) ? ch.inversion : "root");
+    let strum = ((ch.strum != null) ? ch.strum : 0);
     if ((param === "octave"))
       {
         (oct = (Math.floor((Number(value) ?? null)) ?? null));
@@ -16452,7 +19760,29 @@ function voiceLine (ch, param, value) {
           {
             (chord = (String(value) ?? null));
           }
-    return ((((("  voice octave " + (String(oct) ?? null)) + " arp ") + arp) + " chord ") + chord);
+        else
+          if ((param === "arprate"))
+            {
+              (arpRate = (String(value) ?? null));
+            }
+          else
+            if ((param === "inversion"))
+              {
+                (inversion = (String(value) ?? null));
+              }
+            else
+              if ((param === "strum"))
+                {
+                  (strum = (Number(value) ?? null));
+                }
+    let line = ((((("  voice octave " + (String(oct) ?? null)) + " arp ") + arp) + " chord ") + chord);
+    if ((arpRate !== "auto"))
+      (line = ((line + " arprate ") + arpRate));
+    if ((inversion !== "root"))
+      (line = ((line + " inversion ") + inversion));
+    if ((strum !== 0))
+      (line = ((line + " strum ") + (String(((Math.round((strum * 1000)) ?? null) / 1000)) ?? null)));
+    return line;
   }
 }
 function stepsLine (value) {
@@ -16510,7 +19840,7 @@ function masterMixLine (project, param, value) {
               {
                 (reverb = (value ? 1 : 0));
               }
-    return ((((((((("master_mix eq_lo " + (f__m70(lo) ?? null)) + " eq_mid ") + (f__m70(mid) ?? null)) + " eq_hi ") + (f__m70(hi) ?? null)) + " comp ") + (String(comp) ?? null)) + " reverb ") + (String(reverb) ?? null));
+    return ((((((((("master_mix eq_lo " + (f__m89(lo) ?? null)) + " eq_mid ") + (f__m89(mid) ?? null)) + " eq_hi ") + (f__m89(hi) ?? null)) + " comp ") + (String(comp) ?? null)) + " reverb ") + (String(reverb) ?? null));
   }
 }
 function actorMixLine (project, lane, param, value) {
@@ -16551,7 +19881,7 @@ function actorMixLine (project, lane, param, value) {
                 {
                   (solo = (value ? 1 : 0));
                 }
-    let o = ((((((((("actor_mix " + lane) + " gain ") + (f__m70(gain) ?? null)) + " eq_lo ") + (f__m70(lo) ?? null)) + " eq_mid ") + (f__m70(mid) ?? null)) + " eq_hi ") + (f__m70(hi) ?? null));
+    let o = ((((((((("actor_mix " + lane) + " gain ") + (f__m89(gain) ?? null)) + " eq_lo ") + (f__m89(lo) ?? null)) + " eq_mid ") + (f__m89(mid) ?? null)) + " eq_hi ") + (f__m89(hi) ?? null));
     if ((mute === 1))
       {
         (o = (o + " mute 1"));
@@ -16569,7 +19899,7 @@ function fragmentForEdit (project, address, value) {
     let head = (parts[0] ?? null);
     if ((((head === "bpm") || (head === "launch_quant")) || (head === "swing")))
       {
-        return ((head + " ") + ((head === "launch_quant") ? (String((Math.floor((Number(value) ?? null)) ?? null)) ?? null) : (f__m70(value) ?? null)));
+        return ((head + " ") + ((head === "launch_quant") ? (String((Math.floor((Number(value) ?? null)) ?? null)) ?? null) : (f__m89(value) ?? null)));
       }
     if ((head === "main_deck"))
       {
@@ -16585,7 +19915,7 @@ function fragmentForEdit (project, address, value) {
         while ((ai < 16))
           {
             let av = ((ai < vals.length) ? (Number((vals[ai] ?? null)) ?? null) : 0);
-            (o = ((((o + "\n  ") + (f__m70((ai * 0.25)) ?? null)) + " ") + (f__m70(av) ?? null)));
+            (o = ((((o + "\n  ") + (f__m89((ai * 0.25)) ?? null)) + " ") + (f__m89(av) ?? null)));
             (ai = (ai + 1));
           }
         return o;
@@ -16619,7 +19949,7 @@ function fragmentForEdit (project, address, value) {
               (x = (Number(value.x) ?? null));
               (y = ((value.y != null) ? (Number(value.y) ?? null) : 0.5));
             }
-        return ((("xfade " + (f__m70(x) ?? null)) + " ") + (f__m70(y) ?? null));
+        return ((("xfade " + (f__m89(x) ?? null)) + " ") + (f__m89(y) ?? null));
       }
     if (((head === "master") && (parts.length >= 2)))
       {
@@ -16653,7 +19983,7 @@ function fragmentForEdit (project, address, value) {
           }
         if (((section === "gen") && (param != null)))
           {
-            return (((((hdr + "\n") + "  gen ") + param) + " ") + ((((__v) => __v == null ? "null" : typeof __v)(value) === "number") ? (f__m70(value) ?? null) : (String(value) ?? null)));
+            return (((((hdr + "\n") + "  gen ") + param) + " ") + ((((__v) => __v == null ? "null" : typeof __v)(value) === "number") ? (f__m89(value) ?? null) : (String(value) ?? null)));
           }
         if ((section === "gen_type"))
           {
@@ -16665,7 +19995,7 @@ function fragmentForEdit (project, address, value) {
             let d = ((value && (value.d != null)) ? value.d : 0.1);
             let s = ((value && (value.s != null)) ? value.s : 0.7);
             let r = ((value && (value.r != null)) ? value.r : 0.2);
-            return (((((((((hdr + "\n") + "  adsr a ") + (f__m70(a) ?? null)) + " d ") + (f__m70(d) ?? null)) + " s ") + (f__m70(s) ?? null)) + " r ") + (f__m70(r) ?? null));
+            return (((((((((hdr + "\n") + "  adsr a ") + (f__m89(a) ?? null)) + " d ") + (f__m89(d) ?? null)) + " s ") + (f__m89(s) ?? null)) + " r ") + (f__m89(r) ?? null));
           }
         if ((section === "deck"))
           {
@@ -16880,6 +20210,18 @@ function readAddr (project, address) {
             if ((p === "chord"))
               {
                 return (((ch.chord != null) && (ch.chord !== "")) ? ch.chord : "off");
+              }
+            if ((p === "arprate"))
+              {
+                return (((ch.arpRate != null) && (ch.arpRate !== "")) ? ch.arpRate : "auto");
+              }
+            if ((p === "inversion"))
+              {
+                return (((ch.inversion != null) && (ch.inversion !== "")) ? ch.inversion : "root");
+              }
+            if ((p === "strum"))
+              {
+                return ((ch.strum != null) ? ch.strum : 0);
               }
           }
         if ((section === "gen"))
@@ -17306,62 +20648,6 @@ function TransportBar (bpm, playing, playMode, previewing, onPreview, onPlayStop
     return h("div", { class: "transport-bar" }, ["\n      ", h("button", { class: prevCls, onclick: onPreview, title: "Preview the rack pattern on its own clock — a monitor, fully separate from the live transport (Space)" }, ["\n        ", (previewing ? "■ Preview" : "▶ Preview"), "\n        ", h("span", { class: "btn-key" }, ["Space"]), "\n      "]), "\n      ", h("span", { class: "transport-div" }, []), "\n      ", h("div", { class: "mode-switch", title: "The LIVE source — Sequence (the rack as a live song) or Session (the launched clips). Both share one clock; switch between them live." }, ["\n        ", h("button", { type: "button", class: seqCls, onclick: () => ((onSelectMode("sequence") ?? null)) }, ["\n          ", "Sequence", "\n        "]), "\n        ", h("button", { type: "button", class: sesCls, onclick: () => ((onSelectMode("song") ?? null)) }, ["\n          ", "Session", "\n        "]), "\n      "]), "\n      ", h("button", { class: playCls, onclick: onPlayStop, title: "Play / stop the live transport in the selected mode (Enter)" }, ["\n        ", (playing ? "■ Stop" : "▶ Play"), "\n        ", h("span", { class: "btn-key" }, ["Enter"]), "\n      "]), "\n      ", h("div", { class: "bpm-stepper", title: "Tempo — tap − / + to nudge a BPM (like a deck), or type a value" }, ["\n        ", h("span", { class: "bpm-stepper-cap" }, ["BPM"]), "\n        ", h("button", { type: "button", class: "bpm-btn bpm-btn-down", title: "−1 BPM", onmousedown: (e) => ((e.preventDefault() ?? null)), onclick: () => ((onBpmStep((-1)) ?? null)) }, ["−"]), "\n        ", h("input", { type: "number", class: "bpm-input", min: "40", max: "240", value: (String(bpm) ?? null), oninput: onBpmInput }, []), "\n        ", h("button", { type: "button", class: "bpm-btn bpm-btn-up", title: "+1 BPM", onmousedown: (e) => ((e.preventDefault() ?? null)), onclick: () => ((onBpmStep(1) ?? null)) }, ["+"]), "\n      "]), "\n      ", h("label", { class: "quant-label", title: "Launch quantize — clip / scene launches drop on this grid" }, ["\n        ", "Q ", "\n        ", h("select", { class: "quant-select", value: qv, onchange: (e) => ((onLaunchQuant((Number(e.target.value) ?? null)) ?? null)) }, ["\n          ", h("option", { value: "4", selected: (qv === "4") }, ["1/4"]), "\n          ", h("option", { value: "8", selected: (qv === "8") }, ["1/2"]), "\n          ", h("option", { value: "16", selected: (qv === "16") }, ["1 Bar"]), "\n          ", h("option", { value: "32", selected: (qv === "32") }, ["2 Bars"]), "\n        "]), "\n      "]), "\n      ", h("span", { class: "bpm-debug ok", title: "Transport health — TGT: target bpm · TRUE: measured bpm · BUF: scheduler lookahead headroom (lower = closer to dropping) · ✕N: audio underruns" }, ["TGT — · TRUE — · BUF —"]), "\n      ", h("span", { class: "transport-spacer" }, []), "\n      ", h("button", { class: "btn-ghost btn-undo", disabled: !canUndo, onclick: onUndo, title: "Undo (Cmd/Ctrl+Z) — reverts mixer / FX / BPM / crossfader / swing edits (step & note edits aren't undoable yet)" }, ["\n        ", "↶", "\n      "]), "\n      ", h("button", { class: "btn-ghost btn-undo", disabled: !canRedo, onclick: onRedo, title: "Redo (Cmd/Ctrl+Shift+Z)" }, ["\n        ", "↷", "\n      "]), "\n      ", h("span", { class: "transport-div" }, []), "\n      ", h("button", { class: "btn-ghost", onclick: onExport }, ["\n        ", "Export JSON", "\n      "]), "\n      ", h("button", { class: "btn-ghost", onclick: onImport }, ["\n        ", "Import JSON", "\n      "]), "\n    "]);
   }
 }
-function deepCloneParams (obj) {
-  {
-    return (JSON.parse((JSON.stringify(obj) ?? null)) ?? null);
-  }
-}
-function ensureInstrumentPresets (project) {
-  {
-    if (!project.instrumentPresets)
-      {
-        (project.instrumentPresets = []);
-      }
-  }
-}
-function addInstrumentPreset (project, displayName, ch) {
-  {
-    (ensureInstrumentPresets(project) ?? null);
-    let pid = ((("p_" + (String(project.instrumentPresets.length) ?? null)) + "_") + (String((Math.floor(((Math.random() ?? null) * 99999)) ?? null)) ?? null));
-    let row = { presetId: pid, name: displayName, generatorId: ch.generatorId, params: (deepCloneParams(ch.generatorParams) ?? null), macroName: ((ch.macroName != null) ? ch.macroName : null), macroParams: (ch.macroParams ? (deepCloneParams(ch.macroParams) ?? null) : null), fx: { reverbSend: ch.reverbSend, drive: ch.drive, filterCutoff: ch.filterCutoff, filterQ: ch.filterQ, lfoRate: ch.lfoRate, lfoDepth: ch.lfoDepth }, voice: { octave: ch.octave, arp: ch.arp, chord: ch.chord } };
-    if (ch.generatorSpec)
-      {
-        (row.generatorSpec = (deepCloneParams(ch.generatorSpec) ?? null));
-      }
-    (project.instrumentPresets.push(row) ?? null);
-  }
-}
-function applyInstrumentPresetToChannel (ch, preset) {
-  {
-    (ch.generatorId = preset.generatorId);
-    (ch.generatorParams = (deepCloneParams(preset.params) ?? null));
-    if (preset.generatorSpec)
-      {
-        (ch.generatorSpec = (deepCloneParams(preset.generatorSpec) ?? null));
-      }
-    else
-      {
-        (ch.generatorSpec = null);
-      }
-    if (((ch.generatorId === "matrixFm") && !ch.generatorSpec))
-      {
-        (ch.generatorSpec = (parseGenBlock("matrix_fm", (defaultMatrixFmRawLines() ?? null)) ?? null));
-      }
-    (ch.macroName = ((preset.macroName != null) ? preset.macroName : null));
-    (ch.macroParams = (preset.macroParams ? (deepCloneParams(preset.macroParams) ?? null) : null));
-    let fx = (preset.fx ? preset.fx : {  });
-    (ch.reverbSend = ((fx.reverbSend != null) ? fx.reverbSend : 0));
-    (ch.drive = ((fx.drive != null) ? fx.drive : 0));
-    (ch.filterCutoff = ((fx.filterCutoff != null) ? fx.filterCutoff : 20000));
-    (ch.filterQ = ((fx.filterQ != null) ? fx.filterQ : 0.7));
-    (ch.lfoRate = ((fx.lfoRate != null) ? fx.lfoRate : 0));
-    (ch.lfoDepth = ((fx.lfoDepth != null) ? fx.lfoDepth : 0));
-    let voice = (preset.voice ? preset.voice : {  });
-    (ch.octave = ((voice.octave != null) ? voice.octave : 0));
-    (ch.arp = ((voice.arp != null) ? voice.arp : "off"));
-    (ch.chord = ((voice.chord != null) ? voice.chord : "off"));
-  }
-}
 function patchWaveTok (w) {
   {
     return (normalizeBasicOscWaveform(w) ?? null);
@@ -17406,15 +20692,56 @@ function filterLine (nd) {
     return s;
   }
 }
+function syncoscLine (nd) {
+  {
+    let s = ("syncosc " + nd.id);
+    if ((nd.freqMode === "fixed"))
+      {
+        let hz = ((nd.fixedHz != null) ? nd.fixedHz : 220);
+        (s = ((s + " ") + (formatTplFloat(hz) ?? null)));
+      }
+    else
+      {
+        (s = (s + " note"));
+        let r = ((nd.ratio != null) ? nd.ratio : 1);
+        if (((Math.abs((r - 1)) ?? null) > 0.00001))
+          {
+            (s = ((s + " ratio ") + (formatTplFloat(r) ?? null)));
+          }
+      }
+    if (((nd.detune != null) && ((Math.abs(nd.detune) ?? null) > 0.00001)))
+      {
+        (s = ((s + " detune ") + (formatTplFloat(nd.detune) ?? null)));
+      }
+    if (((nd.rand != null) && (nd.rand > 0.00001)))
+      {
+        (s = ((s + " rand ") + (formatTplFloat(nd.rand) ?? null)));
+      }
+    return s;
+  }
+}
+function gainSuffix (nd) {
+  {
+    if (((nd.gain != null) && ((Math.abs((nd.gain - 1)) ?? null) > 0.00001)))
+      {
+        return (" gain " + (formatTplFloat(nd.gain) ?? null));
+      }
+    return "";
+  }
+}
 function nodeLine (nd) {
   {
     if ((nd.kind === "osc"))
       {
-        return (oscLine(nd) ?? null);
+        return ((oscLine(nd) ?? null) + (gainSuffix(nd) ?? null));
+      }
+    if ((nd.kind === "syncosc"))
+      {
+        return ((syncoscLine(nd) ?? null) + (gainSuffix(nd) ?? null));
       }
     if ((nd.kind === "noise"))
       {
-        return ("noise " + nd.id);
+        return (("noise " + nd.id) + (gainSuffix(nd) ?? null));
       }
     if ((nd.kind === "string"))
       {
@@ -17426,11 +20753,11 @@ function nodeLine (nd) {
           {
             (st = ((st + " mute ") + (formatTplFloat(nd.mute) ?? null)));
           }
-        return st;
+        return (st + (gainSuffix(nd) ?? null));
       }
     if ((nd.kind === "filter"))
       {
-        return (filterLine(nd) ?? null);
+        return ((filterLine(nd) ?? null) + (gainSuffix(nd) ?? null));
       }
     if ((nd.kind === "shaper"))
       {
@@ -17439,11 +20766,11 @@ function nodeLine (nd) {
           {
             (ss = ((ss + " curve ") + (String(nd.curve) ?? null)));
           }
-        return ss;
+        return (ss + (gainSuffix(nd) ?? null));
       }
     if ((nd.kind === "pan"))
       {
-        return ((("pan " + nd.id) + " ") + (formatTplFloat(((nd.pos != null) ? nd.pos : 0)) ?? null));
+        return (((("pan " + nd.id) + " ") + (formatTplFloat(((nd.pos != null) ? nd.pos : 0)) ?? null)) + (gainSuffix(nd) ?? null));
       }
     if ((nd.kind === "gain"))
       {
@@ -18407,7 +21734,7 @@ function removeMatrixFmRouteAt (graph, index) {
   }
 }
 let VOL_COMP = 0.7874015748031497;
-function f__m78 (x) {
+function f__m96 (x) {
   {
     return (formatTplFloat(x) ?? null);
   }
@@ -18415,7 +21742,7 @@ function f__m78 (x) {
 function adsrAmpEnv (node, a, d, s, r) {
   {
     let aPlusD = (a + d);
-    return (((((((((((("env " + node) + ".gain set 0 0 lin ") + (f__m78(a) ?? null)) + " 1 lin ") + (f__m78(aPlusD) ?? null)) + " ") + (f__m78(s) ?? null)) + " set dur ") + (f__m78(s) ?? null)) + " lin dur+") + (f__m78(r) ?? null)) + " 0");
+    return (((((((((((("env " + node) + ".gain set 0 0 lin ") + (f__m96(a) ?? null)) + " 1 lin ") + (f__m96(aPlusD) ?? null)) + " ") + (f__m96(s) ?? null)) + " set dur ") + (f__m96(s) ?? null)) + " lin dur+") + (f__m96(r) ?? null)) + " 0");
   }
 }
 function basicOscLines (p) {
@@ -18425,7 +21752,7 @@ function basicOscLines (p) {
     let d = ((p.decay > 0) ? p.decay : 0.08);
     let s = (((p.sustain >= 0) && (p.sustain <= 1)) ? p.sustain : 0.4);
     let r = ((p.release > 0) ? p.release : 0.12);
-    return [(("osc o1 " + wave) + " note"), "gain a1 0", "conn o1 a1 1", ("conn a1 out " + (f__m78(VOL_COMP) ?? null)), (adsrAmpEnv("a1", a, d, s, r) ?? null)];
+    return [(("osc o1 " + wave) + " note"), "gain a1 0", "conn o1 a1 1", ("conn a1 out " + (f__m96(VOL_COMP) ?? null)), (adsrAmpEnv("a1", a, d, s, r) ?? null)];
   }
 }
 function fmToneLines (p) {
@@ -18438,7 +21765,7 @@ function fmToneLines (p) {
     let d = ((p.decay > 0) ? p.decay : 0.08);
     let s = (((p.sustain >= 0) && (p.sustain <= 1)) ? p.sustain : 0.4);
     let r = ((p.release > 0) ? p.release : 0.12);
-    return [((("osc m1 " + modW) + " note ratio ") + (f__m78(ratio) ?? null)), "gain md 1", (("osc c1 " + carW) + " note"), "gain a1 0", "conn m1 md 1", "conn md c1.freq 1", "conn c1 a1 1", ("conn a1 out " + (f__m78(VOL_COMP) ?? null)), ("env md.gain set 0 note*" + (f__m78((modIndex * 0.12)) ?? null)), (adsrAmpEnv("a1", a, d, s, r) ?? null)];
+    return [((("osc m1 " + modW) + " note ratio ") + (f__m96(ratio) ?? null)), "gain md 1", (("osc c1 " + carW) + " note"), "gain a1 0", "conn m1 md 1", "conn md c1.freq 1", "conn c1 a1 1", ("conn a1 out " + (f__m96(VOL_COMP) ?? null)), ("env md.gain set 0 note*" + (f__m96((modIndex * 0.12)) ?? null)), (adsrAmpEnv("a1", a, d, s, r) ?? null)];
   }
 }
 function noiseBurstLines (p) {
@@ -18454,7 +21781,7 @@ function noiseBurstLines (p) {
     let center = (Math.round(((400 + (tone * 7000)) * (1 - pf))) ?? null);
     let q = (0.7 + (tone * 3));
     let hitDur = ((decay * 3) + 0.02);
-    return ["noise n1", ((("filter f1 bandpass q " + (f__m78(q) ?? null)) + " freq ") + (f__m78(center) ?? null)), "gain a1 0", "conn n1 f1 1", "conn f1 a1 1", ("conn a1 out " + (f__m78(VOL_COMP) ?? null)), (((("env a1.gain set 0 0 lin " + (f__m78(rise) ?? null)) + " 1 exp ") + (f__m78(hitDur) ?? null)) + " 0.001")];
+    return ["noise n1", ((("filter f1 bandpass q " + (f__m96(q) ?? null)) + " freq ") + (f__m96(center) ?? null)), "gain a1 0", "conn n1 f1 1", "conn f1 a1 1", ("conn a1 out " + (f__m96(VOL_COMP) ?? null)), (((("env a1.gain set 0 0 lin " + (f__m96(rise) ?? null)) + " 1 exp ") + (f__m96(hitDur) ?? null)) + " 0.001")];
   }
 }
 function padLines (p) {
@@ -18467,7 +21794,7 @@ function padLines (p) {
     let d = ((p.decay > 0) ? p.decay : 0.25);
     let s = (((p.sustain >= 0) && (p.sustain <= 1)) ? p.sustain : 0.6);
     let r = ((p.release > 0) ? p.release : 0.7);
-    return [(("osc o1 " + w1) + " note"), ((("osc o2 " + w2) + " note detune ") + (f__m78(detune) ?? null)), ("osc o3 sine note ratio 0.5 detune " + (f__m78((-detune)) ?? null)), ("filter f1 lowpass q 0.7 freq " + (f__m78(cutoff) ?? null)), "gain a1 0", "conn o1 f1 1", "conn o2 f1 1", "conn o3 f1 1", "conn f1 a1 1", ("conn a1 out " + (f__m78((VOL_COMP * 0.5)) ?? null)), (adsrAmpEnv("a1", a, d, s, r) ?? null)];
+    return [(("osc o1 " + w1) + " note"), ((("osc o2 " + w2) + " note detune ") + (f__m96(detune) ?? null)), ("osc o3 sine note ratio 0.5 detune " + (f__m96((-detune)) ?? null)), ("filter f1 lowpass q 0.7 freq " + (f__m96(cutoff) ?? null)), "gain a1 0", "conn o1 f1 1", "conn o2 f1 1", "conn o3 f1 1", "conn f1 a1 1", ("conn a1 out " + (f__m96((VOL_COMP * 0.5)) ?? null)), (adsrAmpEnv("a1", a, d, s, r) ?? null)];
   }
 }
 function bellLines (p) {
@@ -18475,7 +21802,7 @@ function bellLines (p) {
     let partial = ((p.partial > 0) ? p.partial : 2.01);
     let hp = ((p.highpass > 0) ? p.highpass : 800);
     let decay = ((p.decay > 0) ? p.decay : 1);
-    return ["osc o1 sine note", ("osc o2 sine note ratio " + (f__m78(partial) ?? null)), ("filter f1 highpass q 0.7 freq " + (f__m78(hp) ?? null)), "gain a1 0", "conn o1 f1 1", "conn o2 f1 1", "conn f1 a1 1", ("conn a1 out " + (f__m78((VOL_COMP * 0.4)) ?? null)), (("env a1.gain set 0 0 lin 0.006 1 exp " + (f__m78(decay) ?? null)) + " 0.0008")];
+    return ["osc o1 sine note", ("osc o2 sine note ratio " + (f__m96(partial) ?? null)), ("filter f1 highpass q 0.7 freq " + (f__m96(hp) ?? null)), "gain a1 0", "conn o1 f1 1", "conn o2 f1 1", "conn f1 a1 1", ("conn a1 out " + (f__m96((VOL_COMP * 0.4)) ?? null)), (("env a1.gain set 0 0 lin 0.006 1 exp " + (f__m96(decay) ?? null)) + " 0.0008")];
   }
 }
 function drumSynthLines (p) {
@@ -18492,7 +21819,7 @@ function drumSynthLines (p) {
     let lines = [(("osc o1 " + tone) + " note"), "gain a1 0"];
     if ((drive > 0))
       {
-        (lines.push(("shaper sh1 amount " + (f__m78((drive * 120)) ?? null))) ?? null);
+        (lines.push(("shaper sh1 amount " + (f__m96((drive * 120)) ?? null))) ?? null);
         (lines.push("conn o1 sh1 1") ?? null);
         (lines.push("conn sh1 a1 1") ?? null);
       }
@@ -18500,23 +21827,23 @@ function drumSynthLines (p) {
       {
         (lines.push("conn o1 a1 1") ?? null);
       }
-    (lines.push(("conn a1 out " + (f__m78(VOL_COMP) ?? null))) ?? null);
-    (lines.push((((("env o1.freq set 0 note*" + (f__m78(pitchMul) ?? null)) + " exp ") + (f__m78(pitchDecay) ?? null)) + " note")) ?? null);
-    (lines.push((("env a1.gain set 0 1 exp " + (f__m78(decay) ?? null)) + " 0.0008")) ?? null);
+    (lines.push(("conn a1 out " + (f__m96(VOL_COMP) ?? null))) ?? null);
+    (lines.push((((("env o1.freq set 0 note*" + (f__m96(pitchMul) ?? null)) + " exp ") + (f__m96(pitchDecay) ?? null)) + " note")) ?? null);
+    (lines.push((("env a1.gain set 0 1 exp " + (f__m96(decay) ?? null)) + " 0.0008")) ?? null);
     if ((noise > 0.001))
       {
         (lines.push("noise n1") ?? null);
-        (lines.push(("filter nf highpass q 0.7 freq " + (f__m78(noiseHp) ?? null))) ?? null);
+        (lines.push(("filter nf highpass q 0.7 freq " + (f__m96(noiseHp) ?? null))) ?? null);
         (lines.push("gain ng 0") ?? null);
         (lines.push("conn n1 nf 1") ?? null);
         (lines.push("conn nf ng 1") ?? null);
-        (lines.push(("conn ng out " + (f__m78((VOL_COMP * noise)) ?? null))) ?? null);
-        (lines.push((("env ng.gain set 0 1 exp " + (f__m78(noiseDecay) ?? null)) + " 0.0008")) ?? null);
+        (lines.push(("conn ng out " + (f__m96((VOL_COMP * noise)) ?? null))) ?? null);
+        (lines.push((("env ng.gain set 0 1 exp " + (f__m96(noiseDecay) ?? null)) + " 0.0008")) ?? null);
       }
     return lines;
   }
 }
-function clampHz__m78 (h) {
+function clampHz__m96 (h) {
   {
     if ((h < 20))
       {
@@ -18531,17 +21858,17 @@ function clampHz__m78 (h) {
 }
 function opVelEnv (node, a, d, s, r) {
   {
-    let pk = ("vel*" + (f__m78(VOL_COMP) ?? null));
-    let su = ("vel*" + (f__m78((VOL_COMP * s)) ?? null));
-    return (((((((((((((("env " + node) + ".gain set 0 0 lin ") + (f__m78(a) ?? null)) + " ") + pk) + " lin ") + (f__m78((a + d)) ?? null)) + " ") + su) + " set dur ") + su) + " lin dur+") + (f__m78(r) ?? null)) + " 0");
+    let pk = ("vel*" + (f__m96(VOL_COMP) ?? null));
+    let su = ("vel*" + (f__m96((VOL_COMP * s)) ?? null));
+    return (((((((((((((("env " + node) + ".gain set 0 0 lin ") + (f__m96(a) ?? null)) + " ") + pk) + " lin ") + (f__m96((a + d)) ?? null)) + " ") + su) + " set dur ") + su) + " lin dur+") + (f__m96(r) ?? null)) + " 0");
   }
 }
 function cutoffEnvLine (node, c0, amount, a, d, s, r) {
   {
-    let peakF = (clampHz__m78((c0 + amount)) ?? null);
-    let susF = (clampHz__m78((c0 + (amount * s))) ?? null);
-    let baseF = (clampHz__m78(c0) ?? null);
-    return ((((((((((((((((("env " + node) + ".freq set 0 ") + (f__m78(baseF) ?? null)) + " lin ") + (f__m78(a) ?? null)) + " ") + (f__m78(peakF) ?? null)) + " lin ") + (f__m78((a + d)) ?? null)) + " ") + (f__m78(susF) ?? null)) + " set dur ") + (f__m78(susF) ?? null)) + " lin dur+") + (f__m78(r) ?? null)) + " ") + (f__m78(baseF) ?? null));
+    let peakF = (clampHz__m96((c0 + amount)) ?? null);
+    let susF = (clampHz__m96((c0 + (amount * s))) ?? null);
+    let baseF = (clampHz__m96(c0) ?? null);
+    return ((((((((((((((((("env " + node) + ".freq set 0 ") + (f__m96(baseF) ?? null)) + " lin ") + (f__m96(a) ?? null)) + " ") + (f__m96(peakF) ?? null)) + " lin ") + (f__m96((a + d)) ?? null)) + " ") + (f__m96(susF) ?? null)) + " set dur ") + (f__m96(susF) ?? null)) + " lin dur+") + (f__m96(r) ?? null)) + " ") + (f__m96(baseF) ?? null));
   }
 }
 function patchFilterType (t) {
@@ -18586,7 +21913,9 @@ function matrixFmLines (graph) {
           }
         else
           {
-            (lines.push(((((("osc op" + oid) + " ") + (normalizeBasicOscWaveform(wave) ?? null)) + " note ratio ") + (f__m78(ratio) ?? null))) ?? null);
+            let ratioStr = ((ratio !== 1) ? (" ratio " + (f__m96(ratio) ?? null)) : "");
+            let detuneStr = (od.detune ? (" detune " + (f__m96(od.detune) ?? null)) : "");
+            (lines.push((((((("osc op" + oid) + " ") + (normalizeBasicOscWaveform(wave) ?? null)) + " note") + ratioStr) + detuneStr)) ?? null);
           }
         (tail[oid] = ("op" + oid));
         (i = (i + 1));
@@ -18602,7 +21931,7 @@ function matrixFmLines (graph) {
             let amt = ((md.amount === md.amount) ? md.amount : 1);
             (lines.push((("gain " + rmId) + " 0")) ?? null);
             (lines.push((((("conn " + (tail[md.dst] ?? null)) + " ") + rmId) + " 1")) ?? null);
-            (lines.push(((((("conn " + (tail[md.src] ?? null)) + " ") + rmId) + ".gain ") + (f__m78((amt * 0.4)) ?? null))) ?? null);
+            (lines.push(((((("conn " + (tail[md.src] ?? null)) + " ") + rmId) + ".gain ") + (f__m96((amt * 0.4)) ?? null))) ?? null);
             (tail[md.dst] = rmId);
             (rmIdx = (rmIdx + 1));
           }
@@ -18635,7 +21964,7 @@ function matrixFmLines (graph) {
             let fmgId = ("fmg" + (String(fmIdx) ?? null));
             (lines.push((("gain " + fmgId) + " 1")) ?? null);
             (lines.push((((("conn " + (tail[md.src] ?? null)) + " ") + fmgId) + " 1")) ?? null);
-            (lines.push(((("env " + fmgId) + ".gain set 0 note*") + (f__m78(depthK) ?? null))) ?? null);
+            (lines.push(((("env " + fmgId) + ".gain set 0 note*") + (f__m96(depthK) ?? null))) ?? null);
             (lines.push((((("conn " + fmgId) + " op") + md.dst) + ".freq 1")) ?? null);
             (fmIdx = (fmIdx + 1));
           }
@@ -18650,7 +21979,7 @@ function matrixFmLines (graph) {
         let fid = (fkeys[fk] ?? null);
         let fd = (filters[fid] ?? null);
         let ptype = (patchFilterType(fd.type) ?? null);
-        let c0 = (clampHz__m78(((fd.cutoff != null) ? fd.cutoff : 8000)) ?? null);
+        let c0 = (clampHz__m96(((fd.cutoff != null) ? fd.cutoff : 8000)) ?? null);
         let qv = ((fd.res != null) ? fd.res : 0.7);
         let q = (qv * 8);
         if ((q > 40))
@@ -18670,8 +21999,8 @@ function matrixFmLines (graph) {
         let fr = ((fe && (fe.r != null)) ? fe.r : 0.15);
         if (two)
           {
-            (lines.push(((((((("filter f" + fid) + "a ") + ptype) + " q ") + (f__m78(q) ?? null)) + " freq ") + (f__m78(c0) ?? null))) ?? null);
-            (lines.push(((((((("filter f" + fid) + "b ") + ptype) + " q ") + (f__m78(q) ?? null)) + " freq ") + (f__m78(c0) ?? null))) ?? null);
+            (lines.push(((((((("filter f" + fid) + "a ") + ptype) + " q ") + (f__m96(q) ?? null)) + " freq ") + (f__m96(c0) ?? null))) ?? null);
+            (lines.push(((((((("filter f" + fid) + "b ") + ptype) + " q ") + (f__m96(q) ?? null)) + " freq ") + (f__m96(c0) ?? null))) ?? null);
             (lines.push((((("conn f" + fid) + "a f") + fid) + "b 1")) ?? null);
             (filterFirst[fid] = (("f" + fid) + "a"));
             (filterLast[fid] = (("f" + fid) + "b"));
@@ -18683,7 +22012,7 @@ function matrixFmLines (graph) {
           }
         else
           {
-            (lines.push(((((((("filter f" + fid) + " ") + ptype) + " q ") + (f__m78(q) ?? null)) + " freq ") + (f__m78(c0) ?? null))) ?? null);
+            (lines.push(((((((("filter f" + fid) + " ") + ptype) + " q ") + (f__m96(q) ?? null)) + " freq ") + (f__m96(c0) ?? null))) ?? null);
             (filterFirst[fid] = ("f" + fid));
             (filterLast[fid] = ("f" + fid));
             if ((amt !== 0))
@@ -18715,14 +22044,14 @@ function matrixFmLines (graph) {
           {
             if (((rt.dstKind === "filter") && (filterFirst[rt.dstId] ?? null)))
               {
-                (lines.push(((((("conn " + srcN) + " ") + (filterFirst[rt.dstId] ?? null)) + " ") + (f__m78(vol) ?? null))) ?? null);
+                (lines.push(((((("conn " + srcN) + " ") + (filterFirst[rt.dstId] ?? null)) + " ") + (f__m96(vol) ?? null))) ?? null);
                 (routed = true);
               }
             else
               {
                 if ((rt.dstKind === "out"))
                   {
-                    (lines.push(((("conn " + srcN) + " out ") + (f__m78((vol * VOL_COMP)) ?? null))) ?? null);
+                    (lines.push(((("conn " + srcN) + " out ") + (f__m96((vol * VOL_COMP)) ?? null))) ?? null);
                     (routed = true);
                   }
               }
@@ -18731,7 +22060,7 @@ function matrixFmLines (graph) {
       }
     if (!routed)
       {
-        (lines.push(((("conn eg" + (opKeys[0] ?? null)) + " out ") + (f__m78(VOL_COMP) ?? null))) ?? null);
+        (lines.push(((("conn eg" + (opKeys[0] ?? null)) + " out ") + (f__m96(VOL_COMP) ?? null))) ?? null);
       }
     return lines;
   }
@@ -18751,10 +22080,10 @@ function guitarLines (p) {
       {
         (relStart = 0.005);
       }
-    let lines = [((((((("string s1 note tone " + (f__m78(tone) ?? null)) + " damping ") + (f__m78(damping) ?? null)) + " decay ") + (f__m78(decayP) ?? null)) + " mute ") + (f__m78(mute) ?? null)), ("filter f1 lowpass q 0.9 freq " + (f__m78(bodyHz) ?? null)), "gain a1 0"];
+    let lines = [((((((("string s1 note tone " + (f__m96(tone) ?? null)) + " damping ") + (f__m96(damping) ?? null)) + " decay ") + (f__m96(decayP) ?? null)) + " mute ") + (f__m96(mute) ?? null)), ("filter f1 lowpass q 0.9 freq " + (f__m96(bodyHz) ?? null)), "gain a1 0"];
     if ((drive > 0))
       {
-        (lines.push((("shaper sh1 amount " + (f__m78((drive * 100)) ?? null)) + " curve guitar")) ?? null);
+        (lines.push((("shaper sh1 amount " + (f__m96((drive * 100)) ?? null)) + " curve guitar")) ?? null);
         (lines.push("conn s1 sh1 1") ?? null);
         (lines.push("conn sh1 f1 1") ?? null);
       }
@@ -18763,9 +22092,9 @@ function guitarLines (p) {
         (lines.push("conn s1 f1 1") ?? null);
       }
     (lines.push("conn f1 a1 1") ?? null);
-    (lines.push(("conn a1 out " + (f__m78((VOL_COMP * 0.7)) ?? null))) ?? null);
-    (lines.push((((("env a1.gain set 0 0 lin 0.004 1 set " + (f__m78(relStart) ?? null)) + " 1 lin ") + (f__m78(ringSec) ?? null)) + " 0")) ?? null);
-    (lines.push(("dur " + (f__m78(ringSec) ?? null))) ?? null);
+    (lines.push(("conn a1 out " + (f__m96((VOL_COMP * 0.7)) ?? null))) ?? null);
+    (lines.push((((("env a1.gain set 0 0 lin 0.004 1 set " + (f__m96(relStart) ?? null)) + " 1 lin ") + (f__m96(ringSec) ?? null)) + " 0")) ?? null);
+    (lines.push(("dur " + (f__m96(ringSec) ?? null))) ?? null);
     return lines;
   }
 }
@@ -18778,7 +22107,7 @@ function clapLines (p) {
     let q = (1.4 + (tone * 4.5));
     let hp = (Math.round((500 + (tone * 900))) ?? null);
     let decay = (0.02 + (tail * 0.34));
-    return ["noise n1", ((("filter f1 bandpass q " + (f__m78(q) ?? null)) + " freq ") + (f__m78(center) ?? null)), ("filter f2 highpass q 0.7 freq " + (f__m78(hp) ?? null)), "gain a1 0", "conn n1 f1 1", "conn f1 f2 1", "conn f2 a1 1", ("conn a1 out " + (f__m78(VOL_COMP) ?? null)), (("env a1.gain set 0 0 lin 0.0006 1 exp " + (f__m78(decay) ?? null)) + " 0.001")];
+    return ["noise n1", ((("filter f1 bandpass q " + (f__m96(q) ?? null)) + " freq ") + (f__m96(center) ?? null)), ("filter f2 highpass q 0.7 freq " + (f__m96(hp) ?? null)), "gain a1 0", "conn n1 f1 1", "conn f1 f2 1", "conn f2 a1 1", ("conn a1 out " + (f__m96(VOL_COMP) ?? null)), (("env a1.gain set 0 0 lin 0.0006 1 exp " + (f__m96(decay) ?? null)) + " 0.001")];
   }
 }
 function arcoLines (p) {
@@ -18797,7 +22126,7 @@ function arcoLines (p) {
     let attack = (0.01 + (bow * 0.22));
     let release = (0.1 + (body * 0.18));
     let hold = (attack + 0.05);
-    return [("osc o1 sawtooth note detune " + (f__m78((0 - det)) ?? null)), ("osc o2 sawtooth note detune " + (f__m78(det) ?? null)), ("filter f1 lowpass q 0.7 freq " + (f__m78(cutoff) ?? null)), "gain a1 0", "conn o1 f1 1", "conn o2 f1 1", "conn f1 a1 1", ("conn a1 out " + (f__m78((VOL_COMP * 1.47)) ?? null)), (((((((("env a1.gain set 0 0 lin " + (f__m78(attack) ?? null)) + " 1 set max(dur,") + (f__m78(hold) ?? null)) + ") 1 exp max(dur,") + (f__m78(hold) ?? null)) + ")+") + (f__m78(release) ?? null)) + " 0.0008")];
+    return [("osc o1 sawtooth note detune " + (f__m96((0 - det)) ?? null)), ("osc o2 sawtooth note detune " + (f__m96(det) ?? null)), ("filter f1 lowpass q 0.7 freq " + (f__m96(cutoff) ?? null)), "gain a1 0", "conn o1 f1 1", "conn o2 f1 1", "conn f1 a1 1", ("conn a1 out " + (f__m96((VOL_COMP * 1.47)) ?? null)), (((((((("env a1.gain set 0 0 lin " + (f__m96(attack) ?? null)) + " 1 set max(dur,") + (f__m96(hold) ?? null)) + ") 1 exp max(dur,") + (f__m96(hold) ?? null)) + ")+") + (f__m96(release) ?? null)) + " 0.0008")];
   }
 }
 function tineLines (p) {
@@ -18814,43 +22143,43 @@ function tineLines (p) {
     let idxFloorQ = (idxFloor * 0.25);
     let spikeC = (spikeCoef * VOL_COMP);
     let idxFloorVc = ((idxFloor * 0.35) * VOL_COMP);
-    let lines = ["osc mf sine note", "gain mfd 1", "osc ms sine note", "gain msd 0", "osc c1 sine note", "gain c1g 0.85", "gain a1 0", "conn mf mfd 1", "conn mfd c1.freq 1", "conn ms msd 1", "conn msd c1.freq 1", "conn c1 c1g 1", "conn c1g a1 1", (((((((("env mfd.gain set 0 note*" + (f__m78(idxFloor) ?? null)) + " exp ") + (f__m78(barkDecay) ?? null)) + " note*") + (f__m78(idxFloorQ) ?? null)) + " exp ") + (f__m78(bodyDecay) ?? null)) + " 0.5"), (((((((("env msd.gain set 0 note*vel*" + (f__m78(spikeC) ?? null)) + " exp ") + (f__m78(barkDecay) ?? null)) + " note*vel*") + (f__m78(idxFloorVc) ?? null)) + " exp ") + (f__m78(bodyDecay) ?? null)) + " 0.0001")];
+    let lines = ["osc mf sine note", "gain mfd 1", "osc ms sine note", "gain msd 0", "osc c1 sine note", "gain c1g 0.85", "gain a1 0", "conn mf mfd 1", "conn mfd c1.freq 1", "conn ms msd 1", "conn msd c1.freq 1", "conn c1 c1g 1", "conn c1g a1 1", (((((((("env mfd.gain set 0 note*" + (f__m96(idxFloor) ?? null)) + " exp ") + (f__m96(barkDecay) ?? null)) + " note*") + (f__m96(idxFloorQ) ?? null)) + " exp ") + (f__m96(bodyDecay) ?? null)) + " 0.5"), (((((((("env msd.gain set 0 note*vel*" + (f__m96(spikeC) ?? null)) + " exp ") + (f__m96(barkDecay) ?? null)) + " note*vel*") + (f__m96(idxFloorVc) ?? null)) + " exp ") + (f__m96(bodyDecay) ?? null)) + " 0.0001")];
     let pingMul = (6 + (tine * 8));
     let pingK = ((0.05 + (tine * 0.16)) / VOL_COMP);
     let pingDecay = (0.04 + (tine * 0.18));
-    (lines.push(("osc p1 sine note ratio " + (f__m78(pingMul) ?? null))) ?? null);
+    (lines.push(("osc p1 sine note ratio " + (f__m96(pingMul) ?? null))) ?? null);
     (lines.push("filter php highpass q 1 freq 1500") ?? null);
     (lines.push("gain pg 0") ?? null);
     (lines.push("conn p1 php 1") ?? null);
     (lines.push("conn php pg 1") ?? null);
     (lines.push("conn pg a1 1") ?? null);
-    (lines.push((((("env pg.gain set 0 0 lin 0.002 vel*" + (f__m78(pingK) ?? null)) + " exp ") + (f__m78(pingDecay) ?? null)) + " 0.0008")) ?? null);
-    (lines.push((("env a1.gain set 0 0 lin 0.004 1 exp 0.09 0.72 exp " + (f__m78(bodyDecay) ?? null)) + " 0.001")) ?? null);
+    (lines.push((((("env pg.gain set 0 0 lin 0.002 vel*" + (f__m96(pingK) ?? null)) + " exp ") + (f__m96(pingDecay) ?? null)) + " 0.0008")) ?? null);
+    (lines.push((("env a1.gain set 0 0 lin 0.004 1 exp 0.09 0.72 exp " + (f__m96(bodyDecay) ?? null)) + " 0.001")) ?? null);
     let tremRate = (4.6 + (tremolo * 1.6));
     let depth = (tremolo * 0.42);
     let baseG = (1 - depth);
     let src = "a1";
     if ((drive > 0.001))
       {
-        (lines.push((("shaper sh1 amount " + (f__m78((drive * 60)) ?? null)) + " curve soft")) ?? null);
-        (lines.push(("gain pad " + (f__m78((2 / (1 + (drive * 0.6)))) ?? null))) ?? null);
+        (lines.push((("shaper sh1 amount " + (f__m96((drive * 60)) ?? null)) + " curve soft")) ?? null);
+        (lines.push(("gain pad " + (f__m96((2 / (1 + (drive * 0.6)))) ?? null))) ?? null);
         (lines.push("conn a1 sh1 0.5") ?? null);
         (lines.push("conn sh1 pad 1") ?? null);
         (src = "pad");
       }
-    (lines.push(("osc tlfo sine " + (f__m78(tremRate) ?? null))) ?? null);
-    (lines.push(("gain tgL " + (f__m78(baseG) ?? null))) ?? null);
-    (lines.push(("gain tgR " + (f__m78(baseG) ?? null))) ?? null);
+    (lines.push(("osc tlfo sine " + (f__m96(tremRate) ?? null))) ?? null);
+    (lines.push(("gain tgL " + (f__m96(baseG) ?? null))) ?? null);
+    (lines.push(("gain tgR " + (f__m96(baseG) ?? null))) ?? null);
     (lines.push("pan pL -0.6") ?? null);
     (lines.push("pan pR 0.6") ?? null);
     (lines.push((("conn " + src) + " tgL 1")) ?? null);
     (lines.push((("conn " + src) + " tgR 1")) ?? null);
-    (lines.push(("conn tlfo tgL.gain " + (f__m78(depth) ?? null))) ?? null);
-    (lines.push(("conn tlfo tgR.gain " + (f__m78((0 - depth)) ?? null))) ?? null);
+    (lines.push(("conn tlfo tgL.gain " + (f__m96(depth) ?? null))) ?? null);
+    (lines.push(("conn tlfo tgR.gain " + (f__m96((0 - depth)) ?? null))) ?? null);
     (lines.push("conn tgL pL 1") ?? null);
     (lines.push("conn tgR pR 1") ?? null);
-    (lines.push(("conn pL out " + (f__m78((VOL_COMP * 0.65)) ?? null))) ?? null);
-    (lines.push(("conn pR out " + (f__m78((VOL_COMP * 0.65)) ?? null))) ?? null);
+    (lines.push(("conn pL out " + (f__m96((VOL_COMP * 0.65)) ?? null))) ?? null);
+    (lines.push(("conn pR out " + (f__m96((VOL_COMP * 0.65)) ?? null))) ?? null);
     return lines;
   }
 }
@@ -18876,7 +22205,7 @@ function aetherLines (p) {
     let vibDepth = (5 + (waver * 65));
     let tremFactor = (0.05 + (waver * 0.32));
     let outLevel = ((VOL_COMP * 0.52) / (1 + tremFactor));
-    let lines = [("osc o1 sine note detune " + (f__m78((0 - beat)) ?? null)), ("osc o2 sine note detune " + (f__m78(beat) ?? null)), (("osc vib sine " + (f__m78(vibHz) ?? null)) + " rand 0.6"), "osc irreg sine 0.45 rand 0.4", ("filter f1 lowpass q 0.4 freq " + (f__m78(cutoff) ?? null)), "gain a1 0", ("gain vg " + (f__m78((vibDepth * 0.12)) ?? null)), "conn o1 f1 0.5", "conn o2 f1 0.5", "conn f1 a1 1", ("conn a1 out " + (f__m78(outLevel) ?? null)), "conn vib vg 1", ("conn irreg vg.gain " + (f__m78((waver * 9)) ?? null)), "conn vg o1.detune 1", "conn vg o2.detune 1", ("conn vib a1.gain " + (f__m78(tremFactor) ?? null)), ((((("env vg.gain set 0 " + (f__m78((vibDepth * 0.12)) ?? null)) + " lin ") + (f__m78((attack + 0.12)) ?? null)) + " ") + (f__m78(vibDepth) ?? null)), (((("env o1.freq set 0 note*" + (f__m78(startFactor) ?? null)) + " exp ") + (f__m78(glideTime) ?? null)) + " note"), (((("env o2.freq set 0 note*" + (f__m78(startFactor) ?? null)) + " exp ") + (f__m78(glideTime) ?? null)) + " note"), (((((((("env a1.gain set 0 0 lin " + (f__m78(attack) ?? null)) + " 1 set max(dur,") + (f__m78(hold) ?? null)) + ") 1 exp max(dur,") + (f__m78(hold) ?? null)) + ")+") + (f__m78(release) ?? null)) + " 0.0008")];
+    let lines = [("osc o1 sine note detune " + (f__m96((0 - beat)) ?? null)), ("osc o2 sine note detune " + (f__m96(beat) ?? null)), (("osc vib sine " + (f__m96(vibHz) ?? null)) + " rand 0.6"), "osc irreg sine 0.45 rand 0.4", ("filter f1 lowpass q 0.4 freq " + (f__m96(cutoff) ?? null)), "gain a1 0", ("gain vg " + (f__m96((vibDepth * 0.12)) ?? null)), "conn o1 f1 0.5", "conn o2 f1 0.5", "conn f1 a1 1", ("conn a1 out " + (f__m96(outLevel) ?? null)), "conn vib vg 1", ("conn irreg vg.gain " + (f__m96((waver * 9)) ?? null)), "conn vg o1.detune 1", "conn vg o2.detune 1", ("conn vib a1.gain " + (f__m96(tremFactor) ?? null)), ((((("env vg.gain set 0 " + (f__m96((vibDepth * 0.12)) ?? null)) + " lin ") + (f__m96((attack + 0.12)) ?? null)) + " ") + (f__m96(vibDepth) ?? null)), (((("env o1.freq set 0 note*" + (f__m96(startFactor) ?? null)) + " exp ") + (f__m96(glideTime) ?? null)) + " note"), (((("env o2.freq set 0 note*" + (f__m96(startFactor) ?? null)) + " exp ") + (f__m96(glideTime) ?? null)) + " note"), (((((((("env a1.gain set 0 0 lin " + (f__m96(attack) ?? null)) + " 1 set max(dur,") + (f__m96(hold) ?? null)) + ") 1 exp max(dur,") + (f__m96(hold) ?? null)) + ")+") + (f__m96(release) ?? null)) + " 0.0008")];
     if ((tone > 0.01))
       {
         let parts = [[3, 0.6], [5, 0.45], [7, 0.28]];
@@ -18886,10 +22215,10 @@ function aetherLines (p) {
             let mul = ((parts[api] ?? null)[0] ?? null);
             let pa = ((parts[api] ?? null)[1] ?? null);
             let oid = ("oh" + (String(mul) ?? null));
-            (lines.push(((("osc " + oid) + " sine note ratio ") + (f__m78(mul) ?? null))) ?? null);
-            (lines.push(((("conn " + oid) + " f1 ") + (f__m78(((tone * pa) * 0.5)) ?? null))) ?? null);
+            (lines.push(((("osc " + oid) + " sine note ratio ") + (f__m96(mul) ?? null))) ?? null);
+            (lines.push(((("conn " + oid) + " f1 ") + (f__m96(((tone * pa) * 0.5)) ?? null))) ?? null);
             (lines.push((("conn vg " + oid) + ".detune 1")) ?? null);
-            (lines.push(((((((("env " + oid) + ".freq set 0 note*") + (f__m78((startFactor * mul)) ?? null)) + " exp ") + (f__m78(glideTime) ?? null)) + " note*") + (f__m78(mul) ?? null))) ?? null);
+            (lines.push(((((((("env " + oid) + ".freq set 0 note*") + (f__m96((startFactor * mul)) ?? null)) + " exp ") + (f__m96(glideTime) ?? null)) + " note*") + (f__m96(mul) ?? null))) ?? null);
             (api = (api + 1));
           }
       }
@@ -18902,7 +22231,7 @@ function aetherLines (p) {
         (lines.push("conn nbp ng 1") ?? null);
         (lines.push("conn ng a1 1") ?? null);
         (lines.push("env nbp.freq set 0 note*2") ?? null);
-        (lines.push((((((((((((("env ng.gain set 0 0 lin " + (f__m78(attack) ?? null)) + " vel*") + (f__m78(((air * 0.8) * VOL_COMP)) ?? null)) + " set max(dur,") + (f__m78(hold) ?? null)) + ") vel*") + (f__m78(((air * 0.8) * VOL_COMP)) ?? null)) + " exp max(dur,") + (f__m78(hold) ?? null)) + ")+") + (f__m78(release) ?? null)) + " 0.0008")) ?? null);
+        (lines.push((((((((((((("env ng.gain set 0 0 lin " + (f__m96(attack) ?? null)) + " vel*") + (f__m96(((air * 0.8) * VOL_COMP)) ?? null)) + " set max(dur,") + (f__m96(hold) ?? null)) + ") vel*") + (f__m96(((air * 0.8) * VOL_COMP)) ?? null)) + " exp max(dur,") + (f__m96(hold) ?? null)) + ")+") + (f__m96(release) ?? null)) + " 0.0008")) ?? null);
       }
     return lines;
   }
@@ -18925,16 +22254,16 @@ function haloLines (p) {
     let fiStart = (0.2 * (0.25 + ((1 - bloom) * 0.45)));
     let fiPeak = (0.2 * (1 + (bloom * 0.6)));
     let fiBloomT = (0.06 + (bloom * 0.34));
-    let lines = [("osc f1a sine note detune " + (f__m78((0 - beatCents)) ?? null)), ("osc f1b sine note detune " + (f__m78(beatCents) ?? null)), ("osc o2a sine note ratio 2 detune " + (f__m78((0 - (beatCents + octDrift))) ?? null)), ("osc o2b sine note ratio 2 detune " + (f__m78((beatCents + octDrift)) ?? null)), ("osc o3a sine note ratio 3 detune " + (f__m78((0 - (beatCents + fifthDrift))) ?? null)), ("osc o3b sine note ratio 3 detune " + (f__m78((beatCents + fifthDrift)) ?? null)), "filter hp highpass q 0.5 freq 110", "gain gF 0", "gain gO 0", "gain gFi 0", "conn f1a gF 0.5", "conn f1b gF 0.5", "conn o2a gO 0.5", "conn o2b gO 0.5", "conn o3a gFi 0.5", "conn o3b gFi 0.5", "conn gF hp 1", "conn gO hp 1", "conn gFi hp 1", ("conn hp out " + (f__m78((VOL_COMP * 0.745)) ?? null)), (("env gF.gain set 0 0 lin 0.006 0.5 exp " + (f__m78(fundDecay) ?? null)) + " 0.0008"), (((((((("env gO.gain set 0 0 lin 0.006 " + (f__m78(octStart) ?? null)) + " lin ") + (f__m78(octBloomT) ?? null)) + " ") + (f__m78(octPeak) ?? null)) + " exp ") + (f__m78(octDecay) ?? null)) + " 0.0008"), (((((((("env gFi.gain set 0 0 lin 0.006 " + (f__m78(fiStart) ?? null)) + " lin ") + (f__m78(fiBloomT) ?? null)) + " ") + (f__m78(fiPeak) ?? null)) + " exp ") + (f__m78(fifthDecay) ?? null)) + " 0.0008")];
+    let lines = [("osc f1a sine note detune " + (f__m96((0 - beatCents)) ?? null)), ("osc f1b sine note detune " + (f__m96(beatCents) ?? null)), ("osc o2a sine note ratio 2 detune " + (f__m96((0 - (beatCents + octDrift))) ?? null)), ("osc o2b sine note ratio 2 detune " + (f__m96((beatCents + octDrift)) ?? null)), ("osc o3a sine note ratio 3 detune " + (f__m96((0 - (beatCents + fifthDrift))) ?? null)), ("osc o3b sine note ratio 3 detune " + (f__m96((beatCents + fifthDrift)) ?? null)), "filter hp highpass q 0.5 freq 110", "gain gF 0", "gain gO 0", "gain gFi 0", "conn f1a gF 0.5", "conn f1b gF 0.5", "conn o2a gO 0.5", "conn o2b gO 0.5", "conn o3a gFi 0.5", "conn o3b gFi 0.5", "conn gF hp 1", "conn gO hp 1", "conn gFi hp 1", ("conn hp out " + (f__m96((VOL_COMP * 0.745)) ?? null)), (("env gF.gain set 0 0 lin 0.006 0.5 exp " + (f__m96(fundDecay) ?? null)) + " 0.0008"), (((((((("env gO.gain set 0 0 lin 0.006 " + (f__m96(octStart) ?? null)) + " lin ") + (f__m96(octBloomT) ?? null)) + " ") + (f__m96(octPeak) ?? null)) + " exp ") + (f__m96(octDecay) ?? null)) + " 0.0008"), (((((((("env gFi.gain set 0 0 lin 0.006 " + (f__m96(fiStart) ?? null)) + " lin ") + (f__m96(fiBloomT) ?? null)) + " ") + (f__m96(fiPeak) ?? null)) + " exp ") + (f__m96(fifthDecay) ?? null)) + " 0.0008")];
     if ((lows > 0.02))
       {
         (lines.push("osc ob sine note ratio 0.5") ?? null);
-        (lines.push(("filter bl lowpass q 0.6 freq " + (f__m78((220 + (lows * 180))) ?? null))) ?? null);
+        (lines.push(("filter bl lowpass q 0.6 freq " + (f__m96((220 + (lows * 180))) ?? null))) ?? null);
         (lines.push("gain gb 0") ?? null);
         (lines.push("conn ob bl 1") ?? null);
         (lines.push("conn bl gb 1") ?? null);
-        (lines.push(("conn gb out " + (f__m78((VOL_COMP * 1.49)) ?? null))) ?? null);
-        (lines.push((((("env gb.gain set 0 0 lin 0.006 " + (f__m78((lows * 0.34)) ?? null)) + " exp ") + (f__m78((0.4 + (ring * 1.6))) ?? null)) + " 0.0008")) ?? null);
+        (lines.push(("conn gb out " + (f__m96((VOL_COMP * 1.49)) ?? null))) ?? null);
+        (lines.push((((("env gb.gain set 0 0 lin 0.006 " + (f__m96((lows * 0.34)) ?? null)) + " exp ") + (f__m96((0.4 + (ring * 1.6))) ?? null)) + " 0.0008")) ?? null);
       }
     return lines;
   }
@@ -19026,14 +22355,14 @@ function aahsLines (p) {
       {
         let frac = ((voices > 1) ? (k / (voices - 1)) : 0.5);
         let det = ((frac - 0.5) * spread);
-        (lines.push((((("osc o" + (String(k) ?? null)) + " sawtooth note detune ") + (f__m78(det) ?? null)) + " rand 2.5")) ?? null);
+        (lines.push((((("osc o" + (String(k) ?? null)) + " sawtooth note detune ") + (f__m96(det) ?? null)) + " rand 2.5")) ?? null);
         (k = (k + 1));
       }
-    (lines.push(("osc vib sine " + (f__m78(vibHz) ?? null))) ?? null);
-    (lines.push(("filter lp lowpass q 0.6 freq " + (f__m78(cutoff) ?? null))) ?? null);
-    (lines.push(("filter bp1 peaking q 7.5 freq " + (f__m78(ff1) ?? null))) ?? null);
-    (lines.push(("filter bp2 peaking q 9.5 freq " + (f__m78(ff2) ?? null))) ?? null);
-    (lines.push(("filter bp3 peaking q 5 freq " + (f__m78(ff3) ?? null))) ?? null);
+    (lines.push(("osc vib sine " + (f__m96(vibHz) ?? null))) ?? null);
+    (lines.push(("filter lp lowpass q 0.6 freq " + (f__m96(cutoff) ?? null))) ?? null);
+    (lines.push(("filter bp1 peaking q 7.5 freq " + (f__m96(ff1) ?? null))) ?? null);
+    (lines.push(("filter bp2 peaking q 9.5 freq " + (f__m96(ff2) ?? null))) ?? null);
+    (lines.push(("filter bp3 peaking q 5 freq " + (f__m96(ff3) ?? null))) ?? null);
     (lines.push("gain a1 0") ?? null);
     (lines.push("gain gvib 0") ?? null);
     (lines.push("conn vib gvib 1") ?? null);
@@ -19041,40 +22370,394 @@ function aahsLines (p) {
     while ((j < voices))
       {
         (lines.push((("conn o" + (String(j) ?? null)) + " lp 1")) ?? null);
-        (lines.push(((("conn gvib o" + (String(j) ?? null)) + ".detune ") + (f__m78(vibDepth) ?? null))) ?? null);
+        (lines.push(((("conn gvib o" + (String(j) ?? null)) + ".detune ") + (f__m96(vibDepth) ?? null))) ?? null);
         (j = (j + 1));
       }
-    (lines.push((((((((((("env gvib.gain set 0 0.12 lin min(" + (f__m78((attack + 0.28)) ?? null)) + ",max(dur,") + (f__m78(hold) ?? null)) + ")) 1 set max(dur,") + (f__m78(hold) ?? null)) + ") 1 exp max(dur,") + (f__m78(hold) ?? null)) + ")+") + (f__m78(release) ?? null)) + " 0.0008")) ?? null);
+    (lines.push((((((((((("env gvib.gain set 0 0.12 lin min(" + (f__m96((attack + 0.28)) ?? null)) + ",max(dur,") + (f__m96(hold) ?? null)) + ")) 1 set max(dur,") + (f__m96(hold) ?? null)) + ") 1 exp max(dur,") + (f__m96(hold) ?? null)) + ")+") + (f__m96(release) ?? null)) + " 0.0008")) ?? null);
     (lines.push("conn lp bp1 1") ?? null);
     (lines.push("conn lp bp2 1") ?? null);
     (lines.push("conn lp bp3 1") ?? null);
     (lines.push("conn bp1 a1 0.5") ?? null);
     (lines.push("conn bp2 a1 0.5") ?? null);
     (lines.push("conn bp3 a1 0.5") ?? null);
-    (lines.push(("conn a1 out " + (f__m78(((VOL_COMP * 0.5) / voices)) ?? null))) ?? null);
-    (lines.push(("env bp1.gain set 0 " + (f__m78(g1) ?? null))) ?? null);
-    (lines.push(("env bp2.gain set 0 " + (f__m78(g2) ?? null))) ?? null);
-    (lines.push(("env bp3.gain set 0 " + (f__m78(g3) ?? null))) ?? null);
-    (lines.push((((((((("env a1.gain set 0 0 lin " + (f__m78(attack) ?? null)) + " 1 set max(dur,") + (f__m78(hold) ?? null)) + ") 1 exp max(dur,") + (f__m78(hold) ?? null)) + ")+") + (f__m78(release) ?? null)) + " 0.0008")) ?? null);
+    (lines.push(("conn a1 out " + (f__m96(((VOL_COMP * 0.5) / voices)) ?? null))) ?? null);
+    (lines.push(("env bp1.gain set 0 " + (f__m96(g1) ?? null))) ?? null);
+    (lines.push(("env bp2.gain set 0 " + (f__m96(g2) ?? null))) ?? null);
+    (lines.push(("env bp3.gain set 0 " + (f__m96(g3) ?? null))) ?? null);
+    (lines.push((((((((("env a1.gain set 0 0 lin " + (f__m96(attack) ?? null)) + " 1 set max(dur,") + (f__m96(hold) ?? null)) + ") 1 exp max(dur,") + (f__m96(hold) ?? null)) + ")+") + (f__m96(release) ?? null)) + " 0.0008")) ?? null);
     if ((breath > 0.01))
       {
         (lines.push("noise nz") ?? null);
-        (lines.push(("filter nbp bandpass q 0.7 freq " + (f__m78((Math.round(((ff2 + ff3) * 0.5)) ?? null)) ?? null))) ?? null);
-        (lines.push(("filter nf1 peaking q 3 freq " + (f__m78(ff1) ?? null))) ?? null);
+        (lines.push(("filter nbp bandpass q 0.7 freq " + (f__m96((Math.round(((ff2 + ff3) * 0.5)) ?? null)) ?? null))) ?? null);
+        (lines.push(("filter nf1 peaking q 3 freq " + (f__m96(ff1) ?? null))) ?? null);
         (lines.push("gain ng 0") ?? null);
         (lines.push("conn nz nbp 1") ?? null);
         (lines.push("conn nbp nf1 1") ?? null);
         (lines.push("conn nf1 ng 1") ?? null);
         (lines.push("conn ng a1 1") ?? null);
         (lines.push("env nf1.gain set 0 8") ?? null);
-        (lines.push((((((((((((("env ng.gain set 0 0 lin " + (f__m78(attack) ?? null)) + " vel*") + (f__m78(((breath * 0.5) * VOL_COMP)) ?? null)) + " set max(dur,") + (f__m78(hold) ?? null)) + ") vel*") + (f__m78((((breath * 0.5) * 0.7) * VOL_COMP)) ?? null)) + " exp max(dur,") + (f__m78(hold) ?? null)) + ")+") + (f__m78(release) ?? null)) + " 0.0008")) ?? null);
+        (lines.push((((((((((((("env ng.gain set 0 0 lin " + (f__m96(attack) ?? null)) + " vel*") + (f__m96(((breath * 0.5) * VOL_COMP)) ?? null)) + " set max(dur,") + (f__m96(hold) ?? null)) + ") vel*") + (f__m96((((breath * 0.5) * 0.7) * VOL_COMP)) ?? null)) + " exp max(dur,") + (f__m96(hold) ?? null)) + ")+") + (f__m96(release) ?? null)) + " 0.0008")) ?? null);
       }
+    return lines;
+  }
+}
+function syncLeadLines (p) {
+  {
+    let slaveBase = ((p.slaveBase != null) ? p.slaveBase : 12);
+    let sweepAmt = ((p.sweepAmt != null) ? p.sweepAmt : 24);
+    let sweepDecay = ((p.sweepDecay != null) ? p.sweepDecay : 0.4);
+    let lfoRate = ((p.lfoRate != null) ? p.lfoRate : 0);
+    let lfoAmt = ((p.lfoAmt != null) ? p.lfoAmt : 0);
+    let cutoff = ((p.cutoff != null) ? p.cutoff : 3000);
+    let res = ((p.resonance != null) ? p.resonance : 5);
+    let filterEnvAmt = ((p.filterEnvAmt != null) ? p.filterEnvAmt : 0);
+    let filterDecay = ((p.filterDecay != null) ? p.filterDecay : 0.4);
+    let att = ((p.attack != null) ? p.attack : 0.05);
+    let dec = ((p.decay != null) ? p.decay : 0.3);
+    let sus = ((p.sustain != null) ? p.sustain : 0.8);
+    let rel = ((p.release != null) ? p.release : 0.5);
+    let slaveRatio = (Math.pow(2, (slaveBase / 12)) ?? null);
+    let sweepStartRatio = (slaveRatio * (Math.pow(2, (sweepAmt / 12)) ?? null));
+    let filterPeak = (cutoff * (Math.pow(2, (filterEnvAmt * 6)) ?? null));
+    if ((filterPeak > 20000))
+      {
+        (filterPeak = 20000);
+      }
+    let filterSus = (cutoff + ((filterPeak - cutoff) * sus));
+    let lines = ["syncosc s1", ((("filter f1 lowpass q " + (f__m96(res) ?? null)) + " freq ") + (f__m96(cutoff) ?? null)), "gain a1 0", "conn s1 f1 1", "conn f1 a1 1", ("conn a1 out " + (f__m96(VOL_COMP) ?? null)), "env s1.masterFreq set 0 note", ((((("env s1.slaveFreq set 0 note*" + (f__m96(sweepStartRatio) ?? null)) + " exp ") + (f__m96((sweepDecay + 0.01)) ?? null)) + " note*") + (f__m96(slaveRatio) ?? null)), ((((((((((((((("env f1.freq set 0 " + (f__m96(cutoff) ?? null)) + " lin ") + (f__m96(att) ?? null)) + " ") + (f__m96(filterPeak) ?? null)) + " lin ") + (f__m96((att + filterDecay)) ?? null)) + " ") + (f__m96(filterSus) ?? null)) + " set dur ") + (f__m96(filterSus) ?? null)) + " lin dur+") + (f__m96(rel) ?? null)) + " ") + (f__m96(((cutoff > 20) ? cutoff : 20)) ?? null)), (adsrAmpEnv("a1", att, dec, sus, rel) ?? null)];
+    if (((lfoRate > 0) && (lfoAmt > 0)))
+      {
+        let lfoDepthFactor = (slaveRatio * ((Math.pow(2, (lfoAmt / 12)) ?? null) - 1));
+        (lines.push(("osc lfos sine " + (f__m96(lfoRate) ?? null))) ?? null);
+        (lines.push("gain glfos 0") ?? null);
+        (lines.push("conn lfos glfos 1") ?? null);
+        (lines.push("conn glfos s1.slaveFreq 1") ?? null);
+        (lines.push(("env glfos.gain set 0 note*" + (f__m96(lfoDepthFactor) ?? null))) ?? null);
+      }
+    return lines;
+  }
+}
+function syncChoirLines (p) {
+  {
+    let vowelShift = ((p.vowelShift != null) ? p.vowelShift : 24);
+    let morphRate = ((p.morphRate != null) ? p.morphRate : 0.5);
+    let morphAmt = ((p.morphAmt != null) ? p.morphAmt : 12);
+    let detuneCents = ((p.ensembleDetune != null) ? p.ensembleDetune : 15);
+    let vibRateHz = ((p.vibRate != null) ? p.vibRate : 5);
+    let vibAmtCents = ((p.vibAmt != null) ? p.vibAmt : 10);
+    let highpassFreq = ((p.highpass != null) ? p.highpass : 300);
+    let att = ((p.attack != null) ? p.attack : 1);
+    let dec = ((p.decay != null) ? p.decay : 1);
+    let sus = ((p.sustain != null) ? p.sustain : 0.8);
+    let rel = ((p.release != null) ? p.release : 1.5);
+    let slaveRatio = (Math.pow(2, (vowelShift / 12)) ?? null);
+    let morphDepthFactor = (slaveRatio * ((Math.pow(2, (morphAmt / 12)) ?? null) - 1));
+    let vibDepthFactor = ((Math.pow(2, (vibAmtCents / 1200)) ?? null) - 1);
+    let lines = [("syncosc s1 detune " + (f__m96((0 - detuneCents)) ?? null)), ("syncosc s2 detune " + (f__m96(detuneCents) ?? null)), ("osc lfo sine " + (f__m96(morphRate) ?? null)), "gain glfo 0", ("osc vib sine " + (f__m96(vibRateHz) ?? null)), "gain gvib 0", ("filter hp highpass q 0.7 freq " + (f__m96(highpassFreq) ?? null)), "filter lp lowpass q 0.7 freq 8000", "gain a1 0", "pan p1 -0.7", "pan p2 0.7", "conn s1 p1 1", "conn s2 p2 1", "conn p1 a1 1", "conn p2 a1 1", "conn a1 hp 1", "conn hp lp 1", ("conn lp out " + (f__m96((VOL_COMP * 0.8)) ?? null)), "env s1.masterFreq set 0 note", "env s2.masterFreq set 0 note", ("env s1.slaveFreq set 0 note*" + (f__m96(slaveRatio) ?? null)), ("env s2.slaveFreq set 0 note*" + (f__m96(slaveRatio) ?? null)), "conn lfo glfo 1", "conn glfo s1.slaveFreq 1", "conn glfo s2.slaveFreq 1", ("env glfo.gain set 0 note*" + (f__m96(morphDepthFactor) ?? null)), "conn vib gvib 1", "conn gvib s1.masterFreq 1", "conn gvib s2.masterFreq 1", ("env gvib.gain set 0 note*" + (f__m96(vibDepthFactor) ?? null)), (adsrAmpEnv("a1", att, dec, sus, rel) ?? null)];
+    return lines;
+  }
+}
+function obSyncLines (p) {
+  {
+    let detune = ((p.detune != null) ? p.detune : 15);
+    let sweepRate = ((p.sweepRate != null) ? p.sweepRate : 0.5);
+    let sweepAmt = ((p.sweepAmt != null) ? p.sweepAmt : 24);
+    let cutoff = ((p.cutoff != null) ? p.cutoff : 1200);
+    let res = ((p.resonance != null) ? p.resonance : 2);
+    let filterEnv = ((p.filterEnv != null) ? p.filterEnv : 2400);
+    let filterDecay = ((p.filterDecay != null) ? p.filterDecay : 0.8);
+    let a = ((p.attack != null) ? p.attack : 0.1);
+    let d = ((p.decay != null) ? p.decay : 0.4);
+    let s = ((p.sustain != null) ? p.sustain : 0.6);
+    let r = ((p.release != null) ? p.release : 0.5);
+    let sweepDecay = (0.05 + ((1 - sweepRate) * 1.5));
+    let cutoffPeak = (cutoff + filterEnv);
+    let lines = [("syncosc sL detune " + (f__m96((0 - detune)) ?? null)), ("syncosc sR detune " + (f__m96(detune) ?? null)), ((("filter fL lowpass q " + (f__m96(res) ?? null)) + " freq ") + (f__m96(cutoff) ?? null)), ((("filter fR lowpass q " + (f__m96(res) ?? null)) + " freq ") + (f__m96(cutoff) ?? null)), "pan pL -0.6", "pan pR 0.6", "gain a1 0", "conn sL fL 1", "conn sR fR 1", "conn fL pL 1", "conn fR pR 1", "conn pL a1 1", "conn pR a1 1", ("conn a1 out " + (f__m96((VOL_COMP * 0.6)) ?? null)), "env sL.masterFreq set 0 note", "env sR.masterFreq set 0 note", (((("env sL.slaveFreq set 0 note*" + (f__m96((Math.pow(2, (sweepAmt / 12)) ?? null)) ?? null)) + " exp ") + (f__m96(sweepDecay) ?? null)) + " note"), (((("env sR.slaveFreq set 0 note*" + (f__m96((Math.pow(2, (sweepAmt / 12)) ?? null)) ?? null)) + " exp ") + (f__m96(sweepDecay) ?? null)) + " note"), ((((("env fL.freq set 0 " + (f__m96(cutoffPeak) ?? null)) + " exp ") + (f__m96(filterDecay) ?? null)) + " ") + (f__m96(cutoff) ?? null)), ((((("env fR.freq set 0 " + (f__m96(cutoffPeak) ?? null)) + " exp ") + (f__m96(filterDecay) ?? null)) + " ") + (f__m96(cutoff) ?? null)), (adsrAmpEnv("a1", a, d, s, r) ?? null)];
+    return lines;
+  }
+}
+function laserSyncLines (p) {
+  {
+    let dropRate = ((p.dropRate != null) ? p.dropRate : 0.8);
+    let dropAmt = ((p.dropAmt != null) ? p.dropAmt : 36);
+    let slaveBase = ((p.slaveBase != null) ? p.slaveBase : 18);
+    let a = ((p.attack != null) ? p.attack : 0.01);
+    let d = ((p.decay != null) ? p.decay : 0.3);
+    let dropDecay = (0.01 + ((1 - dropRate) * 0.5));
+    let slaveRatio = (Math.pow(2, (slaveBase / 12)) ?? null);
+    let dropRatio = (Math.pow(2, (dropAmt / 12)) ?? null);
+    let lines = ["syncosc s1", "gain a1 0", "conn s1 a1 1", ("conn a1 out " + (f__m96((VOL_COMP * 0.8)) ?? null)), (((("env s1.masterFreq set 0 note*" + (f__m96(dropRatio) ?? null)) + " exp ") + (f__m96(dropDecay) ?? null)) + " note"), ("env s1.slaveFreq set 0 note*" + (f__m96(slaveRatio) ?? null)), (((("env a1.gain set 0 0 lin " + (f__m96(a) ?? null)) + " 1 exp ") + (f__m96(d) ?? null)) + " 0.0001 lin dur 0.0001 lin dur+0.1 0")];
+    return lines;
+  }
+}
+function getRetroVolComp (pVol, maxVol) {
+  {
+    let v = ((pVol != null) ? pVol : (maxVol * 0.66));
+    return (f__m96((((v / maxVol) * VOL_COMP) * 0.8)) ?? null);
+  }
+}
+function addRetroGlobals (lines, p, targetOsc) {
+  {
+    let pitchDrop = ((p.pitchDrop != null) ? p.pitchDrop : 0);
+    let pitchDec = ((p.pitchDec != null) ? p.pitchDec : 0.05);
+    let vibRate = ((p.vibRate != null) ? p.vibRate : 0);
+    let vibAmt = ((p.vibAmt != null) ? p.vibAmt : 0);
+    if ((pitchDrop !== 0))
+      {
+        let dropRatio = (Math.pow(2, (pitchDrop / 12)) ?? null);
+        (lines.push((((((("env " + targetOsc) + ".freq set 0 note*") + (f__m96(dropRatio) ?? null)) + " exp ") + (f__m96(pitchDec) ?? null)) + " note")) ?? null);
+      }
+    if (((vibRate > 0) && (vibAmt > 0)))
+      {
+        let vibDepthFactor = ((Math.pow(2, (vibAmt / 1200)) ?? null) - 1);
+        (lines.push(("osc vib sine " + (f__m96(vibRate) ?? null))) ?? null);
+        (lines.push("gain gvib 0") ?? null);
+        (lines.push(("env gvib.gain set 0 note*" + (f__m96(vibDepthFactor) ?? null))) ?? null);
+        (lines.push("conn vib gvib 1") ?? null);
+        (lines.push((("conn gvib " + targetOsc) + ".freq 1")) ?? null);
+      }
+  }
+}
+function applySweep (lines, p, targetOsc) {
+  {
+    if (((p.sweep != null) && (p.sweep !== 0)))
+      {
+        let sweepRatio = (Math.pow(2, (p.sweep / 12)) ?? null);
+        (lines.push(((("env " + targetOsc) + ".freq set 0 note lin dur note*") + (f__m96(sweepRatio) ?? null))) ?? null);
+      }
+  }
+}
+function nes2a03Lines (p) {
+  {
+    let type = (p.type ? p.type : "pulse");
+    let isNoise = (type === "noise");
+    let wave = ((type === "triangle") ? "triangle" : "square");
+    let a = (p.attack ? p.attack : 0.005);
+    let d = (((p.decay != null) ? p.decay : 3) / 10);
+    let s = ((p.sustain != null) ? (p.sustain / 15) : 0.5);
+    let r = ((p.release != null) ? (p.release / 10) : 0.1);
+    let vComp = (getRetroVolComp(p.vol, 15) ?? null);
+    let lines = [(isNoise ? "noise o1" : (("osc o1 " + wave) + " note")), "gain a1 0", "conn o1 a1 1", ("conn a1 out " + vComp), (adsrAmpEnv("a1", a, d, s, r) ?? null)];
+    if (!isNoise)
+      {
+        (addRetroGlobals(lines, p, "o1") ?? null);
+        (applySweep(lines, p, "o1") ?? null);
+      }
+    return lines;
+  }
+}
+function gameBoyDmgLines (p) {
+  {
+    let type = (p.type ? p.type : "pulse");
+    let isNoise = (type === "noise");
+    let wave = ((type === "wave") ? "sine" : "square");
+    let a = (p.attack ? p.attack : 0.005);
+    let d = ((p.decay != null) ? (p.decay / 10) : 0.2);
+    let s = ((p.sustain != null) ? (p.sustain / 15) : 0.5);
+    let r = ((p.release != null) ? (p.release / 10) : 0.1);
+    let vComp = (getRetroVolComp(p.vol, 15) ?? null);
+    let lines = [(isNoise ? "noise o1" : (("osc o1 " + wave) + " note")), "gain a1 0", "conn o1 a1 1", ("conn a1 out " + vComp), (adsrAmpEnv("a1", a, d, s, r) ?? null)];
+    if (!isNoise)
+      {
+        (addRetroGlobals(lines, p, "o1") ?? null);
+        (applySweep(lines, p, "o1") ?? null);
+      }
+    return lines;
+  }
+}
+function c64sidLines (p) {
+  {
+    let wave = (p.waveform ? p.waveform : "pulse");
+    if ((wave === "pulse"))
+      (wave = "square");
+    let a = (p.attack ? (p.attack / 5) : 0.05);
+    let d = (p.decay ? (p.decay / 5) : 0.2);
+    let s = ((p.sustain != null) ? (p.sustain / 15) : 0.5);
+    let r = (p.release ? (p.release / 5) : 0.2);
+    let ftype = (p.filterType ? p.filterType : "lowpass");
+    let fcut = (p.cutoff ? p.cutoff : 2000);
+    let vComp = (getRetroVolComp(p.vol, 15) ?? null);
+    let lines = [(("osc o1 " + wave) + " note"), ((((("filter f1 " + ftype) + " freq ") + (f__m96(fcut) ?? null)) + " q ") + (f__m96((p.resonance ? p.resonance : 0.7)) ?? null)), "gain a1 0", "conn o1 f1 1", "conn f1 a1 1", ("conn a1 out " + vComp), (adsrAmpEnv("a1", a, d, s, r) ?? null)];
+    (addRetroGlobals(lines, p, "o1") ?? null);
+    return lines;
+  }
+}
+function getRateTime__m96 (rate) {
+  {
+    if ((rate >= 31))
+      return 0.002;
+    if ((rate === 0))
+      return 100;
+    return (Math.pow(2, ((15 - rate) / 2)) ?? null);
+  }
+}
+function ymEnvToAdsr (p, opId) {
+  {
+    let ar = (((p[(opId + "_ar")] ?? null) != null) ? (p[(opId + "_ar")] ?? null) : 31);
+    let dr = (((p[(opId + "_dr")] ?? null) != null) ? (p[(opId + "_dr")] ?? null) : 5);
+    let sr = (((p[(opId + "_sr")] ?? null) != null) ? (p[(opId + "_sr")] ?? null) : 5);
+    let rr = (((p[(opId + "_rr")] ?? null) != null) ? (p[(opId + "_rr")] ?? null) : 5);
+    let sl = (((p[(opId + "_sl")] ?? null) != null) ? (p[(opId + "_sl")] ?? null) : 0);
+    let atkTime = (getRateTime__m96(ar) ?? null);
+    let decTime = (getRateTime__m96(dr) ?? null);
+    let susLevel = (Math.pow(10, ((-(sl / 15)) * 4)) ?? null);
+    let relTime = (getRateTime__m96(rr) ?? null);
+    return { a: atkTime, d: decTime, s: susLevel, r: relTime };
+  }
+}
+function ym2612Lines (p) {
+  {
+    let algo = ((p.algorithm != null) ? (Math.round(p.algorithm) ?? null) : 0);
+    let fdbk = ((p.feedback != null) ? p.feedback : 0);
+    let ops = {  };
+    let opEnvs = {  };
+    let i = 1;
+    while ((i <= 4))
+      {
+        let mul = (((p[(("op" + i) + "_mul")] ?? null) != null) ? (p[(("op" + i) + "_mul")] ?? null) : 1);
+        if ((mul === 0))
+          (mul = 0.5);
+        let dt = (((p[(("op" + i) + "_dt")] ?? null) != null) ? (p[(("op" + i) + "_dt")] ?? null) : 0);
+        let detuneCents = (dt * 7);
+        let oid = (String(i) ?? null);
+        (ops[oid] = { wave: "sine", ratio: mul, detune: detuneCents });
+        let envObj = (ymEnvToAdsr(p, ("op" + i)) ?? null);
+        (opEnvs[oid] = { a: envObj.a, d: envObj.d, s: envObj.s, r: envObj.r });
+        (i = (i + 1));
+      }
+    let mods = [];
+    let routes = [];
+    let fAmt = ((fdbk / 7) * 0.5);
+    if ((fdbk > 0))
+      (mods.push({ type: "fm", src: "1", dst: "1", amount: fAmt }) ?? null);
+    function getTl (opId) {
+      {
+        let tl = (((p[(("op" + opId) + "_tl")] ?? null) != null) ? (p[(("op" + opId) + "_tl")] ?? null) : 0);
+        return (Math.pow(10, ((-(tl / 127)) * 4)) ?? null);
+      }
+    }
+    let tl1 = (getTl(1) ?? null);
+    let tl2 = (getTl(2) ?? null);
+    let tl3 = (getTl(3) ?? null);
+    let tl4 = (getTl(4) ?? null);
+    let modScale = 2;
+    if ((algo === 0))
+      {
+        (mods.push({ type: "fm", src: "1", dst: "2", amount: (tl1 * modScale) }) ?? null);
+        (mods.push({ type: "fm", src: "2", dst: "3", amount: (tl2 * modScale) }) ?? null);
+        (mods.push({ type: "fm", src: "3", dst: "4", amount: (tl3 * modScale) }) ?? null);
+        (routes.push({ srcKind: "op", srcId: "4", dstKind: "out", volume: tl4 }) ?? null);
+      }
+    else
+      if ((algo === 1))
+        {
+          (mods.push({ type: "fm", src: "1", dst: "3", amount: (tl1 * modScale) }) ?? null);
+          (mods.push({ type: "fm", src: "2", dst: "3", amount: (tl2 * modScale) }) ?? null);
+          (mods.push({ type: "fm", src: "3", dst: "4", amount: (tl3 * modScale) }) ?? null);
+          (routes.push({ srcKind: "op", srcId: "4", dstKind: "out", volume: tl4 }) ?? null);
+        }
+      else
+        if ((algo === 2))
+          {
+            (mods.push({ type: "fm", src: "1", dst: "2", amount: (tl1 * modScale) }) ?? null);
+            (mods.push({ type: "fm", src: "3", dst: "4", amount: (tl3 * modScale) }) ?? null);
+            (mods.push({ type: "fm", src: "2", dst: "4", amount: (tl2 * modScale) }) ?? null);
+            (routes.push({ srcKind: "op", srcId: "4", dstKind: "out", volume: tl4 }) ?? null);
+          }
+        else
+          if ((algo === 3))
+            {
+              (mods.push({ type: "fm", src: "1", dst: "2", amount: (tl1 * modScale) }) ?? null);
+              (mods.push({ type: "fm", src: "2", dst: "3", amount: (tl2 * modScale) }) ?? null);
+              (routes.push({ srcKind: "op", srcId: "3", dstKind: "out", volume: tl3 }) ?? null);
+              (routes.push({ srcKind: "op", srcId: "4", dstKind: "out", volume: tl4 }) ?? null);
+            }
+          else
+            if ((algo === 4))
+              {
+                (mods.push({ type: "fm", src: "1", dst: "2", amount: (tl1 * modScale) }) ?? null);
+                (routes.push({ srcKind: "op", srcId: "2", dstKind: "out", volume: tl2 }) ?? null);
+                (mods.push({ type: "fm", src: "3", dst: "4", amount: (tl3 * modScale) }) ?? null);
+                (routes.push({ srcKind: "op", srcId: "4", dstKind: "out", volume: tl4 }) ?? null);
+              }
+            else
+              if ((algo === 5))
+                {
+                  (mods.push({ type: "fm", src: "1", dst: "2", amount: (tl1 * modScale) }) ?? null);
+                  (mods.push({ type: "fm", src: "1", dst: "3", amount: (tl1 * modScale) }) ?? null);
+                  (mods.push({ type: "fm", src: "1", dst: "4", amount: (tl1 * modScale) }) ?? null);
+                  (routes.push({ srcKind: "op", srcId: "2", dstKind: "out", volume: tl2 }) ?? null);
+                  (routes.push({ srcKind: "op", srcId: "3", dstKind: "out", volume: tl3 }) ?? null);
+                  (routes.push({ srcKind: "op", srcId: "4", dstKind: "out", volume: tl4 }) ?? null);
+                }
+              else
+                if ((algo === 6))
+                  {
+                    (mods.push({ type: "fm", src: "1", dst: "2", amount: (tl1 * modScale) }) ?? null);
+                    (routes.push({ srcKind: "op", srcId: "2", dstKind: "out", volume: tl2 }) ?? null);
+                    (routes.push({ srcKind: "op", srcId: "3", dstKind: "out", volume: tl3 }) ?? null);
+                    (routes.push({ srcKind: "op", srcId: "4", dstKind: "out", volume: tl4 }) ?? null);
+                  }
+                else
+                  if ((algo === 7))
+                    {
+                      (routes.push({ srcKind: "op", srcId: "1", dstKind: "out", volume: tl1 }) ?? null);
+                      (routes.push({ srcKind: "op", srcId: "2", dstKind: "out", volume: tl2 }) ?? null);
+                      (routes.push({ srcKind: "op", srcId: "3", dstKind: "out", volume: tl3 }) ?? null);
+                      (routes.push({ srcKind: "op", srcId: "4", dstKind: "out", volume: tl4 }) ?? null);
+                    }
+    let graph = { ops: ops, opEnvs: opEnvs, mods: mods, routes: routes };
+    return (matrixFmLines(graph) ?? null);
+  }
+}
+function sn76489Lines (p) {
+  {
+    let isNoise = (p.type === "noise");
+    let isPeriodic = (isNoise && (p.noiseMode === "periodic"));
+    let wave = "square";
+    let a = (p.attack ? p.attack : 0.005);
+    let d = (p.decay ? p.decay : 0.1);
+    let s = ((p.sustain != null) ? (p.sustain / 15) : 0.5);
+    let r = (p.release ? p.release : 0.1);
+    let vComp = (getRetroVolComp(p.vol, 15) ?? null);
+    let lines = [((isNoise && !isPeriodic) ? "noise o1" : (isPeriodic ? "osc o1 square note ratio 0.0625" : (("osc o1 " + wave) + " note"))), "gain a1 0", "conn o1 a1 1", ("conn a1 out " + vComp), (adsrAmpEnv("a1", a, d, s, r) ?? null)];
+    if (!isNoise)
+      (addRetroGlobals(lines, p, "o1") ?? null);
+    return lines;
+  }
+}
+function spc700Lines (p) {
+  {
+    let isNoise = (p.waveform === "noise");
+    let wave = ((p.waveform === "sine") ? "sine" : (((p.waveform === "brass") || (p.waveform === "sawtooth")) ? "sawtooth" : "square"));
+    let a = (p.attack ? (p.attack / 15) : 0.05);
+    let d = (p.decay ? (p.decay / 7) : 0.2);
+    let s = ((p.sustainLevel != null) ? (p.sustainLevel / 7) : 0.5);
+    let r = 0.2;
+    let vComp = (getRetroVolComp(p.vol, 10) ?? null);
+    let lines = [(isNoise ? "noise o1" : (("osc o1 " + wave) + " note")), "filter f1 lowpass freq 3000 q 0.7", "gain a1 0", "conn o1 f1 1", "conn f1 a1 1", ("conn a1 out " + vComp), (adsrAmpEnv("a1", a, d, s, r) ?? null)];
+    (addRetroGlobals(lines, p, "o1") ?? null);
+    return lines;
+  }
+}
+function gbaDirectSoundLines (p) {
+  {
+    let wave = (p.waveform ? p.waveform : "pulse");
+    if ((wave === "pulse"))
+      (wave = "square");
+    let a = (p.attack ? p.attack : 0.005);
+    let d = ((p.decay != null) ? (p.decay / 10) : 0.2);
+    let s = ((p.sustain != null) ? (p.sustain / 15) : 0.5);
+    let r = ((p.release != null) ? (p.release / 10) : 0.1);
+    let vComp = (getRetroVolComp(p.vol, 15) ?? null);
+    let lines = [(("osc o1 " + wave) + " note"), "gain a1 0", "conn o1 a1 1", ("conn a1 out " + vComp), (adsrAmpEnv("a1", a, d, s, r) ?? null)];
+    (addRetroGlobals(lines, p, "o1") ?? null);
     return lines;
   }
 }
 function canCompileToPatch (generatorId) {
   {
-    return ((((((((((((((generatorId === "basicOsc") || (generatorId === "fmTone")) || (generatorId === "noiseBurst")) || (generatorId === "pad")) || (generatorId === "bell")) || (generatorId === "drumSynth")) || (generatorId === "matrixFm")) || (generatorId === "guitar")) || (generatorId === "clap")) || (generatorId === "arco")) || (generatorId === "tine")) || (generatorId === "aether")) || (generatorId === "halo")) || (generatorId === "aahs"));
+    return (((((((((((((((((((((((((generatorId === "basicOsc") || (generatorId === "fmTone")) || (generatorId === "noiseBurst")) || (generatorId === "pad")) || (generatorId === "bell")) || (generatorId === "drumSynth")) || (generatorId === "matrixFm")) || (generatorId === "guitar")) || (generatorId === "clap")) || (generatorId === "arco")) || (generatorId === "tine")) || (generatorId === "aether")) || (generatorId === "halo")) || (generatorId === "aahs")) || (generatorId === "syncLead")) || (generatorId === "syncChoir")) || (generatorId === "obSync")) || (generatorId === "laserSync")) || (generatorId === "nes2a03")) || (generatorId === "gameBoyDmg")) || (generatorId === "c64sid")) || (generatorId === "ym2612")) || (generatorId === "sn76489")) || (generatorId === "spc700")) || (generatorId === "gbaDirectSound"));
   }
 }
 function compileGeneratorToPatchLines (generatorId, params, spec) {
@@ -19132,9 +22815,53 @@ function compileGeneratorToPatchLines (generatorId, params, spec) {
       {
         return (aahsLines(p) ?? null);
       }
+    if ((generatorId === "syncLead"))
+      {
+        return (syncLeadLines(p) ?? null);
+      }
+    if ((generatorId === "syncChoir"))
+      {
+        return (syncChoirLines(p) ?? null);
+      }
+    if ((generatorId === "obSync"))
+      {
+        return (obSyncLines(p) ?? null);
+      }
+    if ((generatorId === "laserSync"))
+      {
+        return (laserSyncLines(p) ?? null);
+      }
     if ((generatorId === "matrixFm"))
       {
         return ((spec && spec.graph) ? (matrixFmLines(spec.graph) ?? null) : null);
+      }
+    if ((generatorId === "nes2a03"))
+      {
+        return (nes2a03Lines(p) ?? null);
+      }
+    if ((generatorId === "gameBoyDmg"))
+      {
+        return (gameBoyDmgLines(p) ?? null);
+      }
+    if ((generatorId === "c64sid"))
+      {
+        return (c64sidLines(p) ?? null);
+      }
+    if ((generatorId === "ym2612"))
+      {
+        return (ym2612Lines(p) ?? null);
+      }
+    if ((generatorId === "sn76489"))
+      {
+        return (sn76489Lines(p) ?? null);
+      }
+    if ((generatorId === "spc700"))
+      {
+        return (spc700Lines(p) ?? null);
+      }
+    if ((generatorId === "gbaDirectSound"))
+      {
+        return (gbaDirectSoundLines(p) ?? null);
       }
     return null;
   }
@@ -19179,6 +22906,22 @@ function matrixFmLucideIconSvg (shape, strokeHex) {
     if ((shape === "noise"))
       {
         return (("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2\"" + st) + "/></svg>");
+      }
+    if ((shape === "pulse"))
+      {
+        return (("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M2 18h3V6h5v12h5V6h5v12h2\"" + st) + "/></svg>");
+      }
+    if ((shape === "strings"))
+      {
+        return (("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M2 12 C 5 2, 8 20, 12 12 C 16 4, 19 22, 22 12\"" + st) + "/></svg>");
+      }
+    if ((shape === "brass"))
+      {
+        return (("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M2 16 L 6 6 L 9 14 L 14 4 L 18 16 L 22 8\"" + st) + "/></svg>");
+      }
+    if ((shape === "bass"))
+      {
+        return (("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M2 14 Q 7 4, 12 14 T 22 14\"" + st) + "/></svg>");
       }
     return (("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M3 12h18\"" + st) + "/></svg>");
   }
@@ -19296,8 +23039,26 @@ function Knob (opts) {
     let cy = 23;
     let r = 17;
     let trackD = (dialArc(cx, cy, r, -135, 135) ?? null);
-    let valD = (dialArc(cx, cy, r, -135, (-135 + (t * 270))) ?? null);
-    let dot = (dialPoint(cx, cy, r, (-135 + (t * 270))) ?? null);
+    let curAngle = (-135 + (t * 270));
+    let valD = "";
+    if (((min < 0) && (max > 0)))
+      {
+        let zeroT = ((0 - min) / (max - min));
+        let zeroAngle = (-135 + (zeroT * 270));
+        if ((curAngle < zeroAngle))
+          {
+            (valD = (dialArc(cx, cy, r, curAngle, zeroAngle) ?? null));
+          }
+        else
+          {
+            (valD = (dialArc(cx, cy, r, zeroAngle, curAngle) ?? null));
+          }
+      }
+    else
+      {
+        (valD = (dialArc(cx, cy, r, -135, curAngle) ?? null));
+      }
+    let dot = (dialPoint(cx, cy, r, curAngle) ?? null);
     let detents = (((opts.detents != null) && (opts.detents >= 2)) ? (Math.round(opts.detents) ?? null) : 0);
     let detentDots = [];
     if ((detents > 0))
@@ -19324,6 +23085,10 @@ function Knob (opts) {
       {
         (rootCls = "ik-knob ik-knob-xs");
       }
+    if (opts.disabled)
+      {
+        (rootCls = (rootCls + " ik-knob-disabled"));
+      }
     function startDrag (startY) {
       {
         (knobDragging = true);
@@ -19335,7 +23100,8 @@ function Knob (opts) {
           {
             let cy2 = ((ev.clientY != null) ? ev.clientY : (((ev.touches != null) && (ev.touches.length > 0)) ? (ev.touches[0] ?? null).clientY : startY));
             let dy = (startY - cy2);
-            let nv = (knobClamp((startV + ((dy / 150) * range)), min, max) ?? null);
+            let dragRange = (Math.max(range, 4) ?? null);
+            let nv = (knobClamp((startV + ((dy / 150) * dragRange)), min, max) ?? null);
             if (((opts.step != null) && (opts.step > 0)))
               {
                 (nv = ((Math.round((nv / opts.step)) ?? null) * opts.step));
@@ -19434,19 +23200,27 @@ function Knob (opts) {
           }
       }
     }
-    return h("div", { class: rootCls }, ["\n      ", h("svg", { class: "ik-knob-dial", viewBox: "0 0 48 48", onmousedown: onDown, ontouchstart: onTouchStart, onwheel: onWheel }, ["\n        ", h("path", { class: "ik-knob-track", d: trackD, fill: "none" }, []), "\n        ", h("path", { class: "ik-knob-val", d: valD, fill: "none", style: { stroke: accent } }, []), "\n        ", ((detents > 0) ? detentDots : h("circle", { class: "ik-knob-dot", cx: (String((dot[0] ?? null)) ?? null), cy: (String((dot[1] ?? null)) ?? null), r: "2.6", style: { fill: accent } }, [])), "\n      "]), "\n      ", h("div", { class: "ik-knob-label" }, [label]), "\n      ", h("div", { class: "ik-knob-value" }, [valText]), "\n    "]);
+    return h("div", { class: rootCls, style: (opts.disabled ? { opacity: "0.4", pointerEvents: "none" } : {  }) }, ["\n      ", h("svg", { class: "ik-knob-dial", viewBox: "0 0 48 48", onmousedown: (opts.disabled ? null : onDown), ontouchstart: (opts.disabled ? null : onTouchStart), onwheel: (opts.disabled ? null : onWheel) }, ["\n        ", h("path", { class: "ik-knob-track", d: trackD, fill: "none" }, []), "\n        ", h("path", { class: "ik-knob-val", d: valD, fill: "none", style: { stroke: accent } }, []), "\n        ", ((detents > 0) ? detentDots : h("circle", { class: "ik-knob-dot", cx: (String((dot[0] ?? null)) ?? null), cy: (String((dot[1] ?? null)) ?? null), r: "2.6", style: { fill: accent } }, [])), "\n      "]), "\n      ", h("div", { class: "ik-knob-label" }, [label]), "\n      ", h("div", { class: "ik-knob-value" }, [valText]), "\n    "]);
   }
 }
 function WaveIconPicker (current, onPick, opts) {
   {
     let allowNoise = (opts && (opts.allowNoise === true));
     let accent = ((opts && opts.accent) ? opts.accent : "var(--accent-warm, #e8945c)");
-    let choices = ["sine", "square", "sawtooth", "triangle"];
-    if (allowNoise)
+    let choices = null;
+    if ((opts && opts.choices))
       {
-        (choices = ["sine", "square", "sawtooth", "triangle", "noise"]);
+        (choices = opts.choices);
       }
-    let titles = { sine: "Sine", square: "Square", sawtooth: "Saw", triangle: "Triangle", noise: "Noise" };
+    else
+      {
+        (choices = ["sine", "square", "sawtooth", "triangle"]);
+        if (allowNoise)
+          {
+            (choices = ["sine", "square", "sawtooth", "triangle", "noise"]);
+          }
+      }
+    let titles = { sine: "Sine", square: "Square", sawtooth: "Saw", triangle: "Triangle", noise: "Noise", pulse: "Pulse" };
     let btns = [];
     let i = 0;
     while ((i < choices.length))
@@ -19454,10 +23228,9 @@ function WaveIconPicker (current, onPick, opts) {
         let w = (choices[i] ?? null);
         let wCopy = w;
         let active = (current === w);
-        let stroke = (active ? "#0a0a0a" : "#cfcfd6");
-        let cls = (active ? "ik-wave-btn ik-wave-on" : "ik-wave-btn");
-        let style = (active ? { background: accent, borderColor: accent } : {  });
-        (btns.push(h("button", { type: "button", class: cls, key: ("ikw" + w), title: (titles[w] ?? null), style: style, onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((onPick(wCopy) ?? null)) }, ["\n        ", h("img", { class: "ik-wave-img", src: (matrixFmSvgDataUrl((matrixFmLucideIconSvg(w, stroke) ?? null)) ?? null), alt: "", draggable: false }, []), "\n      "])) ?? null);
+        let stroke = (active ? accent : "#777782");
+        let cls = (active ? "ik-wave-btn ik-wave-btn-on" : "ik-wave-btn");
+        (btns.push(h("button", { type: "button", class: cls, key: ("ikw" + w), title: (titles[w] ?? null), onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((onPick(wCopy) ?? null)) }, ["\n        ", h("img", { class: "ik-wave-img", src: (matrixFmSvgDataUrl((matrixFmLucideIconSvg(w, stroke) ?? null)) ?? null), alt: "", draggable: false }, []), "\n      "])) ?? null);
         (i = (i + 1));
       }
     return h("div", { class: "ik-wave-row" }, [btns]);
@@ -19623,6 +23396,113 @@ function InfiniteKnob (opts) {
     return h("div", { class: rootCls }, ["\n      ", h("svg", { class: "ik-knob-dial", viewBox: "0 0 48 48", onmousedown: onDown, ontouchstart: onTouchStart, onwheel: onWheel }, ["\n        ", h("path", { class: "ik-knob-track", d: trackD, fill: "none" }, []), "\n        ", h("circle", { class: "ik-knob-dot", cx: (String((dot[0] ?? null)) ?? null), cy: (String((dot[1] ?? null)) ?? null), r: "2.6", style: { fill: accent } }, []), "\n      "]), "\n      ", h("div", { class: "ik-knob-label" }, [label]), "\n      ", h("div", { class: "ik-knob-value" }, [valText]), "\n    "]);
   }
 }
+function Switch (opts) {
+  {
+    let v = (opts.value === true);
+    let accent = (opts.accent ? opts.accent : "var(--accent-warm, #e8945c)");
+    let label = (opts.label ? opts.label : "");
+    let rootCls = "ik-switch";
+    if (opts.disabled)
+      {
+        (rootCls = (rootCls + " ik-switch-disabled"));
+      }
+    let onCls = (v ? "ik-switch-btn ik-switch-btn-on" : "ik-switch-btn");
+    function toggle (e) {
+      {
+        if (e.stopPropagation)
+          (e.stopPropagation() ?? null);
+        if (opts.disabled)
+          return;
+        if (opts.onInput)
+          (opts.onInput(!v) ?? null);
+        if (opts.onCommit)
+          (opts.onCommit(!v) ?? null);
+      }
+    }
+    return h("div", { class: rootCls, style: (opts.disabled ? { opacity: "0.4", pointerEvents: "none" } : { display: "flex", flexDirection: "column", alignItems: "center", gap: "6px" }) }, ["\n      ", h("div", { class: onCls, onmousedown: toggle, ontouchstart: toggle }, ["\n        ", h("div", { class: "ik-switch-handle", style: (v ? { backgroundColor: accent, boxShadow: ("0 0 6px " + accent) } : {  }) }, []), "\n      "]), "\n      ", h("div", { class: "ik-switch-lbl", style: { textAlign: "center", fontSize: "0.55rem", fontWeight: "700", letterSpacing: "0.08em", color: "var(--muted)", textTransform: "uppercase", marginTop: "2px" } }, [label]), "\n    "]);
+  }
+}
+function IkSelect (opts) {
+  {
+    let curVal = ((opts.value != null) ? (String(opts.value) ?? null) : "");
+    let items = (opts.options ? opts.options : []);
+    let accent = (opts.accent ? opts.accent : "var(--accent-warm, #e8945c)");
+    let cls = "ik-sel";
+    if (opts.class)
+      {
+        (cls = ((cls + " ") + opts.class));
+      }
+    let curLabel = (opts.placeholder ? opts.placeholder : "");
+    let ii = 0;
+    while ((ii < items.length))
+      {
+        if (((String((items[ii] ?? null).value) ?? null) === curVal))
+          {
+            (curLabel = (items[ii] ?? null).label);
+          }
+        (ii = (ii + 1));
+      }
+    function toggle (e) {
+      {
+        if (e.stopPropagation)
+          (e.stopPropagation() ?? null);
+        if (e.preventDefault)
+          (e.preventDefault() ?? null);
+        let trigger = e.currentTarget;
+        let existing = (trigger.querySelector(".ik-sel-list") ?? null);
+        if (existing)
+          {
+            (existing.remove() ?? null);
+            return;
+          }
+        let list = (document.createElement("div") ?? null);
+        (list.className = "ik-sel-list");
+        let oi = 0;
+        while ((oi < items.length))
+          {
+            let item = (items[oi] ?? null);
+            let row = (document.createElement("div") ?? null);
+            (row.className = (((String(item.value) ?? null) === curVal) ? "ik-sel-opt ik-sel-opt-on" : "ik-sel-opt"));
+            if (((String(item.value) ?? null) === curVal))
+              {
+                (row.style.color = accent);
+              }
+            (row.textContent = item.label);
+            let itemVal = item.value;
+            (row.onmousedown = (ev) => {
+              {
+                (ev.stopPropagation() ?? null);
+                (ev.preventDefault() ?? null);
+                if (opts.onChange)
+                  {
+                    (opts.onChange(itemVal) ?? null);
+                  }
+                (list.remove() ?? null);
+              }
+            });
+            (list.appendChild(row) ?? null);
+            (oi = (oi + 1));
+          }
+        (trigger.appendChild(list) ?? null);
+        function closeList (ev) {
+          {
+            if (!(trigger.contains(ev.target) ?? null))
+              {
+                (list.remove() ?? null);
+                (document.removeEventListener("mousedown", closeList, true) ?? null);
+              }
+          }
+        }
+        (setTimeout(() => {
+          {
+            (document.addEventListener("mousedown", closeList, true) ?? null);
+          }
+        }, 0) ?? null);
+      }
+    }
+    return h("div", { class: cls, onmousedown: toggle }, ["\n      ", h("span", { class: "ik-sel-label" }, [curLabel]), "\n      ", h("span", { class: "ik-sel-arrow" }, ["▾"]), "\n    "]);
+  }
+}
 function genEmit (rt, ch, tplKey, value) {
   {
     if ((rt && rt.emit))
@@ -19654,29 +23534,45 @@ function genSliderToFreq (sl) {
     return (Math.round((Math.exp((lo + ((sl / 1000) * (hi - lo)))) ?? null)) ?? null);
   }
 }
-function msKnob (label, sec, maxSec, rt, ch, key, accent) {
+function msKnob__m98 (label, sec, maxSec, rt, ch, key, accent, disabled) {
   {
-    return (Knob({ label: label, value: sec, min: 0, max: maxSec, step: 0.001, fmt: (x) => ((String((Math.round((x * 1000)) ?? null)) ?? null)), accent: accent, onInput: (x) => ((genEmit(rt, ch, key, x) ?? null)) }) ?? null);
+    return (Knob({ label: label, value: sec, min: 0, max: maxSec, step: 0.001, fmt: (x) => ((String((Math.round((x * 1000)) ?? null)) ?? null)), accent: accent, disabled: disabled, onInput: (x) => ((genEmit(rt, ch, key, x) ?? null)) }) ?? null);
   }
 }
-function pctKnob (label, frac, rt, ch, key, accent) {
+function pctKnob (label, frac, rt, ch, key, accent, disabled) {
   {
-    return (Knob({ label: label, value: frac, min: 0, max: 1, step: 0.01, fmt: (x) => (((String((Math.round((x * 100)) ?? null)) ?? null) + "%")), accent: accent, onInput: (x) => ((genEmit(rt, ch, key, x) ?? null)) }) ?? null);
+    return (Knob({ label: label, value: frac, min: 0, max: 1, step: 0.01, fmt: (x) => (((String((Math.round((x * 100)) ?? null)) ?? null) + "%")), accent: accent, disabled: disabled, onInput: (x) => ((genEmit(rt, ch, key, x) ?? null)) }) ?? null);
   }
 }
-function numKnob (label, val, min, max, step, suffix, rt, ch, key, accent) {
+function numKnob (label, val, min, max, step, suffix, rt, ch, key, accent, disabled) {
   {
-    return (Knob({ label: label, value: val, min: min, max: max, step: step, fmt: (x) => (((String(((Math.round((x * 100)) ?? null) / 100)) ?? null) + suffix)), accent: accent, onInput: (x) => ((genEmit(rt, ch, key, x) ?? null)) }) ?? null);
+    return (Knob({ label: label, value: val, min: min, max: max, step: step, fmt: (x) => {
+      {
+        let decs = 0;
+        if (((step != null) && ((step % 1) !== 0)))
+          {
+            let strStep = (String(step) ?? null);
+            let parts = (strStep.split(".") ?? null);
+            if ((parts.length > 1))
+              {
+                (decs = (parts[1] ?? null).length);
+              }
+          }
+        return (((Number(((Math.round((x * 100)) ?? null) / 100)) ?? null).toFixed(decs) ?? null) + suffix);
+      }
+    }, accent: accent, disabled: disabled, onInput: (x) => ((genEmit(rt, ch, key, x) ?? null)) }) ?? null);
   }
 }
-function freqKnob (label, hz, rt, ch, key, accent) {
+function freqKnob (label, hz, rt, ch, key, accent, disabled) {
   {
-    return (Knob({ label: label, value: (genFreqToSlider(hz) ?? null), min: 0, max: 1000, step: 1, fmt: (sl) => (((String((genSliderToFreq(sl) ?? null)) ?? null) + " Hz")), accent: accent, onInput: (sl) => ((genEmit(rt, ch, key, (genSliderToFreq(sl) ?? null)) ?? null)) }) ?? null);
+    return (Knob({ label: label, value: (genFreqToSlider(hz) ?? null), min: 0, max: 1000, step: 1, fmt: (sl) => (((String((genSliderToFreq(sl) ?? null)) ?? null) + " Hz")), accent: accent, disabled: disabled, onInput: (sl) => ((genEmit(rt, ch, key, (genSliderToFreq(sl) ?? null)) ?? null)) }) ?? null);
   }
 }
-function waveCard (title, current, tplKey, rt, ch, accent, extra) {
+function waveCard (title, current, tplKey, rt, ch, accent, extra, pickerOpts) {
   {
-    return h("div", { class: "ik-card" }, ["\n      ", h("div", { class: "ik-card-h" }, [title]), "\n      ", (WaveIconPicker(current, (w) => ((genEmit(rt, ch, tplKey, w) ?? null)), { accent: accent }) ?? null), "\n      ", extra, "\n    "]);
+    let popts = (pickerOpts ? pickerOpts : {  });
+    (popts.accent = accent);
+    return h("div", { class: "ik-card" }, ["\n      ", h("div", { class: "ik-card-h" }, [title]), "\n      ", (WaveIconPicker(current, (w) => ((genEmit(rt, ch, tplKey, w) ?? null)), popts) ?? null), "\n      ", extra, "\n    "]);
   }
 }
 function pickPills (current, opts, rt, ch, key, accent) {
@@ -19688,12 +23584,42 @@ function pickPills (current, opts, rt, ch, key, accent) {
         let val = ((opts[i] ?? null)[0] ?? null);
         let lab = ((opts[i] ?? null)[1] ?? null);
         let valCopy = val;
-        let on = (current === val);
+        let on = ((String(current) ?? null) === (String(val) ?? null));
         let style = (on ? { borderColor: accent, color: accent, background: (accent + "22") } : {  });
         (pills.push(h("button", { type: "button", class: (on ? "gen-pick-pill gen-pick-pill-on" : "gen-pick-pill"), key: (("pk" + key) + val), style: style, onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((genEmit(rt, ch, key, valCopy) ?? null)) }, ["\n        ", lab, "\n      "])) ?? null);
         (i = (i + 1));
       }
     return h("div", { class: "gen-pick-row" }, [pills]);
+  }
+}
+function genSelectorKnob (label, current, opts, rt, ch, key, accent, disabled) {
+  {
+    let n = opts.length;
+    let curIdx = 0;
+    let i = 0;
+    while ((i < n))
+      {
+        if (((String(((opts[i] ?? null)[0] ?? null)) ?? null) === (String(current) ?? null)))
+          {
+            (curIdx = i);
+          }
+        (i = (i + 1));
+      }
+    function clampIdx (x) {
+      {
+        let k = (Math.round(x) ?? null);
+        if ((k < 0))
+          (k = 0);
+        if ((k > (n - 1)))
+          (k = (n - 1));
+        return k;
+      }
+    }
+    return (Knob({ label: label, value: curIdx, min: 0, max: (n - 1), step: 1, detents: n, accent: accent, disabled: disabled, fmt: (x) => (((opts[(clampIdx(x) ?? null)] ?? null)[1] ?? null)), onInput: (x) => {
+      {
+        (genEmit(rt, ch, key, ((opts[(clampIdx(x) ?? null)] ?? null)[0] ?? null)) ?? null);
+      }
+    } }) ?? null);
   }
 }
 function GeneratorParamPanel (ch, project, setProject, tplMirrorFlush, rt) {
@@ -19703,11 +23629,14 @@ function GeneratorParamPanel (ch, project, setProject, tplMirrorFlush, rt) {
       {
         (id = "basicOsc");
       }
-    if (!ch.generatorParams)
-      {
-        (ch.generatorParams = (defaultParamsForGeneratorId(id) ?? null));
-      }
     let p = ch.generatorParams;
+    if (!p)
+      {
+        (p = (defaultParamsForGeneratorId(id) ?? null));
+        if (!p)
+          (p = {  });
+        (ch.generatorParams = p);
+      }
     let accent = (accentForGenerator(id) ?? null);
     if ((id === "basicOsc"))
       {
@@ -19716,7 +23645,7 @@ function GeneratorParamPanel (ch, project, setProject, tplMirrorFlush, rt) {
         let d = ((p.decay > 0) ? p.decay : 0.08);
         let s = (((p.sustain >= 0) && (p.sustain <= 1)) ? p.sustain : 0.4);
         let r = ((p.release > 0) ? p.release : 0.12);
-        return h("article", { class: "gen-params ik-cols" }, ["\n        ", (waveCard("Oscillator", w, "waveform", rt, ch, accent, (EnvDisplay(a, d, s, r, { accent: accent }) ?? null)) ?? null), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Envelope"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (msKnob("Attack", a, 2, rt, ch, "attack", accent) ?? null), "\n            ", (msKnob("Decay", d, 2, rt, ch, "decay", accent) ?? null), "\n            ", (pctKnob("Sustain", s, rt, ch, "sustain", accent) ?? null), "\n            ", (msKnob("Release", r, 4, rt, ch, "release", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", (waveCard("Oscillator", w, "waveform", rt, ch, accent, (EnvDisplay(a, d, s, r, { accent: accent }) ?? null)) ?? null), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Envelope"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (msKnob__m98("Attack", a, 2, rt, ch, "attack", accent) ?? null), "\n            ", (msKnob__m98("Decay", d, 2, rt, ch, "decay", accent) ?? null), "\n            ", (pctKnob("Sustain", s, rt, ch, "sustain", accent) ?? null), "\n            ", (msKnob__m98("Release", r, 4, rt, ch, "release", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
       }
     if ((id === "noiseBurst"))
       {
@@ -19724,19 +23653,18 @@ function GeneratorParamPanel (ch, project, setProject, tplMirrorFlush, rt) {
         let dec = ((p.decay > 0) ? p.decay : 0.07);
         let tone = (((p.tone >= 0) && (p.tone <= 1)) ? p.tone : 0.45);
         let pf = (((p.pitchFollow >= 0) && (p.pitchFollow <= 1)) ? p.pitchFollow : 0.25);
-        return h("article", { class: "gen-params ik-cols" }, ["\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Shape"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (msKnob("Attack", rise, 0.15, rt, ch, "attack", accent) ?? null), "\n            ", (msKnob("Decay", dec, 0.4, rt, ch, "decay", accent) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Tone"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (pctKnob("Colour", tone, rt, ch, "tone", accent) ?? null), "\n            ", (pctKnob("Pitch→flt", pf, rt, ch, "pitch_follow", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Shape"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (msKnob__m98("Attack", rise, 0.15, rt, ch, "attack", accent) ?? null), "\n            ", (msKnob__m98("Decay", dec, 0.4, rt, ch, "decay", accent) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Tone"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (pctKnob("Colour", tone, rt, ch, "tone", accent) ?? null), "\n            ", (pctKnob("Pitch→flt", pf, rt, ch, "pitch_follow", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
       }
     if ((id === "fmTone"))
       {
         let ratio = ((p.ratio > 0) ? p.ratio : 2);
         let idx = ((p.modIndex >= 0) ? p.modIndex : 4);
         let cw = (normalizeBasicOscWaveform((p.carrierWave ? p.carrierWave : "sine")) ?? null);
-        let mw = (normalizeBasicOscWaveform((p.modWave ? p.modWave : "sine")) ?? null);
         let a = ((p.attack > 0) ? p.attack : 0.005);
         let d = ((p.decay > 0) ? p.decay : 0.08);
         let s = (((p.sustain >= 0) && (p.sustain <= 1)) ? p.sustain : 0.4);
         let r = ((p.release > 0) ? p.release : 0.12);
-        return h("article", { class: "gen-params ik-cols" }, ["\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["FM"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Ratio", ratio, 0.25, 16, 0.01, "×", rt, ch, "ratio", accent) ?? null), "\n            ", (numKnob("Index", idx, 0, 48, 0.1, "", rt, ch, "mod_index", accent) ?? null), "\n          "]), "\n          ", h("div", { class: "ik-wave-pair" }, ["\n            ", h("span", { class: "ik-wave-lbl" }, ["Carrier"]), "\n            ", (WaveIconPicker(cw, (x) => ((genEmit(rt, ch, "carrier_wave", x) ?? null)), { accent: accent }) ?? null), "\n          "]), "\n          ", h("div", { class: "ik-wave-pair" }, ["\n            ", h("span", { class: "ik-wave-lbl" }, ["Mod"]), "\n            ", (WaveIconPicker(mw, (x) => ((genEmit(rt, ch, "mod_wave", x) ?? null)), { accent: accent }) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Envelope"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (msKnob("Attack", a, 2, rt, ch, "attack", accent) ?? null), "\n            ", (msKnob("Decay", d, 2, rt, ch, "decay", accent) ?? null), "\n            ", (pctKnob("Sustain", s, rt, ch, "sustain", accent) ?? null), "\n            ", (msKnob("Release", r, 4, rt, ch, "release", accent) ?? null), "\n          "]), "\n          ", (EnvDisplay(a, d, s, r, { accent: accent }) ?? null), "\n        "]), "\n      "]);
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["FM"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Ratio", ratio, 0.25, 16, 0.01, "×", rt, ch, "ratio", accent) ?? null), "\n            ", (numKnob("Index", idx, 0, 48, 0.1, "", rt, ch, "mod_index", accent) ?? null), "\n          "]), "\n          ", h("div", { class: "ik-wave-pair" }, ["\n            ", h("span", { class: "ik-wave-lbl" }, ["Wave"]), "\n            ", (WaveIconPicker(cw, (x) => ((genEmit(rt, ch, "carrier_wave", x) ?? null)), { accent: accent }) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Envelope"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (msKnob__m98("Attack", a, 2, rt, ch, "attack", accent) ?? null), "\n            ", (msKnob__m98("Decay", d, 2, rt, ch, "decay", accent) ?? null), "\n            ", (pctKnob("Sustain", s, rt, ch, "sustain", accent) ?? null), "\n            ", (msKnob__m98("Release", r, 4, rt, ch, "release", accent) ?? null), "\n          "]), "\n          ", (EnvDisplay(a, d, s, r, { accent: accent }) ?? null), "\n        "]), "\n      "]);
       }
     if ((id === "pad"))
       {
@@ -19748,7 +23676,7 @@ function GeneratorParamPanel (ch, project, setProject, tplMirrorFlush, rt) {
         let d = ((p.decay > 0) ? p.decay : 0.25);
         let s = (((p.sustain >= 0) && (p.sustain <= 1)) ? p.sustain : 0.6);
         let r = ((p.release > 0) ? p.release : 0.7);
-        return h("article", { class: "gen-params ik-cols" }, ["\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Oscillators"]), "\n          ", h("div", { class: "ik-wave-pair" }, ["\n            ", h("span", { class: "ik-wave-lbl" }, ["Osc 1"]), "\n            ", (WaveIconPicker(w1, (x) => ((genEmit(rt, ch, "wave1", x) ?? null)), { accent: accent }) ?? null), "\n          "]), "\n          ", h("div", { class: "ik-wave-pair" }, ["\n            ", h("span", { class: "ik-wave-lbl" }, ["Osc 2"]), "\n            ", (WaveIconPicker(w2, (x) => ((genEmit(rt, ch, "wave2", x) ?? null)), { accent: accent }) ?? null), "\n          "]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Detune", detune, 0, 50, 1, "¢", rt, ch, "detune", accent) ?? null), "\n            ", (freqKnob("Cutoff", cutoff, rt, ch, "cutoff", accent) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Envelope"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (msKnob("Attack", a, 2, rt, ch, "attack", accent) ?? null), "\n            ", (msKnob("Decay", d, 2, rt, ch, "decay", accent) ?? null), "\n            ", (pctKnob("Sustain", s, rt, ch, "sustain", accent) ?? null), "\n            ", (msKnob("Release", r, 4, rt, ch, "release", accent) ?? null), "\n          "]), "\n          ", (EnvDisplay(a, d, s, r, { accent: accent }) ?? null), "\n        "]), "\n      "]);
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Oscillators"]), "\n          ", h("div", { class: "ik-wave-pair" }, ["\n            ", h("span", { class: "ik-wave-lbl" }, ["Osc 1"]), "\n            ", (WaveIconPicker(w1, (x) => ((genEmit(rt, ch, "wave1", x) ?? null)), { accent: accent }) ?? null), "\n          "]), "\n          ", h("div", { class: "ik-wave-pair" }, ["\n            ", h("span", { class: "ik-wave-lbl" }, ["Osc 2"]), "\n            ", (WaveIconPicker(w2, (x) => ((genEmit(rt, ch, "wave2", x) ?? null)), { accent: accent }) ?? null), "\n          "]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Detune", detune, 0, 50, 1, "¢", rt, ch, "detune", accent) ?? null), "\n            ", (freqKnob("Cutoff", cutoff, rt, ch, "cutoff", accent) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Envelope"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (msKnob__m98("Attack", a, 2, rt, ch, "attack", accent) ?? null), "\n            ", (msKnob__m98("Decay", d, 2, rt, ch, "decay", accent) ?? null), "\n            ", (pctKnob("Sustain", s, rt, ch, "sustain", accent) ?? null), "\n            ", (msKnob__m98("Release", r, 4, rt, ch, "release", accent) ?? null), "\n          "]), "\n          ", (EnvDisplay(a, d, s, r, { accent: accent }) ?? null), "\n        "]), "\n      "]);
       }
     if ((id === "bell"))
       {
@@ -19767,7 +23695,7 @@ function GeneratorParamPanel (ch, project, setProject, tplMirrorFlush, rt) {
         let noiseDecay = ((p.noiseDecay > 0) ? p.noiseDecay : 0.12);
         let noiseHp = ((p.noiseHp > 0) ? p.noiseHp : 1500);
         let drive = ((p.drive != null) ? p.drive : 0);
-        return h("article", { class: "gen-params ik-cols" }, ["\n        ", (waveCard("Body", tone, "tone", rt, ch, accent, h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Pitch", pitchEnv, 0, 60, 1, "st", rt, ch, "pitch_env", accent) ?? null), (msKnob("P.decay", pitchDecay, 0.3, rt, ch, "pitch_decay", accent) ?? null), (msKnob("Decay", dec, 1.5, rt, ch, "decay", accent) ?? null)])) ?? null), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Noise + drive"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (pctKnob("Noise", noise, rt, ch, "noise", accent) ?? null), "\n            ", (msKnob("N.decay", noiseDecay, 0.6, rt, ch, "noise_decay", accent) ?? null), "\n            ", (freqKnob("N.HP", noiseHp, rt, ch, "noise_hp", accent) ?? null), "\n            ", (pctKnob("Drive", drive, rt, ch, "drive", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", (waveCard("Body", tone, "tone", rt, ch, accent, h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Pitch", pitchEnv, 0, 60, 1, "st", rt, ch, "pitch_env", accent) ?? null), (msKnob__m98("P.decay", pitchDecay, 0.3, rt, ch, "pitch_decay", accent) ?? null), (msKnob__m98("Decay", dec, 1.5, rt, ch, "decay", accent) ?? null)])) ?? null), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Noise + drive"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (pctKnob("Noise", noise, rt, ch, "noise", accent) ?? null), "\n            ", (msKnob__m98("N.decay", noiseDecay, 0.6, rt, ch, "noise_decay", accent) ?? null), "\n            ", (freqKnob("N.HP", noiseHp, rt, ch, "noise_hp", accent) ?? null), "\n            ", (pctKnob("Drive", drive, rt, ch, "drive", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
       }
     if ((id === "guitar"))
       {
@@ -19891,7 +23819,7 @@ function GeneratorParamPanel (ch, project, setProject, tplMirrorFlush, rt) {
             let vibRate = ((p.vibRate != null) ? p.vibRate : 5);
             let humanize = ((p.humanize != null) ? p.humanize : 0.5);
             let release = ((p.release != null) ? p.release : 0.2);
-            (genSpecific = h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Formant"]), "\n          ", h("div", { style: { padding: "0 8px 8px" } }, ["\n            ", h("div", { style: { fontSize: "10px", color: "var(--ik-text-dim, #94a3b8)", marginBottom: "4px" } }, ["Individual Vowels"]), "\n            ", h("div", { style: { display: "flex", gap: "4px" } }, ["\n              ", h("button", { class: "ik-btn", style: { flex: 1, padding: "4px", minHeight: "24px" }, onclick: () => ((applyLyrics("A") ?? null)) }, ["Ah"]), "\n              ", h("button", { class: "ik-btn", style: { flex: 1, padding: "4px", minHeight: "24px" }, onclick: () => ((applyLyrics("E") ?? null)) }, ["Eh"]), "\n              ", h("button", { class: "ik-btn", style: { flex: 1, padding: "4px", minHeight: "24px" }, onclick: () => ((applyLyrics("I") ?? null)) }, ["Ee"]), "\n              ", h("button", { class: "ik-btn", style: { flex: 1, padding: "4px", minHeight: "24px" }, onclick: () => ((applyLyrics("O") ?? null)) }, ["Oh"]), "\n              ", h("button", { class: "ik-btn", style: { flex: 1, padding: "4px", minHeight: "24px" }, onclick: () => ((applyLyrics("U") ?? null)) }, ["Oo"]), "\n            "]), "\n          "]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (pctKnob("Glide", glide, rt, ch, "glide", accent) ?? null), "\n            ", (msKnob("Release", release, 2, rt, ch, "release", accent) ?? null), "\n            ", (pctKnob("Vib.Dpt", vibDepth, rt, ch, "vib_depth", accent) ?? null), "\n            ", (numKnob("Vib.Rt", vibRate, 0, 10, 0.1, "Hz", rt, ch, "vib_rate", accent) ?? null), "\n            ", (pctKnob("Human", humanize, rt, ch, "humanize", accent) ?? null), "\n          "]), "\n        "]));
+            (genSpecific = h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Formant"]), "\n          ", h("div", { style: { padding: "0 8px 8px" } }, ["\n            ", h("div", { style: { fontSize: "10px", color: "var(--ik-text-dim, #94a3b8)", marginBottom: "4px" } }, ["Front vowels"]), "\n            ", h("div", { style: { display: "flex", gap: "3px", marginBottom: "4px" } }, ["\n              ", h("button", { class: "ik-btn", style: { flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }, onclick: () => ((applyLyrics("I") ?? null)), title: "heed / see" }, ["/i/ Ee"]), "\n              ", h("button", { class: "ik-btn", style: { flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }, onclick: () => ((applyLyrics("IH") ?? null)), title: "hid / bit" }, ["/ɪ/ Ih"]), "\n              ", h("button", { class: "ik-btn", style: { flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }, onclick: () => ((applyLyrics("EY") ?? null)), title: "bait / hey" }, ["/e/ Ay"]), "\n              ", h("button", { class: "ik-btn", style: { flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }, onclick: () => ((applyLyrics("E") ?? null)), title: "bed / said" }, ["/ɛ/ Eh"]), "\n              ", h("button", { class: "ik-btn", style: { flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }, onclick: () => ((applyLyrics("AE") ?? null)), title: "cat / bat" }, ["/æ/ Ae"]), "\n            "]), "\n            ", h("div", { style: { fontSize: "10px", color: "var(--ik-text-dim, #94a3b8)", marginBottom: "4px" } }, ["Open & back vowels"]), "\n            ", h("div", { style: { display: "flex", gap: "3px", marginBottom: "4px" } }, ["\n              ", h("button", { class: "ik-btn", style: { flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }, onclick: () => ((applyLyrics("A") ?? null)), title: "father / palm" }, ["/ɑ/ Ah"]), "\n              ", h("button", { class: "ik-btn", style: { flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }, onclick: () => ((applyLyrics("O") ?? null)), title: "law / caught" }, ["/ɔ/ Aw"]), "\n              ", h("button", { class: "ik-btn", style: { flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }, onclick: () => ((applyLyrics("OH") ?? null)), title: "boat / go" }, ["/o/ Oh"]), "\n              ", h("button", { class: "ik-btn", style: { flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }, onclick: () => ((applyLyrics("OO") ?? null)), title: "book / put" }, ["/ʊ/ Uu"]), "\n              ", h("button", { class: "ik-btn", style: { flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }, onclick: () => ((applyLyrics("U") ?? null)), title: "boot / who" }, ["/u/ Oo"]), "\n            "]), "\n            ", h("div", { style: { fontSize: "10px", color: "var(--ik-text-dim, #94a3b8)", marginBottom: "4px" } }, ["Central vowels"]), "\n            ", h("div", { style: { display: "flex", gap: "3px" } }, ["\n              ", h("button", { class: "ik-btn", style: { flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }, onclick: () => ((applyLyrics("UH") ?? null)), title: "cup / bus" }, ["/ʌ/ Uh"]), "\n              ", h("button", { class: "ik-btn", style: { flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }, onclick: () => ((applyLyrics("ER") ?? null)), title: "bird / her" }, ["/ɝ/ Er"]), "\n              ", h("button", { class: "ik-btn", style: { flex: 1, padding: "4px", minHeight: "24px", fontSize: "10px" }, onclick: () => ((applyLyrics("UX") ?? null)), title: "about / sofa" }, ["/ə/ Ux"]), "\n            "]), "\n          "]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (pctKnob("Glide", glide, rt, ch, "glide", accent) ?? null), "\n            ", (msKnob__m98("Release", release, 2, rt, ch, "release", accent) ?? null), "\n            ", (pctKnob("Vib.Dpt", vibDepth, rt, ch, "vib_depth", accent) ?? null), "\n            ", (numKnob("Vib.Rt", vibRate, 0, 10, 0.1, "Hz", rt, ch, "vib_rate", accent) ?? null), "\n            ", (pctKnob("Human", humanize, rt, ch, "humanize", accent) ?? null), "\n          "]), "\n        "]));
           }
         else
           if ((id === "meSpeakVocal"))
@@ -20019,17 +23947,268 @@ function GeneratorParamPanel (ch, project, setProject, tplMirrorFlush, rt) {
         let rosin = ((p.rosin != null) ? p.rosin : 0.3);
         let bodyAmt = ((p.body != null) ? p.body : 0.6);
         let voiceOpts = [["violin", "Violin"], ["fiddle", "Fiddle"], ["viola", "Viola"], ["cello", "Cello"], ["bass", "Bass"]];
-        let vpills = [];
-        let vi = 0;
-        while ((vi < voiceOpts.length))
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Instrument"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (genSelectorKnob("Type", voice, voiceOpts, rt, ch, "voice", accent) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Bow"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (pctKnob("Pressure", pressure, rt, ch, "pressure", accent) ?? null), "\n            ", (pctKnob("Articul.", bow, rt, ch, "bow", accent) ?? null), "\n            ", (pctKnob("Rosin", rosin, rt, ch, "rosin", accent) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Expression"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (pctKnob("Vibrato", vibrato, rt, ch, "vibrato", accent) ?? null), "\n            ", (pctKnob("Body", bodyAmt, rt, ch, "body", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
+      }
+    if ((id === "acid303"))
+      {
+        let wave = ((p.waveform != null) ? p.waveform : "sawtooth");
+        let cutoff = ((p.cutoff != null) ? p.cutoff : 800);
+        let res = ((p.resonance != null) ? p.resonance : 15);
+        let envMod = ((p.envMod != null) ? p.envMod : 4000);
+        let decay = ((p.decay != null) ? p.decay : 0.4);
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", (waveCard("Wave", wave, "waveform", rt, ch, accent) ?? null), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Filter & Env"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (freqKnob("Cutoff", cutoff, rt, ch, "cutoff", accent) ?? null), "\n            ", (numKnob("Resonance", res, 1, 30, 0.5, "", rt, ch, "resonance", accent) ?? null), "\n            ", (freqKnob("Env Mod", envMod, rt, ch, "envMod", accent) ?? null), "\n            ", (msKnob__m98("Decay", decay, 1.5, rt, ch, "decay", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
+      }
+    if ((id === "sub808"))
+      {
+        let punch = ((p.punch != null) ? p.punch : 60);
+        let decay = ((p.decay != null) ? p.decay : 1.2);
+        let drive = ((p.drive != null) ? p.drive : 0);
+        let glide = ((p.glide != null) ? p.glide : 0.05);
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Sub Bass"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Punch", punch, 0, 300, 1, "Hz", rt, ch, "punch", accent) ?? null), "\n            ", (msKnob__m98("Decay", decay, 3, rt, ch, "decay", accent) ?? null), "\n            ", (numKnob("Drive", drive, 0, 100, 1, "%", rt, ch, "drive", accent) ?? null), "\n            ", (msKnob__m98("Glide", glide, 0.5, rt, ch, "glide", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
+      }
+    if ((id === "chiptune"))
+      {
+        let wf = (p.waveform ? p.waveform : "pulse");
+        let pw = ((p.pulseWidth != null) ? p.pulseWidth : 0.5);
+        let pwmSpeed = ((p.pwmSpeed != null) ? p.pwmSpeed : 0);
+        let crush = ((p.bitcrush != null) ? p.bitcrush : 0);
+        let lpAmt = ((p.lowpass != null) ? p.lowpass : 0);
+        let arpRate = ((p.arpRate != null) ? p.arpRate : 0);
+        let arpSemis = ((p.arpSemis != null) ? p.arpSemis : 0);
+        let att = ((p.attack != null) ? p.attack : 0.005);
+        let dec = ((p.decay != null) ? p.decay : 0.3);
+        let sus = ((p.sustain != null) ? p.sustain : 0);
+        let rel = ((p.release != null) ? p.release : 0.05);
+        let isPulse = (wf === "pulse");
+        let pulseKnobs = null;
+        if (isPulse)
           {
-            let vid = ((voiceOpts[vi] ?? null)[0] ?? null);
-            let vlabel = ((voiceOpts[vi] ?? null)[1] ?? null);
-            let vidCopy = vid;
-            (vpills.push(h("button", { type: "button", class: ((voice === vid) ? "arco-voice-pill arco-voice-pill-on" : "arco-voice-pill"), key: ("av" + vid), onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((genEmit(rt, ch, "voice", vidCopy) ?? null)) }, ["\n          ", vlabel, "\n        "])) ?? null);
-            (vi = (vi + 1));
+            (pulseKnobs = h("div", { class: "ik-knob-grid" }, ["\n          ", (pctKnob("Width", pw, rt, ch, "pulseWidth", accent) ?? null), "\n          ", (numKnob("PWM", pwmSpeed, 0, 10, 0.1, "Hz", rt, ch, "pwmSpeed", accent) ?? null), "\n        "]));
           }
-        return h("article", { class: "gen-params ik-cols" }, ["\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Instrument"]), "\n          ", h("div", { class: "arco-voice-row" }, [vpills]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Bow"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (pctKnob("Pressure", pressure, rt, ch, "pressure", accent) ?? null), "\n            ", (pctKnob("Articul.", bow, rt, ch, "bow", accent) ?? null), "\n            ", (pctKnob("Rosin", rosin, rt, ch, "rosin", accent) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Expression"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (pctKnob("Vibrato", vibrato, rt, ch, "vibrato", accent) ?? null), "\n            ", (pctKnob("Body", bodyAmt, rt, ch, "body", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", (waveCard("Waveform", wf, "waveform", rt, ch, accent, pulseKnobs, { choices: ["pulse", "triangle", "sawtooth", "noise"] }) ?? null), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Character"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (pctKnob("Crush", crush, rt, ch, "bitcrush", accent) ?? null), "\n            ", (pctKnob("Lowpass", lpAmt, rt, ch, "lowpass", accent) ?? null), "\n            ", (numKnob("Arp Rate", arpRate, 0, 30, 0.5, "Hz", rt, ch, "arpRate", accent) ?? null), "\n            ", (numKnob("Arp Semi", arpSemis, (-12), 12, 1, "st", rt, ch, "arpSemis", accent) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Envelope"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (msKnob__m98("Attack", att, 0.5, rt, ch, "attack", accent) ?? null), "\n            ", (msKnob__m98("Decay", dec, 1.5, rt, ch, "decay", accent) ?? null), "\n            ", (pctKnob("Sustain", sus, rt, ch, "sustain", accent) ?? null), "\n            ", (msKnob__m98("Release", rel, 1, rt, ch, "release", accent) ?? null), "\n          "]), "\n          ", (EnvDisplay(att, dec, sus, rel, { accent: accent }) ?? null), "\n        "]), "\n      "]);
+      }
+    if ((id === "sn76489"))
+      {
+        let type = (p.type ? p.type : "square");
+        let vol = ((p.vol != null) ? (Math.round(p.vol) ?? null) : 15);
+        let noiseMode = (p.noiseMode ? p.noiseMode : "white");
+        let attack = ((p.attack != null) ? p.attack : 0);
+        let decay = ((p.decay != null) ? p.decay : 0.1);
+        let sustain = ((p.sustain != null) ? (Math.round(p.sustain) ?? null) : 15);
+        let release = ((p.release != null) ? p.release : 0);
+        let pitchDrop = ((p.pitchDrop != null) ? (Math.round(p.pitchDrop) ?? null) : 0);
+        let pitchDec = ((p.pitchDec != null) ? p.pitchDec : 0.05);
+        let vibRate = ((p.vibRate != null) ? p.vibRate : 0);
+        let vibAmt = ((p.vibAmt != null) ? p.vibAmt : 0);
+        let arpRate = ((p.arpRate != null) ? p.arpRate : 0);
+        let arpSemis = ((p.arpSemis != null) ? (Math.round(p.arpSemis) ?? null) : 0);
+        let isNoise = (type === "noise");
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["PSG Channel"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (genSelectorKnob("Type", type, [["square", "Square"], ["noise", "Noise"]], rt, ch, "type", accent) ?? null), "\n            ", (genSelectorKnob("Mode", noiseMode, [["white", "White"], ["periodic", "Periodic"]], rt, ch, "noiseMode", accent, !isNoise) ?? null), "\n            ", (numKnob("Volume", vol, 0, 15, 1, "", rt, ch, "vol", accent) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Tracker Macros"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (msKnob__m98("Att", attack, 2, rt, ch, "attack", accent) ?? null), "\n            ", (msKnob__m98("Dec", decay, 2, rt, ch, "decay", accent) ?? null), "\n            ", (numKnob("Sus", sustain, 0, 15, 1, "", rt, ch, "sustain", accent) ?? null), "\n            ", (msKnob__m98("Rel", release, 5, rt, ch, "release", accent) ?? null), "\n            ", (numKnob("Drop.st", pitchDrop, (-48), 48, 1, "st", rt, ch, "pitchDrop", accent) ?? null), "\n            ", (msKnob__m98("Drop.ms", pitchDec, 1, rt, ch, "pitchDec", accent) ?? null), "\n            ", (numKnob("Vib.Hz", vibRate, 0, 20, 0.5, "Hz", rt, ch, "vibRate", accent, isNoise) ?? null), "\n            ", (numKnob("Vib.¢", vibAmt, 0, 200, 1, "ct", rt, ch, "vibAmt", accent, isNoise) ?? null), "\n            ", (numKnob("Arp.Hz", arpRate, 0, 40, 1, "Hz", rt, ch, "arpRate", accent) ?? null), "\n            ", (numKnob("Arp.st", arpSemis, (-24), 24, 1, "st", rt, ch, "arpSemis", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
+      }
+    if ((id === "spc700"))
+      {
+        let wf = (p.waveform ? p.waveform : "strings");
+        let att = ((p.attack != null) ? (Math.round(p.attack) ?? null) : 0);
+        let dec = ((p.decay != null) ? (Math.round(p.decay) ?? null) : 3);
+        let sus = ((p.sustainLevel != null) ? (Math.round(p.sustainLevel) ?? null) : 7);
+        let sr = ((p.sustainRate != null) ? (Math.round(p.sustainRate) ?? null) : 0);
+        let echoEn = (p.echoEnable === true);
+        let echoDelay = ((p.echoDelay != null) ? (Math.round(p.echoDelay) ?? null) : 4);
+        let echoFb = ((p.echoFeedback != null) ? (Math.round(p.echoFeedback) ?? null) : 0);
+        let pitchDrop = ((p.pitchDrop != null) ? (Math.round(p.pitchDrop) ?? null) : 0);
+        let pitchDec = ((p.pitchDec != null) ? p.pitchDec : 0.05);
+        let vibRate = ((p.vibRate != null) ? p.vibRate : 0);
+        let vibAmt = ((p.vibAmt != null) ? p.vibAmt : 0);
+        let arpRate = ((p.arpRate != null) ? p.arpRate : 0);
+        let arpSemis = ((p.arpSemis != null) ? (Math.round(p.arpSemis) ?? null) : 0);
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", (waveCard("BRR Sample", wf, "waveform", rt, ch, accent, null, { choices: ["strings", "brass", "bass", "sine"] }) ?? null), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["S-DSP ADSR"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Att.R", att, 0, 15, 1, "", rt, ch, "attack", accent) ?? null), "\n            ", (numKnob("Dec.R", dec, 0, 7, 1, "", rt, ch, "decay", accent) ?? null), "\n            ", (numKnob("Sus.L", sus, 0, 7, 1, "", rt, ch, "sustainLevel", accent) ?? null), "\n            ", (numKnob("Sus.R", sr, 0, 31, 1, "", rt, ch, "sustainRate", accent) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Global Echo"]), "\n          ", h("div", { style: { marginBottom: "12px", display: "flex", justifyContent: "center" } }, ["\n            ", (Switch({ label: "Echo", value: echoEn, accent: accent, onInput: (v) => ((genEmit(rt, ch, "echoEnable", v) ?? null)) }) ?? null), "\n          "]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("EDL", echoDelay, 0, 15, 1, "", rt, ch, "echoDelay", accent, !echoEn) ?? null), "\n            ", (numKnob("EFB", echoFb, (-128), 127, 1, "", rt, ch, "echoFeedback", accent, !echoEn) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Tracker Macros"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Drop.st", pitchDrop, (-48), 48, 1, "st", rt, ch, "pitchDrop", accent) ?? null), "\n            ", (msKnob__m98("Drop.ms", pitchDec, 1, rt, ch, "pitchDec", accent) ?? null), "\n            ", (numKnob("Vib.Hz", vibRate, 0, 20, 0.5, "Hz", rt, ch, "vibRate", accent) ?? null), "\n            ", (numKnob("Vib.¢", vibAmt, 0, 200, 1, "ct", rt, ch, "vibAmt", accent) ?? null), "\n            ", (numKnob("Arp.Hz", arpRate, 0, 40, 1, "Hz", rt, ch, "arpRate", accent) ?? null), "\n            ", (numKnob("Arp.st", arpSemis, (-24), 24, 1, "st", rt, ch, "arpSemis", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
+      }
+    if ((id === "gbaDirectSound"))
+      {
+        let wf = (p.waveform ? p.waveform : "pulse");
+        let duty = (p.duty ? p.duty : "50");
+        let att = ((p.attack != null) ? p.attack : 0);
+        let dec = ((p.decay != null) ? p.decay : 2);
+        let sus = ((p.sustain != null) ? (Math.round(p.sustain) ?? null) : 15);
+        let rel = ((p.release != null) ? p.release : 0);
+        let bitcrush = ((p.bitcrush !== false) && (p.bitcrush !== "16bit"));
+        let pitchDrop = ((p.pitchDrop != null) ? (Math.round(p.pitchDrop) ?? null) : 0);
+        let pitchDec = ((p.pitchDec != null) ? p.pitchDec : 0.05);
+        let vibRate = ((p.vibRate != null) ? p.vibRate : 0);
+        let vibAmt = ((p.vibAmt != null) ? p.vibAmt : 0);
+        let arpRate = ((p.arpRate != null) ? p.arpRate : 0);
+        let arpSemis = ((p.arpSemis != null) ? (Math.round(p.arpSemis) ?? null) : 0);
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", (waveCard("Software Osc", wf, "waveform", rt, ch, accent, null, { choices: ["pulse", "sawtooth", "triangle", "sine"] }) ?? null), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["GBA Envelope"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Att.s", att, 0, 2, 0.01, "s", rt, ch, "attack", accent) ?? null), "\n            ", (numKnob("Dec.s", dec, 0, 5, 0.01, "s", rt, ch, "decay", accent) ?? null), "\n            ", (numKnob("Sus", sus, 0, 15, 1, "", rt, ch, "sustain", accent) ?? null), "\n            ", (numKnob("Rel.s", rel, 0, 5, 0.01, "s", rt, ch, "release", accent) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["DirectSound"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (genSelectorKnob("DAC", (bitcrush ? "8bit" : "16bit"), [["16bit", "16-bit"], ["8bit", "8-bit"]], rt, ch, "bitcrush", accent) ?? null), "\n            ", (genSelectorKnob("Duty", duty, [["12_5", "12.5%"], ["25", "25%"], ["50", "50%"], ["75", "75%"]], rt, ch, "duty", accent, (wf !== "pulse")) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Tracker Macros"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Drop.st", pitchDrop, (-48), 48, 1, "st", rt, ch, "pitchDrop", accent) ?? null), "\n            ", (msKnob__m98("Drop.ms", pitchDec, 1, rt, ch, "pitchDec", accent) ?? null), "\n            ", (numKnob("Vib.Hz", vibRate, 0, 20, 0.5, "Hz", rt, ch, "vibRate", accent) ?? null), "\n            ", (numKnob("Vib.¢", vibAmt, 0, 200, 1, "ct", rt, ch, "vibAmt", accent) ?? null), "\n            ", (numKnob("Arp.Hz", arpRate, 0, 40, 1, "Hz", rt, ch, "arpRate", accent) ?? null), "\n            ", (numKnob("Arp.st", arpSemis, (-24), 24, 1, "st", rt, ch, "arpSemis", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
+      }
+    if ((id === "ym2612"))
+      {
+        let algo = ((p.algorithm != null) ? p.algorithm : 0);
+        let fdbk = ((p.feedback != null) ? p.feedback : 0);
+        let pitchDrop = ((p.pitchDrop != null) ? (Math.round(p.pitchDrop) ?? null) : 0);
+        let pitchDec = ((p.pitchDec != null) ? p.pitchDec : 0.05);
+        let vibRate = ((p.vibRate != null) ? p.vibRate : 0);
+        let vibAmt = ((p.vibAmt != null) ? p.vibAmt : 0);
+        let arpRate = ((p.arpRate != null) ? p.arpRate : 0);
+        let arpSemis = ((p.arpSemis != null) ? (Math.round(p.arpSemis) ?? null) : 0);
+        let opKnobs = (n) => {
+          {
+            let tl = (((p[(("op" + n) + "Tl")] ?? null) != null) ? (p[(("op" + n) + "Tl")] ?? null) : 0);
+            let mul = (((p[(("op" + n) + "Mul")] ?? null) != null) ? (p[(("op" + n) + "Mul")] ?? null) : 1);
+            let dt = (((p[(("op" + n) + "Dt")] ?? null) != null) ? (p[(("op" + n) + "Dt")] ?? null) : 0);
+            let ar = (((p[(("op" + n) + "Ar")] ?? null) != null) ? (p[(("op" + n) + "Ar")] ?? null) : 31);
+            let dr = (((p[(("op" + n) + "Dr")] ?? null) != null) ? (p[(("op" + n) + "Dr")] ?? null) : 5);
+            let sr = (((p[(("op" + n) + "Sr")] ?? null) != null) ? (p[(("op" + n) + "Sr")] ?? null) : 5);
+            let rr = (((p[(("op" + n) + "Rr")] ?? null) != null) ? (p[(("op" + n) + "Rr")] ?? null) : 5);
+            let sl = (((p[(("op" + n) + "Sl")] ?? null) != null) ? (p[(("op" + n) + "Sl")] ?? null) : 0);
+            return h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, [("Operator " + n)]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Mul", mul, 0, 15, 1, "", rt, ch, (("op" + n) + "_mul"), accent) ?? null), "\n            ", (numKnob("DT", dt, 0, 3, 1, "", rt, ch, (("op" + n) + "_dt"), accent) ?? null), "\n            ", (numKnob("TL", tl, 0, 127, 1, "", rt, ch, (("op" + n) + "_tl"), accent) ?? null), "\n            ", (numKnob("AR", ar, 0, 31, 1, "", rt, ch, (("op" + n) + "_ar"), accent) ?? null), "\n            ", (numKnob("DR", dr, 0, 31, 1, "", rt, ch, (("op" + n) + "_dr"), accent) ?? null), "\n            ", (numKnob("SR", sr, 0, 31, 1, "", rt, ch, (("op" + n) + "_sr"), accent) ?? null), "\n            ", (numKnob("RR", rr, 0, 31, 1, "", rt, ch, (("op" + n) + "_rr"), accent) ?? null), "\n            ", (numKnob("SL", sl, 0, 15, 1, "", rt, ch, (("op" + n) + "_sl"), accent) ?? null), "\n          "]), "\n        "]);
+          }
+        };
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["FM Core"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Algo", algo, 0, 7, 1, "", rt, ch, "algorithm", accent) ?? null), "\n            ", (numKnob("Feedback", fdbk, 0, 7, 1, "", rt, ch, "feedback", accent) ?? null), "\n          "]), "\n        "]), "\n        ", (opKnobs(1) ?? null), "\n        ", (opKnobs(2) ?? null), "\n        ", (opKnobs(3) ?? null), "\n        ", (opKnobs(4) ?? null), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Tracker Macros"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Drop.st", pitchDrop, (-48), 48, 1, "st", rt, ch, "pitchDrop", accent) ?? null), "\n            ", (msKnob__m98("Drop.ms", pitchDec, 1, rt, ch, "pitchDec", accent) ?? null), "\n            ", (numKnob("Vib.Hz", vibRate, 0, 20, 0.5, "Hz", rt, ch, "vibRate", accent) ?? null), "\n            ", (numKnob("Vib.¢", vibAmt, 0, 200, 1, "ct", rt, ch, "vibAmt", accent) ?? null), "\n            ", (numKnob("Arp.Hz", arpRate, 0, 40, 1, "Hz", rt, ch, "arpRate", accent) ?? null), "\n            ", (numKnob("Arp.st", arpSemis, (-24), 24, 1, "st", rt, ch, "arpSemis", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
+      }
+    if ((id === "nes2a03"))
+      {
+        let type = (p.type ? p.type : "pulse");
+        let duty = (p.duty ? p.duty : "50");
+        let envMode = (p.envMode ? p.envMode : "decay");
+        let vol = ((p.vol != null) ? (Math.round(p.vol) ?? null) : 10);
+        let sweep = ((p.sweep != null) ? (Math.round(p.sweep) ?? null) : 0);
+        let noiseMode = (p.noiseMode ? p.noiseMode : "long");
+        let attack = ((p.attack != null) ? p.attack : 0);
+        let decay = ((p.decay != null) ? p.decay : 0);
+        let sustain = ((p.sustain != null) ? (Math.round(p.sustain) ?? null) : 15);
+        let release = ((p.release != null) ? p.release : 0);
+        let vibRate = ((p.vibRate != null) ? p.vibRate : 0);
+        let vibAmt = ((p.vibAmt != null) ? p.vibAmt : 0);
+        let arpRate = ((p.arpRate != null) ? p.arpRate : 0);
+        let arpSemis = ((p.arpSemis != null) ? (Math.round(p.arpSemis) ?? null) : 0);
+        let pitchDrop = ((p.pitchDrop != null) ? (Math.round(p.pitchDrop) ?? null) : 0);
+        let pitchDec = ((p.pitchDec != null) ? p.pitchDec : 0.05);
+        let dpcmSample = (p.dpcmSample ? p.dpcmSample : "kick");
+        let isPulse = (type === "pulse");
+        let isNoise = (type === "noise");
+        let isTriangle = (type === "triangle");
+        let isDpcm = (type === "dpcm");
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["NES Channel"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (genSelectorKnob("Type", type, [["pulse", "Pulse"], ["triangle", "Tri"], ["noise", "Noise"], ["dpcm", "DPCM"]], rt, ch, "type", accent) ?? null), "\n            ", (genSelectorKnob("Duty", duty, [["12_5", "12.5%"], ["25", "25%"], ["50", "50%"], ["75", "75%"]], rt, ch, "duty", accent, !isPulse) ?? null), "\n            ", (genSelectorKnob("Mode", noiseMode, [["long", "Long"], ["short", "Short"]], rt, ch, "noiseMode", accent, !isNoise) ?? null), "\n            ", (genSelectorKnob("Sample", dpcmSample, [["kick", "Kick"], ["snare", "Snare"], ["hihat", "Hat"]], rt, ch, "dpcmSample", accent, !isDpcm) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Hardware / Amp"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (genSelectorKnob("Env", envMode, [["decay", "Decay"], ["constant", "Const"], ["adsr", "ADSR"]], rt, ch, "envMode", accent) ?? null), "\n            ", (numKnob(((envMode === "decay") ? "Dec Rate" : "Master"), vol, 0, 15, 1, "", rt, ch, "vol", accent, (isTriangle && (envMode !== "adsr"))) ?? null), "\n            ", (numKnob("Sweep", sweep, (-7), 7, 1, "", rt, ch, "sweep", accent, !isPulse) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Tracker Macros"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (msKnob__m98("Att", attack, 2, rt, ch, "attack", accent, (envMode !== "adsr")) ?? null), "\n            ", (msKnob__m98("Dec", decay, 2, rt, ch, "decay", accent, (envMode !== "adsr")) ?? null), "\n            ", (numKnob("Sus", sustain, 0, 15, 1, "", rt, ch, "sustain", accent, (envMode !== "adsr")) ?? null), "\n            ", (msKnob__m98("Rel", release, 5, rt, ch, "release", accent, (envMode !== "adsr")) ?? null), "\n            ", (numKnob("Drop.st", pitchDrop, (-48), 48, 1, "st", rt, ch, "pitchDrop", accent) ?? null), "\n            ", (msKnob__m98("Drop.ms", pitchDec, 1, rt, ch, "pitchDec", accent) ?? null), "\n            ", (numKnob("Vib.Hz", vibRate, 0, 20, 0.5, "Hz", rt, ch, "vibRate", accent) ?? null), "\n            ", (numKnob("Vib.¢", vibAmt, 0, 200, 1, "ct", rt, ch, "vibAmt", accent) ?? null), "\n            ", (numKnob("Arp.Hz", arpRate, 0, 40, 1, "Hz", rt, ch, "arpRate", accent) ?? null), "\n            ", (numKnob("Arp.st", arpSemis, (-24), 24, 1, "st", rt, ch, "arpSemis", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
+      }
+    if ((id === "gameBoyDmg"))
+      {
+        let type = (p.type ? p.type : "pulse");
+        let duty = (p.duty ? p.duty : "50");
+        let envMode = (p.envMode ? p.envMode : "step");
+        let vol = ((p.vol != null) ? (Math.round(p.vol) ?? null) : 10);
+        let sweep = ((p.sweep != null) ? (Math.round(p.sweep) ?? null) : 0);
+        let noiseMode = (p.noiseMode ? p.noiseMode : "long");
+        let waveShape = (p.waveShape ? p.waveShape : "saw");
+        let attack = ((p.attack != null) ? p.attack : 0);
+        let decay = ((p.decay != null) ? p.decay : 0);
+        let sustain = ((p.sustain != null) ? (Math.round(p.sustain) ?? null) : 15);
+        let release = ((p.release != null) ? p.release : 0);
+        let vibRate = ((p.vibRate != null) ? p.vibRate : 0);
+        let vibAmt = ((p.vibAmt != null) ? p.vibAmt : 0);
+        let arpRate = ((p.arpRate != null) ? p.arpRate : 0);
+        let arpSemis = ((p.arpSemis != null) ? (Math.round(p.arpSemis) ?? null) : 0);
+        let pitchDrop = ((p.pitchDrop != null) ? (Math.round(p.pitchDrop) ?? null) : 0);
+        let pitchDec = ((p.pitchDec != null) ? p.pitchDec : 0.05);
+        let isPulse = (type === "pulse");
+        let isNoise = (type === "noise");
+        let isWave = (type === "wave");
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["DMG Channel"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (genSelectorKnob("Type", type, [["pulse", "Pulse"], ["wave", "Wave"], ["noise", "Noise"]], rt, ch, "type", accent) ?? null), "\n            ", (genSelectorKnob("Duty", duty, [["12_5", "12.5%"], ["25", "25%"], ["50", "50%"], ["75", "75%"]], rt, ch, "duty", accent, !isPulse) ?? null), "\n            ", (genSelectorKnob("Mode", noiseMode, [["long", "15-bit"], ["short", "7-bit"]], rt, ch, "noiseMode", accent, !isNoise) ?? null), "\n            ", (genSelectorKnob("Wave", waveShape, [["saw", "Saw"], ["square", "Square"], ["sine", "Sine"]], rt, ch, "waveShape", accent, !isWave) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Hardware / Amp"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (genSelectorKnob("Env", envMode, [["step", "Step"], ["constant", "Const"], ["adsr", "ADSR"]], rt, ch, "envMode", accent) ?? null), "\n            ", (numKnob(((envMode === "step") ? "Step Length" : "Master"), vol, 0, 15, 1, "", rt, ch, "vol", accent, (envMode === "adsr")) ?? null), "\n            ", (numKnob("Sweep", sweep, (-7), 7, 1, "", rt, ch, "sweep", accent, !isPulse) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Tracker Macros"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (msKnob__m98("Att", attack, 2, rt, ch, "attack", accent, (envMode !== "adsr")) ?? null), "\n            ", (msKnob__m98("Dec", decay, 2, rt, ch, "decay", accent, (envMode !== "adsr")) ?? null), "\n            ", (numKnob("Sus", sustain, 0, 15, 1, "", rt, ch, "sustain", accent, (envMode !== "adsr")) ?? null), "\n            ", (msKnob__m98("Rel", release, 5, rt, ch, "release", accent, (envMode !== "adsr")) ?? null), "\n            ", (numKnob("Drop.st", pitchDrop, (-48), 48, 1, "st", rt, ch, "pitchDrop", accent) ?? null), "\n            ", (msKnob__m98("Drop.ms", pitchDec, 1, rt, ch, "pitchDec", accent) ?? null), "\n            ", (numKnob("Vib.Hz", vibRate, 0, 20, 0.5, "Hz", rt, ch, "vibRate", accent, isNoise) ?? null), "\n            ", (numKnob("Vib.¢", vibAmt, 0, 200, 1, "ct", rt, ch, "vibAmt", accent, isNoise) ?? null), "\n            ", (numKnob("Arp.Hz", arpRate, 0, 40, 1, "Hz", rt, ch, "arpRate", accent) ?? null), "\n            ", (numKnob("Arp.st", arpSemis, (-24), 24, 1, "st", rt, ch, "arpSemis", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
+      }
+    if ((id === "c64sid"))
+      {
+        let wf = (p.waveform ? p.waveform : "sawtooth");
+        let pw = ((p.pulseWidth != null) ? p.pulseWidth : 0.5);
+        let ftype = (p.filterType ? p.filterType : "lowpass");
+        let cut = ((p.cutoff != null) ? p.cutoff : 2000);
+        let res = ((p.resonance != null) ? p.resonance : 5);
+        let att = ((p.attack != null) ? (Math.round(p.attack) ?? null) : 0);
+        let dec = ((p.decay != null) ? (Math.round(p.decay) ?? null) : 5);
+        let sus = ((p.sustain != null) ? (Math.round(p.sustain) ?? null) : 15);
+        let rel = ((p.release != null) ? (Math.round(p.release) ?? null) : 6);
+        let hardSync = (p.hardSync === true);
+        let ringMod = (p.ringMod === true);
+        let pitchDrop = ((p.pitchDrop != null) ? (Math.round(p.pitchDrop) ?? null) : 0);
+        let pitchDec = ((p.pitchDec != null) ? p.pitchDec : 0.05);
+        let vibRate = ((p.vibRate != null) ? p.vibRate : 0);
+        let vibAmt = ((p.vibAmt != null) ? p.vibAmt : 0);
+        let arpRate = ((p.arpRate != null) ? p.arpRate : 0);
+        let arpSemis = ((p.arpSemis != null) ? (Math.round(p.arpSemis) ?? null) : 0);
+        let isPulse = (wf === "pulse");
+        let pulseKnobs = h("div", { class: "ik-knob-grid" }, ["\n        ", (pctKnob("Width", pw, rt, ch, "pulseWidth", accent, !isPulse) ?? null), "\n      "]);
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", (waveCard("SID Waveform", wf, "waveform", rt, ch, accent, pulseKnobs, { choices: ["sawtooth", "triangle", "pulse", "noise"] }) ?? null), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["SID Filter"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (genSelectorKnob("Type", ftype, [["lowpass", "LP"], ["bandpass", "BP"], ["highpass", "HP"], ["off", "Off"]], rt, ch, "filterType", accent) ?? null), "\n          "]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (freqKnob("Cutoff", cut, rt, ch, "cutoff", accent, (ftype === "off")) ?? null), "\n            ", (numKnob("Res", res, 0, 20, 0.5, "", rt, ch, "resonance", accent, (ftype === "off")) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["SID ADSR & FX"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Att", att, 0, 15, 1, "", rt, ch, "attack", accent) ?? null), "\n            ", (numKnob("Dec", dec, 0, 15, 1, "", rt, ch, "decay", accent) ?? null), "\n            ", (numKnob("Sus", sus, 0, 15, 1, "", rt, ch, "sustain", accent) ?? null), "\n            ", (numKnob("Rel", rel, 0, 15, 1, "", rt, ch, "release", accent) ?? null), "\n          "]), "\n          ", h("div", { style: { marginTop: "12px", display: "flex", gap: "8px" } }, ["\n            ", (pickPills((hardSync ? "sync_on" : "sync_off"), [["sync_off", "Sync Off"], ["sync_on", "Hard Sync"]], rt, ch, "hardSync", accent, (v) => ((v === "sync_on"))) ?? null), "\n            ", (pickPills((ringMod ? "rm_on" : "rm_off"), [["rm_off", "RM Off"], ["rm_on", "Ring Mod"]], rt, ch, "ringMod", accent, (v) => ((v === "rm_on"))) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Tracker Macros"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Drop.st", pitchDrop, (-48), 48, 1, "st", rt, ch, "pitchDrop", accent) ?? null), "\n            ", (msKnob__m98("Drop.ms", pitchDec, 1, rt, ch, "pitchDec", accent) ?? null), "\n            ", (numKnob("Vib.Hz", vibRate, 0, 20, 0.5, "Hz", rt, ch, "vibRate", accent, ((hardSync || ringMod) || (wf === "noise"))) ?? null), "\n            ", (numKnob("Vib.¢", vibAmt, 0, 200, 1, "ct", rt, ch, "vibAmt", accent, ((hardSync || ringMod) || (wf === "noise"))) ?? null), "\n            ", (numKnob("Arp.Hz", arpRate, 0, 40, 1, "Hz", rt, ch, "arpRate", accent) ?? null), "\n            ", (numKnob("Arp.st", arpSemis, (-24), 24, 1, "st", rt, ch, "arpSemis", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
+      }
+    if ((id === "cymbal"))
+      {
+        let tune = ((p.tune != null) ? p.tune : 300);
+        let metallic = ((p.metallic != null) ? p.metallic : 0.8);
+        let decay = ((p.decay != null) ? p.decay : 0.4);
+        let highpass = ((p.highpass != null) ? p.highpass : 7000);
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["808 Cymbal"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (freqKnob("Tune", tune, rt, ch, "tune", accent) ?? null), "\n            ", (pctKnob("Metallic", metallic, rt, ch, "metallic", accent) ?? null), "\n            ", (msKnob__m98("Decay", decay, 2, rt, ch, "decay", accent) ?? null), "\n            ", (freqKnob("Highpass", highpass, rt, ch, "highpass", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
+      }
+    if ((id === "reeseBass"))
+      {
+        let detune = ((p.detune != null) ? p.detune : 30);
+        let cutoff = ((p.cutoff != null) ? p.cutoff : 1500);
+        let wobble = ((p.wobble != null) ? p.wobble : 0);
+        let decay = ((p.decay != null) ? p.decay : 1);
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Reese Bass"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Detune", detune, 0, 100, 1, "ct", rt, ch, "detune", accent) ?? null), "\n            ", (freqKnob("Cutoff", cutoff, rt, ch, "cutoff", accent) ?? null), "\n            ", (numKnob("Wobble", wobble, 0, 10, 0.1, "Hz", rt, ch, "wobble", accent) ?? null), "\n            ", (msKnob__m98("Decay", decay, 3, rt, ch, "decay", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
+      }
+    if ((id === "syncLead"))
+      {
+        let mt = ((p.masterTune != null) ? p.masterTune : 0);
+        let sb = ((p.slaveBase != null) ? p.slaveBase : 12);
+        let sw = ((p.sweepAmt != null) ? p.sweepAmt : 24);
+        let sd = ((p.sweepDecay != null) ? p.sweepDecay : 0.4);
+        let lr = ((p.lfoRate != null) ? p.lfoRate : 0);
+        let la = ((p.lfoAmt != null) ? p.lfoAmt : 0);
+        let cut = ((p.cutoff != null) ? p.cutoff : 3000);
+        let res = ((p.resonance != null) ? p.resonance : 5);
+        let fea = ((p.filterEnvAmt != null) ? p.filterEnvAmt : 0);
+        let fdec = ((p.filterDecay != null) ? p.filterDecay : 0.4);
+        let att = ((p.attack != null) ? p.attack : 0.05);
+        let dec = ((p.decay != null) ? p.decay : 0.3);
+        let sus = ((p.sustain != null) ? p.sustain : 0.8);
+        let rel = ((p.release != null) ? p.release : 0.5);
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Oscillator & Sync"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Master Tune", mt, (-24), 24, 1, "st", rt, ch, "masterTune", accent) ?? null), "\n            ", (numKnob("Slave Base", sb, 0, 48, 1, "st", rt, ch, "slaveBase", accent) ?? null), "\n            ", (numKnob("Sweep Amt", sw, 0, 48, 1, "st", rt, ch, "sweepAmt", accent) ?? null), "\n            ", (msKnob__m98("Sweep Dec", sd, 3, rt, ch, "sweepDecay", accent) ?? null), "\n            ", (numKnob("LFO Rate", lr, 0, 20, 0.1, "Hz", rt, ch, "lfoRate", accent) ?? null), "\n            ", (numKnob("LFO -> Sync", la, 0, 24, 1, "st", rt, ch, "lfoAmt", accent) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Filter"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (freqKnob("Cutoff", cut, rt, ch, "cutoff", accent) ?? null), "\n            ", (numKnob("Resonance", res, 1, 30, 0.5, "", rt, ch, "resonance", accent) ?? null), "\n            ", (numKnob("Env Amt", fea, (-1), 1, 0.05, "", rt, ch, "filterEnvAmt", accent) ?? null), "\n            ", (msKnob__m98("Env Dec", fdec, 3, rt, ch, "filterDecay", accent) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Amplifier (ADSR)"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (msKnob__m98("Attack", att, 2, rt, ch, "attack", accent) ?? null), "\n            ", (msKnob__m98("Decay", dec, 3, rt, ch, "decay", accent) ?? null), "\n            ", (pctKnob("Sustain", sus, rt, ch, "sustain", accent) ?? null), "\n            ", (msKnob__m98("Release", rel, 5, rt, ch, "release", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
+      }
+    if ((id === "syncChoir"))
+      {
+        let vs = ((p.vowelShift != null) ? p.vowelShift : 24);
+        let mr = ((p.morphRate != null) ? p.morphRate : 0.5);
+        let ma = ((p.morphAmt != null) ? p.morphAmt : 12);
+        let ed = ((p.ensembleDetune != null) ? p.ensembleDetune : 15);
+        let vr = ((p.vibRate != null) ? p.vibRate : 5);
+        let va = ((p.vibAmt != null) ? p.vibAmt : 10);
+        let hp = ((p.highpass != null) ? p.highpass : 300);
+        let att = ((p.attack != null) ? p.attack : 1);
+        let dec = ((p.decay != null) ? p.decay : 1);
+        let sus = ((p.sustain != null) ? p.sustain : 0.8);
+        let rel = ((p.release != null) ? p.release : 1.5);
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Formant & Morph"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Vowel Shift", vs, 0, 48, 1, "st", rt, ch, "vowelShift", accent) ?? null), "\n            ", (numKnob("Morph Rate", mr, 0, 10, 0.1, "Hz", rt, ch, "morphRate", accent) ?? null), "\n            ", (numKnob("Morph Amt", ma, 0, 24, 1, "st", rt, ch, "morphAmt", accent) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Ensemble"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Detune Width", ed, 0, 50, 1, "ct", rt, ch, "ensembleDetune", accent) ?? null), "\n            ", (numKnob("Vibrato Rate", vr, 0, 10, 0.1, "Hz", rt, ch, "vibRate", accent) ?? null), "\n            ", (numKnob("Vibrato Amt", va, 0, 100, 1, "ct", rt, ch, "vibAmt", accent) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Tone & Envelope"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (freqKnob("Highpass", hp, rt, ch, "highpass", accent) ?? null), "\n            ", (msKnob__m98("Attack", att, 5, rt, ch, "attack", accent) ?? null), "\n            ", (msKnob__m98("Release", rel, 5, rt, ch, "release", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
+      }
+    if ((id === "obSync"))
+      {
+        let dt = ((p.detune != null) ? p.detune : 15);
+        let sr = ((p.sweepRate != null) ? p.sweepRate : 0.5);
+        let sa = ((p.sweepAmt != null) ? p.sweepAmt : 24);
+        let cut = ((p.cutoff != null) ? p.cutoff : 1200);
+        let res = ((p.resonance != null) ? p.resonance : 2);
+        let fenv = ((p.filterEnv != null) ? p.filterEnv : 2400);
+        let fdec = ((p.filterDecay != null) ? p.filterDecay : 0.8);
+        let att = ((p.attack != null) ? p.attack : 0.1);
+        let dec = ((p.decay != null) ? p.decay : 0.4);
+        let sus = ((p.sustain != null) ? p.sustain : 0.6);
+        let rel = ((p.release != null) ? p.release : 0.5);
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Oscillators"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Detune", dt, 0, 50, 1, "ct", rt, ch, "detune", accent) ?? null), "\n            ", (numKnob("Sweep Rate", sr, 0, 1, 0.01, "", rt, ch, "sweepRate", accent) ?? null), "\n            ", (numKnob("Sweep Amt", sa, 0, 48, 1, "st", rt, ch, "sweepAmt", accent) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Filter"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (freqKnob("Cutoff", cut, rt, ch, "cutoff", accent) ?? null), "\n            ", (numKnob("Resonance", res, 0, 10, 0.1, "", rt, ch, "resonance", accent) ?? null), "\n            ", (numKnob("Env Amt", fenv, (-5000), 5000, 10, "Hz", rt, ch, "filterEnv", accent) ?? null), "\n            ", (msKnob__m98("Env Decay", fdec, 5, rt, ch, "filterDecay", accent) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Amp Envelope"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (msKnob__m98("Attack", att, 2, rt, ch, "attack", accent) ?? null), "\n            ", (msKnob__m98("Decay", dec, 2, rt, ch, "decay", accent) ?? null), "\n            ", (numKnob("Sustain", sus, 0, 1, 0.01, "", rt, ch, "sustain", accent) ?? null), "\n            ", (msKnob__m98("Release", rel, 5, rt, ch, "release", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
+      }
+    if ((id === "laserSync"))
+      {
+        let dr = ((p.dropRate != null) ? p.dropRate : 0.8);
+        let da = ((p.dropAmt != null) ? p.dropAmt : 36);
+        let sb = ((p.slaveBase != null) ? p.slaveBase : 18);
+        let att = ((p.attack != null) ? p.attack : 0.01);
+        let dec = ((p.decay != null) ? p.decay : 0.3);
+        return h("article", { class: "gen-params ik-cols" }, ["\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Laser Pitch"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (numKnob("Drop Speed", dr, 0, 1, 0.01, "", rt, ch, "dropRate", accent) ?? null), "\n            ", (numKnob("Drop Range", da, 0, 60, 1, "st", rt, ch, "dropAmt", accent) ?? null), "\n            ", (numKnob("Slave Pitch", sb, 0, 48, 1, "st", rt, ch, "slaveBase", accent) ?? null), "\n          "]), "\n        "]), "\n        ", h("div", { class: "ik-card" }, ["\n          ", h("div", { class: "ik-card-h" }, ["Amp Envelope"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (msKnob__m98("Attack", att, 1, rt, ch, "attack", accent) ?? null), "\n            ", (msKnob__m98("Decay", dec, 2, rt, ch, "decay", accent) ?? null), "\n          "]), "\n        "]), "\n      "]);
       }
     if ((id === "matrixFm"))
       {
@@ -20064,7 +24243,7 @@ function GeneratorParamPanel (ch, project, setProject, tplMirrorFlush, rt) {
     return h("div", { class: "gen-params" }, []);
   }
 }
-function numOr__m81 (x, def) {
+function numOr__m99 (x, def) {
   {
     if (((((__v) => __v == null ? "null" : typeof __v)(x) === "number") && (x === x)))
       {
@@ -20103,9 +24282,9 @@ function matrixFmEnvelopePathD (a, d, s, r) {
     let W = 100;
     let H = 44;
     let hold = 0.12;
-    let aa = (numOr__m81(a, 0) ?? null);
-    let dd = (numOr__m81(d, 0) ?? null);
-    let rr = (numOr__m81(r, 0) ?? null);
+    let aa = (numOr__m99(a, 0) ?? null);
+    let dd = (numOr__m99(d, 0) ?? null);
+    let rr = (numOr__m99(r, 0) ?? null);
     if ((aa < 0))
       {
         (aa = 0);
@@ -20118,7 +24297,7 @@ function matrixFmEnvelopePathD (a, d, s, r) {
       {
         (rr = 0);
       }
-    let ss = (numOr__m81(s, 0.5) ?? null);
+    let ss = (numOr__m99(s, 0.5) ?? null);
     if ((ss < 0))
       {
         (ss = 0);
@@ -20145,39 +24324,6 @@ function matrixFmEnvPreviewBlock (a, d, s, r) {
     let svg = (("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 44\"><path fill=\"none\" stroke=\"#e8c040\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"" + pathD) + "\"/></svg>");
     let url = (matrixFmSvgDataUrl(svg) ?? null);
     return h("div", { class: "sytrus-env-bg", style: { backgroundImage: (("url(\"" + url) + "\")"), backgroundSize: "100% 100%", backgroundRepeat: "no-repeat", backgroundPosition: "center" } }, []);
-  }
-}
-function matrixFmWaveIconDataUrl (shape, active) {
-  {
-    let stroke = (active ? "#0a0a0a" : "#f0f0f0");
-    return (matrixFmSvgDataUrl((matrixFmLucideIconSvg(shape, stroke) ?? null)) ?? null);
-  }
-}
-function matrixFmOpWavePicker (waveVal, oidCopy, g, commit) {
-  {
-    let choices = ["sine", "square", "sawtooth", "triangle", "noise"];
-    let titles = ["Sine", "Square", "Saw", "Triangle", "Noise"];
-    let btns = [];
-    let ci = 0;
-    while ((ci < choices.length))
-      {
-        let w = (choices[ci] ?? null);
-        let cls = "sytrus-wave-ic-btn";
-        if ((waveVal === w))
-          {
-            (cls = (cls + " sytrus-wave-ic-btn-active"));
-          }
-        let wCopy = w;
-        let isAct = (waveVal === w);
-        (btns.push(h("button", { type: "button", class: cls, title: (titles[ci] ?? null), key: (("wav" + oidCopy) + w), onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => {
-          {
-            ((g.ops[oidCopy] ?? null).wave = wCopy);
-            (commit() ?? null);
-          }
-        } }, ["\n        ", h("img", { class: "sytrus-wave-ic-img", src: (matrixFmWaveIconDataUrl(w, isAct) ?? null), alt: "", draggable: false }, []), "\n      "])) ?? null);
-        (ci = (ci + 1));
-      }
-    return h("div", { class: "sytrus-wave-ic-row" }, [btns]);
   }
 }
 function matrixFiltersReachingOut (g) {
@@ -20538,37 +24684,42 @@ function MatrixFmPanel (ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
         let ev = (g.opEnvs[oid] ?? null);
         let wv = (op.wave ? op.wave : "sine");
         let ratio = ((op.ratio > 0) ? op.ratio : 1);
-        let a = (numOr__m81(ev.a, 0.005) ?? null);
-        let d = (numOr__m81(ev.d, 0.1) ?? null);
-        let s = (numOr__m81(ev.s, 0.35) ?? null);
-        let rr = (numOr__m81(ev.r, 0.12) ?? null);
+        let a = (numOr__m99(ev.a, 0.005) ?? null);
+        let d = (numOr__m99(ev.d, 0.1) ?? null);
+        let s = (numOr__m99(ev.s, 0.35) ?? null);
+        let rr = (numOr__m99(ev.r, 0.12) ?? null);
         let oidCopy = oid;
-        (opStrips.push(h("div", { class: (((reachOut[oid] ?? null) === true) ? "sytrus-op-card sytrus-op-audible" : "sytrus-op-card"), key: ("op" + oid) }, ["\n        ", h("div", { class: "sytrus-op-card-top" }, ["\n          ", h("span", { class: "sytrus-op-badge" }, [("OP " + oid)]), "\n          ", (((reachOut[oid] ?? null) === true) ? h("span", { class: "sytrus-op-out-tag" }, ["→ OUT"]) : null), "\n          ", h("div", { class: "sytrus-op-card-mid" }, ["\n            ", (matrixFmOpWavePicker(wv, oidCopy, g, commit) ?? null), "\n            ", (Knob({ label: "Ratio", value: (Math.round((ratio * 100)) ?? null), min: 25, max: 3200, step: 1, size: "md", accent: accent, fmt: (v) => (((String(((Math.round(v) ?? null) / 100)) ?? null) + "×")), onInput: (v) => {
-          {
-            ((g.ops[oidCopy] ?? null).ratio = (v / 100));
-            (commit() ?? null);
-          }
-        } }) ?? null), "\n          "]), "\n          ", h("button", { type: "button", class: "sytrus-icon-btn", title: "Remove operator", onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => {
+        (opStrips.push(h("div", { class: (((reachOut[oid] ?? null) === true) ? "sytrus-op-card sytrus-op-audible" : "sytrus-op-card"), key: ("op" + oid) }, ["\n        ", h("div", { class: "sytrus-op-card-top" }, ["\n          ", h("span", { class: "sytrus-op-badge" }, [("OP " + oid)]), "\n          ", (((reachOut[oid] ?? null) === true) ? h("span", { class: "sytrus-op-out-tag" }, ["→ OUT"]) : null), "\n          ", h("div", { style: { flex: 1 } }, []), "\n          ", h("button", { type: "button", class: "sytrus-icon-btn", title: "Remove operator", onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => {
           {
             (removeMatrixFmOperator(g, oidCopy) ?? null);
             (commit() ?? null);
           }
-        } }, ["\n            ", "×", "\n          "]), "\n        "]), "\n        ", h("div", { class: "sytrus-op-adsr" }, ["\n          ", h("span", { class: "sytrus-adsr-lbl" }, ["ADSR"]), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (Knob({ label: "A", value: (Math.round((a * 1000)) ?? null), min: 1, max: 500, step: 1, size: "md", accent: accent, fmt: (v) => (((String((Math.round(v) ?? null)) ?? null) + " ms")), onInput: (v) => {
+        } }, ["\n            ", "×", "\n          "]), "\n        "]), "\n        ", h("div", { class: "sytrus-op-card-mid" }, ["\n          ", (WaveIconPicker(wv, (w) => {
+          {
+            ((g.ops[oidCopy] ?? null).wave = w);
+            (commit() ?? null);
+          }
+        }, { accent: accent, choices: ["sine", "triangle", "sawtooth", "square", "noise"] }) ?? null), "\n          ", h("div", { class: "ik-knob-grid" }, ["\n            ", (Knob({ label: "Ratio", value: (Math.round((ratio * 100)) ?? null), min: 25, max: 3200, step: 1, accent: accent, fmt: (v) => (((String(((Math.round(v) ?? null) / 100)) ?? null) + "×")), onInput: (v) => {
+          {
+            ((g.ops[oidCopy] ?? null).ratio = (v / 100));
+            (commit() ?? null);
+          }
+        } }) ?? null), "\n            ", (Knob({ label: "A", value: (Math.round((a * 1000)) ?? null), min: 1, max: 500, step: 1, accent: accent, fmt: (v) => (((String((Math.round(v) ?? null)) ?? null) + " ms")), onInput: (v) => {
           {
             ((g.opEnvs[oidCopy] ?? null).a = (v / 1000));
             (commit() ?? null);
           }
-        } }) ?? null), "\n            ", (Knob({ label: "D", value: (Math.round((d * 1000)) ?? null), min: 1, max: 800, step: 1, size: "md", accent: accent, fmt: (v) => (((String((Math.round(v) ?? null)) ?? null) + " ms")), onInput: (v) => {
+        } }) ?? null), "\n            ", (Knob({ label: "D", value: (Math.round((d * 1000)) ?? null), min: 1, max: 800, step: 1, accent: accent, fmt: (v) => (((String((Math.round(v) ?? null)) ?? null) + " ms")), onInput: (v) => {
           {
             ((g.opEnvs[oidCopy] ?? null).d = (v / 1000));
             (commit() ?? null);
           }
-        } }) ?? null), "\n            ", (Knob({ label: "S", value: (Math.round((s * 100)) ?? null), min: 0, max: 100, step: 1, size: "md", accent: accent, fmt: (v) => (((String((Math.round(v) ?? null)) ?? null) + "%")), onInput: (v) => {
+        } }) ?? null), "\n            ", (Knob({ label: "S", value: (Math.round((s * 100)) ?? null), min: 0, max: 100, step: 1, accent: accent, fmt: (v) => (((String((Math.round(v) ?? null)) ?? null) + "%")), onInput: (v) => {
           {
             ((g.opEnvs[oidCopy] ?? null).s = (v / 100));
             (commit() ?? null);
           }
-        } }) ?? null), "\n            ", (Knob({ label: "R", value: (Math.round((rr * 1000)) ?? null), min: 1, max: 800, step: 1, size: "md", accent: accent, fmt: (v) => (((String((Math.round(v) ?? null)) ?? null) + " ms")), onInput: (v) => {
+        } }) ?? null), "\n            ", (Knob({ label: "R", value: (Math.round((rr * 1000)) ?? null), min: 1, max: 800, step: 1, accent: accent, fmt: (v) => (((String((Math.round(v) ?? null)) ?? null) + " ms")), onInput: (v) => {
           {
             ((g.opEnvs[oidCopy] ?? null).r = (v / 1000));
             (commit() ?? null);
@@ -20585,13 +24736,13 @@ function MatrixFmPanel (ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
         let fd = (g.filters[fid] ?? null);
         let fe = (g.filterEnvs[fid] ?? null);
         let ftype = (fd.type ? fd.type : "lp24");
-        let co = (numOr__m81(fd.cutoff, 8000) ?? null);
-        let rq = (numOr__m81(fd.res, 0.6) ?? null);
-        let fa = (numOr__m81(fe.a, 0.1) ?? null);
-        let fdd = (numOr__m81(fe.d, 0.2) ?? null);
-        let fs = (numOr__m81(fe.s, 0.3) ?? null);
-        let fr = (numOr__m81(fe.r, 0.15) ?? null);
-        let famt = (numOr__m81(fe.amount, 0) ?? null);
+        let co = (numOr__m99(fd.cutoff, 8000) ?? null);
+        let rq = (numOr__m99(fd.res, 0.6) ?? null);
+        let fa = (numOr__m99(fe.a, 0.1) ?? null);
+        let fdd = (numOr__m99(fe.d, 0.2) ?? null);
+        let fs = (numOr__m99(fe.s, 0.3) ?? null);
+        let fr = (numOr__m99(fe.r, 0.15) ?? null);
+        let famt = (numOr__m99(fe.amount, 0) ?? null);
         let fidCopy = fid;
         let coSlider = (freqToSliderStep(co) ?? null);
         (filterBlocks.push(h("div", { class: "sytrus-filter-card", key: ("flt" + fid) }, ["\n        ", h("div", { class: "sytrus-filter-top" }, ["\n          ", h("span", { class: "sytrus-filter-badge" }, [("F " + fid)]), "\n          ", h("select", { class: "sytrus-op-wave", value: ftype, onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: (e) => ((e.stopPropagation() ?? null)), onchange: (e) => {
@@ -20704,7 +24855,7 @@ function MatrixFmPanel (ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
             ((g.routes[ridx] ?? null).dstId = e.target.value);
             (commit() ?? null);
           }
-        } }, ["\n          ", (filterIdOptions(filterIds, (rt.dstId ? rt.dstId : ((filterIds.length > 0) ? (filterIds[0] ?? null) : "1"))) ?? null), "\n        "]), "\n        ", h("label", { class: "sytrus-route-vol" }, ["\n          ", (Knob({ label: "Vol", value: (Math.round(((numOr__m81(rt.volume, 1) ?? null) * 100)) ?? null), min: 0, max: 100, step: 1, size: "sm", accent: accent, fmt: (v) => (((String((Math.round(v) ?? null)) ?? null) + "%")), onInput: (v) => {
+        } }, ["\n          ", (filterIdOptions(filterIds, (rt.dstId ? rt.dstId : ((filterIds.length > 0) ? (filterIds[0] ?? null) : "1"))) ?? null), "\n        "]), "\n        ", h("label", { class: "sytrus-route-vol" }, ["\n          ", (Knob({ label: "Vol", value: (Math.round(((numOr__m99(rt.volume, 1) ?? null) * 100)) ?? null), min: 0, max: 100, step: 1, size: "sm", accent: accent, fmt: (v) => (((String((Math.round(v) ?? null)) ?? null) + "%")), onInput: (v) => {
           {
             ((g.routes[ridx] ?? null).volume = (v / 100));
             (commit() ?? null);
@@ -20826,13 +24977,24 @@ function filterIdOptions (filterIds, cur) {
     return opts;
   }
 }
-function numOr__m82 (x, def) {
+function numOr__m100 (x, def) {
   {
     if (((((__v) => __v == null ? "null" : typeof __v)(x) === "number") && (x === x)))
       {
         return x;
       }
     return def;
+  }
+}
+function levelKnob (nd, edit, accent) {
+  {
+    let value = (numOr__m100(nd.gain, 1) ?? null);
+    return (Knob({ label: "Level", value: (Math.round((value * 100)) ?? null), min: 0, max: 200, step: 1, accent: accent, fmt: (v) => ((String(((Math.round(v) ?? null) / 100)) ?? null)), onInput: (v) => {
+      {
+        (nd.gain = (v / 100));
+        (edit.live() ?? null);
+      }
+    }, onCommit: () => ((edit.commit() ?? null)) }) ?? null);
   }
 }
 function freqToSlider (hz) {
@@ -20946,9 +25108,9 @@ function patchWaveTiles (nd, edit, accent) {
 function oscCard (nd, edit, accent) {
   {
     let mode = ((nd.freqMode === "fixed") ? "fixed" : "note");
-    let ratio = (numOr__m82(nd.ratio, 1) ?? null);
-    let fixedHz = (numOr__m82(nd.fixedHz, 220) ?? null);
-    let detune = (numOr__m82(nd.detune, 0) ?? null);
+    let ratio = (numOr__m100(nd.ratio, 1) ?? null);
+    let fixedHz = (numOr__m100(nd.fixedHz, 220) ?? null);
+    let detune = (numOr__m100(nd.detune, 0) ?? null);
     let freqCtrl = null;
     if ((mode === "fixed"))
       {
@@ -20968,29 +25130,57 @@ function oscCard (nd, edit, accent) {
           }
         }, onCommit: () => ((edit.commit() ?? null)) }) ?? null));
       }
-    return h("div", { class: "patch-node-body" }, ["\n      ", (patchWaveTiles(nd, edit, accent) ?? null), "\n      ", h("label", { class: "gen-row" }, ["\n        ", "Pitch ", "\n        ", h("select", { class: "sytrus-route-sel", value: mode, onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: (e) => ((e.stopPropagation() ?? null)), onchange: (e) => {
+    let modeKnob = (Knob({ label: "Pitch", value: ((mode === "fixed") ? 1 : 0), min: 0, max: 1, step: 1, detents: 2, accent: accent, fmt: (v) => ((((Math.round(v) ?? null) === 1) ? "Fixed" : "Note")), onInput: (v) => {
       {
-        (nd.freqMode = ((e.target.value === "fixed") ? "fixed" : "note"));
-        (edit.commit() ?? null);
+        (nd.freqMode = (((Math.round(v) ?? null) === 1) ? "fixed" : "note"));
+        (edit.live() ?? null);
       }
-    } }, ["\n          ", (selOpt("note", "Note", mode, "fm-note") ?? null), "\n          ", (selOpt("fixed", "Fixed Hz", mode, "fm-fixed") ?? null), "\n        "]), "\n      "]), "\n      ", h("div", { class: "ik-knob-grid" }, ["\n        ", freqCtrl, "\n        ", (Knob({ label: "Detune", value: (Math.round(detune) ?? null), min: (-1200), max: 1200, step: 1, accent: accent, fmt: (v) => (((String((Math.round(v) ?? null)) ?? null) + "¢")), onInput: (v) => {
+    }, onCommit: () => ((edit.commit() ?? null)) }) ?? null);
+    return h("div", { class: "patch-node-body" }, ["\n      ", (patchWaveTiles(nd, edit, accent) ?? null), "\n      ", h("div", { class: "ik-knob-grid" }, ["\n        ", modeKnob, "\n        ", freqCtrl, "\n        ", (Knob({ label: "Detune", value: (Math.round(detune) ?? null), min: (-1200), max: 1200, step: 1, accent: accent, fmt: (v) => (((String((Math.round(v) ?? null)) ?? null) + "¢")), onInput: (v) => {
       {
         (nd.detune = v);
         (edit.live() ?? null);
       }
-    }, onCommit: () => ((edit.commit() ?? null)) }) ?? null), "\n      "]), "\n    "]);
+    }, onCommit: () => ((edit.commit() ?? null)) }) ?? null), "\n        ", (levelKnob(nd, edit, accent) ?? null), "\n      "]), "\n    "]);
   }
 }
 function filterCard (nd, edit, accent) {
   {
-    let q = (numOr__m82(nd.q, 0.7) ?? null);
-    let freq = (numOr__m82(nd.freq, 1200) ?? null);
-    return h("div", { class: "patch-node-body" }, ["\n      ", h("label", { class: "gen-row" }, ["\n        ", "Type ", "\n        ", h("select", { class: "sytrus-route-sel", value: (nd.ftype ? nd.ftype : "lowpass"), onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: (e) => ((e.stopPropagation() ?? null)), onchange: (e) => {
+    let q = (numOr__m100(nd.q, 0.7) ?? null);
+    let freq = (numOr__m100(nd.freq, 1200) ?? null);
+    let ftypeOpts = ["lowpass", "highpass", "bandpass", "notch", "peaking", "lowshelf", "highshelf", "allpass"];
+    let ftypeLabels = ["LP", "HP", "BP", "Notch", "Peak", "LoSh", "HiSh", "AP"];
+    let curFtype = (nd.ftype ? nd.ftype : "lowpass");
+    let ftypeIdx = 0;
+    let fi = 0;
+    while ((fi < ftypeOpts.length))
       {
-        (nd.ftype = e.target.value);
-        (edit.commit() ?? null);
+        if (((ftypeOpts[fi] ?? null) === curFtype))
+          {
+            (ftypeIdx = fi);
+          }
+        (fi = (fi + 1));
       }
-    } }, ["\n          ", (selOpt("lowpass", "Lowpass", (nd.ftype ? nd.ftype : "lowpass"), "ft-lp") ?? null), "\n          ", (selOpt("highpass", "Highpass", (nd.ftype ? nd.ftype : "lowpass"), "ft-hp") ?? null), "\n          ", (selOpt("bandpass", "Bandpass", (nd.ftype ? nd.ftype : "lowpass"), "ft-bp") ?? null), "\n          ", (selOpt("notch", "Notch", (nd.ftype ? nd.ftype : "lowpass"), "ft-no") ?? null), "\n          ", (selOpt("peaking", "Peaking", (nd.ftype ? nd.ftype : "lowpass"), "ft-pk") ?? null), "\n          ", (selOpt("lowshelf", "Low shelf", (nd.ftype ? nd.ftype : "lowpass"), "ft-ls") ?? null), "\n          ", (selOpt("highshelf", "High shelf", (nd.ftype ? nd.ftype : "lowpass"), "ft-hs") ?? null), "\n          ", (selOpt("allpass", "Allpass", (nd.ftype ? nd.ftype : "lowpass"), "ft-ap") ?? null), "\n        "]), "\n      "]), "\n      ", h("div", { class: "ik-knob-grid" }, ["\n        ", (Knob({ label: "Freq", value: (freqToSlider(freq) ?? null), min: 0, max: 1000, step: 1, accent: accent, fmt: (sl) => (((String((sliderToFreq(sl) ?? null)) ?? null) + " Hz")), onInput: (sl) => {
+    return h("div", { class: "patch-node-body" }, ["\n      ", h("div", { class: "ik-knob-grid" }, ["\n        ", (Knob({ label: "Type", value: ftypeIdx, min: 0, max: (ftypeOpts.length - 1), step: 1, detents: ftypeOpts.length, accent: accent, fmt: (v) => {
+      {
+        let k = (Math.round(v) ?? null);
+        if ((k < 0))
+          (k = 0);
+        if ((k > (ftypeOpts.length - 1)))
+          (k = (ftypeOpts.length - 1));
+        return (ftypeLabels[k] ?? null);
+      }
+    }, onInput: (v) => {
+      {
+        let k = (Math.round(v) ?? null);
+        if ((k < 0))
+          (k = 0);
+        if ((k > (ftypeOpts.length - 1)))
+          (k = (ftypeOpts.length - 1));
+        (nd.ftype = (ftypeOpts[k] ?? null));
+        (edit.live() ?? null);
+      }
+    }, onCommit: () => ((edit.commit() ?? null)) }) ?? null), "\n        ", (Knob({ label: "Freq", value: (freqToSlider(freq) ?? null), min: 0, max: 1000, step: 1, accent: accent, fmt: (sl) => (((String((sliderToFreq(sl) ?? null)) ?? null) + " Hz")), onInput: (sl) => {
       {
         (nd.freq = (sliderToFreq(sl) ?? null));
         (edit.live() ?? null);
@@ -21000,23 +25190,23 @@ function filterCard (nd, edit, accent) {
         (nd.q = (v / 100));
         (edit.live() ?? null);
       }
-    }, onCommit: () => ((edit.commit() ?? null)) }) ?? null), "\n      "]), "\n    "]);
+    }, onCommit: () => ((edit.commit() ?? null)) }) ?? null), "\n        ", (levelKnob(nd, edit, accent) ?? null), "\n      "]), "\n    "]);
   }
 }
 function shaperCard (nd, edit, accent) {
   {
-    let amount = (numOr__m82(nd.amount, 50) ?? null);
+    let amount = (numOr__m100(nd.amount, 50) ?? null);
     return h("div", { class: "patch-node-body" }, ["\n      ", h("div", { class: "ik-knob-grid" }, ["\n        ", (Knob({ label: "Drive", value: (Math.round(amount) ?? null), min: 0, max: 800, step: 1, accent: accent, fmt: (v) => ((String((Math.round(v) ?? null)) ?? null)), onInput: (v) => {
       {
         (nd.amount = v);
         (edit.live() ?? null);
       }
-    }, onCommit: () => ((edit.commit() ?? null)) }) ?? null), "\n      "]), "\n    "]);
+    }, onCommit: () => ((edit.commit() ?? null)) }) ?? null), "\n        ", (levelKnob(nd, edit, accent) ?? null), "\n      "]), "\n    "]);
   }
 }
 function gainCard (nd, edit, accent) {
   {
-    let value = (numOr__m82(nd.value, 1) ?? null);
+    let value = (numOr__m100(nd.value, 1) ?? null);
     return h("div", { class: "patch-node-body" }, ["\n      ", h("div", { class: "ik-knob-grid" }, ["\n        ", (Knob({ label: "Level", value: (Math.round((value * 100)) ?? null), min: 0, max: 200, step: 1, accent: accent, fmt: (v) => ((String(((Math.round(v) ?? null) / 100)) ?? null)), onInput: (v) => {
       {
         (nd.value = (v / 100));
@@ -21027,7 +25217,7 @@ function gainCard (nd, edit, accent) {
 }
 function panCard (nd, edit, accent) {
   {
-    let pos = (numOr__m82(nd.pos, 0) ?? null);
+    let pos = (numOr__m100(nd.pos, 0) ?? null);
     return h("div", { class: "patch-node-body" }, ["\n      ", h("div", { class: "ik-knob-grid" }, ["\n        ", (Knob({ label: "Pan", value: (Math.round((pos * 100)) ?? null), min: (-100), max: 100, step: 1, accent: accent, fmt: (v) => {
       {
         let p = (Math.round(v) ?? null);
@@ -21042,17 +25232,17 @@ function panCard (nd, edit, accent) {
         (nd.pos = (v / 100));
         (edit.live() ?? null);
       }
-    }, onCommit: () => ((edit.commit() ?? null)) }) ?? null), "\n      "]), "\n    "]);
+    }, onCommit: () => ((edit.commit() ?? null)) }) ?? null), "\n        ", (levelKnob(nd, edit, accent) ?? null), "\n      "]), "\n    "]);
   }
 }
-function noiseCard () {
+function noiseCard (nd, edit, accent) {
   {
-    return h("div", { class: "patch-node-body" }, ["\n      ", h("p", { class: "sytrus-hint" }, ["White noise source."]), "\n    "]);
+    return h("div", { class: "patch-node-body" }, ["\n      ", h("div", { class: "ik-knob-grid" }, ["\n        ", (levelKnob(nd, edit, accent) ?? null), "\n      "]), "\n    "]);
   }
 }
 function stringKnob (nd, key, label, dflt, accent, edit) {
   {
-    let val = (numOr__m82((nd[key] ?? null), dflt) ?? null);
+    let val = (numOr__m100((nd[key] ?? null), dflt) ?? null);
     return (Knob({ label: label, value: (Math.round((val * 100)) ?? null), min: 0, max: 100, step: 1, accent: accent, fmt: (v) => ((String((Math.round(v) ?? null)) ?? null)), onInput: (v) => {
       {
         (nd[key] = (v / 100));
@@ -21063,7 +25253,7 @@ function stringKnob (nd, key, label, dflt, accent, edit) {
 }
 function stringCard (nd, edit, accent) {
   {
-    return h("div", { class: "patch-node-body" }, ["\n      ", h("div", { class: "ik-knob-grid" }, ["\n        ", (stringKnob(nd, "tone", "Tone", 0.5, accent, edit) ?? null), "\n        ", (stringKnob(nd, "damping", "Damping", 0.4, accent, edit) ?? null), "\n        ", (stringKnob(nd, "decay", "Decay", 0.6, accent, edit) ?? null), "\n        ", (stringKnob(nd, "mute", "Mute", 0, accent, edit) ?? null), "\n      "]), "\n      ", h("p", { class: "sytrus-hint" }, ["Karplus-Strong plucked string — pitched by the played note."]), "\n    "]);
+    return h("div", { class: "patch-node-body" }, ["\n      ", h("div", { class: "ik-knob-grid" }, ["\n        ", (stringKnob(nd, "tone", "Tone", 0.5, accent, edit) ?? null), "\n        ", (stringKnob(nd, "damping", "Damping", 0.4, accent, edit) ?? null), "\n        ", (stringKnob(nd, "decay", "Decay", 0.6, accent, edit) ?? null), "\n        ", (stringKnob(nd, "mute", "Mute", 0, accent, edit) ?? null), "\n        ", (levelKnob(nd, edit, accent) ?? null), "\n      "]), "\n    "]);
   }
 }
 function nodeCardBody (nd, edit, accent) {
@@ -21092,7 +25282,7 @@ function nodeCardBody (nd, edit, accent) {
       {
         return (panCard(nd, edit, accent) ?? null);
       }
-    return (noiseCard() ?? null);
+    return (noiseCard(nd, edit, accent) ?? null);
   }
 }
 function kindLabel (kind) {
@@ -21128,23 +25318,87 @@ function routeRow (g, cidx, ids, accent, edit) {
   {
     let cn = (g.conns[cidx] ?? null);
     let isNodeDst = ((cn.dst !== "out") && (cn.dst !== "reverb"));
-    return h("div", { class: "patch-route", id: ("pmroute-" + (String(cidx) ?? null)), key: ("rt" + (String(cidx) ?? null)) }, ["\n      ", h("span", { class: "patch-route-arrow" }, ["→"]), "\n      ", h("span", { class: "patch-route-dst-lbl" }, [(cn.dst + (cn.dstParam ? ("." + cn.dstParam) : ""))]), "\n      ", h("select", { class: "sytrus-route-sel", value: cn.dst, onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: (e) => ((e.stopPropagation() ?? null)), onchange: (e) => {
+    let dstList = [];
+    let di = 0;
+    while ((di < ids.length))
       {
-        let nv = e.target.value;
+        if ((((ids[di] ?? null) !== cn.src) || ((ids[di] ?? null) === cn.dst)))
+          {
+            (dstList.push((ids[di] ?? null)) ?? null);
+          }
+        (di = (di + 1));
+      }
+    (dstList.push("out") ?? null);
+    (dstList.push("reverb") ?? null);
+    let curDstIdx = 0;
+    let dfi = 0;
+    while ((dfi < dstList.length))
+      {
+        if (((dstList[dfi] ?? null) === cn.dst))
+          {
+            (curDstIdx = dfi);
+          }
+        (dfi = (dfi + 1));
+      }
+    let paramList = ["", "gain", "freq", "detune", "q", "pan"];
+    let paramLabels = ["sig", "gain", "freq", "det", "Q", "pan"];
+    let curParamIdx = 0;
+    let pfi = 0;
+    while ((pfi < paramList.length))
+      {
+        if (((paramList[pfi] ?? null) === (cn.dstParam ? cn.dstParam : "")))
+          {
+            (curParamIdx = pfi);
+          }
+        (pfi = (pfi + 1));
+      }
+    let dstKnob = (Knob({ label: "Dst", value: curDstIdx, min: 0, max: (dstList.length - 1), step: 1, detents: dstList.length, size: "xs", accent: accent, fmt: (v) => {
+      {
+        let k = (Math.round(v) ?? null);
+        if ((k < 0))
+          (k = 0);
+        if ((k > (dstList.length - 1)))
+          (k = (dstList.length - 1));
+        return (dstList[k] ?? null);
+      }
+    }, onInput: (v) => {
+      {
+        let k = (Math.round(v) ?? null);
+        if ((k < 0))
+          (k = 0);
+        if ((k > (dstList.length - 1)))
+          (k = (dstList.length - 1));
+        let nv = (dstList[k] ?? null);
         ((g.conns[cidx] ?? null).dst = nv);
         if (((nv === "out") || (nv === "reverb")))
           {
             ((g.conns[cidx] ?? null).dstParam = null);
           }
-        (edit.commit() ?? null);
+        (edit.live() ?? null);
       }
-    } }, ["\n        ", (destOptions(ids, cn.src, cn.dst, ("rd" + cidx)) ?? null), "\n      "]), "\n      ", (isNodeDst ? h("select", { class: "sytrus-route-sel patch-route-param", value: (cn.dstParam ? cn.dstParam : ""), onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: (e) => ((e.stopPropagation() ?? null)), onchange: (e) => {
+    }, onCommit: () => ((edit.commit() ?? null)) }) ?? null);
+    let curDstIsNode = ((cn.dst !== "out") && (cn.dst !== "reverb"));
+    let paramKnob = (curDstIsNode ? (Knob({ label: "Param", value: curParamIdx, min: 0, max: (paramList.length - 1), step: 1, detents: paramList.length, size: "xs", accent: accent, fmt: (v) => {
       {
-        let pv = e.target.value;
-        ((g.conns[cidx] ?? null).dstParam = ((pv === "") ? null : pv));
-        (edit.commit() ?? null);
+        let k = (Math.round(v) ?? null);
+        if ((k < 0))
+          (k = 0);
+        if ((k > (paramList.length - 1)))
+          (k = (paramList.length - 1));
+        return (paramLabels[k] ?? null);
       }
-    } }, ["\n          ", (paramOptions(("rp" + cidx), true, (cn.dstParam ? cn.dstParam : "")) ?? null)]) : null), "\n      ", h("span", { class: "patch-route-vol" }, ["\n        ", (Knob({ label: "Vol", value: (Math.round(((numOr__m82(cn.vol, 1) ?? null) * 100)) ?? null), min: 0, max: 200, step: 1, accent: accent, size: "xs", fmt: (v) => ((String(((Math.round(v) ?? null) / 100)) ?? null)), onInput: (v) => {
+    }, onInput: (v) => {
+      {
+        let k = (Math.round(v) ?? null);
+        if ((k < 0))
+          (k = 0);
+        if ((k > (paramList.length - 1)))
+          (k = (paramList.length - 1));
+        ((g.conns[cidx] ?? null).dstParam = (((paramList[k] ?? null) === "") ? null : (paramList[k] ?? null)));
+        (edit.live() ?? null);
+      }
+    }, onCommit: () => ((edit.commit() ?? null)) }) ?? null) : null);
+    return h("div", { class: "patch-route", id: ("pmroute-" + (String(cidx) ?? null)), key: ("rt" + (String(cidx) ?? null)) }, ["\n      ", h("span", { class: "patch-route-arrow" }, ["→"]), "\n      ", dstKnob, "\n      ", paramKnob, "\n      ", h("span", { class: "patch-route-vol" }, ["\n        ", (Knob({ label: "Vol", value: (Math.round(((numOr__m100(cn.vol, 1) ?? null) * 100)) ?? null), min: 0, max: 200, step: 1, accent: accent, size: "xs", fmt: (v) => ((String(((Math.round(v) ?? null) / 100)) ?? null)), onInput: (v) => {
       {
         ((g.conns[cidx] ?? null).vol = (v / 100));
         (edit.live() ?? null);
@@ -21200,16 +25454,42 @@ function envCard (g, en, eidx, ids, edit) {
   {
     let segRows = [];
     let si = 0;
+    let segTypeOpts = ["set", "lin", "exp"];
     while ((si < en.segs.length))
       {
         let sg = (en.segs[si] ?? null);
         let sidx = si;
-        (segRows.push(h("div", { class: "patch-seg-row", key: ((("sg" + eidx) + "_") + si) }, ["\n        ", h("select", { class: "sytrus-route-sel", value: sg.type, onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: (e) => ((e.stopPropagation() ?? null)), onchange: (e) => {
+        let curSegIdx = 0;
+        let sti = 0;
+        while ((sti < segTypeOpts.length))
           {
-            (((g.envs[eidx] ?? null).segs[sidx] ?? null).type = e.target.value);
-            (edit.commit() ?? null);
+            if (((segTypeOpts[sti] ?? null) === sg.type))
+              {
+                (curSegIdx = sti);
+              }
+            (sti = (sti + 1));
           }
-        } }, ["\n          ", (selOpt("set", "Set", sg.type, ((("st-set-" + eidx) + "-") + sidx)) ?? null), "\n          ", (selOpt("lin", "Lin", sg.type, ((("st-lin-" + eidx) + "-") + sidx)) ?? null), "\n          ", (selOpt("exp", "Exp", sg.type, ((("st-exp-" + eidx) + "-") + sidx)) ?? null), "\n        "]), "\n        ", h("input", { class: "patch-expr", type: "text", value: (String(sg.tExpr) ?? null), title: "time (s) — expr ok: dur, dur-0.1, note", onmousedown: (e) => ((e.stopPropagation() ?? null)), onchange: (e) => {
+        let segTypeLabels = ["Set", "Lin", "Exp"];
+        (segRows.push(h("div", { class: "patch-seg-row", key: ((("sg" + eidx) + "_") + si) }, ["\n        ", h("span", { class: "patch-seg-knob" }, ["\n          ", (Knob({ label: "Seg", value: curSegIdx, min: 0, max: 2, step: 1, detents: 3, size: "xs", accent: "#a78bfa", fmt: (v) => {
+          {
+            let k = (Math.round(v) ?? null);
+            if ((k < 0))
+              (k = 0);
+            if ((k > 2))
+              (k = 2);
+            return (segTypeLabels[k] ?? null);
+          }
+        }, onInput: (v) => {
+          {
+            let k = (Math.round(v) ?? null);
+            if ((k < 0))
+              (k = 0);
+            if ((k > 2))
+              (k = 2);
+            (((g.envs[eidx] ?? null).segs[sidx] ?? null).type = (segTypeOpts[k] ?? null));
+            (edit.live() ?? null);
+          }
+        }, onCommit: () => ((edit.commit() ?? null)) }) ?? null), "\n        "]), "\n        ", h("input", { class: "patch-expr", type: "text", value: (String(sg.tExpr) ?? null), title: "time (s) — expr ok: dur, dur-0.1, note", onmousedown: (e) => ((e.stopPropagation() ?? null)), onchange: (e) => {
           {
             (((g.envs[eidx] ?? null).segs[sidx] ?? null).tExpr = e.target.value);
             (edit.commit() ?? null);
@@ -21227,17 +25507,69 @@ function envCard (g, en, eidx, ids, edit) {
         } }, ["\n          ", "×", "\n        "]), "\n      "])) ?? null);
         (si = (si + 1));
       }
-    return h("div", { class: "patch-mod patch-env sytrus-op-card", id: ("pmenv-" + (String(eidx) ?? null)), key: ("env" + (String(eidx) ?? null)), onmouseenter: () => ((setCableHover(("env:" + (String(eidx) ?? null))) ?? null)), onmouseleave: () => ((setCableHover(null) ?? null)) }, ["\n      ", h("div", { class: "patch-mod-head" }, ["\n        ", h("span", { class: "patch-mod-badge patch-env-badge" }, ["ENV"]), "\n        ", h("span", { class: "patch-env-target" }, ["\n          ", h("select", { class: "sytrus-route-sel", value: en.node, onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: (e) => ((e.stopPropagation() ?? null)), onchange: (e) => {
+    let nodeIdx = 0;
+    let ni = 0;
+    while ((ni < ids.length))
       {
-        ((g.envs[eidx] ?? null).node = e.target.value);
-        (edit.commit() ?? null);
+        if (((ids[ni] ?? null) === en.node))
+          {
+            (nodeIdx = ni);
+          }
+        (ni = (ni + 1));
       }
-    } }, ["\n            ", (nodeOptions(ids, ("en" + eidx), en.node) ?? null), "\n          "]), "\n          ", h("span", { class: "patch-dot" }, ["."]), "\n          ", h("select", { class: "sytrus-route-sel", value: (en.param ? en.param : "gain"), onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: (e) => ((e.stopPropagation() ?? null)), onchange: (e) => {
+    let paramOpts = ["gain", "freq", "detune", "q", "pan"];
+    let paramLabels = ["gain", "freq", "det", "Q", "pan"];
+    let paramIdx = 0;
+    let pi = 0;
+    while ((pi < paramOpts.length))
       {
-        ((g.envs[eidx] ?? null).param = e.target.value);
-        (edit.commit() ?? null);
+        if (((paramOpts[pi] ?? null) === (en.param ? en.param : "gain")))
+          {
+            (paramIdx = pi);
+          }
+        (pi = (pi + 1));
       }
-    } }, ["\n            ", (paramOptions(("ep" + eidx), false, (en.param ? en.param : "gain")) ?? null), "\n          "]), "\n        "]), "\n        ", h("button", { type: "button", class: "sytrus-icon-btn patch-mod-x", title: "Remove envelope", onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => {
+    let nodeKnob = ((ids.length > 0) ? (Knob({ label: "Node", value: nodeIdx, min: 0, max: (ids.length - 1), step: 1, detents: ids.length, size: "xs", accent: "#a78bfa", fmt: (v) => {
+      {
+        let k = (Math.round(v) ?? null);
+        if ((k < 0))
+          (k = 0);
+        if ((k > (ids.length - 1)))
+          (k = (ids.length - 1));
+        return (ids[k] ?? null);
+      }
+    }, onInput: (v) => {
+      {
+        let k = (Math.round(v) ?? null);
+        if ((k < 0))
+          (k = 0);
+        if ((k > (ids.length - 1)))
+          (k = (ids.length - 1));
+        ((g.envs[eidx] ?? null).node = (ids[k] ?? null));
+        (edit.live() ?? null);
+      }
+    }, onCommit: () => ((edit.commit() ?? null)) }) ?? null) : null);
+    let paramKnob = (Knob({ label: "Param", value: paramIdx, min: 0, max: (paramOpts.length - 1), step: 1, detents: paramOpts.length, size: "xs", accent: "#a78bfa", fmt: (v) => {
+      {
+        let k = (Math.round(v) ?? null);
+        if ((k < 0))
+          (k = 0);
+        if ((k > (paramOpts.length - 1)))
+          (k = (paramOpts.length - 1));
+        return (paramLabels[k] ?? null);
+      }
+    }, onInput: (v) => {
+      {
+        let k = (Math.round(v) ?? null);
+        if ((k < 0))
+          (k = 0);
+        if ((k > (paramOpts.length - 1)))
+          (k = (paramOpts.length - 1));
+        ((g.envs[eidx] ?? null).param = (paramOpts[k] ?? null));
+        (edit.live() ?? null);
+      }
+    }, onCommit: () => ((edit.commit() ?? null)) }) ?? null);
+    return h("div", { class: "patch-mod patch-env sytrus-op-card", id: ("pmenv-" + (String(eidx) ?? null)), key: ("env" + (String(eidx) ?? null)), onmouseenter: () => ((setCableHover(("env:" + (String(eidx) ?? null))) ?? null)), onmouseleave: () => ((setCableHover(null) ?? null)) }, ["\n      ", h("div", { class: "patch-mod-head" }, ["\n        ", h("span", { class: "patch-mod-badge patch-env-badge" }, ["ENV"]), "\n        ", h("span", { class: "patch-env-target", style: { display: "flex", alignItems: "center", gap: "2px" } }, ["\n          ", nodeKnob, "\n          ", h("span", { class: "patch-dot" }, ["."]), "\n          ", paramKnob, "\n        "]), "\n        ", h("button", { type: "button", class: "sytrus-icon-btn patch-mod-x", title: "Remove envelope", onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => {
       {
         (removePatchEnvAt(g, eidx) ?? null);
         (edit.commit() ?? null);
@@ -21543,7 +25875,29 @@ function PatchGraphPanel (ch, project, setProject, rt, mayEdit) {
           {
             return;
           }
-        (addPatchNode(g, kind) ?? null);
+        let newId = (addPatchNode(g, kind) ?? null);
+        let isProcessor = ((((kind === "filter") || (kind === "shaper")) || (kind === "gain")) || (kind === "pan"));
+        if (isProcessor)
+          {
+            let spliced = false;
+            let ci = (g.conns.length - 1);
+            while (((ci >= 0) && !spliced))
+              {
+                let cn = (g.conns[ci] ?? null);
+                if (((cn.dst === "out") && ((cn.dstParam == null) || (cn.dstParam === ""))))
+                  {
+                    (cn.dst = newId);
+                    (cn.dstParam = null);
+                    (spliced = true);
+                  }
+                (ci = (ci - 1));
+              }
+            (g.conns.push({ src: newId, dst: "out", dstParam: null, vol: 1 }) ?? null);
+          }
+        else
+          {
+            (g.conns.push({ src: newId, dst: "out", dstParam: null, vol: 1 }) ?? null);
+          }
         (commitEdit() ?? null);
       }
     }
@@ -21610,24 +25964,19 @@ function PatchGraphPanel (ch, project, setProject, rt, mayEdit) {
     (cableState.editMode = editMode);
     (scheduleCableDraw() ?? null);
     (wirePatchCableListeners() ?? null);
-    return h("div", { class: (editMode ? "sytrus-panel patch-panel patch-edit" : "sytrus-panel patch-panel patch-view") }, ["\n      ", h("div", { class: "sytrus-panel-head" }, ["\n        ", h("span", { class: "sytrus-panel-title" }, ["PATCH"]), "\n        ", h("span", { class: "sytrus-panel-sub" }, [(editMode ? "modules · wire each output" : "modules · signal flow")]), "\n        ", (canEdit ? h("span", { class: "patch-mode-toggle" }, ["\n            ", h("button", { type: "button", class: (editMode ? "imt-btn" : "imt-btn imt-on"), onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((setPatchEditMode(false) ?? null)) }, ["View"]), h("button", { type: "button", class: (editMode ? "imt-btn imt-on" : "imt-btn"), onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((setPatchEditMode(true) ?? null)) }, ["Edit"])]) : null), "\n        ", (canEdit ? null : h("span", { class: "instr-lock-tag" }, ["read only"])), "\n      "]), "\n\n      ", (canEdit ? null : h("div", { class: "instr-locked-hint" }, [(("🔒 owned by " + ownerName) + " — read only")])), "\n\n      ", h("div", { class: (canEdit ? "patch-edit-region" : "patch-edit-region instr-readonly") }, ["\n      ", h("div", { class: "patch-palette" }, ["\n        ", h("span", { class: "patch-palette-label" }, ["Add module"]), "\n        ", h("button", { type: "button", class: "sytrus-add-btn", onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((addMod("osc") ?? null)) }, ["Osc"]), "\n        ", h("button", { type: "button", class: "sytrus-add-btn", onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((addMod("noise") ?? null)) }, ["Noise"]), "\n        ", h("button", { type: "button", class: "sytrus-add-btn", onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((addMod("string") ?? null)) }, ["String"]), "\n        ", h("button", { type: "button", class: "sytrus-add-btn", onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((addMod("filter") ?? null)) }, ["Filter"]), "\n        ", h("button", { type: "button", class: "sytrus-add-btn", onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((addMod("shaper") ?? null)) }, ["Shaper"]), "\n        ", h("button", { type: "button", class: "sytrus-add-btn", onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((addMod("gain") ?? null)) }, ["Gain"]), "\n        ", h("button", { type: "button", class: "sytrus-add-btn", onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((addMod("pan") ?? null)) }, ["Pan"]), "\n        ", h("button", { type: "button", class: "sytrus-add-btn", onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((addEnvMod() ?? null)) }, ["Env"]), "\n      "]), "\n\n      ", (((g.nodes.length === 0) && (g.envs.length === 0)) ? h("p", { class: "sytrus-empty" }, ["Add a module to start the patch. Wire each module's output to the next, ending at out."]) : h("div", { class: "patch-mod-grid", id: "patch-cable-host" }, ["\n          ", h("svg", { id: "patch-cables", class: "patch-cables" }, []), h("div", { class: "patch-node-masonry" }, ["\n            ", orderedNodeCards, h("div", { class: "patch-sink patch-sink-out", id: "pmsink-out", key: "pmsink-out" }, ["\n              ", h("span", { class: "patch-sink-label" }, ["▶ OUT"])]), (usesReverb ? h("div", { class: "patch-sink patch-sink-rev", id: "pmsink-reverb", key: "pmsink-reverb" }, ["\n                ", h("span", { class: "patch-sink-label" }, ["REVERB"])]) : null)]), ((g.envs.length > 0) ? h("div", { class: "patch-env-row" }, ["\n              ", h("span", { class: "patch-env-row-label" }, [(editMode ? "Envelopes — wire each to its target" : "Envelopes — cables shown in Edit")]), h("div", { class: "patch-env-row-cards" }, [envCards])]) : null)])), "\n\n      ", ((orphans.length > 0) ? h("section", { class: "sytrus-section patch-orphans" }, ["\n          ", h("div", { class: "sytrus-section-h" }, ["\n            ", h("span", null, ["Unrouted connections"])]), h("p", { class: "sytrus-hint" }, ["These route from a module that no longer exists. Remove them or re-add the module."]), h("div", { class: "sytrus-routes" }, [orphans])]) : null), "\n\n      ", h("section", { class: "sytrus-section patch-voicelen" }, ["\n        ", h("div", { class: "sytrus-section-h" }, ["\n          ", h("span", null, ["Voice length"]), "\n        "]), "\n        ", h("label", { class: "gen-row" }, ["\n          ", h("input", { type: "checkbox", checked: durIsSet, onmousedown: (e) => ((e.stopPropagation() ?? null)), onchange: (e) => {
+    return h("div", { class: (editMode ? "sytrus-panel patch-panel patch-edit" : "sytrus-panel patch-panel patch-view") }, ["\n      ", h("div", { class: "sytrus-panel-head" }, ["\n        ", h("span", { class: "sytrus-panel-title" }, ["PATCH"]), "\n        ", h("span", { class: "sytrus-panel-sub" }, [(editMode ? "modules · wire each output" : "modules · signal flow")]), "\n        ", (canEdit ? h("span", { class: "patch-mode-toggle" }, ["\n            ", h("button", { type: "button", class: (editMode ? "imt-btn" : "imt-btn imt-on"), onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((setPatchEditMode(false) ?? null)) }, ["View"]), h("button", { type: "button", class: (editMode ? "imt-btn imt-on" : "imt-btn"), onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((setPatchEditMode(true) ?? null)) }, ["Edit"])]) : null), "\n        ", (canEdit ? null : h("span", { class: "instr-lock-tag" }, ["read only"])), "\n      "]), "\n\n      ", (canEdit ? null : h("div", { class: "instr-locked-hint" }, [(("🔒 owned by " + ownerName) + " — read only")])), "\n\n      ", h("div", { class: (canEdit ? "patch-edit-region" : "patch-edit-region instr-readonly") }, ["\n      ", h("div", { class: "patch-palette" }, ["\n        ", h("span", { class: "patch-palette-label" }, ["Add module"]), "\n        ", h("button", { type: "button", class: "sytrus-add-btn", onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((addMod("osc") ?? null)) }, ["Osc"]), "\n        ", h("button", { type: "button", class: "sytrus-add-btn", onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((addMod("noise") ?? null)) }, ["Noise"]), "\n        ", h("button", { type: "button", class: "sytrus-add-btn", onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((addMod("string") ?? null)) }, ["String"]), "\n        ", h("button", { type: "button", class: "sytrus-add-btn", onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((addMod("filter") ?? null)) }, ["Filter"]), "\n        ", h("button", { type: "button", class: "sytrus-add-btn", onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((addMod("shaper") ?? null)) }, ["Shaper"]), "\n        ", h("button", { type: "button", class: "sytrus-add-btn", onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((addMod("gain") ?? null)) }, ["Gain"]), "\n        ", h("button", { type: "button", class: "sytrus-add-btn", onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((addMod("pan") ?? null)) }, ["Pan"]), "\n        ", h("button", { type: "button", class: "sytrus-add-btn", onmousedown: (e) => ((e.stopPropagation() ?? null)), onclick: () => ((addEnvMod() ?? null)) }, ["Env"]), "\n      "]), "\n\n      ", (((g.nodes.length === 0) && (g.envs.length === 0)) ? h("p", { class: "sytrus-empty" }, ["Add a module to start the patch. Wire each module's output to the next, ending at out."]) : h("div", { class: "patch-mod-grid", id: "patch-cable-host" }, ["\n          ", h("svg", { id: "patch-cables", class: "patch-cables" }, []), h("div", { class: "patch-node-masonry" }, ["\n            ", orderedNodeCards, envCards, h("div", { class: "patch-mod sytrus-op-card", key: "voicelen" }, ["\n              ", h("div", { class: "patch-mod-head" }, ["\n                ", h("span", { class: "patch-mod-badge" }, ["VOICE"]), h("span", { class: "patch-mod-id" }, ["length"])]), h("div", { class: "patch-node-body" }, ["\n                ", h("div", { class: "ik-knob-grid" }, ["\n                  ", (Knob({ label: "Length", value: (durIsSet ? (Math.round((durVal * 1000)) ?? null) : 0), min: 0, max: 2000, step: 1, accent: accent, fmt: (v) => ((((Math.round(v) ?? null) === 0) ? "Auto" : ((String((Math.round(v) ?? null)) ?? null) + " ms"))), onInput: (v) => {
       {
-        if (e.target.checked)
-          {
-            (g.dur = durVal);
-          }
-        else
+        if (((Math.round(v) ?? null) === 0))
           {
             (g.dur = null);
           }
-        (commitEdit() ?? null);
-      }
-    } }, []), "\n          ", (durIsSet ? "Fixed" : "Auto (note length)"), "\n        "]), "\n        ", (durIsSet ? h("div", { class: "ik-knob-grid" }, ["\n            ", (Knob({ label: "Length", value: (Math.round((durVal * 1000)) ?? null), min: 20, max: 2000, step: 1, accent: accent, fmt: (v) => (((String((Math.round(v) ?? null)) ?? null) + " ms")), onInput: (v) => {
-      {
-        (g.dur = (v / 1000));
+        else
+          {
+            (g.dur = (v / 1000));
+          }
         (liveEdit() ?? null);
       }
-    }, onCommit: () => ((commitEdit() ?? null)) }) ?? null)]) : null), "\n      "]), "\n      "]), "\n    "]);
+    }, onCommit: () => ((commitEdit() ?? null)) }) ?? null)])])]), h("div", { class: "patch-sink patch-sink-out", id: "pmsink-out", key: "pmsink-out" }, ["\n              ", h("span", { class: "patch-sink-label" }, ["▶ OUT"])]), (usesReverb ? h("div", { class: "patch-sink patch-sink-rev", id: "pmsink-reverb", key: "pmsink-reverb" }, ["\n                ", h("span", { class: "patch-sink-label" }, ["REVERB"])]) : null)])])), "\n\n      ", ((orphans.length > 0) ? h("section", { class: "sytrus-section patch-orphans" }, ["\n          ", h("div", { class: "sytrus-section-h" }, ["\n            ", h("span", null, ["Unrouted connections"])]), h("p", { class: "sytrus-hint" }, ["These route from a module that no longer exists. Remove them or re-add the module."]), h("div", { class: "sytrus-routes" }, [orphans])]) : null), "\n      "]), "\n    "]);
   }
 }
 function fmtVal (v, step) {
@@ -21780,7 +26129,7 @@ function RichTplEditor (rt, slotId, value, onCommit) {
     return h("div", { class: "rich-tpl-slot", id: slotId }, []);
   }
 }
-let VOICE_GROUPS = [{ title: "Oscillators", voices: [["basicOsc", "Osc"], ["fmTone", "FM"]] }, { title: "Texture", voices: [["noiseBurst", "Noise"], ["pad", "Pad"], ["bell", "Bell"]] }, { title: "Strings", voices: [["guitar", "Guitar"], ["arco", "Arco"]] }, { title: "Keys", voices: [["tine", "Tine EP"]] }, { title: "Mallets", voices: [["halo", "Halo"]] }, { title: "Vox", voices: [["formantVocal", "Formant"], ["ttsVocal", "TTS"], ["meSpeakVocal", "meSpeak"]] }, { title: "Lead", voices: [["aether", "Aether"]] }, { title: "Percussion", voices: [["drumSynth", "Drum"], ["clap", "Clap"]] }, { title: "Modular", voices: [["matrixFm", "Matrix FM"], ["patch", "Patch"]] }, { title: "Kick designer", voices: [["kick_edm", "EDM"], ["kick_deep", "Deep"], ["kick_distorted", "Distort"]] }, { title: "Bass designer", voices: [["bass_acid", "Acid"], ["bass_reese", "Reese"], ["bass_reese_punch", "Punch"], ["bass_reese_sc", "Reese SC"], ["bass_wobble", "Wobble"]] }];
+let VOICE_GROUPS = [{ title: "Oscillators", voices: [["basicOsc", "Osc"], ["fmTone", "FM"]] }, { title: "Retro Chips", voices: [["nes2a03", "2A03"], ["gameBoyDmg", "LR35902"], ["c64sid", "MOS 6581"], ["ym2612", "YM2612"], ["sn76489", "SN76489"], ["spc700", "SPC700"], ["gbaDirectSound", "GBA PCM"]] }, { title: "Texture", voices: [["noiseBurst", "Noise"], ["pad", "Pad"], ["bell", "Bell"]] }, { title: "Strings", voices: [["guitar", "Guitar"], ["arco", "Arco"]] }, { title: "Keys", voices: [["tine", "Tine EP"]] }, { title: "Mallets", voices: [["halo", "Halo"]] }, { title: "Vox", voices: [["formantVocal", "Formant"], ["ttsVocal", "TTS"], ["meSpeakVocal", "meSpeak"], ["syncChoir", "Sync Choir"]] }, { title: "Lead", voices: [["aether", "Aether"], ["syncLead", "Sync Lead"]] }, { title: "Analog", voices: [["obSync", "OB Sync"], ["laserSync", "Laser Sync"]] }, { title: "Percussion", voices: [["drumSynth", "Drum"], ["clap", "Clap"], ["cymbal", "Cymbal"]] }, { title: "Modular", voices: [["matrixFm", "Matrix FM"], ["patch", "Patch"]] }, { title: "Kick designer", voices: [["kick_edm", "EDM"], ["kick_deep", "Deep"], ["kick_distorted", "Distort"]] }, { title: "Bass designer", voices: [["acid303", "Acid 303"], ["sub808", "Sub 808"], ["reeseBass", "Reese Bass"], ["bass_reese_punch", "Punch"], ["bass_reese_sc", "Reese SC"], ["bass_wobble", "Wobble"]] }];
 function isMacroVoice (key) {
   {
     let mc = (macroCatalog() ?? null);
@@ -21895,9 +26244,21 @@ function fieldAddress (field) {
       {
         return "voice/arp";
       }
+    if ((field === "arpRate"))
+      {
+        return "voice/arprate";
+      }
+    if ((field === "inversion"))
+      {
+        return "voice/inversion";
+      }
     if ((field === "chord"))
       {
         return "voice/chord";
+      }
+    if ((field === "strum"))
+      {
+        return "voice/strum";
       }
     if ((field === "reverbSend"))
       {
@@ -21924,6 +26285,19 @@ function fieldAddress (field) {
         return "fx/lfo_depth";
       }
     return ("gen/" + field);
+  }
+}
+function msKnob__m103 (label, ch, field, maxMs, rt, accent) {
+  {
+    let ms = (((ch[field] ?? null) != null) ? (ch[field] ?? null) : 0);
+    return (Knob({ label: label, value: ms, min: 0, max: maxMs, step: 1, disp: ((String((Math.round(ms) ?? null)) ?? null) + "ms"), accent: accent, onInput: (nv) => {
+      {
+        if ((rt && rt.emit))
+          {
+            (rt.emit(((("track/" + ch.id) + "/") + (fieldAddress(field) ?? null)), nv) ?? null);
+          }
+      }
+    } }) ?? null);
   }
 }
 function octaveKnob (ch, rt, accent) {
@@ -22092,60 +26466,10 @@ function PitchModule (ctx) {
     let rt = ctx.rt;
     let accent = (accentForGenerator(ch.generatorId) ?? null);
     let arpDefs = [["Off", "off"], ["Up", "up"], ["Down", "down"], ["Up-Down", "updown"], ["Random", "random"]];
+    let arpRateDefs = [["Auto", "auto"], ["1/8", "1/8"], ["1/16", "1/16"], ["1/32", "1/32"]];
     let chordDefs = [["Off", "off"], ["Major", "major"], ["Minor", "minor"], ["Dom7", "dom7"], ["Maj7", "maj7"], ["Min7", "min7"], ["Dim", "dim"], ["Aug", "aug"], ["Sus4", "sus4"], ["Add9", "add9"]];
-    return (ModuleCard("Pitch", "→ voice", "voice", ctx, h("div", { class: "instr-pitch-knobs" }, ["\n      ", (octaveKnob(ch, rt, accent) ?? null), "\n      ", (selectorKnob("Arp", ch, "arp", arpDefs, rt, accent) ?? null), "\n      ", (selectorKnob("Chord", ch, "chord", chordDefs, rt, accent) ?? null), "\n    "])) ?? null);
-  }
-}
-function QuickLyricsModule (ctx) {
-  {
-    let ch = ctx.ch;
-    let rt = ctx.rt;
-    return (ModuleCard("Quick Lyrics (Space separated)", null, null, ctx, h("div", { class: "instr-lyrics", style: { display: "flex", flexDirection: "column", gap: "8px" } }, ["\n      ", h("input", { type: "text", id: ("qlyr-" + ch.id), placeholder: "e.g. we are the ro bots in the web", style: { width: "100%", background: "transparent", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", padding: "6px", borderRadius: "4px" } }, []), "\n      ", h("button", { type: "button", class: "sg-barbtn", style: { width: "100%", textAlign: "center", padding: "6px" }, onclick: () => {
-      {
-        let el = (document.getElementById(("qlyr-" + ch.id)) ?? null);
-        if (((!el || !rt) || !rt.emit))
-          return;
-        let words = ((el.value.trim() ?? null).split(" ") ?? null);
-        if (((words.length === 0) || ((words[0] ?? null) === "")))
-          return;
-        let isMelodic = ((ch.pianoNotes && (ch.pianoNotes.length > 0)) || (ch.octave != null));
-        if ((ch.pianoNotes && (ch.pianoNotes.length > 0)))
-          {
-            let arr = [];
-            let wi = 0;
-            let ni = 0;
-            while ((ni < ch.pianoNotes.length))
-              {
-                let n = (ch.pianoNotes[ni] ?? null);
-                let w = ((wi < words.length) ? (words[wi] ?? null) : "");
-                let c = { startBeat: n.startBeat, durBeats: n.durBeats, pitch: n.pitch, vel: ((n.vel != null) ? n.vel : 100), prob: ((n.prob != null) ? n.prob : 1), ratchet: ((n.ratchet != null) ? n.ratchet : 1), nudge: ((n.nudge != null) ? n.nudge : 0), lyric: w };
-                (arr.push(c) ?? null);
-                (ni = (ni + 1));
-                (wi = (wi + 1));
-              }
-            (rt.emit((("track/" + ch.id) + "/notes"), arr) ?? null);
-          }
-        else
-          if (ch.steps)
-            {
-              let arr = [];
-              let wi = 0;
-              let si = 0;
-              while ((si < ch.steps.length))
-                {
-                  let s = (ch.steps[si] ?? null);
-                  let w = ((s.on && (wi < words.length)) ? (words[wi] ?? null) : "");
-                  (arr.push({ on: (s.on === true), vel: ((s.vel != null) ? s.vel : 100), prob: ((s.prob != null) ? s.prob : 1), ratchet: ((s.ratchet != null) ? s.ratchet : 1), nudge: ((s.nudge != null) ? s.nudge : 0), lyric: w }) ?? null);
-                  if (s.on)
-                    {
-                      (wi = (wi + 1));
-                    }
-                  (si = (si + 1));
-                }
-              (rt.emit((("track/" + ch.id) + "/pattern"), arr) ?? null);
-            }
-      }
-    } }, ["\n        ", "Apply to Sequence", "\n      "]), "\n    "])) ?? null);
+    let invDefs = [["Root", "root"], ["1st", "1st"], ["2nd", "2nd"]];
+    return (ModuleCard("Pitch", "→ voice", "voice", ctx, h("div", { class: "instr-pitch-knobs", style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" } }, ["\n      ", (octaveKnob(ch, rt, accent) ?? null), "\n      ", (selectorKnob("Chord", ch, "chord", chordDefs, rt, accent) ?? null), "\n      ", (selectorKnob("Inv", ch, "inversion", invDefs, rt, accent) ?? null), "\n      ", (selectorKnob("Arp", ch, "arp", arpDefs, rt, accent) ?? null), "\n      ", (selectorKnob("Rate", ch, "arpRate", arpRateDefs, rt, accent) ?? null), "\n      ", (msKnob__m103("Strum", ch, "strum", 150, rt, accent) ?? null), "\n    "])) ?? null);
   }
 }
 function InstrumentStack (project, selectedCh, setProjectFromUI, tplMirrorFlush, rt) {
@@ -22162,7 +26486,7 @@ function InstrumentStack (project, selectedCh, setProjectFromUI, tplMirrorFlush,
       }
     let gid = (ch.generatorId ? ch.generatorId : "basicOsc");
     let ctx = { project: project, ch: ch, rt: rt, setProject: setProjectFromUI, tplMirrorFlush: tplMirrorFlush, accent: (accentForGenerator(gid) ?? null) };
-    return h("section", { class: "panel instr-stack-panel" }, ["\n      ", (PanelHeader(h(Fragment, null, ["\n          ", h("h2", null, [("INSTRUMENT // " + ch.name)]), h("span", { class: "instr-stack-sub" }, ["rack boxes · pick a track · flip any box to Raw"])]), (instrumentPresetBar(project, ch, setProjectFromUI, tplMirrorFlush) ?? null)) ?? null), "\n      ", h("div", { class: "instr-modules-row" }, ["\n        ", (VoiceModule(ctx) ?? null), "\n        ", (SoundModule(ctx, gid) ?? null), "\n        ", (PitchModule(ctx) ?? null), "\n        ", ((((gid === "formantVocal") || (gid === "ttsVocal")) || (gid === "meSpeakVocal")) ? (QuickLyricsModule(ctx) ?? null) : null), "\n      "]), "\n    "]);
+    return h("section", { class: "panel instr-stack-panel" }, ["\n      ", (PanelHeader(h(Fragment, null, ["\n          ", h("h2", null, [("INSTRUMENT // " + ch.name)]), h("span", { class: "instr-stack-sub" }, ["rack boxes · pick a track · flip any box to Raw"])]), (instrumentPresetBar(project, ch, setProjectFromUI, tplMirrorFlush) ?? null)) ?? null), "\n      ", h("div", { class: "instr-modules-row" }, ["\n        ", (VoiceModule(ctx) ?? null), "\n        ", (SoundModule(ctx, gid) ?? null), "\n        ", (PitchModule(ctx) ?? null), "\n\n      "]), "\n    "]);
   }
 }
 function coDjStepsPerBar () {
@@ -29048,7 +33372,19 @@ function SessionView (project, rt, setProjectFromUI, playing, bumpSessionUi, pat
         let icon = (muted ? "⏸" : "▶");
         let stateText = (muted ? "muted — tap to unmute" : (live ? "playing — tap to mute" : "ready — tap to mute"));
         let stopCls = (stopped ? "session-track-stop session-track-stop-on" : "session-track-stop");
-        (rows.push(h("div", { class: "session-track-row", key: ("row-" + (String(tix) ?? null)) }, ["\n        ", h("button", { type: "button", class: nameCls, title: (((ch.name + ": ") + stateText) + " (instant)"), onclick: () => ((queueMute(tix) ?? null)) }, ["\n          ", h("span", { class: "session-track-ico" }, [icon]), "\n          ", h("span", { class: "session-track-txt" }, [ch.name]), "\n        "]), "\n        ", h("button", { type: "button", class: stopCls, title: (ch.name + ": stop this track's clip (instant) — silent until you launch a clip"), onclick: () => ((stopTrack(tix) ?? null)) }, ["\n          ", "■", "\n        "]), "\n        ", h("div", { class: "session-cells" }, [cells]), "\n      "])) ?? null);
+        let isStore = (ch.clipInstrMode === "store");
+        let instrCls = (isStore ? "session-track-instr session-track-instr-on" : "session-track-instr");
+        (rows.push(h("div", { class: "session-track-row", key: ("row-" + (String(tix) ?? null)) }, ["\n        ", h("button", { type: "button", class: nameCls, title: (((ch.name + ": ") + stateText) + " (instant)"), onclick: () => ((queueMute(tix) ?? null)) }, ["\n          ", h("span", { class: "session-track-ico" }, [icon]), "\n          ", h("span", { class: "session-track-txt" }, [ch.name]), "\n        "]), "\n        ", h("button", { type: "button", class: stopCls, title: (ch.name + ": stop this track's clip (instant) — silent until you launch a clip"), onclick: () => ((stopTrack(tix) ?? null)) }, ["\n          ", "■", "\n        "]), "\n        ", h("button", { type: "button", class: instrCls, title: (isStore ? "STORE — each pattern saves/loads its own instrument. Click to switch to SYNC (shared instrument)." : "SYNC — all patterns share this track's instrument. Click to switch to STORE (per-pattern instruments)."), onclick: (e) => {
+          {
+            (e.stopPropagation() ?? null);
+            (ch.clipInstrMode = (isStore ? "sync" : "store"));
+            if (bumpSessionUi)
+              {
+                (bumpSessionUi() ?? null);
+              }
+            (setProjectFromUI(project) ?? null);
+          }
+        } }, ["\n          ", (isStore ? "🎹" : "🔗"), "\n        "]), "\n        ", h("div", { class: "session-cells" }, [cells]), "\n      "])) ?? null);
         (ti = (ti + 1));
       }
     let sessionLive = (playing && (rt.playMode === "song"));
@@ -31867,4 +36203,3 @@ function App () {
     } }, ["\n          ", "REVERB_BUS · ", "\n          ", h("span", { class: "master-rev-state" }, [(reverbOn ? ((("ON · " + (String(revSends) ?? null)) + " send") + ((revSends === 1) ? "" : "s")) : "OFF")]), "\n        "]), "\n        ", (AudioRackPanel(audioStore) ?? null), "\n        ", (MidiPanel(midiRef.current, project, midiGen) ?? null), "\n      "]), "\n      ", h("span", { class: "daw-foot-meta" }, ["TPL: docs/TPL_GRAMMAR.md · ARCH: docs/ARCHITECTURE.md · DEV_NODE: AETHER_LABS"]), "\n    "]), "\n    ", (songBrowserOpen ? (SongBrowser(project, rt, () => ((setSongBrowserOpen(false) ?? null)), songQuery, setSongQuery) ?? null) : null), "\n  "]);
   }
 }
-((createRoot((document.getElementById("root") ?? null)) ?? null).render(App) ?? null);

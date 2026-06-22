@@ -243,7 +243,12 @@ export fn parsePatchGraph(lines) {
                 snd.mute = Number(toks[sidx + 1])
                 sidx = sidx + 2
               } else {
-                sidx = sidx + 1
+                if (stk === "gain" && sidx + 1 < toks.length) {
+                  snd.gain = Number(toks[sidx + 1])
+                  sidx = sidx + 2
+                } else {
+                  sidx = sidx + 1
+                }
               }
             }
           }
@@ -282,12 +287,17 @@ export fn parsePatchGraph(lines) {
                 nd.rand = Number(toks[idx + 1])
                 idx = idx + 2
               } else {
-                if (isNumberToken(tk)) {
-                  nd.freqMode = "fixed"
-                  nd.fixedHz = Number(tk)
-                  idx = idx + 1
+                if (tk === "gain" && idx + 1 < toks.length) {
+                  nd.gain = Number(toks[idx + 1])
+                  idx = idx + 2
                 } else {
-                  idx = idx + 1
+                  if (isNumberToken(tk)) {
+                    nd.freqMode = "fixed"
+                    nd.fixedHz = Number(tk)
+                    idx = idx + 1
+                  } else {
+                    idx = idx + 1
+                  }
                 }
               }
             }
@@ -335,6 +345,10 @@ export fn parsePatchGraph(lines) {
                   nd.rand = Number(toks[idx + 1])
                   idx = idx + 2
                 } else {
+                  if (tk === "gain" && idx + 1 < toks.length) {
+                  nd.gain = Number(toks[idx + 1])
+                  idx = idx + 2
+                } else {
                   if (isNumberToken(tk)) {
                     nd.freqMode = "fixed"
                     nd.fixedHz = Number(tk)
@@ -343,6 +357,7 @@ export fn parsePatchGraph(lines) {
                     idx = idx + 1
                   }
                 }
+                }
               }
             }
           }
@@ -350,7 +365,17 @@ export fn parsePatchGraph(lines) {
         nodes.push(nd)
       } else {
         if (h === "noise" && toks.length >= 2) {
-          nodes.push({ kind: "noise", id: String(toks[1]) })
+          let nd = { kind: "noise", id: String(toks[1]) }
+          let idx = 2
+          while (idx + 1 < toks.length) {
+            if (toks[idx] === "gain") {
+              nd.gain = Number(toks[idx + 1])
+              idx = idx + 2
+            } else {
+              idx = idx + 1
+            }
+          }
+          nodes.push(nd)
         } else {
           if (h === "filter" && toks.length >= 2) {
             let nd = { kind: "filter", id: String(toks[1]), ftype: "lowpass", q: 0.7, freq: 0 }
@@ -372,7 +397,12 @@ export fn parsePatchGraph(lines) {
                   nd.freq = Number(toks[idx + 1])
                   idx = idx + 2
                 } else {
-                  idx = idx + 1
+                  if (tk === "gain" && idx + 1 < toks.length) {
+                    nd.gain = Number(toks[idx + 1])
+                    idx = idx + 2
+                  } else {
+                    idx = idx + 1
+                  }
                 }
               }
             }
@@ -390,7 +420,12 @@ export fn parsePatchGraph(lines) {
                     nd.curve = String(toks[idx + 1])
                     idx = idx + 2
                   } else {
-                    idx = idx + 1
+                    if (toks[idx] === "gain" && idx + 1 < toks.length) {
+                      nd.gain = Number(toks[idx + 1])
+                      idx = idx + 2
+                    } else {
+                      idx = idx + 1
+                    }
                   }
                 }
               }
@@ -403,7 +438,17 @@ export fn parsePatchGraph(lines) {
                 if (toks.length >= 3 && isNumberToken(toks[2])) {
                   pos = Number(toks[2])
                 }
-                nodes.push({ kind: "pan", id: String(toks[1]), pos: pos })
+                let nd = { kind: "pan", id: String(toks[1]), pos: pos }
+                let idx = 3
+                while (idx + 1 < toks.length) {
+                  if (toks[idx] === "gain") {
+                    nd.gain = Number(toks[idx + 1])
+                    idx = idx + 2
+                  } else {
+                    idx = idx + 1
+                  }
+                }
+                nodes.push(nd)
               } else {
                 if (h === "gain" && toks.length >= 2) {
                   let val = 1

@@ -3,6 +3,7 @@
 // instrument-panel and deck "load set" pattern. items = [{name, tpl}]; onLoad(name); onSave().
 
 import { h } from '@tishlang/lattish'
+import { IkSelect } from './InstrumentKit.tish'
 
 // The common panel header: a title/brand on the LEFT, load/save (or any control) aligned to the RIGHT.
 // Used by the sequence, session, instrument and deck panels so load/save lives consistently in each head.
@@ -16,29 +17,25 @@ export fn PanelHeader(left, right) {
 }
 
 export fn PresetBar(label, items, onLoad, onSave, scopeNote) {
-  let opts = [<option value="">{"— load —"}</option>]
+  let options = [{ value: "", label: "— load —" }]
   let i = 0
   while (i < items.length) {
-    opts.push(<option value={items[i].name}>{items[i].name}</option>)
+    options.push({ value: items[i].name, label: items[i].name })
     i = i + 1
   }
   return (
     <div class="preset-bar">
       <span class="preset-bar-label">{label}</span>
-      <select
-        class="preset-bar-select"
-        value=""
-        onmousedown={(e) => e.stopPropagation()}
-        onchange={(e) => {
-          let n = e.target.value
-          e.target.value = ""
-          if (n && n.length > 0) {
-            onLoad(n)
+      {IkSelect({
+        class: "preset-bar-select",
+        value: "",
+        options: options,
+        onChange: (v) => {
+          if (v && v.length > 0) {
+            onLoad(v)
           }
-        }}
-      >
-        {opts}
-      </select>
+        }
+      })}
       <button type="button" class="preset-bar-save" onclick={onSave} title={"Save current " + label + " as a preset"}>{"Save"}</button>
       {scopeNote != null && scopeNote.length > 0 ? <span class="preset-bar-scope">{scopeNote}</span> : null}
     </div>

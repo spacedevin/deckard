@@ -45,7 +45,7 @@ export fn defaultAutoParam(generatorId) {
   return ps[0]
 }
 
-export fn autoParamSpec(generatorId, key) {
+fn autoParamSpec(generatorId, key) {
   let ps = automatableParams(generatorId)
   let i = 0
   while (i < ps.length) {

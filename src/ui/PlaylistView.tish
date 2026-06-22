@@ -7,6 +7,7 @@
 // canvas and update at ~30fps independent of React.
 
 import { h, Fragment } from '@tishlang/lattish'
+import { IkSelect } from './InstrumentKit.tish'
 
 let BAR_PX = 26
 let STEPS_PER_BAR = 16
@@ -135,10 +136,10 @@ export fn PlaylistView(project, rt, props) {
   }
 
   // ---- recordings dropdown ----
-  let recOpts = [<option value="">{"— replay a Set —"}</option>]
+  let recOpts = [{ value: "", label: "— replay a Set —" }]
   let ri = 0
   while (ri < recordings.length) {
-    recOpts.push(<option value={recordings[ri].name}>{recordings[ri].name}</option>)
+    recOpts.push({ value: recordings[ri].name, label: recordings[ri].name })
     ri = ri + 1
   }
 
@@ -172,20 +173,17 @@ export fn PlaylistView(project, rt, props) {
         >
           {"Save"}
         </button>
-        <select
-          class="pl-replay-select"
-          value=""
-          title="Load a recorded Set and replay exactly what played (the ghost)"
-          onchange={(e) => {
-            let n = e.target.value
-            e.target.value = ""
-            if (n && n.length > 0 && p.onLoadReplay) {
-              p.onLoadReplay(n)
+        {IkSelect({
+          class: "pl-replay-select",
+          value: "",
+          title: "Load a recorded Set and replay exactly what played (the ghost)",
+          options: recOpts,
+          onChange: (v) => {
+            if (v && v.length > 0 && p.onLoadReplay) {
+              p.onLoadReplay(v)
             }
-          }}
-        >
-          {recOpts}
-        </select>
+          }
+        })}
         <span class="pl-status">{status}</span>
       </div>
       <div class="pl-scroll">

@@ -121,7 +121,7 @@ export fn tplLineStreamPush(stream, rawLine, project, perfStep) {
   return { applied: true, denied: false, opened: opened }
 }
 
-export fn tplLineStreamReset(stream) {
+fn tplLineStreamReset(stream) {
   if (!stream) {
     return
   }

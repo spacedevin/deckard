@@ -3,13 +3,13 @@
 // grouped by deck. The crossfader equal-power blends the decks (transportCrossfade). Per-deck EQ/filter
 // writes through to that deck's channels (a deck-wide macro until dedicated buses land).
 
-import { h, Fragment, memo } from '@tishlang/lattish'
+import { h, Fragment } from '@tishlang/lattish'
 import { channelDeck, channelDeckRow, crossfadeValue, crossfadeValueY } from '../../model/DeckRouting.tish'
 import { ensureMasterMixer, channelActorLane } from '../../model/MixerRouting.tish'
 import { setChannelGain } from '../../model/Edits.tish'
 import { loadDeckSet, deckSetCatalog } from '../../model/DeckSets.tish'
 import { createSetLibrary, loadSet } from '../../core/SetLibrary.tish'
-import { Knob } from '../InstrumentKit.tish'
+import { Knob, IkSelect } from '../InstrumentKit.tish'
 
 export fn ensureDeckEq(project) {
   if (!project.deckEq) {
@@ -106,7 +106,7 @@ fn gainToDb(g) {
 // by both the per-track stem fader and the per-deck volume fader.
 fn vertLeverEl(g, acc, onSet) {
   let gg = g < 0 ? 0 : (g > 1 ? 1 : g)
-  let pctStr = String(Math.round(gg * 1000) / 10) + "%"
+  let pctStr = Number(Math.round(gg * 1000) / 10).toFixed(1) + "%"
   fn onLeverDown(e) {
     if (e.preventDefault) {
       e.preventDefault()
@@ -179,11 +179,11 @@ fn StemFader(entry, setProjectFromUI, touchMixer, project, rt, accentColor) {
 
 fn DeckSetPicker(project, deck, setProjectFromUI, touchMixer, rt) {
   let cat = deckSetCatalog()
-  let opts = [<option value="">{"— load rack —"}</option>]
+  let opts = [{ value: "", label: "— load rack —" }]
   let i = 0
   while (i < cat.length) {
     let s = cat[i]
-    opts.push(<option value={"rack:" + s.id}>{s.name + " (" + s.genre + ")"}</option>)
+    opts.push({ value: "rack:" + s.id, label: s.name + " (" + s.genre + ")" })
     i = i + 1
   }
   // User-saved Sets load their FIRST player onto this deck (with their arrangement). Read-only view of
@@ -202,47 +202,43 @@ fn DeckSetPicker(project, deck, setProjectFromUI, touchMixer, rt) {
     let uj = 0
     while (uj < userSets.length) {
       let st = userSets[uj]
-      opts.push(<option value={"set:" + st.name}>{"◆ " + st.name + " (" + String(st.players) + "p)"}</option>)
+      opts.push({ value: "set:" + st.name, label: "◆ " + st.name + " (" + String(st.players) + "p)" })
       uj = uj + 1
     }
   }
-  return (
-    <select
-      class="dk-set-select"
-      onmousedown={(e) => e.stopPropagation()}
-      onchange={(e) => {
-        let val = e.target.value
-        if (!val || val.length === 0) {
-          return
+  return IkSelect({
+    class: "dk-set-select",
+    value: "",
+    options: opts,
+    onChange: (val) => {
+      if (!val || val.length === 0) {
+        return
+      }
+      if (val.indexOf("set:") === 0) {
+        let st = lib.get(val.substring(4))
+        if (st) {
+          loadSet(project, st, deck)
         }
-        if (val.indexOf("set:") === 0) {
-          let st = lib.get(val.substring(4))
-          if (st) {
-            loadSet(project, st, deck)
-          }
-        } else {
-          let sid = val.indexOf("rack:") === 0 ? val.substring(5) : val
-          loadDeckSet(project, deck, sid)
+      } else {
+        let sid = val.indexOf("rack:") === 0 ? val.substring(5) : val
+        loadDeckSet(project, deck, sid)
+      }
+      if (rt) {
+        // Drop stale per-index clip arming so the new channels fall back to their own clips.
+        rt.sessionArmedClipIds = []
+        rt.sessionQueuedClipIds = []
+        rt.sessionQueuePending = false
+        rt.sessionQueuedScene = null
+        if (rt.resyncAudio) {
+          rt.resyncAudio()
         }
-        if (rt) {
-          // Drop stale per-index clip arming so the new channels fall back to their own clips.
-          rt.sessionArmedClipIds = []
-          rt.sessionQueuedClipIds = []
-          rt.sessionQueuePending = false
-          rt.sessionQueuedScene = null
-          if (rt.resyncAudio) {
-            rt.resyncAudio()
-          }
-        }
-        setProjectFromUI(project)
-        if (touchMixer) {
-          touchMixer()
-        }
-      }}
-    >
-      {opts}
-    </select>
-  )
+      }
+      setProjectFromUI(project)
+      if (touchMixer) {
+        touchMixer()
+      }
+    }
+  })
 }
 
 // Per-deck JOG PLATTER (CDJ-style). Grabbing the wheel scratches THIS deck's rendered loop (lazy-loaded on
@@ -662,17 +658,17 @@ export fn DeckMixer(project, setProjectFromUI, touchMixer, rt) {
           <div class="dk-xfade">
             <div class="dk-fx-row">
               <span class="dk-fx-label">{"FX"}</span>
-              <select
-                class="dk-fx-div"
-                title="Echo time — beat-synced to the tempo so the repeats land on the grid."
-                onmousedown={(e) => e.stopPropagation()}
-                onchange={(e) => { if (rt) { rt.fxBeatDiv = Number(e.target.value) } }}
-              >
-                <option value="0.5">{"1/8"}</option>
-                <option value="0.75" selected={true}>{"3/16"}</option>
-                <option value="1">{"1/4"}</option>
-                <option value="2">{"1/2"}</option>
-              </select>
+              {IkSelect({
+                class: "dk-fx-div",
+                value: rt && rt.fxBeatDiv ? String(rt.fxBeatDiv) : "0.75",
+                options: [
+                  { value: "0.5", label: "1/8" },
+                  { value: "0.75", label: "3/16" },
+                  { value: "1", label: "1/4" },
+                  { value: "2", label: "1/2" }
+                ],
+                onChange: (v) => { if (rt) { rt.fxBeatDiv = Number(v) } }
+              })}
               <button
                 type="button"
                 class="dk-fx-throw"

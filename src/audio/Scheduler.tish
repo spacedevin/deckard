@@ -51,7 +51,7 @@ export fn swingOffsetSec(step, secPerStep, swing) {
  *
  * Returns { items: [{step, when}], nextStep, nextSec }.
  */
-export fn stepsToScheduleInWindow(startStep, nextStepSec, ctxNow, lookahead, secPerStep, maxBatch) {
+fn stepsToScheduleInWindow(startStep, nextStepSec, ctxNow, lookahead, secPerStep, maxBatch) {
   let out = []
   let step = Math.floor(Number(startStep))
   let when = Number(nextStepSec)
@@ -71,7 +71,7 @@ export fn stepsToScheduleInWindow(startStep, nextStepSec, ctxNow, lookahead, sec
 
 /** Count of scheduled items whose audio-time is already in the past relative to `ctxNow` (we were too
  *  late to schedule them ahead — an underrun signal for the perf readout). */
-export fn underrunsInBatch(items, ctxNow) {
+fn underrunsInBatch(items, ctxNow) {
   let n = 0
   if (!items) {
     return 0
