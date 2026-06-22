@@ -1136,7 +1136,7 @@ input[type="range"]::-moz-range-thumb {
 .sytrus-row > .sytrus-section { margin-bottom: 0; min-width: 0; }
 .sytrus-row-top > .sytrus-section:first-child { flex: 1 1 28rem; }   /* operators grow to fill */
 .sytrus-row-top > .sytrus-section:last-child { flex: 0 1 auto; }     /* matrix keeps its natural width */
-.sytrus-row-bottom > .sytrus-section { flex: 1 1 22rem; }            /* filters + routing split the row */
+.sytrus-row-bottom > .sytrus-section { flex: 1 1 100%; }               /* filters + routing each take full width */
 
 .sytrus-section:last-child {
   margin-bottom: 0;
@@ -1215,13 +1215,20 @@ input[type="range"]::-moz-range-thumb {
 /* Shrink the knobs inside op/filter cards so the 4 ADSR knobs (and filter env knobs) sit on ONE row in a
    ~14rem card instead of wrapping to two — this is what kept each card ~380px tall. */
 .sytrus-op-card .ik-knob-dial,
-.sytrus-filter-card .ik-knob-dial { width: 1.9rem; height: 1.9rem; }
+.sytrus-filter-card .ik-knob-dial,
+.sytrus-route-row .ik-knob-dial { width: 1.9rem; height: 1.9rem; }
 .sytrus-op-card .ik-knob-label,
-.sytrus-filter-card .ik-knob-label { font-size: 0.46rem; }
+.sytrus-filter-card .ik-knob-label,
+.sytrus-route-row .ik-knob-label { font-size: 0.46rem; }
 .sytrus-op-card .ik-knob-value,
-.sytrus-filter-card .ik-knob-value { font-size: 0.5rem; }
-.sytrus-op-card .ik-knob-grid,
+.sytrus-filter-card .ik-knob-value,
+.sytrus-route-row .ik-knob-value { font-size: 0.5rem; }
+.sytrus-op-card .ik-knob-grid { gap: 0.25rem 0.2rem; flex-wrap: nowrap; }
 .sytrus-filter-card .ik-knob-grid { gap: 0.25rem 0.2rem; flex-wrap: nowrap; }
+.sytrus-filter-card .ik-knob,
+.sytrus-op-card .ik-knob { width: auto; min-width: 0; }
+.sytrus-route-row .ik-knob { width: auto; min-width: 0; }
+.sytrus-route-row .ik-knob-grid { gap: 0.25rem 0.2rem; }
 
 .sytrus-op-card {
   background: rgba(0, 0, 0, 0.35);
@@ -1340,14 +1347,21 @@ input[type="range"]::-moz-range-thumb {
   height: 40px;
 }
 
-.sytrus-op-adsr,
-.sytrus-filter-env {
+.sytrus-op-adsr {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.25rem 0.4rem;
   margin-top: 0.35rem;
   padding-top: 0.3rem;
+  border-top: 1px solid var(--border);
+}
+.sytrus-filter-env {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-top: 0.2rem;
+  padding-top: 0.2rem;
   border-top: 1px solid var(--border);
 }
 
@@ -1469,8 +1483,8 @@ input[type="range"]::-moz-range-thumb {
   min-width: 3rem;
 }
 
-.sytrus-filter-grid { columns: 15rem; column-gap: 0.45rem; }
-.sytrus-filter-grid > .sytrus-filter-card { break-inside: avoid; margin: 0 0 0.45rem; }
+.sytrus-filter-grid { columns: 13rem; column-gap: 0.4rem; }
+.sytrus-filter-grid > .sytrus-filter-card { break-inside: avoid; margin: 0 0 0.4rem; }
 
 .sytrus-filter-card {
   background: rgba(0, 0, 0, 0.25);
@@ -1515,18 +1529,19 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .sytrus-routes {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
-  gap: 0.35rem;
+  columns: 13rem;
+  column-gap: 0.4rem;
 }
 
 .sytrus-route-row {
+  break-inside: avoid;
+  margin: 0 0 0.4rem;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.25rem;
-  background: rgba(0, 0, 0, 0.2);
-  padding: 0.3rem 0.35rem;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0.35rem 0.4rem;
   border-radius: 4px;
   border: 1px solid var(--border);
 }
