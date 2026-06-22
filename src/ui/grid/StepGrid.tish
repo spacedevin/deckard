@@ -1124,7 +1124,7 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
 /** Direct-DOM playhead: highlight the active step column only when the VIEWED bar is the one playing,
  *  and mark which bar-pager button is currently sounding — all without a React re-render. */
 fn applyGridPlayhead(step, playing, gridBars, viewBar) {
-  if (typeof document === "undefined") {
+  if (globalThis.document == null || globalThis.document.querySelectorAll == null) {
     return
   }
   let prev = document.querySelectorAll(".sg-col-active")
@@ -1223,7 +1223,7 @@ fn handleBarWheel(e, rt, gridBars) {
   }
 }
 
-export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt, headerRight) {
+export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt, headerRight, activeDeck) {
   let gridBars = gridBarsForProject(project)
   // Swing groove: a 0..60% shuffle on the off-beat 16ths. Edits via rt.emit("swing", v) → the `swing`
   // address round-trips + broadcasts; the scheduler (swingOffsetSec) delays odd steps by it.
@@ -1286,6 +1286,10 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
   let ci = 0
   while (ci < project.channels.length) {
     let ch = project.channels[ci]
+    if (activeDeck != null && channelDeck(project, ch) !== activeDeck) {
+      ci = ci + 1
+      continue
+    }
     rows.push(ChannelRowGrid(ch, ci, project, setProjectFromUI, ci === selectedCh, setSelectedCh, rt, viewBar))
     let expanded = rt != null && rt.gridExpanded != null && rt.gridExpanded[ch.id] === true
     if (expanded) {

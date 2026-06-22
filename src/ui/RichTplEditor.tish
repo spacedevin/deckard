@@ -16,10 +16,11 @@ fn highlightFragment(src) {
 }
 
 fn attachRichEditor(rt, slotId, value, onCommit) {
-  if (typeof document === "undefined" || !document.getElementById) {
+  if (globalThis.document == null || globalThis.document.getElementById == null) {
     return
   }
-  let slot = document.getElementById(slotId)
+  let doc = globalThis.document
+  let slot = doc.getElementById(slotId)
   if (slot == null) {
     return
   }
@@ -34,19 +35,19 @@ fn attachRichEditor(rt, slotId, value, onCommit) {
       slot.innerHTML = ""
       slot.appendChild(st.wrap)
     }
-    if (document.activeElement !== st.ta && st.ta.value !== value) {
+    if (doc.activeElement !== st.ta && st.ta.value !== value) {
       st.ta.value = value
       st.pre.innerHTML = highlightFragment(value)
     }
     st.onCommit = onCommit
     return
   }
-  let wrap = document.createElement("div")
+  let wrap = doc.createElement("div")
   wrap.className = "rich-tpl-stack tpl-song-mirror-stack"
-  let pre = document.createElement("pre")
+  let pre = doc.createElement("pre")
   pre.className = "tpl-song-highlight-layer"
   pre.setAttribute("aria-hidden", "true")
-  let ta = document.createElement("textarea")
+  let ta = doc.createElement("textarea")
   ta.className = "tpl-song-input-layer"
   ta.setAttribute("spellcheck", "false")
   ta.value = value

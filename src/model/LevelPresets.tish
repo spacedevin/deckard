@@ -54,7 +54,7 @@ export fn addLevelPreset(project, level, name, tpl) {
   return row
 }
 
-fn removeLevelPreset(project, level, name) {
+export fn removeLevelPreset(project, level, name) {
   let list = levelPresetList(project, level)
   let out = []
   let removed = false

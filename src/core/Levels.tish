@@ -234,7 +234,7 @@ export fn retargetTpl(tpl, ch) {
   return out.join("\n")
 }
 
-fn levelList() {
+export fn levelList() {
   return ["set", "session", "rack", "deck", "channel", "instrument", "sequence"]
 }
 

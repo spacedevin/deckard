@@ -136,7 +136,7 @@ fn clipWavePath(env) {
   return d + " Z"
 }
 
-export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, patternBank, headerRight) {
+export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, patternBank, headerRight, activeDeck) {
   ensureProjectSession(project)
   let sc = project.session.sceneCount
   let activeScene = 0
@@ -471,6 +471,10 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
   let ti = 0
   while (ti < project.channels.length) {
     let ch = project.channels[ti]
+    if (activeDeck != null && channelDeck(project, ch) !== activeDeck) {
+      ti = ti + 1
+      continue
+    }
     let tix = ti
     // Paused (muted) tracks must NOT show the green "playing" border — they aren't playing. Mute is now
     // applied instantly, so this just reads the channel state.

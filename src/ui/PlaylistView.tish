@@ -53,10 +53,11 @@ export fn PlaylistView(project, rt, props) {
   // Direct-DOM playhead mover (re-asserted every rAF by the transport.position subscriber in App).
   if (rt) {
     rt.updateTimelinePlayhead = (step, playing) => {
-      if (typeof document === "undefined") {
+      if (globalThis.document == null || globalThis.document.querySelector == null) {
         return
       }
-      let el = document.querySelector(".pl-playhead")
+      let doc = globalThis.document
+      let el = doc.querySelector(".pl-playhead")
       if (!el) {
         return
       }
@@ -69,7 +70,7 @@ export fn PlaylistView(project, rt, props) {
       el.style.left = String(phX) + "px"
       // Auto-scroll so the playhead trails ~45% across the viewport as the take advances. The deck labels are
       // pinned (position: sticky) so they stay put while the waveform track scrolls under them.
-      let scroller = document.querySelector(".pl-scroll")
+      let scroller = doc.querySelector(".pl-scroll")
       if (scroller) {
         let target = phX - scroller.clientWidth * 0.45
         if (target < 0) {

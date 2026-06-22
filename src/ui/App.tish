@@ -87,18 +87,18 @@ import { PlaylistView } from './PlaylistView.tish'
 // A crossfader move bumps NONE of those, so the rack memo-skips instead of re-rendering all the cells.
 // memo() is created ONCE at module scope (in-render memo() would reset its cache every render).
 fn stepGridEq(a, b) {
-  return a.gridGen === b.gridGen && a.selectedCh === b.selectedCh && a.channelsRev === b.channelsRev && a.seqPromoteUi === b.seqPromoteUi
+  return a.gridGen === b.gridGen && a.selectedCh === b.selectedCh && a.channelsRev === b.channelsRev && a.seqPromoteUi === b.seqPromoteUi && a.activeDeck === b.activeDeck
 }
-let StepGridMemo = memo((p) => StepGridPanel(p.project, p.selectedCh, p.setProjectFromUI, p.setSelectedCh, p.rt, p.headerRight), stepGridEq)
+let StepGridMemo = memo((p) => StepGridPanel(p.project, p.selectedCh, p.setProjectFromUI, p.setSelectedCh, p.rt, p.headerRight, p.activeDeck), stepGridEq)
 
 // Same scoping for the other PURE panels (no internal useState — CodeDebugView/CoDjPanel DO have internal
 // hooks, so they are NOT memo'd: Lattish memo skips on equal props regardless of internal state, which
 // would freeze their self-driven updates). areEqual compares only the scalar dep list; volatile props
 // (freshly-built header vnodes, callbacks, the project ref) are intentionally ignored.
 fn sessionEq(a, b) {
-  return a.sessionUiGen === b.sessionUiGen && a.seqPromoteUi === b.seqPromoteUi && a.sessionRev === b.sessionRev && a.channelsRev === b.channelsRev && a.playing === b.playing
+  return a.sessionUiGen === b.sessionUiGen && a.seqPromoteUi === b.seqPromoteUi && a.sessionRev === b.sessionRev && a.channelsRev === b.channelsRev && a.playing === b.playing && a.activeDeck === b.activeDeck
 }
-let SessionViewMemo = memo((p) => SessionView(p.project, p.rt, p.setProjectFromUI, p.playing, p.bumpSessionUi, p.patternBank, p.headerRight), sessionEq)
+let SessionViewMemo = memo((p) => SessionView(p.project, p.rt, p.setProjectFromUI, p.playing, p.bumpSessionUi, p.patternBank, p.headerRight, p.activeDeck), sessionEq)
 
 fn playlistEq(a, b) {
   return a.timelineGen === b.timelineGen && a.setLibGen === b.setLibGen && a.channelsRev === b.channelsRev
@@ -214,6 +214,7 @@ export fn App() {
   migrateProjectGenerators(project)
   let tplInit = emitProject(project)
   let [tplText, setTplText] = useState(tplInit)
+  let [activeDeck, setActiveDeck] = useState(null)
   let [selectedCh, setSelectedCh] = useState(3)
   let [playing, setPlaying] = useState(false)
   let [previewing, setPreviewing] = useState(false)
@@ -2391,14 +2392,11 @@ export fn App() {
     <div class="seq-session-wrap">
       <div class="seq-session-split">
         <div class="seq-split-main">
-          {h(StepGridMemo, { project: project, selectedCh: selectedCh, setProjectFromUI: setProjectFromUI, setSelectedCh: setSelectedCh, rt: rt, headerRight: seqHeaderRight, gridGen: gridGen, channelsRev: channelsRev, seqPromoteUi: seqPromoteUi })}
+          {h(StepGridMemo, { project: project, selectedCh: selectedCh, setProjectFromUI: setProjectFromUI, setSelectedCh: setSelectedCh, rt: rt, headerRight: seqHeaderRight, gridGen: gridGen, channelsRev: channelsRev, seqPromoteUi: seqPromoteUi, activeDeck: activeDeck })}
         </div>
         <div class="seq-split-session">
-          {h(SessionViewMemo, { project: project, rt: rt, setProjectFromUI: setProjectFromUI, playing: playing, bumpSessionUi: bumpSessionUi, patternBank: patternBank, headerRight: sessionHeaderRight, sessionUiGen: sessionUiGen, seqPromoteUi: seqPromoteUi, sessionRev: sessionRev, channelsRev: channelsRev })}
+          {h(SessionViewMemo, { project: project, rt: rt, setProjectFromUI: setProjectFromUI, playing: playing, bumpSessionUi: bumpSessionUi, patternBank: patternBank, headerRight: sessionHeaderRight, sessionUiGen: sessionUiGen, seqPromoteUi: seqPromoteUi, sessionRev: sessionRev, channelsRev: channelsRev, activeDeck: activeDeck })}
         </div>
-      </div>
-      <div class="seq-arrange">
-        {h(PlaylistMemo, { project: project, rt: rt, props: playlistProps, timelineGen: timelineGen, setLibGen: setLibGen, channelsRev: channelsRev })}
       </div>
     </div>
   )
@@ -2507,46 +2505,65 @@ export fn App() {
       </div>
     </header>
     <div class="daw-app-layout">
+      <aside class="daw-sidebar-left">
+        <div class="deck-nav-header">DECKS</div>
+        <div class={"deck-nav-btn deck-a" + (activeDeck === "A" ? " deck-active" : "")} onclick={() => setActiveDeck(activeDeck === "A" ? null : "A")}>
+          <span class="deck-nav-dot"></span> DECK A
+        </div>
+        <div class={"deck-nav-btn deck-b" + (activeDeck === "B" ? " deck-active" : "")} onclick={() => setActiveDeck(activeDeck === "B" ? null : "B")}>
+          <span class="deck-nav-dot"></span> DECK B
+        </div>
+        <div class={"deck-nav-btn deck-c" + (activeDeck === "C" ? " deck-active" : "")} onclick={() => setActiveDeck(activeDeck === "C" ? null : "C")}>
+          <span class="deck-nav-dot"></span> DECK C
+        </div>
+        <div class={"deck-nav-btn deck-d" + (activeDeck === "D" ? " deck-active" : "")} onclick={() => setActiveDeck(activeDeck === "D" ? null : "D")}>
+          <span class="deck-nav-dot"></span> DECK D
+        </div>
+      </aside>
       <div class="daw-main-area">
         <div class="daw-body daw-body-stack">
           <div class="daw-main-stack">
-            {seqSession}
+            {activeDeck !== null ? seqSession : null}
             {h(InstrumentStackMemo, { project: project, selectedCh: selectedCh, setProjectFromUI: setProjectFromUI, tplMirrorFlush: tplMirrorFlush, rt: rt, channelsRev: channelsRev })}
           </div>
           {h(DeckMixerMemo, { project: project, setProjectFromUI: setProjectFromUI, touchMixer: touchMixer, rt: rt, xfadeX: xfadeX, xfadeY: xfadeY, channelsRev: channelsRev, deckMixRev: deckMixRev })}
         </div>
-        <footer class="daw-foot">
-          <div class="daw-foot-master">
-            <button
-              type="button"
-              class={compOn ? "master-chip master-chip-on" : "master-chip master-chip-off"}
-              title={"Master glue compressor — click to bypass. Readout = live gain reduction (dB)."}
-              onmousedown={(e) => e.stopPropagation()}
-              onclick={() => { if (rt && rt.emit) { rt.emit("master/comp", !compOn) } }}
-            >
-              {"COMPRESSOR · "}
-              <span class="master-comp-gr">{compOn ? "0.0dB" : "BYPASS"}</span>
-            </button>
-            <button
-              type="button"
-              class={reverbOn ? "master-chip master-chip-on" : "master-chip master-chip-off"}
-              title={"Shared reverb send bus — click to mute. Readout = channels currently sending."}
-              onmousedown={(e) => e.stopPropagation()}
-              onclick={() => { if (rt && rt.emit) { rt.emit("master/reverb", !reverbOn) } }}
-            >
-              {"REVERB_BUS · "}
-              <span class="master-rev-state">{reverbOn ? ("ON · " + String(revSends) + " send" + (revSends === 1 ? "" : "s")) : "OFF"}</span>
-            </button>
-            {AudioRackPanel(audioStore)}
-            {MidiPanel(midiRef.current, project, midiGen)}
-          </div>
-        </footer>
+
       </div>
       <aside class="daw-sidebar-right">
         <div class="daw-bottom-col daw-bottom-codj">{CoDjPanel(project, setProject, tplMirrorFlush, rt)}</div>
         <div class="daw-bottom-col daw-tpl-dock">{CodeDebugView(project, setProject, tplText, setTplText, rt, true)}</div>
       </aside>
     </div>
+    <footer class="daw-foot daw-foot-pinned">
+      <div class="seq-arrange">
+        {h(PlaylistMemo, { project: project, rt: rt, props: playlistProps, timelineGen: timelineGen, setLibGen: setLibGen, channelsRev: channelsRev })}
+      </div>
+      <div class="daw-foot-master">
+        <button
+          type="button"
+          class={compOn ? "master-chip master-chip-on" : "master-chip master-chip-off"}
+          title={"Master glue compressor — click to bypass. Readout = live gain reduction (dB)."}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={() => { if (rt && rt.emit) { rt.emit("master/comp", !compOn) } }}
+        >
+          {"COMPRESSOR · "}
+          <span class="master-comp-gr">{compOn ? "0.0dB" : "BYPASS"}</span>
+        </button>
+        <button
+          type="button"
+          class={reverbOn ? "master-chip master-chip-on" : "master-chip master-chip-off"}
+          title={"Shared reverb send bus — click to mute. Readout = channels currently sending."}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={() => { if (rt && rt.emit) { rt.emit("master/reverb", !reverbOn) } }}
+        >
+          {"REVERB_BUS · "}
+          <span class="master-rev-state">{reverbOn ? ("ON · " + String(revSends) + " send" + (revSends === 1 ? "" : "s")) : "OFF"}</span>
+        </button>
+        {AudioRackPanel(audioStore)}
+        {MidiPanel(midiRef.current, project, midiGen)}
+      </div>
+    </footer>
     {songBrowserOpen ? SongBrowser(project, rt, () => setSongBrowserOpen(false), songQuery, setSongQuery) : null}
   </div>
 }
