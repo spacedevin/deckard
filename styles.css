@@ -417,57 +417,109 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .daw-sidebar-left {
-  flex: 0 0 100px;
+  flex: 0 0 110px;
   display: flex;
   flex-direction: column;
-  padding: 14px 0px 14px 14px;
-  background: var(--bg);
-  border-right: 1px solid #1c1c24;
-}
-
-.deck-nav-header {
-  font-size: 0.6rem;
-  font-weight: 700;
-  color: #555562;
-  letter-spacing: 0.1em;
-  margin-bottom: 12px;
-  padding-left: 10px;
+  padding: 0;
+  background: #09090d;
+  border-right: 1px solid #14141c;
+  align-self: stretch;
 }
 
 .deck-nav-btn {
   display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 0 8px;
+  cursor: pointer;
+  border-radius: 0;
+  margin-bottom: 0;
+  border-left: 3px solid transparent;
+  border-bottom: 1px solid #14141c;
+  background: #09090d;
+  flex: 1;
+  transition: all 0.15s ease;
+}
+
+.deck-nav-btn:hover {
+  background: #111118;
+}
+
+.deck-nav-btn.deck-active {
+  background: #14141c;
+}
+
+.deck-nav-btn.deck-a.deck-active { border-left-color: var(--deck-a); }
+.deck-nav-btn.deck-b.deck-active { border-left-color: var(--deck-b); }
+.deck-nav-btn.deck-c.deck-active { border-left-color: var(--deck-c); }
+.deck-nav-btn.deck-d.deck-active { border-left-color: var(--deck-d); }
+
+.deck-nav-title-row {
+  display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: #8a8a98;
-  cursor: pointer;
-  border-radius: 6px 0 0 6px;
-  margin-bottom: 4px;
-  transition: all 0.15s ease;
 }
-.deck-nav-btn:hover {
-  background: #14141c;
-  color: #ececf1;
+
+.deck-nav-text {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #4a4a54;
+  transition: color 0.15s ease;
+  text-transform: uppercase;
 }
-.deck-nav-btn.deck-active {
-  background: #1c1c24;
-  color: #fff;
+
+.deck-nav-btn:hover .deck-nav-text {
+  color: #a0a0ab;
 }
+
+.deck-nav-btn.deck-a.deck-active .deck-nav-text { color: var(--deck-a); text-shadow: 0 0 8px rgba(34, 211, 238, 0.35); }
+.deck-nav-btn.deck-b.deck-active .deck-nav-text { color: var(--deck-b); text-shadow: 0 0 8px rgba(232, 121, 249, 0.35); }
+.deck-nav-btn.deck-c.deck-active .deck-nav-text { color: var(--deck-c); text-shadow: 0 0 8px rgba(245, 158, 11, 0.35); }
+.deck-nav-btn.deck-d.deck-active .deck-nav-text { color: var(--deck-d); text-shadow: 0 0 8px rgba(74, 222, 128, 0.35); }
 
 .deck-nav-dot {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: #555562;
+  background: #2a2a35;
   transition: all 0.15s ease;
 }
 
-.deck-nav-btn.deck-a:hover .deck-nav-dot, .deck-nav-btn.deck-a.deck-active .deck-nav-dot { background: var(--deck-a); box-shadow: 0 0 6px var(--deck-a); }
-.deck-nav-btn.deck-b:hover .deck-nav-dot, .deck-nav-btn.deck-b.deck-active .deck-nav-dot { background: var(--deck-b); box-shadow: 0 0 6px var(--deck-b); }
-.deck-nav-btn.deck-c:hover .deck-nav-dot, .deck-nav-btn.deck-c.deck-active .deck-nav-dot { background: var(--deck-c); box-shadow: 0 0 6px var(--deck-c); }
-.deck-nav-btn.deck-d:hover .deck-nav-dot, .deck-nav-btn.deck-d.deck-active .deck-nav-dot { background: var(--deck-d); box-shadow: 0 0 6px var(--deck-d); }
+.deck-nav-btn.deck-a:hover .deck-nav-dot, .deck-nav-btn.deck-a.deck-active .deck-nav-dot { background: var(--deck-a); box-shadow: 0 0 8px var(--deck-a); }
+.deck-nav-btn.deck-b:hover .deck-nav-dot, .deck-nav-btn.deck-b.deck-active .deck-nav-dot { background: var(--deck-b); box-shadow: 0 0 8px var(--deck-b); }
+.deck-nav-btn.deck-c:hover .deck-nav-dot, .deck-nav-btn.deck-c.deck-active .deck-nav-dot { background: var(--deck-c); box-shadow: 0 0 8px var(--deck-c); }
+.deck-nav-btn.deck-d:hover .deck-nav-dot, .deck-nav-btn.deck-d.deck-active .deck-nav-dot { background: var(--deck-d); box-shadow: 0 0 8px var(--deck-d); }
+
+.deck-nav-indicators {
+  display: flex;
+  gap: 2px;
+  margin-top: 5px;
+  margin-left: 15px;
+}
+
+.deck-nav-indicator-sq {
+  width: 3px;
+  height: 4px;
+  background: transparent;
+  transition: all 0.15s ease;
+}
+
+.deck-nav-btn.deck-a .deck-nav-indicator-on { background: rgba(34, 211, 238, 0.15); }
+.deck-nav-btn.deck-b .deck-nav-indicator-on { background: rgba(232, 121, 249, 0.15); }
+.deck-nav-btn.deck-c .deck-nav-indicator-on { background: rgba(245, 158, 11, 0.15); }
+.deck-nav-btn.deck-d .deck-nav-indicator-on { background: rgba(74, 222, 128, 0.15); }
+
+.deck-nav-btn.deck-a:hover .deck-nav-indicator-on { background: rgba(34, 211, 238, 0.4); }
+.deck-nav-btn.deck-b:hover .deck-nav-indicator-on { background: rgba(232, 121, 249, 0.4); }
+.deck-nav-btn.deck-c:hover .deck-nav-indicator-on { background: rgba(245, 158, 11, 0.4); }
+.deck-nav-btn.deck-d:hover .deck-nav-indicator-on { background: rgba(74, 222, 128, 0.4); }
+
+.deck-nav-btn.deck-a.deck-active .deck-nav-indicator-on { background: var(--deck-a); box-shadow: 0 0 4px rgba(34, 211, 238, 0.4); }
+.deck-nav-btn.deck-b.deck-active .deck-nav-indicator-on { background: var(--deck-b); box-shadow: 0 0 4px rgba(232, 121, 249, 0.4); }
+.deck-nav-btn.deck-c.deck-active .deck-nav-indicator-on { background: var(--deck-c); box-shadow: 0 0 4px rgba(245, 158, 11, 0.4); }
+.deck-nav-btn.deck-d.deck-active .deck-nav-indicator-on { background: var(--deck-d); box-shadow: 0 0 4px rgba(74, 222, 128, 0.4); }
 
 .daw-main-area {
   flex: 1;

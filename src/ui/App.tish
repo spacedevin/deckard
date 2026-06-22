@@ -209,6 +209,47 @@ fn deckWaveColorHex(deck) {
   }
   return "#22d3ee"
 }
+
+fn renderDeckPips(project, deckLetter) {
+  let active = []
+  let i = 0
+  while (i < 16) {
+    active.push(false)
+    i = i + 1
+  }
+  if (project && project.channels) {
+    let j = 0
+    let chs = project.channels
+    let len = chs.length
+    while (j < len) {
+      let ch = chs[j]
+      if (ch && channelDeck(project, ch) === deckLetter && ch.steps) {
+        let si = 0
+        let slen = ch.steps.length
+        while (si < 16) {
+          if (si < slen) {
+            let s = ch.steps[si]
+            if (s && s.on) {
+              active[si] = true
+            }
+          }
+          si = si + 1
+        }
+      }
+      j = j + 1
+    }
+  }
+
+  let pips = []
+  let stepIdx = 0
+  while (stepIdx < 16) {
+    let on = active[stepIdx]
+    pips.push(<span class={"deck-nav-indicator-sq" + (on ? " deck-nav-indicator-on" : "")}></span>)
+    stepIdx = stepIdx + 1
+  }
+  return <div class="deck-nav-indicators">{pips}</div>
+}
+
 export fn App() {
   let [project, setProject] = useState(initialDeckardBoot.project)
   migrateProjectGenerators(project)
@@ -2504,18 +2545,33 @@ export fn App() {
     </header>
     <div class="daw-app-layout">
       <aside class="daw-sidebar-left">
-        <div class="deck-nav-header">DECKS</div>
         <div class={"deck-nav-btn deck-a" + (activeDeck === "A" ? " deck-active" : "")} onclick={() => setActiveDeck(activeDeck === "A" ? null : "A")}>
-          <span class="deck-nav-dot"></span> DECK A
+          <div class="deck-nav-title-row">
+            <span class="deck-nav-dot"></span>
+            <span class="deck-nav-text">{"DECK A"}</span>
+          </div>
+          {renderDeckPips(project, "A")}
         </div>
         <div class={"deck-nav-btn deck-b" + (activeDeck === "B" ? " deck-active" : "")} onclick={() => setActiveDeck(activeDeck === "B" ? null : "B")}>
-          <span class="deck-nav-dot"></span> DECK B
+          <div class="deck-nav-title-row">
+            <span class="deck-nav-dot"></span>
+            <span class="deck-nav-text">{"DECK B"}</span>
+          </div>
+          {renderDeckPips(project, "B")}
         </div>
         <div class={"deck-nav-btn deck-c" + (activeDeck === "C" ? " deck-active" : "")} onclick={() => setActiveDeck(activeDeck === "C" ? null : "C")}>
-          <span class="deck-nav-dot"></span> DECK C
+          <div class="deck-nav-title-row">
+            <span class="deck-nav-dot"></span>
+            <span class="deck-nav-text">{"DECK C"}</span>
+          </div>
+          {renderDeckPips(project, "C")}
         </div>
         <div class={"deck-nav-btn deck-d" + (activeDeck === "D" ? " deck-active" : "")} onclick={() => setActiveDeck(activeDeck === "D" ? null : "D")}>
-          <span class="deck-nav-dot"></span> DECK D
+          <div class="deck-nav-title-row">
+            <span class="deck-nav-dot"></span>
+            <span class="deck-nav-text">{"DECK D"}</span>
+          </div>
+          {renderDeckPips(project, "D")}
         </div>
       </aside>
       <div class="daw-main-area">
