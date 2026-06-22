@@ -82,10 +82,10 @@ export fn applyDeckEq(project, deck) {
   while (i < project.channels.length) {
     let ch = project.channels[i]
     if (channelDeck(project, ch) === deck) {
-      ch.eqLo = de.lo
-      ch.eqMid = de.mid
-      ch.eqHi = de.hi
-      ch.filterCutoff = cut
+      ch["eqLo"] = de.lo
+      ch["eqMid"] = de.mid
+      ch["eqHi"] = de.hi
+      ch["filterCutoff"] = cut
     }
     i = i + 1
   }
