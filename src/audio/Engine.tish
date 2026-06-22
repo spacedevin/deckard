@@ -96,7 +96,7 @@ export fn buildChannelBus(ctx, ch, actorSummingGain, reverbIn, cueSum) {
   let g = ctx.createGain()
   g.gain.value = ch.gain != null ? ch.gain : 0.85
   let filt = ctx.createBiquadFilter()
-  filt.type = "lowpass"
+  filt.type = ch.filterType != null ? ch.filterType : "lowpass"
   // Default OPEN (20 kHz ≈ transparent): the channel filter is an opt-in effect, not an always-on dulling
   // insert. A null/unset cutoff must never collapse the filter to silence.
   filt.frequency.value = ch.filterCutoff != null ? ch.filterCutoff : 20000
@@ -608,6 +608,7 @@ export fn updateMixerFromProject(project, store, atBeat) {
     // When a cutoff automation drives this channel's filter, seed it to the sweep's start (beat 0); the
     // transport's applyChannelFilterAutomation schedules the per-step values during play (so don't clobber
     // it with the static ch.filterCutoff each reconcile).
+    b.filterNode.type = ch.filterType != null ? ch.filterType : "lowpass"
     let cutPts = cutoffAutoPoints(project, ch.id)
     if (cutPts != null) {
       b.filterNode.frequency.value = automationAt(cutPts, atBeat != null ? atBeat : 0)

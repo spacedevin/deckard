@@ -21,7 +21,8 @@ import { macroCatalog, assignMacroToChannel } from '../model/MacroVoice.tish'
 import { compileGeneratorToPatchLines } from '../model/PatchCompile.tish'
 import { emitInstrumentModuleTpl } from '../core/Levels.tish'
 import { GeneratorParamPanel } from './GeneratorParams.tish'
-import { accentForGenerator, Knob, IkSelect } from './InstrumentKit.tish'
+import { accentForGenerator, Knob, IkSelect, EnvDisplay, WaveIconPicker } from './InstrumentKit.tish'
+import { channelDeck } from '../model/DeckRouting.tish'
 import { actorMayEditTrack } from '../codj/Merge.tish'
 import { MatrixFmPanel } from './MatrixFmPanel.tish'
 import { PatchGraphPanel } from './PatchGraphPanel.tish'
@@ -330,17 +331,21 @@ fn ModuleCard(title, tplBlock, module, ctx, children, wide) {
       }
     )
   }
+  let accent = ctx.accent
+  let headStyle = accent ? { borderLeftColor: accent, background: accent + "11" } : {}
+  let tplStyle = accent ? { color: accent } : {}
+  let toggleStyle = accent ? { borderColor: accent + "33" } : {}
   return (
     <section class={cardClass}>
-      <div class="instr-module-head">
+      <div class="instr-module-head" style={headStyle}>
         <span class="instr-module-title">{title}</span>
         {hasRaw ? (
-          <span class="instr-module-toggle">
-            <button type="button" class={raw ? "imt-btn" : "imt-btn imt-on"} onclick={() => setModuleRaw(ctx, module, false)}>{"Designer"}</button>
-            <button type="button" class={raw ? "imt-btn imt-on" : "imt-btn"} onclick={() => setModuleRaw(ctx, module, true)}>{"Raw"}</button>
+          <span class="instr-module-toggle" style={toggleStyle}>
+            <button type="button" class={raw ? "imt-btn" : "imt-btn imt-on"} style={!raw && accent ? { background: accent + "33", color: accent } : {}} onclick={() => setModuleRaw(ctx, module, false)}>{"Designer"}</button>
+            <button type="button" class={raw ? "imt-btn imt-on" : "imt-btn"} style={raw && accent ? { background: accent + "33", color: accent } : {}} onclick={() => setModuleRaw(ctx, module, true)}>{"Raw"}</button>
           </span>
         ) : null}
-        {tplBlock !== "" ? <span class="instr-module-tpl">{tplBlock}</span> : null}
+        {tplBlock !== "" ? <span class="instr-module-tpl" style={tplStyle}>{tplBlock}</span> : null}
       </div>
       <div class="instr-module-body">{body}</div>
     </section>
@@ -440,8 +445,109 @@ fn PitchModule(ctx) {
 }
 
 
-export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush, rt) {
+fn deckWaveColorHex(deck) {
+  if (deck === "B") {
+    return "#e879f9"
+  }
+  if (deck === "C") {
+    return "#f59e0b"
+  }
+  if (deck === "D") {
+    return "#4ade80"
+  }
+  return "#22d3ee"
+}
+
+fn InstrumentCard(ch, project, setProject, tplMirrorFlush, rt, accent) {
+  let gid = ch.generatorId ? ch.generatorId : "basicOsc"
+  let ctx = { project: project, ch: ch, rt: rt, setProject: setProject, tplMirrorFlush: tplMirrorFlush, accent: accent }
+  
+  let badgeText = "SYNTH"
+  if (gid === "noiseBurst" || gid === "drumSynth" || gid === "clap" || gid === "cymbal") {
+    badgeText = "DRUM"
+  } else if (gid === "tine" || gid === "bell") {
+    badgeText = "KEYS"
+  }
+
+  return (
+    <div class="panel instr-stack-panel" style={{ borderColor: accent + "55", flex: "1 1 100%", margin: "8px 0" }}>
+      {PanelHeader(
+        <Fragment>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span class="deck-nav-dot" style={{ background: accent, boxShadow: "0 0 8px " + accent }}></span>
+            <h2 style={{ color: "white", fontSize: "0.8rem" }}>{ch.name}</h2>
+            <span class="logo-beta" style={{ fontSize: "0.52rem", padding: "1px 4px", color: accent, borderColor: accent + "66", background: accent + "11" }}>{badgeText}</span>
+          </div>
+        </Fragment>,
+        <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+          {voiceDropdown(project, ch, setProject, tplMirrorFlush, rt)}
+          {instrumentPresetBar(project, ch, setProject, tplMirrorFlush)}
+          <button
+            type="button"
+            class={ch.mute ? "btn-deck btn-deck-cue btn-deck-on" : "btn-deck"}
+            style={{ padding: "0.15rem 0.45rem", fontSize: "0.6rem" }}
+            onclick={() => {
+              if (rt && rt.emit) {
+                rt.emit("track/" + ch.id + "/mix/mute", !ch.mute)
+              }
+            }}
+          >
+            {ch.mute ? "MUTE" : "PLAY"}
+          </button>
+        </div>
+      )}
+      <div class="instr-modules-row">
+        {SoundModule(ctx, gid)}
+        {PitchModule(ctx)}
+      </div>
+    </div>
+  )
+}
+
+export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush, rt, activeDeck) {
   ensureInstrumentPresets(project)
+  
+  if (activeDeck !== null && activeDeck !== undefined && activeDeck !== "") {
+    let deckChannels = []
+    let i = 0
+    while (i < project.channels.length) {
+      let ch = project.channels[i]
+      if (ch && channelDeck(project, ch) === activeDeck) {
+        deckChannels.push(ch)
+      }
+      i = i + 1
+    }
+    
+    let deckColor = deckWaveColorHex(activeDeck)
+    if (deckChannels.length > 0) {
+      let cards = []
+      let k = 0
+      while (k < deckChannels.length) {
+        let ch = deckChannels[k]
+        cards.push(InstrumentCard(ch, project, setProjectFromUI, tplMirrorFlush, rt, deckColor))
+        k = k + 1
+      }
+      return (
+        <section style={{ display: "flex", flexDirection: "column", gap: "16px", width: "100%" }}>
+          <div class="instr-stack-head" style={{ borderBottom: "1px solid " + deckColor + "33", paddingBottom: "8px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h2 style={{ color: deckColor }}>{"DECK " + activeDeck + " // INSTRUMENTS"}</h2>
+            <span class="instr-stack-sub">{"showing all instruments routed to deck " + activeDeck}</span>
+          </div>
+          {cards}
+        </section>
+      )
+    } else {
+      return (
+        <section class="panel instr-stack-panel" style={{ borderColor: deckColor + "55" }}>
+          <div class="instr-stack-head" style={{ borderBottom: "1px solid " + deckColor + "33", paddingBottom: "8px", marginBottom: "12px" }}>
+            <h2 style={{ color: deckColor }}>{"DECK " + activeDeck + " // INSTRUMENTS"}</h2>
+          </div>
+          <p class="instr-panel-hint">{"No instruments routed to this deck. Assign a track to this deck in the mixer or TPL."}</p>
+        </section>
+      )
+    }
+  }
+
   let ch = null
   if (selectedCh >= 0 && selectedCh < project.channels.length) {
     ch = project.channels[selectedCh]
@@ -455,12 +561,13 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
     )
   }
   let gid = ch.generatorId ? ch.generatorId : "basicOsc"
-  let ctx = { project: project, ch: ch, rt: rt, setProject: setProjectFromUI, tplMirrorFlush: tplMirrorFlush, accent: accentForGenerator(gid) }
+  let deckColor = deckWaveColorHex(channelDeck(project, ch))
+  let ctx = { project: project, ch: ch, rt: rt, setProject: setProjectFromUI, tplMirrorFlush: tplMirrorFlush, accent: deckColor }
   return (
-    <section class="panel instr-stack-panel">
+    <section class="panel instr-stack-panel" style={{ borderColor: deckColor + "55" }}>
       {PanelHeader(
         <Fragment>
-          <h2>{"INSTRUMENT // " + ch.name}</h2>
+          <h2 style={{ color: deckColor }}>{"INSTRUMENT // " + ch.name}</h2>
           <span class="instr-stack-sub">{"rack boxes · pick a track · flip any box to Raw"}</span>
         </Fragment>,
         <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>

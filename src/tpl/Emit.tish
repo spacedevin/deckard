@@ -276,6 +276,9 @@ export fn emitProjectInner(project, skipSync) {
     }
 
     let fxParts = ""
+    if (ch.filterType != null && ch.filterType !== "lowpass") {
+      fxParts = fxParts + " filter_type " + String(ch.filterType)
+    }
     if (ch.reverbSend != null && ch.reverbSend > 0.0001) {
       fxParts = fxParts + " reverb_send " + formatTplFloat(ch.reverbSend)
     }

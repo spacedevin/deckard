@@ -106,9 +106,9 @@ fn playlistEq(a, b) {
 let PlaylistMemo = memo((p) => PlaylistView(p.project, p.rt, p.props), playlistEq)
 
 fn instrumentEq(a, b) {
-  return a.selectedCh === b.selectedCh && a.channelsRev === b.channelsRev
+  return a.selectedCh === b.selectedCh && a.channelsRev === b.channelsRev && a.activeDeck === b.activeDeck
 }
-let InstrumentStackMemo = memo((p) => InstrumentStack(p.project, p.selectedCh, p.setProjectFromUI, p.tplMirrorFlush, p.rt), instrumentEq)
+let InstrumentStackMemo = memo((p) => InstrumentStack(p.project, p.selectedCh, p.setProjectFromUI, p.tplMirrorFlush, p.rt, p.activeDeck), instrumentEq)
 
 fn deckMixerEq(a, b) {
   return a.xfadeX === b.xfadeX && a.xfadeY === b.xfadeY && a.channelsRev === b.channelsRev && a.deckMixRev === b.deckMixRev
@@ -2577,8 +2577,8 @@ export fn App() {
       <div class="daw-main-area">
         <div class="daw-body daw-body-stack">
           <div class="daw-main-stack">
-            {activeDeck !== null ? seqSession : null}
-            {h(InstrumentStackMemo, { project: project, selectedCh: selectedCh, setProjectFromUI: setProjectFromUI, tplMirrorFlush: tplMirrorFlush, rt: rt, channelsRev: channelsRev })}
+            {h(InstrumentStackMemo, { project: project, selectedCh: selectedCh, setProjectFromUI: setProjectFromUI, tplMirrorFlush: tplMirrorFlush, rt: rt, channelsRev: channelsRev, activeDeck: activeDeck })}
+            {seqSession}
           </div>
           {h(DeckMixerMemo, { project: project, setProjectFromUI: setProjectFromUI, touchMixer: touchMixer, rt: rt, xfadeX: xfadeX, xfadeY: xfadeY, channelsRev: channelsRev, deckMixRev: deckMixRev })}
         </div>
