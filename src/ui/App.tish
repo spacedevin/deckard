@@ -45,7 +45,7 @@ import {
   rackPianoPreviewSig,
   updatePianoRollCtx
 } from './PianoRoll.tish'
-import { drawScopeCanvas, drawSpectrumCanvas, drawMiniWave, busPeakLevel, drawSetWaveLane } from './Scope.tish'
+import { drawScopeCanvas, drawSpectrumCanvas, drawMiniWave, busPeakLevel, drawSetWaveLane, drawSetWaveOverlay } from './Scope.tish'
 import { StepGridPanel } from './grid/StepGrid.tish'
 import { DeckMixer, applyDeckEq, ensureDeckEq } from './deck/DeckMixer.tish'
 import { PatternBank } from './PatternBank.tish'
@@ -776,6 +776,9 @@ export fn App() {
     // precise per-slice bumps at the ingest boundary instead.
     bumpAllRev(p)
     setProject(p)
+    if (audioStore.ctx) {
+      updateMixerFromProject(p, audioStore)
+    }
     setTimeout(() => {
       let r = rtRef.current
       let proj = r.project
@@ -973,14 +976,9 @@ export fn App() {
       // the throttled visual loop — never on the audio scheduler path. The flag is cleared only AFTER drawing,
       // and this whole block is past the drawsSuspended/30fps gate, so a step taped during a suspend survives.
       if (rt.tplWaveDirty && rt.tplEnergy) {
-        let plDecks = ["A", "B", "C", "D"]
-        let pli = 0
-        while (pli < plDecks.length) {
-          let plCv = document.querySelector(".pl-wave-cv-" + plDecks[pli])
-          if (plCv) {
-            drawSetWaveLane(plCv, rt.tplEnergy, plDecks[pli], 26, 16)
-          }
-          pli = pli + 1
+        let plCv = document.querySelector(".pl-wave-cv-overlay")
+        if (plCv) {
+          drawSetWaveOverlay(plCv, rt.tplEnergy, rt.tplActiveDecks, 26, 16)
         }
         // Keep the note/step/bar counter live without a per-bar vdom render (bumpTimeline now fires only when a
         // new lane mounts). Imperative textContent — same format as PlaylistView's status line.

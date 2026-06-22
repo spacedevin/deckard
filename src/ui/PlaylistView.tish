@@ -101,30 +101,19 @@ export fn PlaylistView(project, rt, props) {
 
   // ---- one canvas lane PER DECK that has produced sound (drawn imperatively by drawSetWaveLane in scopeFrame) ----
   let rows = []
-  let decks = ["A", "B", "C", "D"]
-  let hasData = false
-  let di = 0
-  while (di < decks.length) {
-    let dk = decks[di]
-    if (active[dk] === true) {
-      hasData = true
-      let col = deckColorHex(dk)
-      // The canvas has NO width/height in the vnode — drawSetWaveLane owns its size + pixels imperatively, so
-      // memo re-renders never touch (and never clear) it. The track div carries the scroll extent + gridlines.
-      rows.push(
-        <div class="pl-lane pl-wave-lane">
-          <div class="pl-lane-label pl-deck-label" style={{ color: col, borderColor: col, height: String(DECK_WAVE_H) + "px" }} title={"Deck " + dk}>
-            {"DECK " + dk}
-          </div>
-          <div class="pl-lane-track pl-wave-track" style={{ width: String(laneWidth) + "px", height: String(DECK_WAVE_H) + "px" }}>
-            <canvas class={"pl-wave-cv pl-wave-cv-" + dk}></canvas>
-          </div>
+  let hasData = active.A === true || active.B === true || active.C === true || active.D === true
+  if (hasData) {
+    rows.push(
+      <div class="pl-lane pl-wave-lane">
+        <div class="pl-lane-label pl-deck-label" style={{ color: "#e8e8ea", borderColor: "#2a2a35", height: String(DECK_WAVE_H) + "px" }} title="All Decks">
+          {"MIX"}
         </div>
-      )
-    }
-    di = di + 1
-  }
-  if (!hasData) {
+        <div class="pl-lane-track pl-wave-track" style={{ width: String(laneWidth) + "px", height: String(DECK_WAVE_H) + "px" }}>
+          <canvas class="pl-wave-cv pl-wave-cv-overlay"></canvas>
+        </div>
+      </div>
+    )
+  } else {
     rows.push(
       <div class="pl-empty-hint">{"hit Play (Sequence or Session) — whatever plays is captured here, then Save it as a replayable Set"}</div>
     )

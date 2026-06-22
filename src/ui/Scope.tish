@@ -283,6 +283,109 @@ export fn drawSetWaveLane(canvas, energy, deck, barPx, stepsPerBar) {
   ctx2.stroke()
 }
 
+export fn drawSetWaveOverlay(canvas, energy, activeDecks, barPx, stepsPerBar) {
+  if (!canvas || !energy || typeof window === "undefined") {
+    return
+  }
+  let dpr = 1
+  if (window.devicePixelRatio) {
+    dpr = window.devicePixelRatio
+  }
+  if (dpr > 2.5) {
+    dpr = 2.5
+  }
+  let laneH = 42
+  let maxStep = energy.maxStep != null ? energy.maxStep : 0
+  if (!(maxStep >= 0)) {
+    maxStep = 0
+  }
+  if (maxStep > 131072) {
+    maxStep = 131072
+  }
+  let cssW = Math.max(8, Math.ceil(((maxStep + 1) / stepsPerBar) * barPx))
+  let bw = Math.max(1, Math.floor(cssW * dpr))
+  let bh = Math.max(1, Math.floor(laneH * dpr))
+  if (canvas.width !== bw || canvas.height !== bh) {
+    canvas.width = bw
+    canvas.height = bh
+  }
+  let wantW = String(cssW) + "px"
+  let wantH = String(laneH) + "px"
+  if (canvas.style.width !== wantW) {
+    canvas.style.width = wantW
+  }
+  if (canvas.style.height !== wantH) {
+    canvas.style.height = wantH
+  }
+  let ctx2 = canvas.getContext("2d")
+  if (!ctx2) {
+    return
+  }
+  ctx2.setTransform(dpr, 0, 0, dpr, 0, 0)
+  let w = cssW
+  let h = laneH
+  ctx2.clearRect(0, 0, w, h)
+  let cy = h / 2
+  ctx2.strokeStyle = "rgba(255,255,255,0.07)"
+  ctx2.lineWidth = 1
+  ctx2.beginPath()
+  ctx2.moveTo(0, cy)
+  ctx2.lineTo(w, cy)
+  ctx2.stroke()
+
+  let decks = ["A", "B", "C", "D"]
+  let maxE = energy.maxE != null && energy.maxE > 0 ? energy.maxE : 1
+  let half = (h - 6) / 2
+
+  let di = 0
+  while (di < decks.length) {
+    let deck = decks[di]
+    if (activeDecks && activeDecks[deck] === true) {
+      let en = energy[deck]
+      if (en) {
+        ctx2.beginPath()
+        let s = 0
+        while (s <= maxStep) {
+          let e = en[String(s)] != null ? en[String(s)] : 0
+          let hh = (e / maxE) * half
+          if (hh < 1) {
+            hh = 1
+          }
+          let x = (s / stepsPerBar) * barPx
+          let yT = cy - hh
+          if (s === 0) {
+            ctx2.moveTo(x, yT)
+          } else {
+            ctx2.lineTo(x, yT)
+          }
+          s = s + 1
+        }
+        let s2 = maxStep
+        while (s2 >= 0) {
+          let e2 = en[String(s2)] != null ? en[String(s2)] : 0
+          let hh2 = (e2 / maxE) * half
+          if (hh2 < 1) {
+            hh2 = 1
+          }
+          let x2 = (s2 / stepsPerBar) * barPx
+          ctx2.lineTo(x2, cy + hh2)
+          s2 = s2 - 1
+        }
+        ctx2.closePath()
+        let col = setLaneColorHex(deck)
+        ctx2.fillStyle = col + "55"
+        ctx2.fill()
+        ctx2.strokeStyle = col
+        ctx2.lineWidth = 0.75
+        ctx2.lineJoin = "round"
+        ctx2.stroke()
+      }
+    }
+    di = di + 1
+  }
+}
+
+
 export fn drawScopeCanvas(canvas, analyser) {
   if (!canvas || !analyser) {
     return
