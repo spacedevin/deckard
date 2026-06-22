@@ -5879,27 +5879,85 @@ input[type="range"]::-moz-range-thumb {
   user-select: none;
 }
 
+/* ---- Instrument stack compact default styles (applied to single & grid view) ---- */
+.instr-stack-panel {
+  padding: 8px 10px !important;
+  margin: 4px 0 !important;
+}
+
+.instr-stack-panel .instr-desc {
+  display: none !important;
+}
+
+.instr-stack-panel .ik-env,
+.instr-stack-panel .ik-env-svg {
+  height: 26px !important;
+}
+
 /* 3x2 Grid layout for active single deck instruments */
 .instr-grid-container {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  gap: 8px !important;
   width: 100%;
 }
 
 /* Compact rules when instruments are inside the grid */
 .instr-grid-container .instr-stack-panel {
   margin: 0 !important;
-  padding: 8px 10px;
+  padding: 4px 6px !important;
   display: flex;
   flex-direction: column;
+}
+
+.instr-grid-container .panel-head {
+  margin-bottom: 2px !important;
+  gap: 4px !important;
+}
+
+.instr-grid-container .panel-head h2 {
+  font-size: 0.68rem !important;
+  margin: 0 !important;
+}
+
+.instr-grid-container .panel-head-l {
+  gap: 4px !important;
+}
+
+.instr-grid-container .panel-head-r {
+  gap: 4px !important;
+}
+
+.instr-grid-container .preset-bar {
+  gap: 0.2rem !important;
+}
+
+.instr-grid-container .preset-bar-label {
+  font-size: 0.6rem !important;
+}
+
+.instr-grid-container .ik-sel {
+  padding: 0.12rem 0.35rem !important;
+  font-size: 0.65rem !important;
+  min-width: 2.8rem !important;
+  gap: 0.2rem !important;
+}
+
+.instr-grid-container .preset-bar-save {
+  padding: 0.12rem 0.35rem !important;
+  font-size: 0.65rem !important;
+}
+
+.instr-grid-container .btn-deck {
+  padding: 0.1rem 0.35rem !important;
+  font-size: 0.58rem !important;
 }
 
 .instr-grid-container .instr-modules-row {
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
-  gap: 8px;
+  gap: 4px !important;
   align-items: stretch;
 }
 
@@ -5908,42 +5966,127 @@ input[type="range"]::-moz-range-thumb {
   min-width: 0;
   max-width: none;
   background: rgba(0, 0, 0, 0.25);
-  border-radius: 6px;
+  border-radius: 4px !important;
+}
+
+.instr-grid-container .instr-module-head {
+  padding: 2px 4px !important;
+  gap: 3px !important;
+}
+
+.instr-grid-container .instr-module-title {
+  font-size: 0.6rem !important;
+  letter-spacing: 0.06em !important;
+}
+
+.instr-grid-container .instr-module-tpl {
+  font-size: 0.55rem !important;
 }
 
 .instr-grid-container .instr-module-body {
-  padding: 6px 8px;
+  padding: 3px 4px !important;
 }
 
 .instr-grid-container .ik-card {
-  padding: 6px 8px;
+  padding: 3px 5px !important;
+  border-radius: 4px !important;
+}
+
+.instr-grid-container .ik-card-h {
+  margin-bottom: 2px !important;
+  gap: 3px !important;
+  font-size: 0.5rem !important;
+}
+
+.instr-grid-container .ik-cols {
+  gap: 4px !important;
 }
 
 /* Compact Knobs inside active deck grid */
 .instr-grid-container .ik-knob {
-  width: 3.1rem;
+  width: 2.7rem !important;
+  gap: 0px !important;
 }
 .instr-grid-container .ik-knob-dial {
-  width: 2.1rem;
-  height: 2.1rem;
+  width: 1.7rem !important;
+  height: 1.7rem !important;
 }
 .instr-grid-container .ik-knob-label {
-  font-size: 0.48rem;
+  font-size: 0.44rem !important;
 }
 .instr-grid-container .ik-knob-value {
-  font-size: 0.56rem;
+  font-size: 0.52rem !important;
+}
+
+/* Compact wave picker */
+.instr-grid-container .ik-wave-row {
+  gap: 2px !important;
+}
+.instr-grid-container .ik-wave-btn {
+  width: 1.35rem !important;
+  height: 1.35rem !important;
+  border-radius: 3px !important;
+}
+.instr-grid-container .ik-wave-img {
+  width: 0.8rem !important;
+  height: 0.8rem !important;
+}
+.instr-grid-container .ik-wave-pair {
+  margin-bottom: 0.2rem !important;
+  gap: 1px !important;
 }
 
 /* Env display compact */
+.instr-grid-container .ik-env,
 .instr-grid-container .ik-env-svg {
-  height: 32px;
+  height: 22px !important;
+}
+
+/* Hide descriptions */
+.instr-grid-container .instr-desc {
+  display: none !important;
 }
 
 /* Scroll limits for larger panels */
 .instr-grid-container .matrixfm-panel-wrap,
 .instr-grid-container .patch-panel-wrap,
 .instr-grid-container .macro-panel-wrap {
-  max-height: 120px;
+  max-height: 110px !important;
   overflow-y: auto;
+}
+
+.instr-grid-container .instr-pitch-knobs {
+  gap: 4px !important;
+  padding: 0 !important;
+}
+
+/* Mixer level module styling */
+.instr-module-level {
+  flex: 0 0 auto !important;
+  min-width: 82px !important;
+  max-width: 90px !important;
+}
+
+.instr-level-body {
+  padding: 6px 4px;
+}
+
+.instr-stack-panel .dk-lever {
+  height: 60px !important;
+}
+
+/* Compact mixer level module inside grid */
+.instr-grid-container .instr-module-level {
+  flex: 0 0 76px !important;
+  min-width: 76px !important;
+  max-width: 76px !important;
+}
+
+.instr-grid-container .instr-level-body {
+  padding: 2px 2px !important;
+}
+
+.instr-grid-container .dk-lever {
+  height: 48px !important;
 }
 

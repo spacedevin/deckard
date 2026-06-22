@@ -28,6 +28,7 @@ import { MatrixFmPanel } from './MatrixFmPanel.tish'
 import { PatchGraphPanel } from './PatchGraphPanel.tish'
 import { MacroDesignerPanel } from './MacroDesignerPanel.tish'
 import { RichTplEditor } from './RichTplEditor.tish'
+import { gainToDb, vertLeverEl } from './deck/DeckMixer.tish'
 
 let VOICE_GROUPS = [
   { title: "Oscillators", voices: [["basicOsc", "Osc"], ["fmTone", "FM"]] },
@@ -306,10 +307,13 @@ fn setModuleRaw(ctx, module, on) {
   ctx.setProject(ctx.project)
 }
 
-fn ModuleCard(title, tplBlock, module, ctx, children, wide) {
+fn ModuleCard(title, tplBlock, module, ctx, children, wide, extraClass) {
   let hasRaw = module != null && module !== ""
   let raw = hasRaw && moduleRawActive(ctx, module)
   let cardClass = wide ? "instr-module instr-module-wide" : "instr-module"
+  if (extraClass != null && extraClass !== "") {
+    cardClass = cardClass + " " + extraClass
+  }
   let body = children
   if (raw) {
     // The current gen_block for this module — shown in the editor AND used as the undo inverse (the pre-edit
@@ -444,6 +448,38 @@ fn PitchModule(ctx) {
   )
 }
 
+fn LevelModule(ctx) {
+  let ch = ctx.ch
+  let rt = ctx.rt
+  let g = ch.gain != null ? ch.gain : 0.85
+  let acc = ctx.accent ? ctx.accent : "var(--accent-warm, #e8945c)"
+  fn onSet(p) {
+    if (rt && rt.emit) {
+      rt.emit("track/" + ch.id + "/mix/gain", p)
+    }
+  }
+  return ModuleCard(
+    "Mixer",
+    "",
+    "",
+    ctx,
+    <div class="instr-level-body" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
+      <div class="dk-fader-wave">
+        <canvas class={"dk-stem-wave dk-wave-" + ch.id} width="64" height="34" />
+      </div>
+      <div class="dk-lever">
+        {vertLeverEl(g, acc, onSet)}
+        <div class={"dk-lever-meter dk-lvl-" + ch.id}>
+          <div class="dk-lever-meter-fill" style={{ background: acc }} />
+        </div>
+      </div>
+      <div class="dk-fader-db" style={{ fontSize: "0.58rem", fontWeight: "700", marginTop: "2px" }}>{gainToDb(g)}</div>
+    </div>,
+    false,
+    "instr-module-level"
+  )
+}
+
 
 fn deckWaveColorHex(deck) {
   if (deck === "B") {
@@ -547,6 +583,7 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
         <div class="instr-modules-row">
           {SoundModule(ctx, gid)}
           {PitchModule(ctx)}
+          {LevelModule(ctx)}
         </div>
       </section>
     )

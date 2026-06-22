@@ -92,7 +92,7 @@ export fn applyDeckEq(project, deck) {
 }
 
 // Linear 0..1 gain → dB string for the fader readout. Floors near-silence at -60 so we never print -Infinity.
-fn gainToDb(g) {
+export fn gainToDb(g) {
   if (g == null || g <= 0.001) {
     return "-60 dB"
   }
@@ -104,7 +104,7 @@ fn gainToDb(g) {
 // Shared vertical lever: groove + coloured fill + rounded handle. Absolute-position drag (click/drag
 // anywhere on the track sets the value); onSet(p01) fires per move (coalesced by the onAdvance rAF). Used
 // by both the per-track stem fader and the per-deck volume fader.
-fn vertLeverEl(g, acc, onSet) {
+export fn vertLeverEl(g, acc, onSet) {
   let gg = g < 0 ? 0 : (g > 1 ? 1 : g)
   let pctStr = Number(Math.round(gg * 1000) / 10).toFixed(1) + "%"
   fn onLeverDown(e) {
@@ -431,17 +431,7 @@ fn DeckSlot(project, deck, setProjectFromUI, touchMixer, rt) {
   ensureDeckEq(project)
   let suf = deck === "B" ? "b" : deck === "C" ? "c" : deck === "D" ? "d" : "a"
   let entries = deckEntries(project, deck)
-  let accentColor = "var(--deck-" + suf + ")"
-  let faders = []
-  let i = 0
-  while (i < entries.length) {
-    faders.push(StemFader(entries[i], setProjectFromUI, touchMixer, project, rt, accentColor))
-    i = i + 1
-  }
-  let empty = faders.length === 0
-  if (empty) {
-    faders.push(<div class="dk-empty">{"DECK " + deck + " — open"}</div>)
-  }
+  let empty = entries.length === 0
   let acc = "dk-acc-" + suf
   let cls = empty ? "dk-deckslot dk-deck-" + suf + " dk-player-empty" : "dk-deckslot dk-deck-" + suf
   return (
@@ -450,7 +440,7 @@ fn DeckSlot(project, deck, setProjectFromUI, touchMixer, rt) {
         <span class={"dk-player-tag " + acc}>{"DECK " + deck}</span>
         {DeckSetPicker(project, deck, setProjectFromUI, touchMixer, rt)}
       </div>
-      <div class="dk-fader-row">{faders}</div>
+      {empty ? <div class="dk-empty">{"DECK " + deck + " — empty"}</div> : null}
       {empty ? null : DeckJog(deck, rt)}
       {empty ? null : VinylRow(deck, rt)}
     </div>
