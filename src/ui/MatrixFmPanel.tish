@@ -788,54 +788,109 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
     let ridx = rri
     let sk = rt.srcKind ? rt.srcKind : "op"
     let dk = rt.dstKind ? rt.dstKind : "out"
+
+    // Source kind knob: op / filter
+    let srcKindOpts = ["op", "filter"]
+    let srcKindLabels = ["Op", "Flt"]
+    let srcKindIdx = sk === "filter" ? 1 : 0
+
+    // Source id knob: cycles through available ids for the chosen kind
+    let srcIdList = sk === "filter" ? filterIds : opIds
+    if (srcIdList.length === 0) {
+      srcIdList = ["1"]
+    }
+    let curSrcIdIdx = 0
+    let sii = 0
+    while (sii < srcIdList.length) {
+      if (srcIdList[sii] === rt.srcId) {
+        curSrcIdIdx = sii
+      }
+      sii = sii + 1
+    }
+
+    // Dest kind knob: filter / out
+    let dstKindOpts = ["filter", "out"]
+    let dstKindLabels = ["Flt", "Out"]
+    let dstKindIdx = dk === "out" ? 1 : 0
+
+    // Dest id knob: cycles through filter ids (disabled when dst=out)
+    let dstIdList = filterIds.length > 0 ? filterIds : ["1"]
+    let curDstVal = rt.dstId ? rt.dstId : (filterIds.length > 0 ? filterIds[0] : "1")
+    let curDstIdIdx = 0
+    let dii = 0
+    while (dii < dstIdList.length) {
+      if (dstIdList[dii] === curDstVal) {
+        curDstIdIdx = dii
+      }
+      dii = dii + 1
+    }
+
     routeRows.push(
       <div class="sytrus-route-row" key={"rt" + String(rri)}>
-        {IkSelect({
-          class: "sytrus-route-sel",
-          value: sk,
-          options: [
-            { value: "op", label: "op" },
-            { value: "filter", label: "filter" }
-          ],
-          onChange: (v) => {
-            let nk = v
+        {Knob({
+          label: "Src",
+          value: srcKindIdx,
+          min: 0,
+          max: 1,
+          step: 1,
+          detents: 2,
+          size: "xs",
+          accent: accent,
+          fmt: (v) => srcKindLabels[Math.round(v) < 0 ? 0 : (Math.round(v) > 1 ? 1 : Math.round(v))],
+          onInput: (v) => {
+            let k = Math.round(v)
+            if (k < 0) k = 0
+            if (k > 1) k = 1
+            let nk = srcKindOpts[k]
             g.routes[ridx].srcKind = nk
             if (nk === "filter") {
-              if (filterIds.length > 0) {
-                g.routes[ridx].srcId = filterIds[0]
-              } else {
-                g.routes[ridx].srcId = "1"
-              }
+              g.routes[ridx].srcId = filterIds.length > 0 ? filterIds[0] : "1"
             } else {
-              if (opIds.length > 0) {
-                g.routes[ridx].srcId = opIds[0]
-              } else {
-                g.routes[ridx].srcId = "1"
-              }
+              g.routes[ridx].srcId = opIds.length > 0 ? opIds[0] : "1"
             }
             commit()
           }
         })}
-        {IkSelect({
-          class: "sytrus-route-sel",
-          value: rt.srcId,
-          options: sk === "filter" ? filterIds.map(i => ({value: i, label: i})) : opIds.map(i => ({value: i, label: i})),
-          onChange: (v) => {
-            g.routes[ridx].srcId = v
+        {Knob({
+          label: "Id",
+          value: curSrcIdIdx,
+          min: 0,
+          max: srcIdList.length - 1,
+          step: 1,
+          detents: srcIdList.length,
+          size: "xs",
+          accent: accent,
+          fmt: (v) => {
+            let k = Math.round(v)
+            if (k < 0) k = 0
+            if (k > srcIdList.length - 1) k = srcIdList.length - 1
+            return srcIdList[k]
+          },
+          onInput: (v) => {
+            let k = Math.round(v)
+            if (k < 0) k = 0
+            if (k > srcIdList.length - 1) k = srcIdList.length - 1
+            g.routes[ridx].srcId = srcIdList[k]
             commit()
           }
         })}
         <span class="sytrus-route-arrow">{"→"}</span>
-        {IkSelect({
-          class: "sytrus-route-sel",
-          value: dk,
-          options: [
-            { value: "filter", label: "filter" },
-            { value: "out", label: "main" }
-          ],
-          onChange: (v) => {
-            g.routes[ridx].dstKind = v
-            if (v === "out") {
+        {Knob({
+          label: "Dst",
+          value: dstKindIdx,
+          min: 0,
+          max: 1,
+          step: 1,
+          detents: 2,
+          size: "xs",
+          accent: accent,
+          fmt: (v) => dstKindLabels[Math.round(v) < 0 ? 0 : (Math.round(v) > 1 ? 1 : Math.round(v))],
+          onInput: (v) => {
+            let k = Math.round(v)
+            if (k < 0) k = 0
+            if (k > 1) k = 1
+            g.routes[ridx].dstKind = dstKindOpts[k]
+            if (dstKindOpts[k] === "out") {
               g.routes[ridx].dstId = ""
             } else {
               if (filterIds.length > 0) {
@@ -845,32 +900,43 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
             commit()
           }
         })}
-        {IkSelect({
-          class: "sytrus-route-sel",
-          value: rt.dstId ? rt.dstId : filterIds.length > 0 ? filterIds[0] : "1",
-          options: filterIds.map(i => ({value: i, label: i})),
-          disabled: dk === "filter" ? false : true,
-          onChange: (v) => {
-            g.routes[ridx].dstId = v
+        {dk !== "out" ? Knob({
+          label: "F#",
+          value: curDstIdIdx,
+          min: 0,
+          max: dstIdList.length - 1,
+          step: 1,
+          detents: dstIdList.length,
+          size: "xs",
+          accent: accent,
+          fmt: (v) => {
+            let k = Math.round(v)
+            if (k < 0) k = 0
+            if (k > dstIdList.length - 1) k = dstIdList.length - 1
+            return dstIdList[k]
+          },
+          onInput: (v) => {
+            let k = Math.round(v)
+            if (k < 0) k = 0
+            if (k > dstIdList.length - 1) k = dstIdList.length - 1
+            g.routes[ridx].dstId = dstIdList[k]
+            commit()
+          }
+        }) : null}
+        {Knob({
+          label: "Vol",
+          value: Math.round(numOr(rt.volume, 1) * 100),
+          min: 0,
+          max: 100,
+          step: 1,
+          size: "xs",
+          accent: accent,
+          fmt: (v) => String(Math.round(v)) + "%",
+          onInput: (v) => {
+            g.routes[ridx].volume = v / 100
             commit()
           }
         })}
-        <label class="sytrus-route-vol">
-          {Knob({
-            label: "Vol",
-            value: Math.round(numOr(rt.volume, 1) * 100),
-            min: 0,
-            max: 100,
-            step: 1,
-            size: "sm",
-            accent: accent,
-            fmt: (v) => String(Math.round(v)) + "%",
-            onInput: (v) => {
-              g.routes[ridx].volume = v / 100
-              commit()
-            }
-          })}
-        </label>
         <button
           type="button"
           class="sytrus-icon-btn"
