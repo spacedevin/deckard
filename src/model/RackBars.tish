@@ -109,7 +109,7 @@ export fn setRackBars(project, newBars, copyLast) {
 }
 
 /// Widest channel pattern = the rack's bar count.
-fn rackBars(project) {
+export fn rackBars(project) {
   let mx = 1
   if (!project || !project.channels) {
     return mx

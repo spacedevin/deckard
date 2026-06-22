@@ -2506,44 +2506,47 @@ export fn App() {
         </label>
       </div>
     </header>
-    <div class="daw-body daw-body-stack">
-      <div class="daw-main-stack">
-        {seqSession}
-        {h(InstrumentStackMemo, { project: project, selectedCh: selectedCh, setProjectFromUI: setProjectFromUI, tplMirrorFlush: tplMirrorFlush, rt: rt, channelsRev: channelsRev })}
+    <div class="daw-app-layout">
+      <div class="daw-main-area">
+        <div class="daw-body daw-body-stack">
+          <div class="daw-main-stack">
+            {seqSession}
+            {h(InstrumentStackMemo, { project: project, selectedCh: selectedCh, setProjectFromUI: setProjectFromUI, tplMirrorFlush: tplMirrorFlush, rt: rt, channelsRev: channelsRev })}
+          </div>
+          {h(DeckMixerMemo, { project: project, setProjectFromUI: setProjectFromUI, touchMixer: touchMixer, rt: rt, xfadeX: xfadeX, xfadeY: xfadeY, channelsRev: channelsRev, deckMixRev: deckMixRev })}
+        </div>
+        <footer class="daw-foot">
+          <div class="daw-foot-master">
+            <button
+              type="button"
+              class={compOn ? "master-chip master-chip-on" : "master-chip master-chip-off"}
+              title={"Master glue compressor — click to bypass. Readout = live gain reduction (dB)."}
+              onmousedown={(e) => e.stopPropagation()}
+              onclick={() => { if (rt && rt.emit) { rt.emit("master/comp", !compOn) } }}
+            >
+              {"COMPRESSOR · "}
+              <span class="master-comp-gr">{compOn ? "0.0dB" : "BYPASS"}</span>
+            </button>
+            <button
+              type="button"
+              class={reverbOn ? "master-chip master-chip-on" : "master-chip master-chip-off"}
+              title={"Shared reverb send bus — click to mute. Readout = channels currently sending."}
+              onmousedown={(e) => e.stopPropagation()}
+              onclick={() => { if (rt && rt.emit) { rt.emit("master/reverb", !reverbOn) } }}
+            >
+              {"REVERB_BUS · "}
+              <span class="master-rev-state">{reverbOn ? ("ON · " + String(revSends) + " send" + (revSends === 1 ? "" : "s")) : "OFF"}</span>
+            </button>
+            {AudioRackPanel(audioStore)}
+            {MidiPanel(midiRef.current, project, midiGen)}
+          </div>
+        </footer>
       </div>
-      {h(DeckMixerMemo, { project: project, setProjectFromUI: setProjectFromUI, touchMixer: touchMixer, rt: rt, xfadeX: xfadeX, xfadeY: xfadeY, channelsRev: channelsRev, deckMixRev: deckMixRev })}
-      <div class="daw-bottom-split">
+      <aside class="daw-sidebar-right">
         <div class="daw-bottom-col daw-bottom-codj">{CoDjPanel(project, setProject, tplMirrorFlush, rt)}</div>
         <div class="daw-bottom-col daw-tpl-dock">{CodeDebugView(project, setProject, tplText, setTplText, rt, true)}</div>
-      </div>
+      </aside>
     </div>
-    <footer class="daw-foot">
-      <div class="daw-foot-master">
-        <button
-          type="button"
-          class={compOn ? "master-chip master-chip-on" : "master-chip master-chip-off"}
-          title={"Master glue compressor — click to bypass. Readout = live gain reduction (dB)."}
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={() => { if (rt && rt.emit) { rt.emit("master/comp", !compOn) } }}
-        >
-          {"COMPRESSOR · "}
-          <span class="master-comp-gr">{compOn ? "0.0dB" : "BYPASS"}</span>
-        </button>
-        <button
-          type="button"
-          class={reverbOn ? "master-chip master-chip-on" : "master-chip master-chip-off"}
-          title={"Shared reverb send bus — click to mute. Readout = channels currently sending."}
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={() => { if (rt && rt.emit) { rt.emit("master/reverb", !reverbOn) } }}
-        >
-          {"REVERB_BUS · "}
-          <span class="master-rev-state">{reverbOn ? ("ON · " + String(revSends) + " send" + (revSends === 1 ? "" : "s")) : "OFF"}</span>
-        </button>
-        {AudioRackPanel(audioStore)}
-        {MidiPanel(midiRef.current, project, midiGen)}
-      </div>
-      <span class="daw-foot-meta">{"TPL: docs/TPL_GRAMMAR.md · ARCH: docs/ARCHITECTURE.md · DEV_NODE: AETHER_LABS"}</span>
-    </footer>
     {songBrowserOpen ? SongBrowser(project, rt, () => setSongBrowserOpen(false), songQuery, setSongQuery) : null}
   </div>
 }

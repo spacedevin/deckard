@@ -259,7 +259,7 @@ export fn emitProjectInner(project, skipSync) {
         formatTplFloat(p.release) +
         "\n"
     }
-    if (gid === "pad" || gid === "bell" || gid === "drumSynth" || gid === "guitar" || gid === "clap" || gid === "arco" || gid === "tine" || gid === "aether" || gid === "halo" || gid === "formantVocal" || gid === "ttsVocal" || gid === "nes2a03" || gid === "gameBoyDmg" || gid === "c64sid" || gid === "ym2612" || gid === "sn76489" || gid === "spc700" || gid === "gbaDirectSound") {
+    if (gid !== "basicOsc" && gid !== "noiseBurst" && gid !== "fmTone" && gid !== "patch" && gid !== "matrixFm") {
       let keys = Object.keys(p)
       if (keys.length > 0) {
         o = o + "  gen"

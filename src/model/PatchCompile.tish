@@ -1298,7 +1298,7 @@ fn gbaDirectSoundLines(p) {
 }
 
 /// True when this generator can be reduced to an equivalent patch graph (sound-preserving switch).
-fn canCompileToPatch(generatorId) {
+export fn canCompileToPatch(generatorId) {
   return (
     generatorId === "basicOsc" ||
     generatorId === "fmTone" ||
