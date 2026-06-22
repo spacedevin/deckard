@@ -5878,3 +5878,72 @@ input[type="range"]::-moz-range-thumb {
   cursor: default;
   user-select: none;
 }
+
+/* 3x2 Grid layout for active single deck instruments */
+.instr-grid-container {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  width: 100%;
+}
+
+/* Compact rules when instruments are inside the grid */
+.instr-grid-container .instr-stack-panel {
+  margin: 0 !important;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.instr-grid-container .instr-modules-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.instr-grid-container .instr-module {
+  flex: 1 1 50%;
+  min-width: 0;
+  max-width: none;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 6px;
+}
+
+.instr-grid-container .instr-module-body {
+  padding: 6px 8px;
+}
+
+.instr-grid-container .ik-card {
+  padding: 6px 8px;
+}
+
+/* Compact Knobs inside active deck grid */
+.instr-grid-container .ik-knob {
+  width: 3.1rem;
+}
+.instr-grid-container .ik-knob-dial {
+  width: 2.1rem;
+  height: 2.1rem;
+}
+.instr-grid-container .ik-knob-label {
+  font-size: 0.48rem;
+}
+.instr-grid-container .ik-knob-value {
+  font-size: 0.56rem;
+}
+
+/* Env display compact */
+.instr-grid-container .ik-env-svg {
+  height: 32px;
+}
+
+/* Scroll limits for larger panels */
+.instr-grid-container .matrixfm-panel-wrap,
+.instr-grid-container .patch-panel-wrap,
+.instr-grid-container .macro-panel-wrap {
+  max-height: 120px;
+  overflow-y: auto;
+}
+

@@ -553,5 +553,8 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
     k = k + 1
   }
   
+  if (activeDeck !== null && activeDeck !== undefined && activeDeck !== "") {
+    return <div class="instr-grid-container">{cards}</div>
+  }
   return <Fragment>{cards}</Fragment>
 }
