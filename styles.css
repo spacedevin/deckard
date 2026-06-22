@@ -923,6 +923,13 @@ input[type="range"]::-moz-range-thumb {
   border-radius: 4px;
   font-size: 0.8rem;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-ghost:hover {
+  color: var(--text);
+  border-color: #3a3a44;
 }
 /* Undo / redo icon buttons in the transport bar. */
 .btn-undo {
