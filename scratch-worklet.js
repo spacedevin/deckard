@@ -32,11 +32,6 @@ class DeckardScratch extends AudioWorkletProcessor {
         this._buf = m.data;
         this._len = this._buf ? this._buf.length : 0;
         this._pos = 0;
-        this._rate = 0;
-        this._target = 0;
-        this._spin = 0;
-        this._cut = 1;
-        this._cutTarget = 1;
       } else if (m.type === 'rate') {
         this._target = m.rate;
         this._spin = 0;          // a fresh jog cancels any in-flight brake/spinback
