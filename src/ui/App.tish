@@ -104,6 +104,16 @@ let SessionViewMemo = memo((p) => SessionView(p.project, p.rt, p.setProjectFromU
 fn playlistEq(a, b) {
   return a.timelineGen === b.timelineGen && a.setLibGen === b.setLibGen && a.channelsRev === b.channelsRev
 }
+
+// A click in the left deck strip selects that deck — but NOT when it lands on a control (jog, faders, EQ knobs,
+// vinyl/CUE buttons, crossfader, XY pad). Only clicks on the deck's empty area / title row select it.
+fn deckBgClick(e, deck, setActiveDeck) {
+  let t = e != null ? e.target : null
+  if (t != null && t.closest != null && t.closest("button, input, select, textarea, canvas, .dk-jog, .dk-xfade, .dk-xypad, [class*='knob'], [class*='lever'], [class*='fader']") != null) {
+    return
+  }
+  setActiveDeck(deck)
+}
 let PlaylistMemo = memo((p) => PlaylistView(p.project, p.rt, p.props), playlistEq)
 
 fn instrumentEq(a, b) {
@@ -2663,7 +2673,7 @@ export fn App() {
     </header>
     <div class="daw-app-layout">
       <aside class="daw-sidebar-left">
-        <div class={"deck-nav-btn deck-a" + (activeDeck === "A" ? " deck-active" : "")} onclick={() => setActiveDeck("A")}>
+        <div class={"deck-nav-btn deck-a" + (activeDeck === "A" ? " deck-active" : "")} onclick={(e) => deckBgClick(e, "A", setActiveDeck)}>
           <div class="deck-nav-content-row">
             <div class="deck-nav-platter-card">
               <div class="deck-nav-title-row">
@@ -2683,7 +2693,7 @@ export fn App() {
             {DeckChannelStrip(project, "A", setProjectFromUI, touchMixer, rt)}
           </div>
         </div>
-        <div class={"deck-nav-btn deck-b" + (activeDeck === "B" ? " deck-active" : "")} onclick={() => setActiveDeck("B")}>
+        <div class={"deck-nav-btn deck-b" + (activeDeck === "B" ? " deck-active" : "")} onclick={(e) => deckBgClick(e, "B", setActiveDeck)}>
           <div class="deck-nav-content-row">
             <div class="deck-nav-platter-card">
               <div class="deck-nav-title-row">
@@ -2703,7 +2713,7 @@ export fn App() {
             {DeckChannelStrip(project, "B", setProjectFromUI, touchMixer, rt)}
           </div>
         </div>
-        <div class={"deck-nav-btn deck-c" + (activeDeck === "C" ? " deck-active" : "")} onclick={() => setActiveDeck("C")}>
+        <div class={"deck-nav-btn deck-c" + (activeDeck === "C" ? " deck-active" : "")} onclick={(e) => deckBgClick(e, "C", setActiveDeck)}>
           <div class="deck-nav-content-row">
             <div class="deck-nav-platter-card">
               <div class="deck-nav-title-row">
@@ -2723,7 +2733,7 @@ export fn App() {
             {DeckChannelStrip(project, "C", setProjectFromUI, touchMixer, rt)}
           </div>
         </div>
-        <div class={"deck-nav-btn deck-d" + (activeDeck === "D" ? " deck-active" : "")} onclick={() => setActiveDeck("D")}>
+        <div class={"deck-nav-btn deck-d" + (activeDeck === "D" ? " deck-active" : "")} onclick={(e) => deckBgClick(e, "D", setActiveDeck)}>
           <div class="deck-nav-content-row">
             <div class="deck-nav-platter-card">
               <div class="deck-nav-title-row">

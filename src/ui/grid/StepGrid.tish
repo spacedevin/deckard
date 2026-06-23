@@ -11,7 +11,7 @@ import { tplLoopSkipsChannel } from '../../tpl/LoopState.tish'
 import { setRackBars } from '../../model/RackBars.tish'
 import { channelDeck, channelDeckColor } from '../../model/DeckRouting.tish'
 import { scaleRootNames, scaleModeNames, scaleModeLabel } from '../../model/Scale.tish'
-import { IkSelect } from '../InstrumentKit.tish'
+import { IkSelect, LucideIcon } from '../InstrumentKit.tish'
 import { euclidSteps, reseedSteps, mutateSteps, humanizeSteps, sprinkleProbability } from '../../model/Generative.tish'
 import { euclidNotes, reseedNotes, mutateNotes, humanizeNotes, sprinkleNoteProbability, notePitchForChannel, notesAfterFirstBar } from '../../model/Generative.tish'
 import { defaultAutoParam, autoLaneValues, autoNorm, autoDenorm } from '../../model/AutoParams.tish'
@@ -991,7 +991,7 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
             }
           }}
         >
-          {expanded ? "▾" : "▸"}
+          {LucideIcon("piano")}
         </button>
         <div class="sg-gutter-main" onclick={() => setSelectedCh(chIdx)} title="Select channel (Double-click name to rename)">
           <span
@@ -1302,7 +1302,8 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
   while (pti < project.channels.length) {
     let pc = project.channels[pti]
     if (rt != null && rt.gridExpanded != null && rt.gridExpanded[pc.id] === true && (activeDeck == null || channelDeck(project, pc) === activeDeck)) {
-      let prows = pianoRowsForChannel(project, pc, pti, rt, setProjectFromUI, viewBar, gridBars, (col) => { emitStepToggle(rt, project, pti, col); if (rt.bumpGrid) { rt.bumpGrid() } })
+      let chIx = pti
+      let prows = pianoRowsForChannel(project, pc, pti, rt, setProjectFromUI, viewBar, gridBars, (col) => { emitStepToggle(rt, project, chIx, col); if (rt.bumpGrid) { rt.bumpGrid() } })
       pianoTakeover = (
         <div class="sg-piano-takeover">
           <div class="sg-piano-takeover-head">
@@ -1458,8 +1459,7 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
     <section class="panel sg-panel">
       {PanelHeader(
         <Fragment>
-          <h2 class="sg-head-h2">{"SEQUENCER // CHANNEL RACK"}</h2>
-          <span class="sg-head-hint">{"Left: toggle · Right: clear · ▸ expand a track"}</span>
+          <h2 class="sg-head-h2">{"SEQ"}</h2>
         </Fragment>,
         headerRight
       )}

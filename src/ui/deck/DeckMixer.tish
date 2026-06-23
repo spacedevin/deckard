@@ -359,7 +359,7 @@ export fn VinylRow(deck, rt) {
       {holdBtn("REV", "dk-vinyl-btn", "Reverse deck " + deck + " — hold to play backward (censor)", () => { if (rt && rt.onDeckMove) { rt.onDeckMove(deck, "rev", true) } }, () => { if (rt && rt.onDeckMove) { rt.onDeckMove(deck, "rev", false) } })}
       {holdBtn("BRK", "dk-vinyl-btn", "Brake deck " + deck + " — hold to slow the record to a stop (release to bring it back)", () => { if (rt && rt.onDeckMove) { rt.onDeckMove(deck, "brake", true) } }, () => { if (rt && rt.onDeckMove) { rt.onDeckMove(deck, "brake", false) } })}
       <button type="button" class="dk-vinyl-btn" title={"Spinback deck " + deck + " — the rewind zip"} onpointerdown={(e) => { if (e.stopPropagation) { e.stopPropagation() } }} onclick={() => { if (rt && rt.onDeckMove) { rt.onDeckMove(deck, "spin", true) } }}>
-        {"SPIN"}
+        {"SPN"}
       </button>
     </div>
   )
@@ -402,6 +402,12 @@ export fn DeckChannelStrip(project, deck, setProjectFromUI, touchMixer, rt) {
   let cued = rt && rt.cuedDecks && rt.cuedDecks[deck] === true
   return (
     <div class={active ? "dk-ch-strip dk-deck-" + suf : "dk-ch-strip dk-deck-" + suf + " dk-ch-strip-empty"}>
+      <div class="dk-ch-right-col">
+        {EqSlider("HI", de.hi, (v) => setEq("hi", v), acc)}
+        {EqSlider("MID", de.mid, (v) => setEq("mid", v), acc)}
+        {EqSlider("LO", de.lo, (v) => setEq("lo", v), acc)}
+        {EqSlider("FLT", de.flt, (v) => setEq("flt", v), acc)}
+      </div>
       <div class="dk-ch-left-col">
         <button
           type="button"
@@ -421,12 +427,6 @@ export fn DeckChannelStrip(project, deck, setProjectFromUI, touchMixer, rt) {
           </div>
         </div>
         <div class="dk-ch-db">{gainToDb(vol)}</div>
-      </div>
-      <div class="dk-ch-right-col">
-        {EqSlider("HI", de.hi, (v) => setEq("hi", v), acc)}
-        {EqSlider("MID", de.mid, (v) => setEq("mid", v), acc)}
-        {EqSlider("LO", de.lo, (v) => setEq("lo", v), acc)}
-        {EqSlider("FLT", de.flt, (v) => setEq("flt", v), acc)}
       </div>
     </div>
   )

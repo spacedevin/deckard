@@ -324,12 +324,19 @@ fn pianoCell(rt, project, chIdx, ch, pitch, col, vb, isStep, stepPitch, stepTogg
   if (col % 4 === 0) {
     cls = cls + " sg-beat"
   }
-  // STEP channels (no pianoNotes) play their `steps` at a single pitch — only the step-pitch row is interactive
-  // (click toggles the step); other rows are inert (a step instrument is single-pitch). The active steps still
-  // DISPLAY as note bars on that row (see stepNoteBar / pianoRowsForChannel).
+  // STEP channels (no pianoNotes) play their `steps` at a single pitch. The step-pitch row toggles the step;
+  // clicking ANY OTHER row promotes the track to a full piano roll (steps → notes) and places a note there —
+  // because all notes are representable on a piano roll. The active steps DISPLAY as note bars on the step row.
   if (isStep === true) {
     if (pitch !== stepPitch) {
-      return <div class={cls + " sg-pcell-inert"} />
+      return (
+        <button
+          type="button"
+          class={cls}
+          title={"Add " + noteName(pitch) + " — converts this track to a piano roll"}
+          onmousedown={(e) => { if (e.button !== 2) { promoteStepAddNote(rt, project, chIdx, pitch, col, vb) } }}
+        />
+      )
     }
     return (
       <button
@@ -355,6 +362,56 @@ fn pianoCell(rt, project, chIdx, ch, pitch, col, vb, isStep, stepPitch, stepTogg
       }}
     />
   )
+}
+
+// The pitch a step channel plays in a given bar (per-bar override, else the channel's single step pitch).
+fn stepPitchForBar(ch, bar) {
+  let sp = ch.stepPitch != null ? Math.floor(ch.stepPitch) : 36
+  if (ch.stepPitchByBar != null && bar < ch.stepPitchByBar.length && ch.stepPitchByBar[bar] != null) {
+    sp = Math.floor(ch.stepPitchByBar[bar])
+  }
+  return sp
+}
+
+// Convert a step channel's on-steps into piano notes (each at its bar's step pitch), so a single-pitch step
+// pattern becomes a real, fully-editable piano roll. Used when the user clicks an off-pitch row: "all notes
+// are representable on a piano roll", so placing a note at any pitch promotes the track to melodic.
+fn stepsToNotes(ch) {
+  let arr = []
+  if (!ch.steps) {
+    return arr
+  }
+  let i = 0
+  while (i < ch.steps.length) {
+    let s = ch.steps[i]
+    if (s != null && s.on === true) {
+      arr.push({
+        startBeat: i * 0.25,
+        durBeats: 0.25,
+        pitch: stepPitchForBar(ch, Math.floor(i / 16)),
+        vel: s.vel != null ? s.vel : 100,
+        prob: s.prob != null ? s.prob : 1,
+        ratchet: s.ratchet != null ? s.ratchet : 1,
+        nudge: s.nudge != null ? s.nudge : 0,
+        lyric: s.lyric != null ? s.lyric : ""
+      })
+    }
+    i = i + 1
+  }
+  return arr
+}
+
+// Click an off-pitch row of a STEP channel's piano roll: promote it to a melodic piano roll (its existing
+// steps become notes) and add the clicked note. Emitting through the notes door makes ch.pianoNotes non-empty,
+// so from here on the channel plays + edits as a normal piano roll (every row clickable).
+fn promoteStepAddNote(rt, project, chIdx, addPitch, addCol, vb) {
+  let ch = project.channels[chIdx]
+  if (!ch) {
+    return
+  }
+  let arr = stepsToNotes(ch)
+  arr.push({ startBeat: vb * 4 + addCol * 0.25, durBeats: 0.25, pitch: Math.floor(addPitch), vel: 100, prob: 1, ratchet: 1, nudge: 0, lyric: "" })
+  emitPianoNotes(rt, project, chIdx, arr)
 }
 
 // One step rendered AS a note bar on the piano roll (for step channels) — click to remove it.
