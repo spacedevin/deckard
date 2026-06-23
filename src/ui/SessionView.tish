@@ -262,16 +262,8 @@ export fn SessionTrackRow(project, ch, tix, activeDeck, rt, sc, playing, bumpSes
     </div>
   )
 
-  let expanded = rt != null && rt.gridExpanded != null && rt.gridExpanded[ch.id] === true
-  if (expanded) {
-    let win = pitchWindow(ch)
-    let pCount = win.hi - win.lo + 1
-    let pk = 0
-    while (pk < pCount) {
-      outRows.push(<div class="sg-row sg-prow" style={{ visibility: "hidden", pointerEvents: "none" }} key={"spacer-p-" + String(tix) + "-" + String(pk)}><div class="sg-cell sg-pcell" /></div>)
-      pk = pk + 1
-    }
-  }
+  // The piano roll is now a full-panel takeover in the sequencer (it no longer pushes inline rows), so the
+  // session needs NO matching expand-spacer rows.
   let locksOpen = rt != null && rt.gridLocks != null && rt.gridLocks[ch.id] === true
   let isStepCh = (!ch.pianoNotes || ch.pianoNotes.length === 0) && singleNotePitch(ch) == null
   if (locksOpen && isStepCh) {
@@ -296,10 +288,8 @@ export fn SessionTrackRow(project, ch, tix, activeDeck, rt, sc, playing, bumpSes
     outRows.push(<div class="sg-row sg-auto-row" style={{ visibility: "hidden", pointerEvents: "none" }} key={"spacer-auto-" + String(tix)}><div class="sg-cell" /></div>)
   }
   let isVocal = ch.generatorId === "formantVocal" || ch.generatorId === "ttsVocal" || ch.generatorId === "meSpeakVocal"
-  if (isVocal) {
-    if (expanded || isStepCh) {
-      outRows.push(<div class="sg-row sg-lk-row" style={{ visibility: "hidden", pointerEvents: "none" }} key={"spacer-lyric-" + String(tix)}><div class="sg-lk-cell" /></div>)
-    }
+  if (isVocal && isStepCh) {
+    outRows.push(<div class="sg-row sg-lk-row" style={{ visibility: "hidden", pointerEvents: "none" }} key={"spacer-lyric-" + String(tix)}><div class="sg-lk-cell" /></div>)
   }
 
   return outRows

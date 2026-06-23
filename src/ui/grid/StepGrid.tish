@@ -975,14 +975,16 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
         <button
           type="button"
           class={expanded ? "sg-exp sg-exp-on" : "sg-exp"}
-          title="Expand the piano roll for this track (aligned under its step row)"
+          title="Open the piano roll for this track (takes over the sequencer)"
           onclick={(e) => {
             e.stopPropagation()
             if (rt) {
-              if (!rt.gridExpanded) {
-                rt.gridExpanded = {}
+              // Single piano roll at a time: clear all, then open this one (or close if it was already open).
+              let wasOpen = rt.gridExpanded != null && rt.gridExpanded[ch.id] === true
+              rt.gridExpanded = {}
+              if (!wasOpen) {
+                rt.gridExpanded[ch.id] = true
               }
-              rt.gridExpanded[ch.id] = !(rt.gridExpanded[ch.id] === true)
               if (rt.bumpGrid) {
                 rt.bumpGrid()
               }
@@ -1190,11 +1192,8 @@ export fn StepGridTrackRows(project, ch, ci, selectedCh, setProjectFromUI, setSe
   let rows = []
   rows.push(ChannelRowGrid(ch, ci, project, setProjectFromUI, ci === selectedCh, setSelectedCh, rt, viewBar))
   let expanded = rt != null && rt.gridExpanded != null && rt.gridExpanded[ch.id] === true
-  if (expanded) {
-    let prows = pianoRowsForChannel(project, ch, ci, rt, setProjectFromUI, viewBar, gridBars)
-    let k = 0
-    while (k < prows.length) { rows.push(prows[k]); k = k + 1 }
-  }
+  // The piano roll no longer expands inline beneath the row — it TAKES OVER the whole sequencer panel as a
+  // single overlay (rendered once in StepGridPanel). So nothing is pushed here for the expanded state.
   let locksOpen = rt != null && rt.gridLocks != null && rt.gridLocks[ch.id] === true
   let isStepCh = (!ch.pianoNotes || ch.pianoNotes.length === 0) && singleNotePitch(ch) == null
   if (locksOpen && isStepCh) {
@@ -1215,9 +1214,8 @@ export fn StepGridTrackRows(project, ch, ci, selectedCh, setProjectFromUI, setSe
     if (arow != null) { rows.push(arow) }
   }
   let isVocal = ch.generatorId === "formantVocal" || ch.generatorId === "ttsVocal" || ch.generatorId === "meSpeakVocal"
-  if (isVocal) {
-    if (expanded) { rows.push(pianoLockLaneRow(project, ch, ci, "lyric", rt, viewBar)) }
-    else if (isStepCh) { rows.push(lockLaneRow(project, ch, ci, "lyric", rt)) }
+  if (isVocal && isStepCh) {
+    rows.push(lockLaneRow(project, ch, ci, "lyric", rt))
   }
   return rows
 }
@@ -1296,6 +1294,26 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
       tr = tr + 1
     }
     ci = ci + 1
+  }
+
+  // Single piano-roll TAKEOVER overlay: if a channel is open, its piano roll fills the whole sequencer panel.
+  let pianoTakeover = null
+  let pti = 0
+  while (pti < project.channels.length) {
+    let pc = project.channels[pti]
+    if (rt != null && rt.gridExpanded != null && rt.gridExpanded[pc.id] === true && (activeDeck == null || channelDeck(project, pc) === activeDeck)) {
+      let prows = pianoRowsForChannel(project, pc, pti, rt, setProjectFromUI, viewBar, gridBars, (col) => { emitStepToggle(rt, project, pti, col); if (rt.bumpGrid) { rt.bumpGrid() } })
+      pianoTakeover = (
+        <div class="sg-piano-takeover">
+          <div class="sg-piano-takeover-head">
+            <span class="sg-piano-takeover-title">{pc.name + " · PIANO ROLL"}</span>
+            <button type="button" class="sg-piano-takeover-close" title="Close piano roll" onclick={(e) => { e.stopPropagation(); if (rt) { rt.gridExpanded = {}; if (rt.bumpGrid) { rt.bumpGrid() } } }}>{"✕"}</button>
+          </div>
+          <div class="sg-grid sg-piano-takeover-body">{prows}</div>
+        </div>
+      )
+    }
+    pti = pti + 1
   }
   // Bar pager — view one bar at a time, page through a multi-bar progression.
   let pager = []
@@ -1550,6 +1568,7 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
         <div class="sg-ruler-pad" />
         <div class="sg-ruler-ticks">{ruler}</div>
       </div>
+      {pianoTakeover}
     </section>
   )
 }

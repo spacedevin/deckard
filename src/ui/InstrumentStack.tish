@@ -21,7 +21,7 @@ import { macroCatalog, assignMacroToChannel } from '../model/MacroVoice.tish'
 import { compileGeneratorToPatchLines } from '../model/PatchCompile.tish'
 import { emitInstrumentModuleTpl } from '../core/Levels.tish'
 import { GeneratorParamPanel } from './GeneratorParams.tish'
-import { accentForGenerator, Knob, IkSelect, EnvDisplay, WaveIconPicker } from './InstrumentKit.tish'
+import { accentForGenerator, Knob, IkSelect, EnvDisplay, WaveIconPicker, LucideIcon } from './InstrumentKit.tish'
 import { channelDeck } from '../model/DeckRouting.tish'
 import { actorMayEditTrack } from '../codj/Merge.tish'
 import { MatrixFmPanel } from './MatrixFmPanel.tish'
@@ -425,8 +425,8 @@ fn ModuleCard(title, tplBlock, module, ctx, children, wide, extraClass) {
         <span class="instr-module-title">{title}</span>
         {hasRaw ? (
           <span class="instr-module-toggle" style={toggleStyle}>
-            <button type="button" class={raw ? "imt-btn" : "imt-btn imt-on"} style={!raw && accent ? { background: accent + "33", color: accent } : {}} onclick={() => setModuleRaw(ctx, module, false)}>{"Designer"}</button>
-            <button type="button" class={raw ? "imt-btn imt-on" : "imt-btn"} style={raw && accent ? { background: accent + "33", color: accent } : {}} onclick={() => setModuleRaw(ctx, module, true)}>{"Raw"}</button>
+            <button type="button" class={raw ? "imt-btn" : "imt-btn imt-on"} title="Designer (knobs)" style={!raw && accent ? { background: accent + "33", color: accent } : {}} onclick={() => setModuleRaw(ctx, module, false)}>{LucideIcon("sliders")}</button>
+            <button type="button" class={raw ? "imt-btn imt-on" : "imt-btn"} title="Raw (TPL)" style={raw && accent ? { background: accent + "33", color: accent } : {}} onclick={() => setModuleRaw(ctx, module, true)}>{LucideIcon("code")}</button>
           </span>
         ) : null}
         {tplBlock !== "" ? <span class="instr-module-tpl" style={tplStyle}>{tplBlock}</span> : null}
@@ -735,7 +735,7 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
                     }
                   }}
                 >
-                  {"M"}
+                  {LucideIcon("volume-x")}
                 </button>
                 <button
                   type="button"
@@ -748,7 +748,7 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
                     }
                   }}
                 >
-                  {"S"}
+                  {LucideIcon("headphones")}
                 </button>
                 <button
                   type="button"
@@ -760,7 +760,7 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
                     setProjectFromUI(project)
                   }}
                 >
-                  {"L"}
+                  {LucideIcon("lock")}
                 </button>
               </div>
               {voiceDropdown(project, ch, setProjectFromUI, tplMirrorFlush, rt, deckColor, badgeText)}
@@ -841,7 +841,7 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
     }
   }
   if (activeDeck !== null && activeDeck !== undefined && activeDeck !== "") {
-    return <Fragment><div class="instr-grid-container">{cards}</div>{modalEl}</Fragment>
+    return <div class="instr-stack-host"><div class="instr-grid-container">{cards}</div>{modalEl}</div>
   }
-  return <Fragment>{cards}{modalEl}</Fragment>
+  return <div class="instr-stack-host">{cards}{modalEl}</div>
 }

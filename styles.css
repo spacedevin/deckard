@@ -3863,7 +3863,15 @@ input[type="range"]::-moz-range-thumb {
   background: var(--panel-2);
   border: 1px solid #1c1c22;
   padding: 14px 16px 18px;
+  position: relative;
 }
+/* Piano-roll TAKEOVER — one open at a time, fills the whole sequencer panel (does NOT expand/extend it). */
+.sg-piano-takeover { position: absolute; inset: 0; z-index: 30; background: var(--panel-2, #0a0a0c); display: flex; flex-direction: column; }
+.sg-piano-takeover-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 16px; border-bottom: 1px solid #1c1c22; flex-shrink: 0; }
+.sg-piano-takeover-title { font-size: 0.78rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent, #22d3ee); }
+.sg-piano-takeover-close { width: 24px; height: 24px; border: 1px solid #2a2a32; border-radius: 4px; background: transparent; color: var(--text, #e8e8ea); cursor: pointer; font-size: 0.85rem; line-height: 1; }
+.sg-piano-takeover-close:hover { background: rgba(255, 255, 255, 0.08); }
+.sg-piano-takeover-body { flex: 1; overflow-y: auto; padding: 6px 10px 10px; }
 .sg-head {
   display: flex;
   align-items: baseline;
@@ -3971,7 +3979,12 @@ input[type="range"]::-moz-range-thumb {
   font-size: 0.58rem;
   font-weight: 800;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }
+.sg-tog svg { width: 11px; height: 11px; }
 .sg-tog-on {
   background: #4a1f24;
   border-color: #ff7a8c;
@@ -4361,6 +4374,10 @@ input[type="range"]::-moz-range-thumb {
 .sg-pnote-bar:active {
   cursor: grabbing;
 }
+/* A step shown as a note bar (step channels on the piano roll) — a click toggles it, not a drag. */
+.sg-pnote-step { cursor: pointer; }
+/* Non-step-pitch rows of a single-pitch step channel: visible but not interactive. */
+.sg-pcell-inert { pointer-events: none; }
 .sg-pnote-edge {
   position: absolute;
   top: 0;
@@ -5783,8 +5800,11 @@ input[type="range"]::-moz-range-thumb {
 /* Matrix FM / Patch collapse to this launcher in their grid card; it opens their full editor in a modal. */
 .gen-open-modal { width: 100%; padding: 10px 8px; border: 1px dashed var(--border, #2a2a2a); border-radius: 5px; background: rgba(255, 255, 255, 0.03); color: var(--text, #e8e8ea); cursor: pointer; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
 .gen-open-modal:hover { background: rgba(255, 255, 255, 0.07); border-color: var(--accent, #22d3ee); }
-.gen-modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.62); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.gen-modal { background: var(--bg, #0e0e12); border: 1px solid var(--border, #2a2a2a); border-radius: 8px; width: min(1100px, 94vw); max-height: 88vh; display: flex; flex-direction: column; box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6); }
+/* The matrix/patch editor is a UI toggle confined to the instrument area, NOT a screen modal: the backdrop is
+   absolute within .instr-stack-host (the instrument region) and the panel fills it exactly. */
+.instr-stack-host { position: relative; }
+.gen-modal-backdrop { position: absolute; inset: 0; background: rgba(8, 8, 12, 0.86); display: flex; align-items: stretch; justify-content: stretch; z-index: 50; }
+.gen-modal { background: var(--bg, #0e0e12); border: 1px solid var(--border, #2a2a2a); border-radius: 6px; width: 100%; height: 100%; max-width: none; max-height: 100%; display: flex; flex-direction: column; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45); }
 .gen-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 9px 14px; border-bottom: 1px solid var(--border, #2a2a2a); }
 .gen-modal-title { font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.78rem; color: var(--text, #e8e8ea); }
 .gen-modal-close { background: transparent; border: 1px solid var(--border, #2a2a2a); border-radius: 4px; color: var(--text, #e8e8ea); cursor: pointer; width: 26px; height: 26px; font-size: 0.85rem; }

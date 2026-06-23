@@ -41,22 +41,28 @@ fn noteIdxAt(ch, pitch, step) {
 // under the cursor. Anchor = the channel's step pitch, or the first piano note if present.
 fn pitchWindow(ch) {
   let center = 60
+  let below = 12
+  let above = 13
   if (ch.stepPitch != null) {
     center = Math.floor(ch.stepPitch)
   }
   let pn = ch.pianoNotes
   if (pn && pn.length > 0) {
     center = Math.floor(pn[0].pitch)
+  } else {
+    // Step channel = a single pitch; a tight window keeps the step row centred + visible without scrolling.
+    below = 5
+    above = 6
   }
-  let lo = center - 12
-  let hi = center + 13
+  let lo = center - below
+  let hi = center + above
   if (lo < 12) {
     lo = 12
-    hi = lo + 25
+    hi = lo + (below + above)
   }
   if (hi > 108) {
     hi = 108
-    lo = hi - 25
+    lo = hi - (below + above)
   }
   return { lo: lo, hi: hi }
 }
@@ -313,10 +319,26 @@ fn pianoEraseDown(e, rt, project, chIdx, vb) {
 
 // A background cell: LEFT press/drag = add/paint, RIGHT press/drag = erase. Carries the id the pointer
 // resolution reads.
-fn pianoCell(rt, project, chIdx, ch, pitch, col, vb) {
+fn pianoCell(rt, project, chIdx, ch, pitch, col, vb, isStep, stepPitch, stepToggle) {
   let cls = "sg-cell sg-pcell sg-col-" + String(col)
   if (col % 4 === 0) {
     cls = cls + " sg-beat"
+  }
+  // STEP channels (no pianoNotes) play their `steps` at a single pitch — only the step-pitch row is interactive
+  // (click toggles the step); other rows are inert (a step instrument is single-pitch). The active steps still
+  // DISPLAY as note bars on that row (see stepNoteBar / pianoRowsForChannel).
+  if (isStep === true) {
+    if (pitch !== stepPitch) {
+      return <div class={cls + " sg-pcell-inert"} />
+    }
+    return (
+      <button
+        type="button"
+        class={cls}
+        title={"Toggle step " + String(col + 1)}
+        onmousedown={(e) => { if (e.button !== 2 && stepToggle) { stepToggle(col) } }}
+      />
+    )
   }
   return (
     <button
@@ -331,6 +353,19 @@ fn pianoCell(rt, project, chIdx, ch, pitch, col, vb) {
           pianoPaintDown(e, rt, project, chIdx, pitch, col, vb)
         }
       }}
+    />
+  )
+}
+
+// One step rendered AS a note bar on the piano roll (for step channels) — click to remove it.
+fn stepNoteBar(col, stepToggle) {
+  let leftPct = (col / 16) * 100
+  return (
+    <div
+      class="sg-pnote-bar sg-pnote-step"
+      style={{ left: String(leftPct) + "%", width: "6.25%" }}
+      title={"Step " + String(col + 1) + " — click to remove"}
+      onmousedown={(e) => { if (e.button !== 2 && stepToggle) { e.stopPropagation(); stepToggle(col) } }}
     />
   )
 }
@@ -385,10 +420,17 @@ fn pianoNoteBar(rt, project, chIdx, n, noteIdx, vb) {
 }
 
 /** Array of inline piano rows for one channel — appended under its step row, showing the viewed bar. */
-export fn pianoRowsForChannel(project, ch, chIdx, rt, setProjectFromUI, viewBar, gridBars) {
+export fn pianoRowsForChannel(project, ch, chIdx, rt, setProjectFromUI, viewBar, gridBars, stepToggle) {
   let vb = (viewBar != null && viewBar >= 0) ? Math.floor(viewBar) : 0
   let win = pitchWindow(ch)
   let deckCls = "sg-deck-" + channelDeckColor(project, ch)
+  // A STEP channel (no pianoNotes) plays its `steps` at one pitch — DISPLAY those hits as note bars on the
+  // step-pitch row, so a non-piano-roll track still shows its notes on the piano roll.
+  let isStep = !ch.pianoNotes || ch.pianoNotes.length === 0
+  let stepPitch = ch.stepPitch != null ? Math.floor(ch.stepPitch) : 36
+  if (ch.stepPitchByBar != null && ch.stepPitchByBar.length > vb && ch.stepPitchByBar[vb] != null) {
+    stepPitch = Math.floor(ch.stepPitchByBar[vb])
+  }
   let rows = []
   let p = win.hi
   while (p >= win.lo) {
@@ -396,12 +438,23 @@ export fn pianoRowsForChannel(project, ch, chIdx, rt, setProjectFromUI, viewBar,
     let cells = []
     let i = 0
     while (i < 16) {
-      cells.push(pianoCell(rt, project, chIdx, ch, pitch, i, vb))
+      cells.push(pianoCell(rt, project, chIdx, ch, pitch, i, vb, isStep, stepPitch, stepToggle))
       i = i + 1
     }
-    // Note bars at THIS pitch that start in the viewed bar, overlaid on the cells.
+    // Note bars at THIS pitch in the viewed bar, overlaid on the cells (steps for step channels, else notes).
     let bars = []
-    if (ch.pianoNotes) {
+    if (isStep) {
+      if (pitch === stepPitch && ch.steps) {
+        let si = 0
+        while (si < 16) {
+          let absStep = vb * 16 + si
+          if (absStep < ch.steps.length && ch.steps[absStep] != null && ch.steps[absStep].on === true) {
+            bars.push(stepNoteBar(si, stepToggle))
+          }
+          si = si + 1
+        }
+      }
+    } else if (ch.pianoNotes) {
       let ni = 0
       while (ni < ch.pianoNotes.length) {
         let n = ch.pianoNotes[ni]
@@ -417,6 +470,9 @@ export fn pianoRowsForChannel(project, ch, chIdx, rt, setProjectFromUI, viewBar,
     let rowCls = "sg-row sg-prow " + deckCls
     if (isBlackKey(pitch)) {
       rowCls = rowCls + " sg-prow-black"
+    }
+    if (isStep && pitch === stepPitch) {
+      rowCls = rowCls + " sg-prow-steprow"
     }
     let isC = ((pitch % 12) + 12) % 12 === 0
     let gutCls = isC ? "sg-gutter sg-pgut sg-pgut-c" : "sg-gutter sg-pgut"
