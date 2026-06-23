@@ -281,6 +281,8 @@ fn msKnob(label, ch, field, maxMs, rt, accent) {
     value: ms, min: 0, max: maxMs, step: 1,
     disp: String(Math.round(ms)) + "ms",
     accent: accent,
+    valueInside: true,
+    size: "sm",
     onInput: (nv) => {
       if (rt && rt.emit) {
         rt.emit("track/" + ch.id + "/" + fieldAddress(field), nv)
@@ -299,6 +301,8 @@ export fn octaveKnob(ch, rt, accent) {
     step: 1,
     detents: 5,
     accent: accent,
+    valueInside: true,
+    size: "sm",
     fmt: (x) => {
       let n = Math.round(x)
       return n > 0 ? "+" + String(n) : String(n)
@@ -340,6 +344,8 @@ export fn selectorKnob(label, ch, field, defs, rt, accent) {
     step: 1,
     detents: n,
     accent: accent,
+    valueInside: true,
+    size: "sm",
     fmt: (x) => defs[clampIdx(x)][0],
     onInput: (x) => {
       if (rt && rt.emit) {

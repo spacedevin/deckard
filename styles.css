@@ -5689,7 +5689,6 @@ input[type="range"]::-moz-range-thumb {
 /* Pitch module: the three stepped selector knobs sit in one row filling the card width. */
 .instr-pitch-knobs { display: flex; gap: 0.35rem; justify-content: space-around; align-items: flex-start;
   flex-wrap: wrap; padding: 0.1rem 0; }
-.instr-pitch-knobs .ik-knob { width: 4.2rem; }
 .instr-pitch-knobs .ik-knob-value { white-space: nowrap; font-size: 0.56rem; }
 
 /* Compact knob (dense panels) */
