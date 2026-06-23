@@ -82,16 +82,18 @@ class DeckardScratch extends AudioWorkletProcessor {
         this._rate += (this._target - this._rate) * 0.12;
         r = this._rate;
       }
-      // not moving → silence (the needle is static).
-      if (r > -0.0008 && r < 0.0008) { ch0[i] = 0; continue; }
-      let p = this._pos;
-      // It's a one-bar LOOP — wrap around so you can push it forward/back continuously like a loop scratch.
-      if (p >= len) p -= len;
+      // Smoothly fade out volume as speed approaches 0 to avoid clicks/pops and static.
+      let speedAmp = 1.0;
+      const absR = Math.abs(r);
+      if (absR < 0.05) {
+        speedAmp = absR / 0.05;
+      }
+      let p = this._pos % len;
       if (p < 0) p += len;
       const i0 = p | 0;
       const i1 = (i0 + 1) % len;
       const frac = p - i0;
-      ch0[i] = (this._buf[i0] + (this._buf[i1] - this._buf[i0]) * frac) * this._cut;
+      ch0[i] = (this._buf[i0] + (this._buf[i1] - this._buf[i0]) * frac) * this._cut * speedAmp;
       this._pos = p + r;
     }
     for (let c = 1; c < out.length; c++) out[c].set(ch0);

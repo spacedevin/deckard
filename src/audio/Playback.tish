@@ -210,7 +210,26 @@ export fn renderDeckLoopToBuffer(project, deck, bars) {
     s = s + 1
   }
   return octx.startRendering().then((rendered) => {
-    return { data: rendered.getChannelData(0), sampleRate: sr }
+    let data = rendered.getChannelData(0)
+    let loopSamples = Math.floor(sr * totalSteps * stepSec)
+    if (loopSamples > data.length) {
+      loopSamples = data.length
+    }
+    let finalData = new Float32Array(loopSamples)
+    let fi = 0
+    while (fi < loopSamples) {
+      finalData[fi] = data[fi]
+      fi = fi + 1
+    }
+    let tailSamples = data.length - loopSamples
+    let ti = 0
+    while (ti < tailSamples) {
+      if (ti < loopSamples) {
+        finalData[ti] = finalData[ti] + data[loopSamples + ti]
+      }
+      ti = ti + 1
+    }
+    return { data: finalData, sampleRate: sr }
   }, (e) => {
     return null
   })

@@ -7,8 +7,6 @@ import { h, Fragment } from '@tishlang/lattish'
 import { channelDeck, channelDeckRow, crossfadeValue, crossfadeValueY } from '../../model/DeckRouting.tish'
 import { ensureMasterMixer, channelActorLane } from '../../model/MixerRouting.tish'
 import { setChannelGain } from '../../model/Edits.tish'
-import { loadDeckSet, deckSetCatalog } from '../../model/DeckSets.tish'
-import { createSetLibrary, loadSet } from '../../core/SetLibrary.tish'
 import { Knob, IkSelect } from '../InstrumentKit.tish'
 
 export fn ensureDeckEq(project) {
@@ -177,69 +175,6 @@ fn StemFader(entry, setProjectFromUI, touchMixer, project, rt, accentColor) {
   )
 }
 
-fn DeckSetPicker(project, deck, setProjectFromUI, touchMixer, rt) {
-  let cat = deckSetCatalog()
-  let opts = [{ value: "", label: "— load rack —" }]
-  let i = 0
-  while (i < cat.length) {
-    let s = cat[i]
-    opts.push({ value: "rack:" + s.id, label: s.name + " (" + s.genre + ")" })
-    i = i + 1
-  }
-  // User-saved Sets load their FIRST player onto this deck (with their arrangement). Read-only view of
-  // the shared localStorage library; selecting one routes through loadSet onto this deck.
-  let lib = createSetLibrary()
-  let sets = lib.list()
-  let userSets = []
-  let si = 0
-  while (si < sets.length) {
-    if (!sets[si].factory) {
-      userSets.push(sets[si])
-    }
-    si = si + 1
-  }
-  if (userSets.length > 0) {
-    let uj = 0
-    while (uj < userSets.length) {
-      let st = userSets[uj]
-      opts.push({ value: "set:" + st.name, label: "◆ " + st.name + " (" + String(st.players) + "p)" })
-      uj = uj + 1
-    }
-  }
-  return IkSelect({
-    class: "dk-set-select",
-    value: "",
-    options: opts,
-    onChange: (val) => {
-      if (!val || val.length === 0) {
-        return
-      }
-      if (val.indexOf("set:") === 0) {
-        let st = lib.get(val.substring(4))
-        if (st) {
-          loadSet(project, st, deck)
-        }
-      } else {
-        let sid = val.indexOf("rack:") === 0 ? val.substring(5) : val
-        loadDeckSet(project, deck, sid)
-      }
-      if (rt) {
-        // Drop stale per-index clip arming so the new channels fall back to their own clips.
-        rt.sessionArmedClipIds = []
-        rt.sessionQueuedClipIds = []
-        rt.sessionQueuePending = false
-        rt.sessionQueuedScene = null
-        if (rt.resyncAudio) {
-          rt.resyncAudio()
-        }
-      }
-      setProjectFromUI(project)
-      if (touchMixer) {
-        touchMixer()
-      }
-    }
-  })
-}
 
 // Per-deck JOG PLATTER (CDJ-style). Grabbing the wheel scratches THIS deck's rendered loop (lazy-loaded on
 // first grab, cached) and DUCKS this deck's live channels so the scratch replaces it; releasing restores the
@@ -438,7 +373,6 @@ fn DeckSlot(project, deck, setProjectFromUI, touchMixer, rt) {
     <div class={cls}>
       <div class="dk-player-head">
         <span class={"dk-player-tag " + acc}>{"DECK " + deck}</span>
-        {DeckSetPicker(project, deck, setProjectFromUI, touchMixer, rt)}
       </div>
       {empty ? <div class="dk-empty">{"DECK " + deck + " — empty"}</div> : null}
       {empty ? null : DeckJog(deck, rt)}
