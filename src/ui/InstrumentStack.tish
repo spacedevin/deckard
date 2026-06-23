@@ -29,6 +29,7 @@ import { PatchGraphPanel } from './PatchGraphPanel.tish'
 import { MacroDesignerPanel } from './MacroDesignerPanel.tish'
 import { RichTplEditor } from './RichTplEditor.tish'
 import { gainToDb, vertLeverEl } from './deck/DeckMixer.tish'
+import { ensureCoDjMeta, setMasterLock } from '../codj/CoDjMeta.tish'
 
 let VOICE_GROUPS = [
   { title: "Oscillators", voices: [["basicOsc", "Osc"], ["fmTone", "FM"]] },
@@ -617,6 +618,10 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
       </div>
     )
 
+    ensureCoDjMeta(project)
+    let meta = project.coDjMeta.tracks[ch.id]
+    let locked = meta != null && meta.masterLock === true
+
     cards.push(
       <section
         class="panel instr-stack-panel"
@@ -661,6 +666,77 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
                 }}
                 title="Hover or double click to edit track name"
               />
+              <div class="sg-gutter-ctl" style={{ display: "flex", gap: "3px", marginRight: "4px" }}>
+                <button
+                  type="button"
+                  class="sg-deck-chip"
+                  style={{
+                    borderColor: deckColor,
+                    color: deckColor,
+                    boxShadow: "0 0 6px " + deckColor + "33",
+                    width: "17px",
+                    height: "17px",
+                    fontSize: "0.58rem",
+                    padding: "0",
+                    lineHeight: "15px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center"
+                  }}
+                  title="Click to cycle this channel through the 4 decks (A → B → C → D)."
+                  onclick={(e) => {
+                    e.stopPropagation()
+                    let cur = channelDeck(project, ch)
+                    let curIdx = cur === "B" ? 1 : cur === "C" ? 2 : cur === "D" ? 3 : 0
+                    ch.deckSlot = (curIdx + 1) % 4
+                    ch.actorLane = ch.deckSlot === 0 ? "" : "client"
+                    setProjectFromUI(project)
+                    if (rt && rt.touchMixer) {
+                      rt.touchMixer()
+                    }
+                  }}
+                >
+                  {channelDeck(project, ch)}
+                </button>
+                <button
+                  type="button"
+                  class={ch.mute ? "sg-tog sg-tog-on" : "sg-tog"}
+                  title="Mute"
+                  onclick={(e) => {
+                    e.stopPropagation()
+                    if (rt && rt.emit) {
+                      rt.emit("track/" + ch.id + "/mix/mute", !ch.mute)
+                    }
+                  }}
+                >
+                  {"M"}
+                </button>
+                <button
+                  type="button"
+                  class={ch.solo ? "sg-tog sg-tog-solo" : "sg-tog"}
+                  title="Solo"
+                  onclick={(e) => {
+                    e.stopPropagation()
+                    if (rt && rt.emit) {
+                      rt.emit("track/" + ch.id + "/mix/solo", !ch.solo)
+                    }
+                  }}
+                >
+                  {"S"}
+                </button>
+                <button
+                  type="button"
+                  class={locked ? "sg-tog sg-tog-lock" : "sg-tog"}
+                  title="Master-lock (agents can't overwrite)"
+                  onclick={(e) => {
+                    e.stopPropagation()
+                    setMasterLock(project, ch.id, !locked)
+                    setProjectFromUI(project)
+                  }}
+                >
+                  {"L"}
+                </button>
+              </div>
               {voiceDropdown(project, ch, setProjectFromUI, tplMirrorFlush, rt, deckColor, badgeText)}
               <button
                 type="button"
@@ -698,31 +774,6 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
           </Fragment>,
           <div class="instr-head-mixer" style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
             {instrumentPresetBar(project, ch, setProjectFromUI, tplMirrorFlush)}
-            <button
-              type="button"
-              class={ch.mute ? "btn-deck btn-deck-cue btn-deck-on" : "btn-deck"}
-              style={{ padding: "0.2rem 0.35rem" }}
-              title={ch.mute ? "Unmute track" : "Mute track"}
-              onclick={() => {
-                if (rt && rt.emit) {
-                  rt.emit("track/" + ch.id + "/mix/mute", !ch.mute)
-                }
-              }}
-            >
-              {ch.mute ? (
-                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
-                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-                  <line x1="22" x2="16" y1="9" y2="15"/>
-                  <line x1="16" x2="22" y1="15" y2="9"/>
-                </svg>
-              ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
-                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
-                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
-                </svg>
-              )}
-            </button>
             {waveformEl}
             {volumeEl}
           </div>

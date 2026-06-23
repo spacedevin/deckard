@@ -6401,27 +6401,35 @@ input[type="range"]::-moz-range-thumb:active {
 }
 
 /* Inline track/instrument name editor styling */
-.instr-name-input {
+input[type="text"].instr-name-input {
   background: transparent !important;
-  border: 1px solid transparent !important;
+  border: none !important;
   color: #fff !important;
-  font-size: 0.8rem !important;
+  font-size: 0.68rem !important;
   font-weight: 700 !important;
-  padding: 2px 4px !important;
+  padding: 0 !important;
+  margin: 0 !important;
   width: 90px !important;
-  border-radius: 3px !important;
   font-family: inherit !important;
-  transition: border-color 0.12s ease, background 0.12s ease !important;
-}
-.instr-name-input:hover {
-  border-color: #2a2a32 !important;
-  background: rgba(255, 255, 255, 0.04) !important;
-}
-.instr-name-input:focus {
-  border-color: var(--accent-warm, #e8945c) !important;
-  background: #14141a !important;
-  box-shadow: 0 0 0 1px rgba(232, 148, 92, 0.2) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.08em !important;
   outline: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+input[type="text"].instr-name-input:hover {
+  background: transparent !important;
+  border: none !important;
+  text-decoration: underline !important;
+  box-shadow: none !important;
+}
+input[type="text"].instr-name-input:focus {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid var(--accent-warm, #e8945c) !important;
+  outline: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
 }
 
 

@@ -1015,62 +1015,6 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
           <span class="sg-ch-instr">{generatorLabelById(gid)}</span>
         </div>
         <div class="sg-gutter-ctl">
-          <button
-            type="button"
-            class="sg-deck-chip"
-            title="Click to cycle this channel through the 4 decks (A → B → C → D)."
-            onclick={(e) => {
-              e.stopPropagation()
-              let cur = channelDeck(project, ch)
-              let curIdx = cur === "B" ? 1 : cur === "C" ? 2 : cur === "D" ? 3 : 0
-              ch.deckSlot = (curIdx + 1) % 4
-              ch.actorLane = ch.deckSlot === 0 ? "" : "client"
-              setProjectFromUI(project)
-              if (rt && rt.touchMixer) {
-                rt.touchMixer()
-              }
-            }}
-          >
-            {deckBadge}
-          </button>
-          <button
-            type="button"
-            class={ch.mute ? "sg-tog sg-tog-on" : "sg-tog"}
-            title="Mute"
-            onclick={(e) => {
-              e.stopPropagation()
-              if (rt && rt.emit) {
-                rt.emit("track/" + ch.id + "/mix/mute", !ch.mute)
-              }
-            }}
-          >
-            {"M"}
-          </button>
-          <button
-            type="button"
-            class={ch.solo ? "sg-tog sg-tog-solo" : "sg-tog"}
-            title="Solo"
-            onclick={(e) => {
-              e.stopPropagation()
-              if (rt && rt.emit) {
-                rt.emit("track/" + ch.id + "/mix/solo", !ch.solo)
-              }
-            }}
-          >
-            {"S"}
-          </button>
-          <button
-            type="button"
-            class={locked ? "sg-tog sg-tog-lock" : "sg-tog"}
-            title="Master-lock (agents can't overwrite)"
-            onclick={(e) => {
-              e.stopPropagation()
-              setMasterLock(project, ch.id, !locked)
-              setProjectFromUI(project)
-            }}
-          >
-            {"L"}
-          </button>
           {stepChannel ? (
             <button
               type="button"
