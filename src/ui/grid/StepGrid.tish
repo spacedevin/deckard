@@ -102,7 +102,7 @@ fn scaleModeLabel(m) {
 // A melodic channel whose notes all share ONE pitch plays like a normal step sequencer locked to that
 // note. Returns the pitch (remembered on ch.soloNotePitch so it survives emptying), or null when the
 // channel carries a real (multi-pitch) melody — those still open the piano roll for editing.
-fn singleNotePitch(ch) {
+export fn singleNotePitch(ch) {
   let pn = ch.pianoNotes
   if (pn && pn.length > 0) {
     let p0 = pn[0].pitch
@@ -1186,6 +1186,42 @@ fn handleBarWheel(e, rt, gridBars) {
   }
 }
 
+export fn StepGridTrackRows(project, ch, ci, selectedCh, setProjectFromUI, setSelectedCh, rt, viewBar, gridBars) {
+  let rows = []
+  rows.push(ChannelRowGrid(ch, ci, project, setProjectFromUI, ci === selectedCh, setSelectedCh, rt, viewBar))
+  let expanded = rt != null && rt.gridExpanded != null && rt.gridExpanded[ch.id] === true
+  if (expanded) {
+    let prows = pianoRowsForChannel(project, ch, ci, rt, setProjectFromUI, viewBar, gridBars)
+    let k = 0
+    while (k < prows.length) { rows.push(prows[k]); k = k + 1 }
+  }
+  let locksOpen = rt != null && rt.gridLocks != null && rt.gridLocks[ch.id] === true
+  let isStepCh = (!ch.pianoNotes || ch.pianoNotes.length === 0) && singleNotePitch(ch) == null
+  if (locksOpen && isStepCh) {
+    let lrows = lockLanesForChannel(project, ch, ci, rt)
+    let lk = 0
+    while (lk < lrows.length) { rows.push(lrows[lk]); lk = lk + 1 }
+  }
+  let pianoLocksOpen = rt != null && rt.gridPianoLocks != null && rt.gridPianoLocks[ch.id] === true
+  let isMelodic = (ch.pianoNotes && ch.pianoNotes.length > 0) || singleNotePitch(ch) != null
+  if (pianoLocksOpen && isMelodic) {
+    let plrows = pianoLockLanesForChannel(project, ch, ci, rt, viewBar)
+    let plk = 0
+    while (plk < plrows.length) { rows.push(plrows[plk]); plk = plk + 1 }
+  }
+  let autoOpen = rt != null && rt.gridAuto != null && rt.gridAuto[ch.id] === true
+  if (autoOpen) {
+    let arow = autoLaneRow(project, ch, ci, rt)
+    if (arow != null) { rows.push(arow) }
+  }
+  let isVocal = ch.generatorId === "formantVocal" || ch.generatorId === "ttsVocal" || ch.generatorId === "meSpeakVocal"
+  if (isVocal) {
+    if (expanded) { rows.push(pianoLockLaneRow(project, ch, ci, "lyric", rt, viewBar)) }
+    else if (isStepCh) { rows.push(lockLaneRow(project, ch, ci, "lyric", rt)) }
+  }
+  return rows
+}
+
 export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt, headerRight, activeDeck) {
   let gridBars = gridBarsForProject(project)
   // Swing groove: a 0..60% shuffle on the off-beat 16ths. Edits via rt.emit("swing", v) → the `swing`
@@ -1253,55 +1289,11 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
       ci = ci + 1
       continue
     }
-    rows.push(ChannelRowGrid(ch, ci, project, setProjectFromUI, ci === selectedCh, setSelectedCh, rt, viewBar))
-    let expanded = rt != null && rt.gridExpanded != null && rt.gridExpanded[ch.id] === true
-    if (expanded) {
-      let prows = pianoRowsForChannel(project, ch, ci, rt, setProjectFromUI, viewBar, gridBars)
-      let k = 0
-      while (k < prows.length) {
-        rows.push(prows[k])
-        k = k + 1
-      }
-    }
-    // Per-step lock lanes (velocity / probability / ratchet / nudge) under boolean-step channels.
-    let locksOpen = rt != null && rt.gridLocks != null && rt.gridLocks[ch.id] === true
-    let isStepCh = (!ch.pianoNotes || ch.pianoNotes.length === 0) && singleNotePitch(ch) == null
-    if (locksOpen && isStepCh) {
-      let lrows = lockLanesForChannel(project, ch, ci, rt)
-      let lk = 0
-      while (lk < lrows.length) {
-        rows.push(lrows[lk])
-        lk = lk + 1
-      }
-    }
-    // Per-note lock lanes for melodic / single-note channels (column-indexed; each column edits the notes
-    // starting at that step). Mirrors the step lock lanes but writes through the track/<id>/notes door.
-    let pianoLocksOpen = rt != null && rt.gridPianoLocks != null && rt.gridPianoLocks[ch.id] === true
-    let isMelodic = (ch.pianoNotes && ch.pianoNotes.length > 0) || singleNotePitch(ch) != null
-    if (pianoLocksOpen && isMelodic) {
-      let plrows = pianoLockLanesForChannel(project, ch, ci, rt, viewBar)
-      let plk = 0
-      while (plk < plrows.length) {
-        rows.push(plrows[plk])
-        plk = plk + 1
-      }
-    }
-    // Drawable automation lane (any channel whose generator exposes a sweepable param).
-    let autoOpen = rt != null && rt.gridAuto != null && rt.gridAuto[ch.id] === true
-    if (autoOpen) {
-      let arow = autoLaneRow(project, ch, ci, rt)
-      if (arow != null) {
-        rows.push(arow)
-      }
-    }
-    // Automatically render the LYRIC row at the bottom for vocal generators, always.
-    let isVocal = ch.generatorId === "formantVocal" || ch.generatorId === "ttsVocal" || ch.generatorId === "meSpeakVocal"
-    if (isVocal) {
-      if (expanded) {
-        rows.push(pianoLockLaneRow(project, ch, ci, "lyric", rt, viewBar))
-      } else if (isStepCh) {
-        rows.push(lockLaneRow(project, ch, ci, "lyric", rt))
-      }
+    let tRows = StepGridTrackRows(project, ch, ci, selectedCh, setProjectFromUI, setSelectedCh, rt, viewBar, gridBars)
+    let tr = 0
+    while (tr < tRows.length) {
+      rows.push(tRows[tr])
+      tr = tr + 1
     }
     ci = ci + 1
   }

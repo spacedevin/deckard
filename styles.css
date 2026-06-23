@@ -3505,7 +3505,8 @@ input[type="range"]::-moz-range-thumb {
 .session-grid-wrap {
   display: flex;
   flex-direction: column;
-  gap: 0.28rem;
+  gap: 5px;
+  margin-top: auto;
 }
 
 .session-corner {
@@ -3882,6 +3883,7 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   flex-direction: column;
   gap: 5px;
+  margin-top: auto;
 }
 .sg-row {
   display: flex;
@@ -3991,8 +3993,8 @@ input[type="range"]::-moz-range-thumb {
 }
 .sg-cell {
   flex: 1;
-  height: 30px;
-  border: 1px solid #16161b;
+  height: 46px;
+  border: 1px solid var(--border-dark);
   border-radius: 3px;
   background: #0d0d11;
   cursor: pointer;
@@ -5034,7 +5036,7 @@ input[type="range"]::-moz-range-thumb {
 .seq-session-split {
   display: flex;
   gap: 14px;
-  align-items: flex-start;
+  align-items: stretch;
 }
 .seq-split-main {
   flex: 1 1 560px;
@@ -5043,6 +5045,12 @@ input[type="range"]::-moz-range-thumb {
 .seq-split-session {
   flex: 1 1 460px;
   min-width: 0;
+}
+.seq-split-main .sg-panel,
+.seq-split-session .session-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 .seq-split-side {
   flex: 0 0 200px;
@@ -5054,20 +5062,7 @@ input[type="range"]::-moz-range-thumb {
     flex-basis: 180px;
   }
 }
-@media (max-width: 1180px) {
-  .seq-session-split {
-    flex-wrap: wrap;
-  }
-  .seq-split-main,
-  .seq-split-session {
-    flex-basis: 100%;
-  }
-  .seq-split-side {
-    flex-basis: auto;
-    width: 100%;
-    position: static;
-  }
-}
+
 
 /* co-DJ + TPL, side by side at the bottom */
 .daw-bottom-split {

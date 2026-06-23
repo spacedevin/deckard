@@ -1,0 +1,35 @@
+export fn StepGridTrackRows(project, ch, ci, selectedCh, setProjectFromUI, setSelectedCh, rt, viewBar, gridBars) {
+  let rows = []
+  rows.push(ChannelRowGrid(ch, ci, project, setProjectFromUI, ci === selectedCh, setSelectedCh, rt, viewBar))
+  let expanded = rt != null && rt.gridExpanded != null && rt.gridExpanded[ch.id] === true
+  if (expanded) {
+    let prows = pianoRowsForChannel(project, ch, ci, rt, setProjectFromUI, viewBar, gridBars)
+    let k = 0
+    while (k < prows.length) { rows.push(prows[k]); k = k + 1 }
+  }
+  let locksOpen = rt != null && rt.gridLocks != null && rt.gridLocks[ch.id] === true
+  let isStepCh = (!ch.pianoNotes || ch.pianoNotes.length === 0) && singleNotePitch(ch) == null
+  if (locksOpen && isStepCh) {
+    let lrows = lockLanesForChannel(project, ch, ci, rt)
+    let lk = 0
+    while (lk < lrows.length) { rows.push(lrows[lk]); lk = lk + 1 }
+  }
+  let pianoLocksOpen = rt != null && rt.gridPianoLocks != null && rt.gridPianoLocks[ch.id] === true
+  let isMelodic = (ch.pianoNotes && ch.pianoNotes.length > 0) || singleNotePitch(ch) != null
+  if (pianoLocksOpen && isMelodic) {
+    let plrows = pianoLockLanesForChannel(project, ch, ci, rt, viewBar)
+    let plk = 0
+    while (plk < plrows.length) { rows.push(plrows[plk]); plk = plk + 1 }
+  }
+  let autoOpen = rt != null && rt.gridAuto != null && rt.gridAuto[ch.id] === true
+  if (autoOpen) {
+    let arow = autoLaneRow(project, ch, ci, rt)
+    if (arow != null) { rows.push(arow) }
+  }
+  let isVocal = ch.generatorId === "formantVocal" || ch.generatorId === "ttsVocal" || ch.generatorId === "meSpeakVocal"
+  if (isVocal) {
+    if (expanded) { rows.push(pianoLockLaneRow(project, ch, ci, "lyric", rt, viewBar)) }
+    else if (isStepCh) { rows.push(lockLaneRow(project, ch, ci, "lyric", rt)) }
+  }
+  return rows
+}

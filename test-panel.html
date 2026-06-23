@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<style>
+body { background: #000; color: #fff; font-family: sans-serif; }
+.seq-session-split { display: flex; gap: 14px; align-items: stretch; margin-bottom: 20px; }
+.seq-split-main { flex: 1 1 560px; min-width: 0; }
+.seq-split-session { flex: 1 1 460px; min-width: 0; }
+.panel { background: #16161c; border: 1px solid #23232b; border-radius: 8px; padding: 14px; }
+</style>
+<div class="seq-session-split panel" style="padding: 0; background: transparent; border: none;">
+  <div class="seq-split-main panel" style="display: flex; flex-direction: column;">
+    <div class="header" style="padding-bottom: 14px;">SEQ HEADER</div>
+    <div class="tracks" style="display: contents;">
+       <div style="display: flex; gap: 14px; align-items: flex-start; margin-bottom: 5px;">
+         <div class="seq-split-main" style="background: red; height: 30px;">Track 1 Seq</div>
+         <div class="seq-split-session" style="background: blue; height: 46px;">Track 1 Ses</div>
+       </div>
+    </div>
+  </div>
+</div>
+</html>

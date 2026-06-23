@@ -13,9 +13,12 @@ import {
   addSessionProgram,
   removeSessionProgram
 } from '../model/Session.tish'
-import { IkSelect } from './InstrumentKit.tish'
+import { IkSelect, LucideIcon } from './InstrumentKit.tish'
 import { channelDeck, channelDeckColor } from '../model/DeckRouting.tish'
 import { launchClipDirective, launchClipStopDirective, cueDirective } from '../codj/Launch.tish'
+import { singleNotePitch } from './grid/StepGrid.tish'
+import { defaultAutoParam } from '../model/AutoParams.tish'
+import { pitchWindow } from './grid/PianoGrid.tish'
 
 // Broadcast a session-control directive to collaborators, if connected (no-op offline).
 fn pushControl(rt, line) {
@@ -134,6 +137,172 @@ fn clipWavePath(env) {
     j = j - 1
   }
   return d + " Z"
+}
+
+export fn SessionTrackRow(project, ch, tix, activeDeck, rt, sc, playing, bumpSessionUi, setProjectFromUI, armCell, toggleClipDisabled, queueMute, stopTrack) {
+  if (activeDeck != null && channelDeck(project, ch) !== activeDeck) {
+    return []
+  }
+  let muted = ch.mute === true
+  let stopped = sessionTrackStopped(rt, tix)
+  let cells = []
+  let sj = 0
+  while (sj < sc) {
+    let slotClipId = ""
+    if (project.session.slots[tix] && project.session.slots[tix][sj] !== undefined) {
+      slotClipId = project.session.slots[tix][sj]
+    }
+    let isDefaultClip = slotClipId === defaultMainClipId(ch)
+    let clip = null
+    if (slotClipId && slotClipId.length > 0 && !isDefaultClip) {
+      clip = findClipOnChannel(ch, slotClipId)
+    }
+    let armed = ""
+    if (rt.sessionArmedClipIds && rt.sessionArmedClipIds[tix] !== undefined) {
+      armed = rt.sessionArmedClipIds[tix]
+    }
+    let queued = ""
+    if (rt.sessionQueuePending && rt.sessionQueuedClipIds && rt.sessionQueuedClipIds[tix] !== undefined) {
+      queued = rt.sessionQueuedClipIds[tix]
+    }
+    let isTrackPending = false
+    if (rt.trackPending && slotClipId.length > 0) {
+      let qp = 0
+      while (qp < rt.trackPending.length) {
+        if (rt.trackPending[qp].t === tix && rt.trackPending[qp].clip === slotClipId) {
+          isTrackPending = true
+        }
+        qp = qp + 1
+      }
+    }
+    let isQueued = (rt.sessionQueuePending && slotClipId.length > 0 && queued === slotClipId) || isTrackPending
+    let isPlaying = playing && !muted && armed === slotClipId && slotClipId.length > 0
+    let sjCopy = sj
+    let clipIdCopy = slotClipId
+    if (!clip) {
+      cells.push(
+        <div class="session-cell session-cell-empty" key={"c-" + String(tix) + "-" + String(sj)}>
+          <span class="session-cell-dash">{"—"}</span>
+        </div>
+      )
+    } else {
+      let bars = clip.bars != null ? Math.floor(Number(clip.bars)) : 1
+      if (bars < 1 || bars !== bars) { bars = 1 }
+      let dsuf = deckSuffix(project, ch)
+      let isDisabled = rt.sessionDisabledClips && rt.sessionDisabledClips[slotClipId] === true
+      let cellCls = "session-cell session-cell-deck-" + dsuf
+      if (isPlaying) { cellCls = cellCls + " session-cell-playing" }
+      if (isQueued) { cellCls = cellCls + " session-cell-queued" }
+      if (isDisabled) { cellCls = cellCls + " session-cell-disabled" }
+      let wavePath = clipWavePath(clipEnvelope(clip))
+      cells.push(
+        <button
+          type="button"
+          class={cellCls}
+          key={"c-" + String(tix) + "-" + String(sj)}
+          onclick={() => armCell(tix, clipIdCopy)}
+          oncontextmenu={(e) => { e.preventDefault(); toggleClipDisabled(clipIdCopy) }}
+          title={isDisabled ? "SKIPPED — this clip won't play. Left-click (or right-click again) to re-enable." : "Launch this clip — drops on the next launch-quantize boundary (Q in the transport). Right-click to skip just this clip."}
+        >
+          <svg class="session-wave" viewBox="0 0 120 24" preserveAspectRatio="none">
+            <path class={"session-wave-fill session-wave-" + dsuf} d={wavePath} />
+          </svg>
+          <span class="session-cell-meta">
+            {isPlaying ? "■" : "▶"}{" · "}{String(bars)}{" bar"}{bars === 1 ? "" : "s"}
+          </span>
+        </button>
+      )
+    }
+    sj = sj + 1
+  }
+  let live = playing && !muted
+  let nameCls = "session-track-name session-track-toggle"
+  if (muted) { nameCls = nameCls + " session-track-paused" }
+  else if (live) { nameCls = nameCls + " session-track-live" }
+  else { nameCls = nameCls + " session-track-ready" }
+  let icon = muted ? "⏸" : "▶"
+  let stateText = muted ? "muted — tap to unmute" : (live ? "playing — tap to mute" : "ready — tap to mute")
+  let stopCls = stopped ? "session-track-stop session-track-stop-on" : "session-track-stop"
+  let isStore = ch.clipInstrMode === "store"
+  let instrCls = isStore ? "session-track-instr session-track-instr-on" : "session-track-instr"
+  let outRows = []
+  outRows.push(
+    <div class="session-track-row" key={"row-" + String(tix)}>
+      <button
+        type="button"
+        class={nameCls}
+        title={ch.name + ": " + stateText + " (instant)"}
+        onclick={() => queueMute(tix)}
+      >
+        <span class="session-track-ico">{icon}</span>
+        <span class="session-track-txt">{ch.name}</span>
+      </button>
+      <button
+        type="button"
+        class={stopCls}
+        title={ch.name + ": stop this track's clip (instant) — silent until you launch a clip"}
+        onclick={() => stopTrack(tix)}
+      >
+        {"■"}
+      </button>
+      <button
+        type="button"
+        class={instrCls}
+        title={isStore ? "STORE — each pattern saves/loads its own instrument. Click to switch to SYNC (shared instrument)." : "SYNC — all patterns share this track's instrument. Click to switch to STORE (per-pattern instruments)."}
+        onclick={(e) => {
+          e.stopPropagation()
+          ch.clipInstrMode = isStore ? "sync" : "store"
+          if (bumpSessionUi) { bumpSessionUi() }
+          setProjectFromUI(project)
+        }}
+      >
+        {isStore ? "🎹" : "🔗"}
+      </button>
+      <div class="session-cells">{cells}</div>
+    </div>
+  )
+
+  let expanded = rt != null && rt.gridExpanded != null && rt.gridExpanded[ch.id] === true
+  if (expanded) {
+    let win = pitchWindow(ch)
+    let pCount = win.hi - win.lo + 1
+    let pk = 0
+    while (pk < pCount) {
+      outRows.push(<div class="sg-row sg-prow" style={{ visibility: "hidden", pointerEvents: "none" }} key={"spacer-p-" + String(tix) + "-" + String(pk)}><div class="sg-cell sg-pcell" /></div>)
+      pk = pk + 1
+    }
+  }
+  let locksOpen = rt != null && rt.gridLocks != null && rt.gridLocks[ch.id] === true
+  let isStepCh = (!ch.pianoNotes || ch.pianoNotes.length === 0) && singleNotePitch(ch) == null
+  if (locksOpen && isStepCh) {
+    let lk = 0
+    while (lk < 4) {
+      outRows.push(<div class="sg-row sg-lk-row" style={{ visibility: "hidden", pointerEvents: "none" }} key={"spacer-lk-" + String(tix) + "-" + String(lk)}><div class="sg-lk-cell" /></div>)
+      lk = lk + 1
+    }
+  }
+  let pianoLocksOpen = rt != null && rt.gridPianoLocks != null && rt.gridPianoLocks[ch.id] === true
+  let isMelodic = (ch.pianoNotes && ch.pianoNotes.length > 0) || singleNotePitch(ch) != null
+  if (pianoLocksOpen && isMelodic) {
+    let plk = 0
+    while (plk < 5) {
+      outRows.push(<div class="sg-row sg-lk-row" style={{ visibility: "hidden", pointerEvents: "none" }} key={"spacer-plk-" + String(tix) + "-" + String(plk)}><div class="sg-lk-cell" /></div>)
+      plk = plk + 1
+    }
+  }
+  let autoCapable = defaultAutoParam(ch.generatorId ? ch.generatorId : "basicOsc") != null
+  let autoOpen = rt != null && rt.gridAuto != null && rt.gridAuto[ch.id] === true
+  if (autoOpen && autoCapable) {
+    outRows.push(<div class="sg-row sg-auto-row" style={{ visibility: "hidden", pointerEvents: "none" }} key={"spacer-auto-" + String(tix)}><div class="sg-cell" /></div>)
+  }
+  let isVocal = ch.generatorId === "formantVocal" || ch.generatorId === "ttsVocal" || ch.generatorId === "meSpeakVocal"
+  if (isVocal) {
+    if (expanded || isStepCh) {
+      outRows.push(<div class="sg-row sg-lk-row" style={{ visibility: "hidden", pointerEvents: "none" }} key={"spacer-lyric-" + String(tix)}><div class="sg-lk-cell" /></div>)
+    }
+  }
+
+  return outRows
 }
 
 export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, patternBank, headerRight, activeDeck) {
@@ -419,21 +588,21 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
             {launchLabel}
           </button>
           <div class="session-scene-oprow">
-            <span class="session-scene-oplabel">{"LOAD"}</span>
-            <button type="button" class={loadCls} onclick={() => pb.onLoadBar(sceneI)} title={"Load only bar " + String(barN) + " (the bar you're viewing) — other bars untouched"}>
-              {"1 BAR"}
+            <span class="session-scene-oplabel" title="LOAD">{LucideIcon("download")}</span>
+            <button type="button" class={loadCls} onclick={() => pb.onLoadBar(sceneI)} title={"Load only bar " + String(barN) + " (the bar you're viewing) — other bars untouched"} style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {LucideIcon("square")}
             </button>
-            <button type="button" class={loadCls} onclick={() => pb.onLoad(sceneI)} title={"Load all bars of this pattern into the rack"}>
-              {"ALL"}
+            <button type="button" class={loadCls} onclick={() => pb.onLoad(sceneI)} title={"Load all bars of this pattern into the rack"} style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {LucideIcon("layout-grid")}
             </button>
           </div>
           <div class="session-scene-oprow">
-            <span class="session-scene-oplabel">{"SAVE"}</span>
-            <button type="button" class="btn-scene-op btn-scene-save" onclick={() => pb.onSaveBar(sceneI)} title={"Save only bar " + String(barN) + " (the bar you're viewing) into this pattern"}>
-              {"1 BAR"}
+            <span class="session-scene-oplabel" title="SAVE">{LucideIcon("save")}</span>
+            <button type="button" class="btn-scene-op btn-scene-save" onclick={() => pb.onSaveBar(sceneI)} title={"Save only bar " + String(barN) + " (the bar you're viewing) into this pattern"} style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {LucideIcon("square")}
             </button>
-            <button type="button" class="btn-scene-op btn-scene-save" onclick={() => pb.onSave(sceneI)} title={"Save the whole rack (all bars) into this pattern"}>
-              {"ALL"}
+            <button type="button" class="btn-scene-op btn-scene-save" onclick={() => pb.onSave(sceneI)} title={"Save the whole rack (all bars) into this pattern"} style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {LucideIcon("layout-grid")}
             </button>
           </div>
           {followRow(sceneI)}
@@ -471,151 +640,14 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
   let ti = 0
   while (ti < project.channels.length) {
     let ch = project.channels[ti]
-    if (activeDeck != null && channelDeck(project, ch) !== activeDeck) {
-      ti = ti + 1
-      continue
+    let trackRows = SessionTrackRow(project, ch, ti, activeDeck, rt, sc, playing, bumpSessionUi, setProjectFromUI, armCell, toggleClipDisabled, queueMute, stopTrack)
+    if (trackRows != null) {
+      let tri = 0
+      while (tri < trackRows.length) {
+        rows.push(trackRows[tri])
+        tri = tri + 1
+      }
     }
-    let tix = ti
-    // Paused (muted) tracks must NOT show the green "playing" border — they aren't playing. Mute is now
-    // applied instantly, so this just reads the channel state.
-    let muted = ch.mute === true
-    let stopped = sessionTrackStopped(rt, tix)
-    let cells = []
-    let sj = 0
-    while (sj < sc) {
-      let slotClipId = ""
-      if (project.session.slots[tix] && project.session.slots[tix][sj] !== undefined) {
-        slotClipId = project.session.slots[tix][sj]
-      }
-      // A slot still pointing at the shared default rack clip (never SAVEd into this pattern) reads
-      // as empty — only patterns that have a real saved clip on this track show a cell. Empty cells
-      // are where per-track layers will later be filled in.
-      let isDefaultClip = slotClipId === defaultMainClipId(ch)
-      let clip = null
-      if (slotClipId && slotClipId.length > 0 && !isDefaultClip) {
-        clip = findClipOnChannel(ch, slotClipId)
-      }
-      let armed = ""
-      if (rt.sessionArmedClipIds && rt.sessionArmedClipIds[tix] !== undefined) {
-        armed = rt.sessionArmedClipIds[tix]
-      }
-      let queued = ""
-      if (rt.sessionQueuePending && rt.sessionQueuedClipIds && rt.sessionQueuedClipIds[tix] !== undefined) {
-        queued = rt.sessionQueuedClipIds[tix]
-      }
-      let isTrackPending = false
-      if (rt.trackPending && slotClipId.length > 0) {
-        let qp = 0
-        while (qp < rt.trackPending.length) {
-          if (rt.trackPending[qp].t === tix && rt.trackPending[qp].clip === slotClipId) {
-            isTrackPending = true
-          }
-          qp = qp + 1
-        }
-      }
-      let isQueued =
-        (rt.sessionQueuePending && slotClipId.length > 0 && queued === slotClipId) || isTrackPending
-      let isPlaying = playing && !muted && armed === slotClipId && slotClipId.length > 0
-      let sjCopy = sj
-      let clipIdCopy = slotClipId
-      if (!clip) {
-        cells.push(
-          <div class="session-cell session-cell-empty" key={"c-" + String(tix) + "-" + String(sj)}>
-            <span class="session-cell-dash">{"—"}</span>
-          </div>
-        )
-      } else {
-        let bars = clip.bars != null ? Math.floor(Number(clip.bars)) : 1
-        if (bars < 1 || bars !== bars) {
-          bars = 1
-        }
-        let dsuf = deckSuffix(project, ch)
-        let isDisabled = rt.sessionDisabledClips && rt.sessionDisabledClips[slotClipId] === true
-        let cellCls = "session-cell session-cell-deck-" + dsuf
-        if (isPlaying) {
-          cellCls = cellCls + " session-cell-playing"
-        }
-        if (isQueued) {
-          cellCls = cellCls + " session-cell-queued"
-        }
-        if (isDisabled) {
-          cellCls = cellCls + " session-cell-disabled"
-        }
-        let wavePath = clipWavePath(clipEnvelope(clip))
-        cells.push(
-          <button
-            type="button"
-            class={cellCls}
-            key={"c-" + String(tix) + "-" + String(sj)}
-            onclick={() => armCell(tix, clipIdCopy)}
-            oncontextmenu={(e) => { e.preventDefault(); toggleClipDisabled(clipIdCopy) }}
-            title={isDisabled ? "SKIPPED — this clip won't play. Left-click (or right-click again) to re-enable." : "Launch this clip — drops on the next launch-quantize boundary (Q in the transport). Right-click to skip just this clip."}
-          >
-            <svg class="session-wave" viewBox="0 0 120 24" preserveAspectRatio="none">
-              <path class={"session-wave-fill session-wave-" + dsuf} d={wavePath} />
-            </svg>
-            <span class="session-cell-meta">
-              {isPlaying ? "■" : "▶"}{" · "}{String(bars)}{" bar"}
-              {bars === 1 ? "" : "s"}
-            </span>
-          </button>
-        )
-      }
-      sj = sj + 1
-    }
-    // Track name = an instant mute toggle. "live" (green) only when the transport is actually running
-    // AND the track isn't muted, so a stopped transport never looks like it's playing.
-    let live = playing && !muted
-    let nameCls = "session-track-name session-track-toggle"
-    if (muted) {
-      nameCls = nameCls + " session-track-paused"
-    } else if (live) {
-      nameCls = nameCls + " session-track-live"
-    } else {
-      nameCls = nameCls + " session-track-ready"
-    }
-    let icon = muted ? "⏸" : "▶"
-    let stateText = muted ? "muted — tap to unmute" : (live ? "playing — tap to mute" : "ready — tap to mute")
-    let stopCls = stopped ? "session-track-stop session-track-stop-on" : "session-track-stop"
-    let isStore = ch.clipInstrMode === "store"
-    let instrCls = isStore ? "session-track-instr session-track-instr-on" : "session-track-instr"
-    rows.push(
-      <div class="session-track-row" key={"row-" + String(tix)}>
-        <button
-          type="button"
-          class={nameCls}
-          title={ch.name + ": " + stateText + " (instant)"}
-          onclick={() => queueMute(tix)}
-        >
-          <span class="session-track-ico">{icon}</span>
-          <span class="session-track-txt">{ch.name}</span>
-        </button>
-        <button
-          type="button"
-          class={stopCls}
-          title={ch.name + ": stop this track's clip (instant) — silent until you launch a clip"}
-          onclick={() => stopTrack(tix)}
-        >
-          {"■"}
-        </button>
-        <button
-          type="button"
-          class={instrCls}
-          title={isStore ? "STORE — each pattern saves/loads its own instrument. Click to switch to SYNC (shared instrument)." : "SYNC — all patterns share this track's instrument. Click to switch to STORE (per-pattern instruments)."}
-          onclick={(e) => {
-            e.stopPropagation()
-            ch.clipInstrMode = isStore ? "sync" : "store"
-            if (bumpSessionUi) {
-              bumpSessionUi()
-            }
-            setProjectFromUI(project)
-          }}
-        >
-          {isStore ? "🎹" : "🔗"}
-        </button>
-        <div class="session-cells">{cells}</div>
-      </div>
-    )
     ti = ti + 1
   }
 

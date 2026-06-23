@@ -7,6 +7,7 @@
 // The deck mixer is separate equipment — it is live-only and unrelated to LOAD/SAVE/LAUNCH.
 
 import { h, Fragment } from '@tishlang/lattish'
+import { LucideIcon } from './InstrumentKit.tish'
 
 export fn PatternBank(bank) {
   let count = Math.floor(Number(bank.count))
@@ -85,41 +86,45 @@ export fn PatternBank(bank) {
           </button>
         </div>
         <div class="pb-split-row">
-          <span class="pb-split-label">{"LOAD"}</span>
+          <span class="pb-split-label" title="LOAD">{LucideIcon("download")}</span>
           <button
             type="button"
             class={"pb-btn pb-btn-load" + loadOn}
             title={"Load only bar " + String(barN) + " (the bar you're viewing) of pattern " + one + " — other bars untouched"}
             onclick={() => bank.onLoadBar(sidx)}
+            style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
           >
-            {"1 BAR"}
+            {LucideIcon("square")}
           </button>
           <button
             type="button"
             class={"pb-btn pb-btn-load" + loadOn}
             title={"Load all bars of pattern " + one + " into the rack"}
             onclick={() => bank.onLoad(sidx)}
+            style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
           >
-            {"ALL"}
+            {LucideIcon("layout-grid")}
           </button>
         </div>
         <div class="pb-split-row">
-          <span class="pb-split-label">{"SAVE"}</span>
+          <span class="pb-split-label" title="SAVE">{LucideIcon("save")}</span>
           <button
             type="button"
             class="pb-btn pb-btn-save"
             title={"Save only bar " + String(barN) + " (the bar you're viewing) into pattern " + one + " — its other bars untouched"}
             onclick={() => bank.onSaveBar(sidx)}
+            style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
           >
-            {"1 BAR"}
+            {LucideIcon("square")}
           </button>
           <button
             type="button"
             class="pb-btn pb-btn-save"
             title={"Save the whole rack (all bars) into pattern " + one}
             onclick={() => bank.onSave(sidx)}
+            style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
           >
-            {"ALL"}
+            {LucideIcon("layout-grid")}
           </button>
         </div>
       </div>
@@ -132,11 +137,11 @@ export fn PatternBank(bank) {
       <span class="pb-rev" style={{ display: "none" }}>{String(bank.rev)}</span>
       <div class="pb-head">
         <span class="pb-label">{"PATTERNS"}</span>
-        <span class="pb-sub">{"1 BAR · ALL"}</span>
+        <span class="pb-sub" style={{ display: "flex", alignItems: "center", gap: "4px" }}>{LucideIcon("square")} {"·"} {LucideIcon("layout-grid")}</span>
       </div>
       <div class="pb-cards">{cards}</div>
-      <span class="pb-hint">
-        {"1 BAR = just the bar you're viewing · ALL = the whole pattern. LAUNCH sends it live."}
+      <span class="pb-hint" style={{ display: "flex", alignItems: "center", gap: "4px", flexWrap: "wrap", justifyContent: "center" }}>
+        {LucideIcon("square")} {" = just the bar you're viewing · "} {LucideIcon("layout-grid")} {" = the whole pattern. LAUNCH sends it live."}
       </span>
     </div>
   )
