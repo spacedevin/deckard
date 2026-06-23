@@ -1531,11 +1531,7 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
         tplMirrorFlush()
       }
     }
-    return (
-      <div class="instr-matrixfm-hint">
-        <p>{"Matrix FM: operator graph, modulation matrix, filters, and routing are below."}</p>
-      </div>
-    )
+    return <div class="gen-params" />
   }
   if (id === "patch") {
     if (ch.macroName != null) {
@@ -1553,11 +1549,7 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
         tplMirrorFlush()
       }
     }
-    return (
-      <div class="instr-matrixfm-hint">
-        <p>{"Patch: modular nodes, connections, and breakpoint envelopes are below."}</p>
-      </div>
-    )
+    return <div class="gen-params" />
   }
   return <div class="gen-params" />
 }

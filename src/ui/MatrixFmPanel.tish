@@ -17,7 +17,6 @@ import {
   ensureMatrixFmFilterEnv
 } from '../tpl/MatrixFmGraph.tish'
 import { parseGenBlock, defaultMatrixFmRawLines } from '../tpl/TplExtension.tish'
-import { matrixFmPatches } from '../model/MatrixFmPresets.tish'
 import { Knob, WaveIconPicker, IkSelect, accentForGenerator, matrixFmSvgDataUrl, matrixFmLucideIconSvg, isKnobDragging } from './InstrumentKit.tish'
 import { emitInstrumentModuleTpl } from '../core/Levels.tish'
 import { cablePathD } from './PatchGraphPanel.tish'
@@ -979,28 +978,6 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
   let canAddOp = opIds.length < 8
   let canAddFlt = filterIds.length < 6
 
-  // Patch bank: load a factory Sytrus-style patch straight into this voice (re-parse so the channel gets
-  // its own graph). Grouped category-first in the dropdown, like Sytrus's preset menu.
-  let patches = matrixFmPatches()
-  let patchOpts = [{ value: "-1", label: "— load patch —" }]
-  let lastCat = ""
-  let ppi = 0
-  while (ppi < patches.length) {
-    let pp = patches[ppi]
-    let cat = pp.category ? pp.category : "Patch"
-    let prefix = cat !== lastCat ? cat + " · " : ""
-    patchOpts.push({ value: String(ppi), label: prefix + pp.name })
-    lastCat = cat
-    ppi = ppi + 1
-  }
-  fn loadPatch(idx) {
-    if (idx < 0 || idx >= patches.length) {
-      return
-    }
-    ch.generatorSpec = parseGenBlock("matrix_fm", patches[idx].lines)
-    commit()
-  }
-
   // Build modulation matrix cable data (non-zero fm/rm arcs between operators)
   let modCables = []
   let mci = 0
@@ -1038,14 +1015,7 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
           <span class="sytrus-panel-sub">{"operators · modulation · filters · bus"}</span>
           {canEdit ? null : <span class="instr-lock-tag">{"read only"}</span>}
         </div>
-        {IkSelect({
-          class: "sytrus-patch-select",
-          value: "-1",
-          options: patchOpts,
-          onChange: (v) => {
-            loadPatch(Number(v))
-          }
-        })}
+
       </div>
 
       <div class="mfm-cable-region" id="mfm-cable-host">
