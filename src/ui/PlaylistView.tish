@@ -11,9 +11,9 @@ import { IkSelect } from './InstrumentKit.tish'
 
 let BAR_PX = 26
 let STEPS_PER_BAR = 16
-let LABEL_W = 76
+let LABEL_W = 0
 let MIN_BARS = 16
-let DECK_WAVE_H = 42
+let DECK_WAVE_H = 21
 
 fn deckColorHex(deck) {
   if (deck === "B") {
@@ -105,9 +105,6 @@ export fn PlaylistView(project, rt, props) {
   if (hasData) {
     rows.push(
       <div class="pl-lane pl-wave-lane">
-        <div class="pl-lane-label pl-deck-label" style={{ color: "#e8e8ea", borderColor: "#2a2a35", height: String(DECK_WAVE_H) + "px" }} title="All Decks">
-          {"MIX"}
-        </div>
         <div class="pl-lane-track pl-wave-track" style={{ width: String(laneWidth) + "px", height: String(DECK_WAVE_H) + "px" }}>
           <canvas class="pl-wave-cv pl-wave-cv-overlay"></canvas>
         </div>
@@ -174,7 +171,6 @@ export fn PlaylistView(project, rt, props) {
             }
           }
         })}
-        <span class="pl-status">{status}</span>
       </div>
       <div class="pl-scroll">
         <div class="pl-grid">
