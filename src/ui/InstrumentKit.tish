@@ -216,7 +216,58 @@ export fn accentForGenerator(gid) {
   if (gid === "patch") {
     return "#5fd06f"
   }
-  return "#e8945c"
+  if (gid === "acid303") {
+    return "#b6e84a"
+  }
+  if (gid === "sub808") {
+    return "#6a4ad6"
+  }
+  if (gid === "chiptune") {
+    return "#59c46b"
+  }
+  if (gid === "nes2a03") {
+    return "#d65a5a"
+  }
+  if (gid === "c64sid") {
+    return "#5a7fd6"
+  }
+  if (gid === "gameBoyDmg") {
+    return "#9bbc0f"
+  }
+  if (gid === "ym2612") {
+    return "#4aa3c4"
+  }
+  if (gid === "sn76489") {
+    return "#c47ad6"
+  }
+  if (gid === "spc700") {
+    return "#c4a24a"
+  }
+  if (gid === "gbaDirectSound") {
+    return "#7a86e0"
+  }
+  if (gid === "cymbal") {
+    return "#cfd14a"
+  }
+  if (gid === "reeseBass") {
+    return "#5a6ad6"
+  }
+  if (gid === "syncLead") {
+    return "#e85ca6"
+  }
+  if (gid === "syncChoir") {
+    return "#a6c4e8"
+  }
+  if (gid === "obSync") {
+    return "#4ac9b0"
+  }
+  if (gid === "laserSync") {
+    return "#e8c44a"
+  }
+  if (gid === "meSpeakVocal") {
+    return "#9a86d6"
+  }
+  return "#8a8a94"
 }
 
 /// Point on a dial: angle measured clockwise from 12 o'clock (0 = top, 90 = right).

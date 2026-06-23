@@ -220,8 +220,8 @@ import { playGameBoyDmg, defaultParamsForGameBoyDmg } from "./GameBoyDmg.tish"
 import { defaultParamsForC64Sid } from "./C64Sid.tish"
 import { defaultParamsForYm2612 } from "./Ym2612.tish"
 import { defaultParamsForSn76489 } from "./Sn76489.tish"
-import { defaultParamsForSnesSpc } from "./SnesSpc.tish"
-import { defaultParamsForGameBoyAdv } from "./GameBoyAdv.tish"
+import { defaultParamsForSpc700 } from "./Spc700.tish"
+import { defaultParamsForGbaDirectSound } from "./GbaDirectSound.tish"
 
 
 export fn defaultParamsForGeneratorId(id) {
@@ -419,10 +419,10 @@ export fn defaultParamsForGeneratorId(id) {
     return defaultParamsForSn76489()
   }
   if (id === "spc700") {
-    return defaultParamsForSnesSpc()
+    return defaultParamsForSpc700()
   }
   if (id === "gbaDirectSound") {
-    return defaultParamsForGameBoyAdv()
+    return defaultParamsForGbaDirectSound()
   }
 
   if (id === "cymbal") {

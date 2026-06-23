@@ -4,7 +4,7 @@ import { playFmTone } from './FmTone.tish'
 import { playMatrixFm } from './MatrixFm.tish'
 import { playPad } from './Pad.tish'
 import { playBell } from './Bell.tish'
-import { playDrum } from './DrumSynth.tish'
+import { playDrumSynth } from './DrumSynth.tish'
 import { playGuitar } from './Guitar.tish'
 import { playClap } from './Clap.tish'
 import { playArco } from './Arco.tish'
@@ -23,8 +23,8 @@ import { playC64Sid } from './C64Sid.tish'
 import { playGameBoyDmg } from './GameBoyDmg.tish'
 import { playYm2612 } from './Ym2612.tish'
 import { playSn76489 } from './Sn76489.tish'
-import { playSnesSpc } from './SnesSpc.tish'
-import { playGameBoyAdv } from './GameBoyAdv.tish'
+import { playSpc700 } from './Spc700.tish'
+import { playGbaDirectSound } from './GbaDirectSound.tish'
 import { playCymbal } from './Cymbal.tish'
 import { playReeseBass } from './ReeseBass.tish'
 import { playSyncLead } from './SyncLead.tish'
@@ -64,7 +64,7 @@ export fn dispatchPlayNote(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
     return
   }
   if (id === "drumSynth") {
-    playDrum(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    playDrumSynth(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
     return
   }
   if (id === "guitar") {
@@ -136,11 +136,11 @@ export fn dispatchPlayNote(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
     return
   }
   if (id === "spc700") {
-    playSnesSpc(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    playSpc700(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
     return
   }
   if (id === "gbaDirectSound") {
-    playGameBoyAdv(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+    playGbaDirectSound(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
     return
   }
   if (id === "cymbal") {

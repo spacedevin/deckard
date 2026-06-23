@@ -1,7 +1,7 @@
 // Game Boy Advance (DirectSound) Emulator
 // Emulates the software mixing 8-bit DAC of the GBA (often max 16kHz-32kHz).
 
-export fn defaultParamsForGameBoyAdv() {
+export fn defaultParamsForGbaDirectSound() {
   return {
     waveform: "pulse", // GBA software synths commonly used pulse/saw
     duty: "50",
@@ -72,7 +72,7 @@ fn getGbaBuffer(ctx, shape, duty) {
   return buf
 }
 
-export fn playGameBoyAdv(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+export fn playGbaDirectSound(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let gp = ch.generatorParams
   if (!gp) gp = {}
   

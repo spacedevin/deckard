@@ -17,7 +17,7 @@ fn makeDriveCurve(ctx, amount) {
   return curve
 }
 
-export fn playDrum(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
+export fn playDrumSynth(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let p = ch.generatorParams ? ch.generatorParams : {}
   let n = Math.floor(midi + bendSemis)
   let baseHz = 110

@@ -262,7 +262,7 @@ export fn generatorFactoryPresets() {
     },
     {
       presetId: "factory_genesis_brass",
-      name: "Genesis Brass",
+      name: "SID Brass",
       generatorId: "c64sid",
       params: { waveform: "sawtooth", pulseWidth: 0.5, filterType: "lowpass", cutoff: 4000, resonance: 2, attack: 0.03, decay: 0.3, sustain: 0.7, release: 0.15 }
     },
@@ -482,7 +482,7 @@ export fn generatorFactoryPresets() {
     // ──── YM2612 (Genesis FM) ─────────────────────────────────────
     {
       presetId: "factory_ym_epiano",
-      name: "FM E-Piano",
+      name: "Genesis E-Piano",
       generatorId: "ym2612",
       params: { 
         algorithm: 4, feedback: 0,

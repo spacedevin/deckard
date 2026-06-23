@@ -363,10 +363,25 @@ export fn parseProgram(source) {
     }
     if (head === "track") {
       currentClip = null
-      if (toks.length >= 6 && toks[2] === "id" && toks[4] === "gen") {
+      // The channel name may be MULTIPLE space-separated tokens (e.g. "MOS 6581", "Tine EP") — anchor on the
+      // `id <x> gen <y>` keyword pair instead of assuming a single-token name at toks[1]. Without this a spaced
+      // name fails this header parse, so the whole track block (and every gen/knob edit fragment routed for it)
+      // is silently dropped. For a single-token name this resolves to idIdx === 2 (the original positions).
+      let idIdx = -1
+      let scanI = 2
+      while (scanI + 2 < toks.length) {
+        if (toks[scanI] === "id" && toks[scanI + 2] === "gen") {
+          idIdx = scanI
+          scanI = toks.length
+        } else {
+          scanI = scanI + 1
+        }
+      }
+      if (idIdx >= 2 && toks.length >= idIdx + 4) {
+        let after = idIdx + 4
         let loopBars = null
-        if (toks.length >= 8 && toks[6] === "*") {
-          let lx = toks[7]
+        if (toks.length >= after + 2 && toks[after] === "*") {
+          let lx = toks[after + 1]
           if (lx === "inf" || lx === "infinite") {
             loopBars = null
           } else {
@@ -384,9 +399,9 @@ export fn parseProgram(source) {
         }
         // Trailing `key value` pairs after the gen id (and optional `* N`) are macro parameter overrides.
         let genParams = {}
-        let gp = 6
-        if (toks.length >= 8 && toks[6] === "*") {
-          gp = 8
+        let gp = after
+        if (toks.length >= after + 2 && toks[after] === "*") {
+          gp = after + 2
         }
         while (gp + 1 < toks.length) {
           let k = toks[gp]
@@ -396,10 +411,10 @@ export fn parseProgram(source) {
           gp = gp + 2
         }
         currentTrack = {
-          name: toks[1],
-          id: toks[3],
-          generatorId: normalizeGeneratorId(toks[5]),
-          rawGenId: toks[5],
+          name: toks.slice(1, idIdx).join(" "),
+          id: toks[idIdx + 1],
+          generatorId: normalizeGeneratorId(toks[idIdx + 3]),
+          rawGenId: toks[idIdx + 3],
           genParams: genParams,
           loopBars: loopBars,
           body: [],

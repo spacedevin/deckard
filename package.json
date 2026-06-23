@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tish build --target js src/main.tish -o dist/bundle.js && tish build --target js src/ScopeWorker.tish -o scope-worker.js",
-    "test": "npm run test:smoke && npm run test:mp && npm run test:levels && npm run test:ratchet",
+    "test": "npm run test:smoke && npm run test:mp && npm run test:levels && npm run test:multiword && npm run test:ratchet",
+    "test:multiword": "tish build --target js test/multiword.tish -o /tmp/deckard-mw.js && node /tmp/deckard-mw.js",
     "test:smoke": "tish build --target js test/smoke.tish -o /tmp/deckard-smoke.js && node /tmp/deckard-smoke.js",
     "test:mp": "tish build --target js test/multiplayer.tish -o /tmp/deckard-mp.js && node /tmp/deckard-mp.js",
     "test:levels": "tish build --target js test/levels.tish -o /tmp/deckard-lv.js && node /tmp/deckard-lv.js",

@@ -728,112 +728,6 @@ fn haloLines(p) {
   return lines
 }
 
-// Aahs → a formant choir: a UNISON of detuned saws (2..7 singers, width/count from `ensemble`) → a brightness
-// lowpass → THREE parallel PEAKING formants (F1/F2/F3, the vowel's identity) → a soft-legato amp. The grammar
-// DOES express the per-formant dB boost via `env <filter>.gain` on a `peaking` biquad — so we use real peaking
-// formants (full body + boosted bands), NOT bandpasses (which kept only the bands → thin & wrong). A ~5 Hz
-// vibrato LFO on every singer's detune (the choir wobble) + a band of vowel-shaped breath noise complete it —
-// without these it sounded "completely different". Matches the live Aahs voice (vowel profile + structure).
-fn aahsLines(p) {
-  let vowel = p.vowel ? p.vowel : "aah"
-  let ensemble = p.ensemble >= 0 && p.ensemble <= 1 ? p.ensemble : 0.5
-  let tone = p.tone >= 0 && p.tone <= 1 ? p.tone : 0.5
-  let vibrato = p.vibrato >= 0 && p.vibrato <= 1 ? p.vibrato : 0.4
-  let breath = p.breath >= 0 && p.breath <= 1 ? p.breath : 0.3
-  // Full vowel formant triple (F1/F2/F3) + peak gains (dB) — mirrors Aahs.aahsVowelProfile exactly.
-  let f1 = 730
-  let f2 = 1200
-  let f3 = 2800
-  let g1 = 10
-  let g2 = 9
-  let g3 = 6
-  let hpf = 0.5
-  if (vowel === "eeh") { f1 = 290; f2 = 2300; f3 = 3000; g1 = 9; g2 = 11; g3 = 8; hpf = 0.62 }
-  else if (vowel === "ooh") { f1 = 320; f2 = 800; f3 = 2600; g1 = 10; g2 = 7; g3 = 4; hpf = 0.32 }
-  else if (vowel === "ohh") { f1 = 480; f2 = 900; f3 = 2700; g1 = 10; g2 = 8; g3 = 5; hpf = 0.40 }
-  else if (vowel === "mmm") { f1 = 250; f2 = 700; f3 = 2400; g1 = 11; g2 = 6; g3 = 3; hpf = 0.28 }
-  let tilt = 0.82 + tone * 0.36
-  let ff1 = Math.round(f1 * tilt)
-  let ff2 = Math.round(f2 * tilt)
-  let ff3 = Math.round(f3 * tilt)
-  let voices = 2 + Math.floor(ensemble * 5 + 0.5)
-  if (voices > 7) { voices = 7 }
-  if (voices < 2) { voices = 2 }
-  let spread = 6 + ensemble * 22
-  let cutoff = Math.round((1400 + tone * 5200) * (0.32 + hpf * 1.5))
-  if (cutoff > 15000) { cutoff = 15000 }
-  let attack = 0.14 + (1 - tone) * 0.12
-  let release = 0.34 + (1 - tone) * 0.22
-  // Live Aahs clamps hold to max(durSec, attack+0.06) so a sub-attack note completes its legato swell instead of
-  // cutting mid-rise (the truncated rise is the pop/percussive blip). Express it exactly via the max() grammar.
-  let hold = attack + 0.06
-  let vibHz = 4.7 + vibrato * 1.4
-  let vibDepth = vibrato * 42
-  let lines = []
-  let k = 0
-  while (k < voices) {
-    let frac = voices > 1 ? k / (voices - 1) : 0.5
-    let det = (frac - 0.5) * spread
-    // rand 2.5 = the live per-singer detune jitter ((random*2-1)*2.5 cents) — de-correlates the unison so the
-    // choir reads as separate singers (a lush width), not one phasey saw stack.
-    lines.push("osc o" + String(k) + " sawtooth note detune " + f(det) + " rand 2.5")
-    k = k + 1
-  }
-  lines.push("osc vib sine " + f(vibHz))
-  lines.push("filter lp lowpass q 0.6 freq " + f(cutoff))
-  lines.push("filter bp1 peaking q 7.5 freq " + f(ff1))
-  lines.push("filter bp2 peaking q 9.5 freq " + f(ff2))
-  lines.push("filter bp3 peaking q 5 freq " + f(ff3))
-  lines.push("gain a1 0")
-  // The choir vibrato BLOOMS IN after the soft legato attack (and fades on release) — it doesn't wobble at full
-  // depth from the click-free onset. Route the LFO through an enveloped depth-gain `gvib` (depth stays in the
-  // per-voice conn weight); gvib.gain does the 0.12→1→0 swell so every singer's vibrato swells together.
-  lines.push("gain gvib 0")
-  lines.push("conn vib gvib 1")
-  let j = 0
-  while (j < voices) {
-    lines.push("conn o" + String(j) + " lp 1")
-    lines.push("conn gvib o" + String(j) + ".detune " + f(vibDepth))
-    j = j + 1
-  }
-  // The vibrato swell peaks at min(attack+0.28, hold) (the live clamps vibPeakT ≤ hold on short notes) then holds
-  // until note-off and releases — nested min/max keeps it monotonic for any note length.
-  lines.push("env gvib.gain set 0 0.12 lin min(" + f(attack + 0.28) + ",max(dur," + f(hold) + ")) 1 set max(dur," + f(hold) + ") 1 exp max(dur," + f(hold) + ")+" + f(release) + " 0.0008")
-  lines.push("conn lp bp1 1")
-  lines.push("conn lp bp2 1")
-  lines.push("conn lp bp3 1")
-  lines.push("conn bp1 a1 0.5")
-  lines.push("conn bp2 a1 0.5")
-  lines.push("conn bp3 a1 0.5")
-  // Amp env 0..1; the per-voice + mix level (live amp level v*0.5/voices, mix 0.5) folds into the out weight.
-  lines.push("conn a1 out " + f((VOL_COMP * 0.5) / voices))
-  lines.push("env bp1.gain set 0 " + f(g1))
-  lines.push("env bp2.gain set 0 " + f(g2))
-  lines.push("env bp3.gain set 0 " + f(g3))
-  lines.push("env a1.gain set 0 0 lin " + f(attack) + " 1 set max(dur," + f(hold) + ") 1 exp max(dur," + f(hold) + ")+" + f(release) + " 0.0008")
-  if (breath > 0.01) {
-    lines.push("noise nz")
-    lines.push("filter nbp bandpass q 0.7 freq " + f(Math.round((ff2 + ff3) * 0.5)))
-    lines.push("filter nf1 peaking q 3 freq " + f(ff1))
-    lines.push("gain ng 0")
-    lines.push("conn nz nbp 1")
-    lines.push("conn nbp nf1 1")
-    lines.push("conn nf1 ng 1")
-    // Route the breath INTO a1 (mirror the live ng.connect(amp)) so it inherits the amp env + the 0.5/voices
-    // out attenuation — NOT straight to `out` (which bypassed it and made the breath ~8-11× too loud → hiss).
-    // Carry the breath level in this env (peak breath*0.5, sustain 0.7× like the live bsus) — bold + obviously
-    // airy now, matching the live nlevel = breath*0.5*v.
-    lines.push("conn ng a1 1")
-    lines.push("env nf1.gain set 0 8")
-    // Breath scales as v² in the live voice (ng peak = breath*0.5*v AND the band re-passes through amp.gain
-    // = v*0.5/voices). The out conn applies only ONE v, so carry the OTHER velocity factor here via the `vel`
-    // token (×VOL_COMP converts the patch's vel/100 → the live vel/127). Without it the breath was ~4× too
-    // loud/hissy at vel32, 2× at vel64 — the worst remaining aahs artifact.
-    lines.push("env ng.gain set 0 0 lin " + f(attack) + " vel*" + f(breath * 0.5 * VOL_COMP) + " set max(dur," + f(hold) + ") vel*" + f(breath * 0.5 * 0.7 * VOL_COMP) + " exp max(dur," + f(hold) + ")+" + f(release) + " 0.0008")
-  }
-  return lines
-}
-
 fn syncLeadLines(p) {
   // Use SAME param names and units as native SyncLead.tish
   let slaveBase = p.slaveBase != null ? p.slaveBase : 12
@@ -1313,7 +1207,6 @@ export fn canCompileToPatch(generatorId) {
     generatorId === "tine" ||
     generatorId === "aether" ||
     generatorId === "halo" ||
-    generatorId === "aahs" ||
     generatorId === "syncLead" ||
     generatorId === "syncChoir" ||
     generatorId === "obSync" ||
@@ -1367,9 +1260,6 @@ export fn compileGeneratorToPatchLines(generatorId, params, spec) {
   }
   if (generatorId === "halo") {
     return haloLines(p)
-  }
-  if (generatorId === "aahs") {
-    return aahsLines(p)
   }
   if (generatorId === "syncLead") {
     return syncLeadLines(p)
