@@ -30,7 +30,7 @@ export fn ensureDeckEq(project) {
   }
 }
 
-fn deckEntries(project, deck) {
+export fn deckEntries(project, deck) {
   let out = []
   let i = 0
   while (i < project.channels.length) {
@@ -180,7 +180,7 @@ fn StemFader(entry, setProjectFromUI, touchMixer, project, rt, accentColor) {
 // first grab, cached) and DUCKS this deck's live channels so the scratch replaces it; releasing restores the
 // deck. Hook-free (pure props + direct-DOM marker rotation) so it's safe inside the direct-call DeckSlot. All
 // audio goes through rt.scratch* hooks — no audio-node access here. ⟳ re-grabs the loop after a pattern edit.
-fn DeckJog(deck, rt) {
+export fn DeckJog(deck, rt) {
   let suf = deck === "B" ? "b" : deck === "C" ? "c" : deck === "D" ? "d" : "a"
   let acc = "dk-acc-" + suf
   let currentRot = (rt && rt.deckRot && typeof rt.deckRot[deck] === "number") ? rt.deckRot[deck] : 0
@@ -348,7 +348,7 @@ fn holdBtn(label, cls, title, onDown, onUp) {
 // VINYL performance row — turntablist moves on this deck's scratch platter. CUT (hold to mute, the fader-cut
 // for transformer/chirp/stab — jog with one hand, cut with the other), REV (hold to play backward / censor),
 // BRK (hold = the vinyl power-down to a stop), SPIN (tap = the rewind spinback zip). All route through rt hooks.
-fn VinylRow(deck, rt) {
+export fn VinylRow(deck, rt) {
   let suf = deck === "B" ? "b" : deck === "C" ? "c" : deck === "D" ? "d" : "a"
   let acc = "dk-acc-" + suf
   // Each move emits an `@ deck <X> …` directive (applied locally through ingest + broadcast to peers), so it is
@@ -365,26 +365,6 @@ fn VinylRow(deck, rt) {
   )
 }
 
-// One of the 4 decks (A/B/C/D): coloured header + set picker + the per-TRACK stem faders + a jog platter. The
-// per-DECK mix controls (EQ knobs, CUE, deck volume) live in the centre DJ-mixer strip (DeckChannelStrip).
-fn DeckSlot(project, deck, setProjectFromUI, touchMixer, rt) {
-  ensureDeckEq(project)
-  let suf = deck === "B" ? "b" : deck === "C" ? "c" : deck === "D" ? "d" : "a"
-  let entries = deckEntries(project, deck)
-  let empty = entries.length === 0
-  let acc = "dk-acc-" + suf
-  let cls = empty ? "dk-deckslot dk-deck-" + suf + " dk-player-empty" : "dk-deckslot dk-deck-" + suf
-  return (
-    <div class={cls}>
-      <div class="dk-player-head">
-        <span class={"dk-player-tag " + acc}>{"DECK " + deck}</span>
-      </div>
-      {empty ? <div class="dk-empty">{"DECK " + deck + " — empty"}</div> : null}
-      {empty ? null : DeckJog(deck, rt)}
-      {empty ? null : VinylRow(deck, rt)}
-    </div>
-  )
-}
 
 // Centre DJ-mixer channel strip for one deck: per-deck EQ knobs (HI/MID/LO/FLT) + CUE + per-deck volume
 // fader. This is the "booth" — like a Pioneer DJM channel. The per-track stem faders stay in the deck slot.
@@ -459,15 +439,6 @@ fn deckStripEq(a, b) {
 }
 let DeckChannelStripMemo = memo((p) => DeckChannelStrip(p.project, p.deck, p.setProjectFromUI, p.touchMixer, p.rt), deckStripEq)
 
-// A side column = two stacked decks: left = A (top) / C (bottom), right = B (top) / D (bottom).
-fn DeckColumnSide(project, topDeck, botDeck, setProjectFromUI, touchMixer, rt) {
-  return (
-    <div class="dk-deck-col">
-      {DeckSlot(project, topDeck, setProjectFromUI, touchMixer, rt)}
-      {DeckSlot(project, botDeck, setProjectFromUI, touchMixer, rt)}
-    </div>
-  )
-}
 
 // Map the deck accent CLASS ("dk-acc-a".."dk-acc-d") to its themed colour for the knob arc.
 fn eqAccentColor(a) {
@@ -567,18 +538,7 @@ export fn DeckMixer(project, setProjectFromUI, touchMixer, rt) {
   }
   return (
     <section class="panel dk-panel">
-      <div class="dk-master-strip">
-        <div class="dk-master-info">
-          <p class="dk-master-title">{"MASTER_OUT"}</p>
-          <p>{"XFADE X: " + String(Math.round(x * 100)) + "% Y: " + String(Math.round(y * 100)) + "%"}</p>
-        </div>
-        <div class="dk-master-scope">
-          <canvas class="dk-spectrum" width="320" height="72" />
-        </div>
-      </div>
       <div class="dk-desk">
-        {DeckColumnSide(project, "A", "C", setProjectFromUI, touchMixer, rt)}
-        {DeckColumnSide(project, "B", "D", setProjectFromUI, touchMixer, rt)}
         <div class="dk-center">
           <div class="dk-mixer">
             {h(DeckChannelStripMemo, stripProps("C"))}
