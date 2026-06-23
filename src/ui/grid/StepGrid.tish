@@ -925,6 +925,37 @@ fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh,
   )
 }
 
+// The grid overlays (piano roll, step locks, note locks, automation) are MUTUALLY EXCLUSIVE — only one takes
+// over the sequencer at a time. Opening any one closes the rest; the open one renders as a full-panel takeover
+// overlay (built once in StepGridPanel), so the sequencer never grows taller when a lane is opened.
+fn closeAllGridOverlays(rt) {
+  if (!rt) {
+    return
+  }
+  rt.gridExpanded = {}
+  rt.gridLocks = {}
+  rt.gridPianoLocks = {}
+  rt.gridAuto = {}
+}
+
+// Toggle one overlay map (gridExpanded / gridLocks / gridPianoLocks / gridAuto) for a channel: close everything,
+// then open this one unless it was already the open overlay (so a second click on the same toggle closes it).
+fn toggleGridOverlay(rt, chId, mapName) {
+  if (!rt) {
+    return
+  }
+  let m = rt[mapName]
+  let wasOpen = m != null && m[chId] === true
+  closeAllGridOverlays(rt)
+  if (!wasOpen) {
+    rt[mapName] = {}
+    rt[mapName][chId] = true
+  }
+  if (rt.bumpGrid) {
+    rt.bumpGrid()
+  }
+}
+
 fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh, rt, viewBar) {
   let hasNotes = ch.pianoNotes && ch.pianoNotes.length > 0
   // A single-pitch channel sequences that one note inline; a multi-pitch melody opens the piano roll.
@@ -972,27 +1003,6 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
   return (
     <div class={rowCls}>
       <div class="sg-gutter">
-        <button
-          type="button"
-          class={expanded ? "sg-exp sg-exp-on" : "sg-exp"}
-          title="Open the piano roll for this track (takes over the sequencer)"
-          onclick={(e) => {
-            e.stopPropagation()
-            if (rt) {
-              // Single piano roll at a time: clear all, then open this one (or close if it was already open).
-              let wasOpen = rt.gridExpanded != null && rt.gridExpanded[ch.id] === true
-              rt.gridExpanded = {}
-              if (!wasOpen) {
-                rt.gridExpanded[ch.id] = true
-              }
-              if (rt.bumpGrid) {
-                rt.bumpGrid()
-              }
-            }
-          }}
-        >
-          {LucideIcon("piano")}
-        </button>
         <div class="sg-gutter-main" onclick={() => setSelectedCh(chIdx)} title="Select channel (Double-click name to rename)">
           <span
             class="sg-ch-name"
@@ -1017,22 +1027,25 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
           <span class="sg-ch-instr">{generatorLabelById(gid)}</span>
         </div>
         <div class="sg-gutter-ctl">
+          <button
+            type="button"
+            class={expanded ? "sg-exp sg-exp-on" : "sg-exp"}
+            title="Open the piano roll for this track (takes over the sequencer)"
+            onclick={(e) => {
+              e.stopPropagation()
+              toggleGridOverlay(rt, ch.id, "gridExpanded")
+            }}
+          >
+            {LucideIcon("piano")}
+          </button>
           {stepChannel ? (
             <button
               type="button"
               class={locksOpen ? "sg-tog sg-tog-lck sg-tog-lck-on" : "sg-tog sg-tog-lck"}
-              title="Per-step locks — velocity · probability · ratchet · nudge (drag the lanes below)"
+              title="Per-step locks — velocity · probability · ratchet · nudge (takes over the sequencer)"
               onclick={(e) => {
                 e.stopPropagation()
-                if (rt) {
-                  if (!rt.gridLocks) {
-                    rt.gridLocks = {}
-                  }
-                  rt.gridLocks[ch.id] = !(rt.gridLocks[ch.id] === true)
-                  if (rt.bumpGrid) {
-                    rt.bumpGrid()
-                  }
-                }
+                toggleGridOverlay(rt, ch.id, "gridLocks")
               }}
             >
               {"⇅"}
@@ -1041,18 +1054,10 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
             <button
               type="button"
               class={pianoLocksOpen ? "sg-tog sg-tog-lck sg-tog-lck-on" : "sg-tog sg-tog-lck"}
-              title="Per-note locks — velocity · probability · ratchet · nudge (drag the lanes below the notes)"
+              title="Per-note locks — velocity · probability · ratchet · nudge (takes over the sequencer)"
               onclick={(e) => {
                 e.stopPropagation()
-                if (rt) {
-                  if (!rt.gridPianoLocks) {
-                    rt.gridPianoLocks = {}
-                  }
-                  rt.gridPianoLocks[ch.id] = !(rt.gridPianoLocks[ch.id] === true)
-                  if (rt.bumpGrid) {
-                    rt.bumpGrid()
-                  }
-                }
+                toggleGridOverlay(rt, ch.id, "gridPianoLocks")
               }}
             >
               {"⇅"}
@@ -1062,18 +1067,10 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
             <button
               type="button"
               class={autoOpen ? "sg-tog sg-tog-auto sg-tog-auto-on" : "sg-tog sg-tog-auto"}
-              title="Automation lane — draw a parameter curve over the bar (master only)"
+              title="Automation lane — draw a parameter curve over the bar (takes over the sequencer)"
               onclick={(e) => {
                 e.stopPropagation()
-                if (rt) {
-                  if (!rt.gridAuto) {
-                    rt.gridAuto = {}
-                  }
-                  rt.gridAuto[ch.id] = !(rt.gridAuto[ch.id] === true)
-                  if (rt.bumpGrid) {
-                    rt.bumpGrid()
-                  }
-                }
+                toggleGridOverlay(rt, ch.id, "gridAuto")
               }}
             >
               {"∿"}
@@ -1191,28 +1188,10 @@ fn handleBarWheel(e, rt, gridBars) {
 export fn StepGridTrackRows(project, ch, ci, selectedCh, setProjectFromUI, setSelectedCh, rt, viewBar, gridBars) {
   let rows = []
   rows.push(ChannelRowGrid(ch, ci, project, setProjectFromUI, ci === selectedCh, setSelectedCh, rt, viewBar))
-  let expanded = rt != null && rt.gridExpanded != null && rt.gridExpanded[ch.id] === true
-  // The piano roll no longer expands inline beneath the row — it TAKES OVER the whole sequencer panel as a
-  // single overlay (rendered once in StepGridPanel). So nothing is pushed here for the expanded state.
-  let locksOpen = rt != null && rt.gridLocks != null && rt.gridLocks[ch.id] === true
+  // Piano roll, per-step locks, per-note locks, and the automation lane no longer expand inline beneath the row
+  // — each TAKES OVER the whole sequencer panel as a single mutually-exclusive overlay (built once in
+  // StepGridPanel). So nothing is pushed here for those states; the sequencer never grows taller when one opens.
   let isStepCh = (!ch.pianoNotes || ch.pianoNotes.length === 0) && singleNotePitch(ch) == null
-  if (locksOpen && isStepCh) {
-    let lrows = lockLanesForChannel(project, ch, ci, rt)
-    let lk = 0
-    while (lk < lrows.length) { rows.push(lrows[lk]); lk = lk + 1 }
-  }
-  let pianoLocksOpen = rt != null && rt.gridPianoLocks != null && rt.gridPianoLocks[ch.id] === true
-  let isMelodic = (ch.pianoNotes && ch.pianoNotes.length > 0) || singleNotePitch(ch) != null
-  if (pianoLocksOpen && isMelodic) {
-    let plrows = pianoLockLanesForChannel(project, ch, ci, rt, viewBar)
-    let plk = 0
-    while (plk < plrows.length) { rows.push(plrows[plk]); plk = plk + 1 }
-  }
-  let autoOpen = rt != null && rt.gridAuto != null && rt.gridAuto[ch.id] === true
-  if (autoOpen) {
-    let arow = autoLaneRow(project, ch, ci, rt)
-    if (arow != null) { rows.push(arow) }
-  }
   let isVocal = ch.generatorId === "formantVocal" || ch.generatorId === "ttsVocal" || ch.generatorId === "meSpeakVocal"
   if (isVocal && isStepCh) {
     rows.push(lockLaneRow(project, ch, ci, "lyric", rt))
@@ -1315,6 +1294,46 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
       )
     }
     pti = pti + 1
+  }
+
+  // Single LANE TAKEOVER overlay (step locks / note locks / automation) — the SAME full-panel takeover as the
+  // piano roll, so opening a lane never grows the sequencer. Mutually exclusive with the piano takeover
+  // (toggleGridOverlay closes the others), so at most one of pianoTakeover / laneTakeover is ever non-null.
+  let laneTakeover = null
+  let lti = 0
+  while (lti < project.channels.length) {
+    let lc = project.channels[lti]
+    if (activeDeck == null || channelDeck(project, lc) === activeDeck) {
+      let lIx = lti
+      let lLocks = rt != null && rt.gridLocks != null && rt.gridLocks[lc.id] === true
+      let lPiano = rt != null && rt.gridPianoLocks != null && rt.gridPianoLocks[lc.id] === true
+      let lAuto = rt != null && rt.gridAuto != null && rt.gridAuto[lc.id] === true
+      if (lLocks || lPiano || lAuto) {
+        let laneRows = []
+        let laneTitle = ""
+        if (lAuto) {
+          let arow = autoLaneRow(project, lc, lIx, rt)
+          if (arow != null) { laneRows.push(arow) }
+          laneTitle = lc.name + " · AUTOMATION"
+        } else if (lPiano) {
+          laneRows = pianoLockLanesForChannel(project, lc, lIx, rt, viewBar)
+          laneTitle = lc.name + " · NOTE LOCKS"
+        } else {
+          laneRows = lockLanesForChannel(project, lc, lIx, rt)
+          laneTitle = lc.name + " · STEP LOCKS"
+        }
+        laneTakeover = (
+          <div class="sg-piano-takeover">
+            <div class="sg-piano-takeover-head">
+              <span class="sg-piano-takeover-title">{laneTitle}</span>
+              <button type="button" class="sg-piano-takeover-close" title="Close" onclick={(e) => { e.stopPropagation(); closeAllGridOverlays(rt); if (rt && rt.bumpGrid) { rt.bumpGrid() } }}>{"✕"}</button>
+            </div>
+            <div class="sg-grid sg-piano-takeover-body sg-lane-takeover-body">{laneRows}</div>
+          </div>
+        )
+      }
+    }
+    lti = lti + 1
   }
   // Bar pager — view one bar at a time, page through a multi-bar progression.
   let pager = []
@@ -1563,12 +1582,13 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
           }
         })}
       </div>
-      <div class="sg-grid" onwheel={(e) => handleBarWheel(e, rt, gridBars)}>{rows}</div>
       <div class="sg-ruler">
         <div class="sg-ruler-pad" />
         <div class="sg-ruler-ticks">{ruler}</div>
       </div>
+      <div class="sg-grid" onwheel={(e) => handleBarWheel(e, rt, gridBars)}>{rows}</div>
       {pianoTakeover}
+      {laneTakeover}
     </section>
   )
 }

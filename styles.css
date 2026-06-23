@@ -3225,6 +3225,16 @@ input[type="range"]::-moz-range-thumb {
 
 .session-panel {
   max-width: 960px;
+  /* Leading width = the per-row name label + ■ stop (26px) + 2 gaps (0.35rem each). The clip columns and the
+     P-scene headers both clear this, so driving it from one variable keeps them column-aligned even when the
+     name is hidden side-by-side (see the wide-screen media query). */
+  --sess-name-w: 100px;
+  --sess-lead: calc(var(--sess-name-w) + 26px + 0.7rem);
+}
+/* Match the SEQ panel's 18px bottom padding so the bottom-anchored grids (.sg-grid / .session-grid-wrap both
+   use margin-top:auto) line up — that 12px padding gap was the ONLY thing making the rows sit off by 12px. */
+.seq-split-session .session-panel {
+  padding-bottom: 18px;
 }
 
 .session-panel-head {
@@ -3516,9 +3526,10 @@ input[type="range"]::-moz-range-thumb {
 .session-scene-row {
   display: flex;
   gap: 0.35rem;
-  /* Align the P columns with the clip columns below: clear the track-row leading cells (name 100 + ■ 26 +
-     🔗 24 + three 0.35rem gaps) and run to the right edge, exactly like .session-cells does. */
-  margin-left: calc(150px + 1.05rem);
+  /* Align the P columns with the clip columns below: clear the track-row leading cells (name + ■ 26 + 🔗 24 +
+     three 0.35rem gaps) and run to the right edge, exactly like .session-cells does. Driven by --sess-lead so
+     it tracks the name width when it collapses side-by-side. */
+  margin-left: var(--sess-lead);
   margin-right: 0;
 }
 
@@ -3559,24 +3570,19 @@ input[type="range"]::-moz-range-thumb {
   gap: 0.35rem;
 }
 
-/* The track name is a play/pause toggle: tap to play/pause that track (queued). */
-.session-track-name.session-track-toggle {
-  width: 100px;
+/* The track name is now just a LABEL (play/pause + SYNC/STORE moved to the instrument UI). It only shows when
+   the panels are stacked; side-by-side the aligned SEQ labels the row, so it's hidden (see the media query). */
+.session-track-name.session-track-label {
+  width: var(--sess-name-w);
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 7px;
   text-align: left;
   padding: 0.25rem 0.55rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: #0e0e0e;
   color: var(--text);
   font-family: inherit;
   font-weight: 600;
   font-size: 0.75rem;
-  cursor: pointer;
-  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease, opacity 0.12s ease;
 }
 .session-track-ico {
   font-size: 0.7rem;
@@ -3876,6 +3882,13 @@ input[type="range"]::-moz-range-thumb {
 .sg-piano-takeover-body .sg-prow { flex: 1 1 0; min-height: 0; }
 .sg-piano-takeover-body .sg-prow .sg-cells { height: 100%; }
 .sg-piano-takeover-body .sg-prow .sg-cell { height: 100%; }
+/* Lock / automation lanes in the takeover: each lane row flex-fills the panel height (tall, easy-to-draw
+   lanes) instead of the cramped inline ~18px. */
+.sg-lane-takeover-body { gap: 6px; padding-top: 10px; }
+.sg-lane-takeover-body .sg-lk-row { flex: 1 1 0; min-height: 0; margin-top: 0; opacity: 1; }
+.sg-lane-takeover-body .sg-lk-cells { height: 100%; }
+.sg-lane-takeover-body .sg-lk-cell,
+.sg-lane-takeover-body .sg-auto-cell { height: auto; }
 .sg-head {
   display: flex;
   align-items: baseline;
@@ -4312,7 +4325,7 @@ input[type="range"]::-moz-range-thumb {
 .sg-ruler {
   display: flex;
   gap: 10px;
-  margin-top: 7px;
+  margin-bottom: 5px;
 }
 .sg-ruler-pad {
   width: 168px;
@@ -4345,7 +4358,6 @@ input[type="range"]::-moz-range-thumb {
   line-height: 1;
   cursor: pointer;
   padding: 0;
-  margin-right: 6px;
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -5080,6 +5092,17 @@ input[type="range"]::-moz-range-thumb {
   height: 100%;
   display: flex;
   flex-direction: column;
+}
+/* Side by side: SEQ + SESSION rows are EXACTLY aligned, so the SEQ already labels each instrument — the
+   session's per-row name is redundant. Collapse the name button to just the ▶ play/pause toggle (widening the
+   clip columns). --sess-name-w also drives the scene-row offset, so the P columns stay aligned with the clips. */
+@media (min-width: 1001px) {
+  .seq-split-session .session-panel { --sess-lead: calc(26px + 0.35rem); }
+  .seq-split-session .session-track-name { display: none; }
+}
+/* Stacked (narrow): SEQ and SESSION drop onto separate lines, so the session shows its own row names again. */
+@media (max-width: 1000px) {
+  .seq-session-split { flex-direction: column; }
 }
 .seq-split-side {
   flex: 0 0 200px;
@@ -6112,6 +6135,13 @@ input[type="range"]::-moz-range-thumb {
   min-width: 0 !important;
   width: auto !important;
 }
+/* The header link (SYNC/STORE) button matches the thinnest 17px chip — flat vertical padding, fixed height. */
+.instr-grid-container .btn-deck.btn-deck-outline {
+  height: 17px !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  box-sizing: border-box !important;
+}
 
 .instr-grid-container .instr-modules-row {
   display: flex;
@@ -6305,13 +6335,16 @@ input[type="range"]::-moz-range-thumb {
   letter-spacing: 0.08em !important;
   text-transform: uppercase !important;
   border-radius: 4px !important;
-  padding: 0.08rem 0.32rem !important;
+  /* Match the thinnest header chip (17px); flat padding + line-height:1 so the label centres in that height. */
+  height: 17px !important;
+  padding: 0 0.32rem !important;
+  line-height: 1 !important;
+  box-sizing: border-box !important;
   min-width: 0 !important;
   cursor: pointer !important;
   display: inline-flex !important;
   align-items: center !important;
   transition: opacity 0.1s ease !important;
-  transform: translateY(-0.1em) !important;
 }
 .voice-badge-select:hover {
   opacity: 0.85 !important;

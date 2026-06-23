@@ -17,7 +17,6 @@ import { IkSelect, LucideIcon } from './InstrumentKit.tish'
 import { channelDeck, channelDeckColor } from '../model/DeckRouting.tish'
 import { launchClipDirective, launchClipStopDirective, cueDirective } from '../codj/Launch.tish'
 import { singleNotePitch } from './grid/StepGrid.tish'
-import { defaultAutoParam } from '../model/AutoParams.tish'
 import { pitchWindow } from './grid/PianoGrid.tish'
 
 // Broadcast a session-control directive to collaborators, if connected (no-op offline).
@@ -215,28 +214,16 @@ export fn SessionTrackRow(project, ch, tix, activeDeck, rt, sc, playing, bumpSes
     }
     sj = sj + 1
   }
-  let live = playing && !muted
-  let nameCls = "session-track-name session-track-toggle"
-  if (muted) { nameCls = nameCls + " session-track-paused" }
-  else if (live) { nameCls = nameCls + " session-track-live" }
-  else { nameCls = nameCls + " session-track-ready" }
-  let icon = muted ? "⏸" : "▶"
-  let stateText = muted ? "muted — tap to unmute" : (live ? "playing — tap to mute" : "ready — tap to mute")
+  // Play/pause (mute) and the SYNC/STORE link live in the instrument UI — the session row is just a clip
+  // launcher: a name label (shown only when stacked; the aligned SEQ labels the row side-by-side) + a clip
+  // stop + the clip cells.
   let stopCls = stopped ? "session-track-stop session-track-stop-on" : "session-track-stop"
-  let isStore = ch.clipInstrMode === "store"
-  let instrCls = isStore ? "session-track-instr session-track-instr-on" : "session-track-instr"
   let outRows = []
   outRows.push(
     <div class="session-track-row" key={"row-" + String(tix)}>
-      <button
-        type="button"
-        class={nameCls}
-        title={ch.name + ": " + stateText + " (instant)"}
-        onclick={() => queueMute(tix)}
-      >
-        <span class="session-track-ico">{icon}</span>
+      <span class="session-track-name session-track-label" title={ch.name}>
         <span class="session-track-txt">{ch.name}</span>
-      </button>
+      </span>
       <button
         type="button"
         class={stopCls}
@@ -245,48 +232,15 @@ export fn SessionTrackRow(project, ch, tix, activeDeck, rt, sc, playing, bumpSes
       >
         {"■"}
       </button>
-      <button
-        type="button"
-        class={instrCls}
-        title={isStore ? "STORE — each pattern saves/loads its own instrument. Click to switch to SYNC (shared instrument)." : "SYNC — all patterns share this track's instrument. Click to switch to STORE (per-pattern instruments)."}
-        onclick={(e) => {
-          e.stopPropagation()
-          ch.clipInstrMode = isStore ? "sync" : "store"
-          if (bumpSessionUi) { bumpSessionUi() }
-          setProjectFromUI(project)
-        }}
-      >
-        {isStore ? "🎹" : "🔗"}
-      </button>
       <div class="session-cells">{cells}</div>
     </div>
   )
 
-  // The piano roll is now a full-panel takeover in the sequencer (it no longer pushes inline rows), so the
-  // session needs NO matching expand-spacer rows.
-  let locksOpen = rt != null && rt.gridLocks != null && rt.gridLocks[ch.id] === true
+  // The piano roll, per-step locks, per-note locks, and the automation lane are now full-panel TAKEOVERS in the
+  // sequencer — they no longer push inline rows there, so the sequencer never grows and the session needs NO
+  // matching spacer rows for them (a spacer here would push the clip rows DOWN and misalign them). Only the
+  // always-on vocal lyric lane still expands inline in the sequencer, so it keeps its single spacer.
   let isStepCh = (!ch.pianoNotes || ch.pianoNotes.length === 0) && singleNotePitch(ch) == null
-  if (locksOpen && isStepCh) {
-    let lk = 0
-    while (lk < 4) {
-      outRows.push(<div class="sg-row sg-lk-row" style={{ visibility: "hidden", pointerEvents: "none" }} key={"spacer-lk-" + String(tix) + "-" + String(lk)}><div class="sg-lk-cell" /></div>)
-      lk = lk + 1
-    }
-  }
-  let pianoLocksOpen = rt != null && rt.gridPianoLocks != null && rt.gridPianoLocks[ch.id] === true
-  let isMelodic = (ch.pianoNotes && ch.pianoNotes.length > 0) || singleNotePitch(ch) != null
-  if (pianoLocksOpen && isMelodic) {
-    let plk = 0
-    while (plk < 5) {
-      outRows.push(<div class="sg-row sg-lk-row" style={{ visibility: "hidden", pointerEvents: "none" }} key={"spacer-plk-" + String(tix) + "-" + String(plk)}><div class="sg-lk-cell" /></div>)
-      plk = plk + 1
-    }
-  }
-  let autoCapable = defaultAutoParam(ch.generatorId ? ch.generatorId : "basicOsc") != null
-  let autoOpen = rt != null && rt.gridAuto != null && rt.gridAuto[ch.id] === true
-  if (autoOpen && autoCapable) {
-    outRows.push(<div class="sg-row sg-auto-row" style={{ visibility: "hidden", pointerEvents: "none" }} key={"spacer-auto-" + String(tix)}><div class="sg-cell" /></div>)
-  }
   let isVocal = ch.generatorId === "formantVocal" || ch.generatorId === "ttsVocal" || ch.generatorId === "meSpeakVocal"
   if (isVocal && isStepCh) {
     outRows.push(<div class="sg-row sg-lk-row" style={{ visibility: "hidden", pointerEvents: "none" }} key={"spacer-lyric-" + String(tix)}><div class="sg-lk-cell" /></div>)
@@ -492,7 +446,6 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
     return (
       <div class="session-scene-follow" title={"After this pattern plays, do this. Add a weighted second action (⚖) for a deterministic chance (seeded — same for every player)."}>
         <div class="follow-line1">
-          <span class="session-scene-oplabel">{"THEN"}</span>
           {IkSelect({
             class: "follow-sel",
             value: aVal,

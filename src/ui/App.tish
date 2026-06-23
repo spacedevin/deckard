@@ -105,8 +105,11 @@ fn playlistEq(a, b) {
   return a.timelineGen === b.timelineGen && a.setLibGen === b.setLibGen && a.channelsRev === b.channelsRev
 }
 
-// A click in the left deck strip selects that deck — but NOT when it lands on a control (jog, faders, EQ knobs,
-// vinyl/CUE buttons, crossfader, XY pad). Only clicks on the deck's empty area / title row select it.
+// A press in the left deck strip selects that deck — but NOT when it lands on a control (jog, faders, EQ knobs,
+// vinyl/CUE buttons, crossfader, XY pad). Only presses on the deck's empty area / title row select it. Bound to
+// mousedown (NOT click): at press time e.target is the exact element under the cursor, so a control is caught
+// reliably. A knob/fader DRAG ends with mouseup off the control, which would synthesize a `click` on the deck
+// container (target = deck div, not the knob) and slip past this gate — pressing is unambiguous, so we gate that.
 fn deckBgClick(e, deck, setActiveDeck) {
   let t = e != null ? e.target : null
   if (t != null && t.closest != null && t.closest("button, input, select, textarea, canvas, .dk-jog, .dk-xfade, .dk-xypad, [class*='knob'], [class*='lever'], [class*='fader']") != null) {
@@ -2673,7 +2676,7 @@ export fn App() {
     </header>
     <div class="daw-app-layout">
       <aside class="daw-sidebar-left">
-        <div class={"deck-nav-btn deck-a" + (activeDeck === "A" ? " deck-active" : "")} onclick={(e) => deckBgClick(e, "A", setActiveDeck)}>
+        <div class={"deck-nav-btn deck-a" + (activeDeck === "A" ? " deck-active" : "")} onmousedown={(e) => deckBgClick(e, "A", setActiveDeck)}>
           <div class="deck-nav-content-row">
             <div class="deck-nav-platter-card">
               <div class="deck-nav-title-row">
@@ -2693,7 +2696,7 @@ export fn App() {
             {DeckChannelStrip(project, "A", setProjectFromUI, touchMixer, rt)}
           </div>
         </div>
-        <div class={"deck-nav-btn deck-b" + (activeDeck === "B" ? " deck-active" : "")} onclick={(e) => deckBgClick(e, "B", setActiveDeck)}>
+        <div class={"deck-nav-btn deck-b" + (activeDeck === "B" ? " deck-active" : "")} onmousedown={(e) => deckBgClick(e, "B", setActiveDeck)}>
           <div class="deck-nav-content-row">
             <div class="deck-nav-platter-card">
               <div class="deck-nav-title-row">
@@ -2713,7 +2716,7 @@ export fn App() {
             {DeckChannelStrip(project, "B", setProjectFromUI, touchMixer, rt)}
           </div>
         </div>
-        <div class={"deck-nav-btn deck-c" + (activeDeck === "C" ? " deck-active" : "")} onclick={(e) => deckBgClick(e, "C", setActiveDeck)}>
+        <div class={"deck-nav-btn deck-c" + (activeDeck === "C" ? " deck-active" : "")} onmousedown={(e) => deckBgClick(e, "C", setActiveDeck)}>
           <div class="deck-nav-content-row">
             <div class="deck-nav-platter-card">
               <div class="deck-nav-title-row">
@@ -2733,7 +2736,7 @@ export fn App() {
             {DeckChannelStrip(project, "C", setProjectFromUI, touchMixer, rt)}
           </div>
         </div>
-        <div class={"deck-nav-btn deck-d" + (activeDeck === "D" ? " deck-active" : "")} onclick={(e) => deckBgClick(e, "D", setActiveDeck)}>
+        <div class={"deck-nav-btn deck-d" + (activeDeck === "D" ? " deck-active" : "")} onmousedown={(e) => deckBgClick(e, "D", setActiveDeck)}>
           <div class="deck-nav-content-row">
             <div class="deck-nav-platter-card">
               <div class="deck-nav-title-row">
