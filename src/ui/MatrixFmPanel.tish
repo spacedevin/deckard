@@ -1011,8 +1011,7 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
       )}
       <div class="sytrus-panel-head">
         <div class="sytrus-panel-head-l">
-          <span class="sytrus-panel-title">{"MATRIX FM"}</span>
-          <span class="sytrus-panel-sub">{"operators · modulation · filters · bus"}</span>
+          <span class="sytrus-panel-title" title="operators · modulation · filters · bus">{"MATRIX FM"}</span>
           {canEdit ? null : <span class="instr-lock-tag">{"read only"}</span>}
         </div>
 

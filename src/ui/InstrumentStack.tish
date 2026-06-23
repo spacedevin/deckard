@@ -596,9 +596,20 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
     )
 
     let volumeEl = (
-      <div class="dk-lever">
-        {vertLeverEl(g, acc, onSet)}
-        <div class={"dk-lever-meter dk-lvl-" + chId}>
+      <div style={{ display: "flex", alignItems: "center", gap: "6px" }} title={"Volume: " + (gainToDb(g) < -60 ? "-inf" : String(Math.round(gainToDb(g))) + "dB") + " (drag to adjust)"}>
+        {Knob({
+          label: "",
+          value: g,
+          min: 0,
+          max: 1.0,
+          step: 0.01,
+          accent: acc,
+          fmt: (x) => "",
+          onInput: (x) => {
+            onSet(x)
+          }
+        })}
+        <div class={"dk-lever-meter dk-lvl-" + chId} style={{ height: "24px", width: "4px" }}>
           <div class="dk-lever-meter-fill" style={{ background: acc }} />
         </div>
       </div>
@@ -649,8 +660,7 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
                 class="btn-deck btn-deck-outline"
                 style={{
                   marginTop: 0,
-                  padding: "0.2rem 0.45rem",
-                  fontSize: "0.6rem",
+                  padding: "0.2rem 0.35rem",
                   borderColor: ch.clipInstrMode === "store" ? "rgba(232, 148, 92, 0.7)" : deckColor + "44",
                   color: ch.clipInstrMode === "store" ? "var(--accent-warm, #e8945c)" : "#999",
                   background: ch.clipInstrMode === "store" ? "rgba(232, 148, 92, 0.1)" : "transparent"
@@ -661,7 +671,21 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
                   setProjectFromUI(project)
                 }}
               >
-                {ch.clipInstrMode === "store" ? "Per-Pattern" : "Global"}
+                {ch.clipInstrMode === "store" ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
+                    <rect x="2" y="3" width="20" height="18" rx="2" ry="2"/>
+                    <line x1="2" y1="13" x2="22" y2="13"/>
+                    <line x1="6" y1="13" x2="6" y2="21"/>
+                    <line x1="10" y1="13" x2="10" y2="21"/>
+                    <line x1="14" y1="13" x2="14" y2="21"/>
+                    <line x1="18" y1="13" x2="18" y2="21"/>
+                  </svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                  </svg>
+                )}
               </button>
             </div>
           </Fragment>,

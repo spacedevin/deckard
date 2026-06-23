@@ -558,7 +558,8 @@ fn EqSlider(label, val, onInput, accentCls) {
     fmt: fmt,
     onInput: onInput,
     accent: eqAccentColor(accentCls),
-    size: "sm"
+    size: "sm",
+    valueInside: true
   })
 }
 
@@ -638,6 +639,7 @@ export fn DeckMixer(project, setProjectFromUI, touchMixer, rt) {
       </div>
       <div class="dk-desk">
         {DeckColumnSide(project, "A", "C", setProjectFromUI, touchMixer, rt)}
+        {DeckColumnSide(project, "B", "D", setProjectFromUI, touchMixer, rt)}
         <div class="dk-center">
           <div class="dk-mixer">
             {h(DeckChannelStripMemo, stripProps("C"))}
@@ -698,7 +700,6 @@ export fn DeckMixer(project, setProjectFromUI, touchMixer, rt) {
             </div>
           </div>
         </div>
-        {DeckColumnSide(project, "B", "D", setProjectFromUI, touchMixer, rt)}
       </div>
     </section>
   )

@@ -75,8 +75,7 @@ export fn MacroDesignerPanel(ch, project, setProject, tplMirrorFlush) {
   return (
     <div class="sytrus-panel macro-panel">
       <div class="sytrus-panel-head">
-        <span class="sytrus-panel-title">{title}</span>
-        <span class="sytrus-panel-sub">{macroLabel(ch.macroName) + " · re-expands to a patch"}</span>
+        <span class="sytrus-panel-title" title={macroLabel(ch.macroName) + " · re-expands to a patch"}>{title}</span>
       </div>
       <section class="sytrus-section">
         {controls.length === 0 ? (

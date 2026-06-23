@@ -1368,8 +1368,7 @@ export fn PatchGraphPanel(ch, project, setProject, rt, mayEdit) {
   return (
     <div class={editMode ? "sytrus-panel patch-panel patch-edit" : "sytrus-panel patch-panel patch-view"}>
       <div class="sytrus-panel-head">
-        <span class="sytrus-panel-title">{"PATCH"}</span>
-        <span class="sytrus-panel-sub">{editMode ? "modules · wire each output" : "modules · signal flow"}</span>
+        <span class="sytrus-panel-title" title={editMode ? "modules · wire each output" : "modules · signal flow"}>{"PATCH"}</span>
         {canEdit ? (
           <span class="patch-mode-toggle">
             <button type="button" class={editMode ? "imt-btn" : "imt-btn imt-on"} onmousedown={(e) => e.stopPropagation()} onclick={() => setPatchEditMode(false)}>{"View"}</button>

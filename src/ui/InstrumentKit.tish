@@ -389,9 +389,19 @@ export fn Knob(opts) {
         {detents > 0 ? detentDots : (
           <circle class="ik-knob-dot" cx={String(dot[0])} cy={String(dot[1])} r="2.6" style={{ fill: accent }} />
         )}
+        {opts.valueInside && valText !== "" ? (
+          <text
+            x="24"
+            y="23.5"
+            class="ik-knob-value-inside"
+            style={{ fill: accent, pointerEvents: "none" }}
+          >
+            {valText}
+          </text>
+        ) : null}
       </svg>
-      <div class="ik-knob-label">{label}</div>
-      <div class="ik-knob-value">{valText}</div>
+      {label !== "" ? <div class="ik-knob-label">{label}</div> : null}
+      {!opts.valueInside && valText !== "" ? <div class="ik-knob-value">{valText}</div> : null}
     </div>
   )
 }
