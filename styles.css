@@ -6124,8 +6124,8 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .instr-grid-container .instr-pitch-knobs {
-  display: grid !important;
-  grid-template-columns: 1fr 1fr 1fr !important;
+  display: flex !important;
+  flex-wrap: wrap !important;
   gap: 4px 2px !important;
   padding: 0 !important;
 }

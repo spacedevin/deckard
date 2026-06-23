@@ -496,7 +496,7 @@ fn PitchModule(ctx) {
     "",
     "voice",
     ctx,
-    <div class="instr-pitch-knobs" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
+    <div class="instr-pitch-knobs" style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
       {octaveKnob(ch, rt, accent)}
       {selectorKnob("Chord", ch, "chord", chordDefs, rt, accent)}
       {selectorKnob("Inv", ch, "inversion", invDefs, rt, accent)}
@@ -589,16 +589,17 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
       }
     }
 
-    let headerMixer = (
-      <div class="instr-head-mixer">
-        <div class="dk-fader-wave">
-          <canvas class={"dk-stem-wave dk-wave-" + chId} width="60" height="20" />
-        </div>
-        <div class="dk-lever">
-          {vertLeverEl(g, acc, onSet)}
-          <div class={"dk-lever-meter dk-lvl-" + chId}>
-            <div class="dk-lever-meter-fill" style={{ background: acc }} />
-          </div>
+    let waveformEl = (
+      <div class="dk-fader-wave">
+        <canvas class={"dk-stem-wave dk-wave-" + chId} width="60" height="20" />
+      </div>
+    )
+
+    let volumeEl = (
+      <div class="dk-lever">
+        {vertLeverEl(g, acc, onSet)}
+        <div class={"dk-lever-meter dk-lvl-" + chId}>
+          <div class="dk-lever-meter-fill" style={{ background: acc }} />
         </div>
       </div>
     )
@@ -629,8 +630,7 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
               {voiceDropdown(project, ch, setProjectFromUI, tplMirrorFlush, rt, deckColor, badgeText)}
             </div>
           </Fragment>,
-          <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
-            {headerMixer}
+          <div class="instr-head-mixer" style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
             {instrumentPresetBar(project, ch, setProjectFromUI, tplMirrorFlush)}
             <button
               type="button"
@@ -657,6 +657,8 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
                 </svg>
               )}
             </button>
+            {waveformEl}
+            {volumeEl}
           </div>
         )}
         <div class="instr-modules-row">

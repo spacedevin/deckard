@@ -645,15 +645,17 @@ export fn IkSelect(opts) {
   fn toggle(e) {
     if (e.stopPropagation) e.stopPropagation()
     if (e.preventDefault) e.preventDefault()
-    // Find or create the dropdown overlay relative to the trigger
     let trigger = e.currentTarget
-    let existing = trigger.querySelector(".ik-sel-list")
+    let existing = document.getElementById("ik-active-sel-list")
     if (existing) {
+      let wasThisOne = existing._trigger === trigger
       if (existing._cleanup) {
         existing._cleanup()
       }
       existing.remove()
-      return
+      if (wasThisOne) {
+        return
+      }
     }
 
     // Find initial highlighted index
@@ -814,8 +816,39 @@ export fn IkSelect(opts) {
       document.removeEventListener("keydown", onKeyDown, true)
     }
 
+    list.id = "ik-active-sel-list"
+    list._trigger = trigger
     list._cleanup = cleanup
-    trigger.appendChild(list)
+
+    let rect = trigger.getBoundingClientRect()
+    list.style.position = "fixed"
+    list.style.zIndex = "1000"
+    list.style.minWidth = String(rect.width) + "px"
+    document.body.appendChild(list)
+
+    let listW = list.offsetWidth
+    let listH = list.offsetHeight
+
+    let top = rect.bottom + 4
+    if (rect.bottom + listH + 4 > window.innerHeight && rect.top - listH - 4 >= 0) {
+      top = rect.top - listH - 4
+    }
+    if (top < 4) {
+      top = 4
+    } else if (top + listH > window.innerHeight) {
+      top = window.innerHeight - listH - 4
+    }
+
+    let left = rect.left
+    if (left + listW > window.innerWidth) {
+      left = rect.right - listW
+    }
+    if (left < 4) {
+      left = 4
+    }
+
+    list.style.top = String(top) + "px"
+    list.style.left = String(left) + "px"
 
     if (highlightedIdx !== -1) {
       updateHighlight(highlightedIdx)
@@ -823,7 +856,7 @@ export fn IkSelect(opts) {
 
     // Close on any outside click
     fn closeList(ev) {
-      if (!trigger.contains(ev.target)) {
+      if (!trigger.contains(ev.target) && !list.contains(ev.target)) {
         list.remove()
         cleanup()
       }
