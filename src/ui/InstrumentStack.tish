@@ -75,8 +75,54 @@ fn activeVoiceKey(ch) {
   return ch.generatorId ? ch.generatorId : "basicOsc"
 }
 
+fn voiceLabel(key) {
+  let gi = 0
+  while (gi < VOICE_GROUPS.length) {
+    let grp = VOICE_GROUPS[gi]
+    let vi = 0
+    while (vi < grp.voices.length) {
+      let voice = grp.voices[vi]
+      if (voice[0] === key) {
+        return voice[1]
+      }
+      vi = vi + 1
+    }
+    gi = gi + 1
+  }
+  return key
+}
+
 /// The canonical voice switch (engines reset params + seed graph specs; macros expand to a patch).
 fn pickVoice(project, ch, key, setProject, tplMirrorFlush) {
+  let prevId = activeVoiceKey(ch)
+  let prevLabel = voiceLabel(prevId)
+  let isDefaultName = ch.name === prevLabel || 
+                      ch.name === "Kick" || 
+                      ch.name === "Snare" || 
+                      ch.name === "Hat" || 
+                      ch.name === "Bass" || 
+                      ch.name === "Synth" || 
+                      ch.name === "Pad" || 
+                      ch.name === "Bell" ||
+                      ch.name === "Osc" ||
+                      ch.name === "FM" ||
+                      ch.name === "Noise" ||
+                      ch.name === "Arco" ||
+                      ch.name === "Guitar" ||
+                      ch.name === "Tine" ||
+                      ch.name === "Halo" ||
+                      ch.name === "Formant" ||
+                      ch.name === "meSpeak" ||
+                      ch.name === "TTS" ||
+                      ch.name === "Aether" ||
+                      ch.name === "Patch" ||
+                      ch.name === "Matrix FM" ||
+                      ch.name === "basicOsc"
+
+  let nextLabel = isMacroVoice(key) ? key : voiceLabel(key)
+  if (isDefaultName) {
+    ch.name = nextLabel
+  }
   if (isMacroVoice(key)) {
     assignMacroToChannel(ch, key, project.userMacros)
   } else {
@@ -134,7 +180,7 @@ fn pickVoice(project, ch, key, setProject, tplMirrorFlush) {
   }
 }
 
-fn voiceDropdown(project, ch, setProject, tplMirrorFlush, rt) {
+fn voiceDropdown(project, ch, setProject, tplMirrorFlush, rt, deckColor, badgeText) {
   let active = activeVoiceKey(ch)
   let opts = []
   let gi = 0
@@ -150,25 +196,37 @@ fn voiceDropdown(project, ch, setProject, tplMirrorFlush, rt) {
     gi = gi + 1
   }
 
-  let accent = accentForGenerator(active)
+  let activeLabel = badgeText
+  let oi = 0
+  while (oi < opts.length) {
+    if (!opts[oi].isHeader && opts[oi].value === active) {
+      activeLabel = opts[oi].label
+      break
+    }
+    oi = oi + 1
+  }
 
-  return (
-    <div class="preset-bar">
-      <span class="preset-bar-label">{"Voice"}</span>
-      {IkSelect({
-        class: "preset-bar-select",
-        value: active,
-        options: opts,
-        accent: accent,
-        onChange: (v) => {
-          if (v && v.length > 0) {
-            pickVoice(project, ch, v, setProject, tplMirrorFlush)
-          }
-        }
-      })}
-    </div>
-  )
+  return IkSelect({
+    class: "voice-badge-select",
+    style: {
+      color: deckColor,
+      borderColor: deckColor + "66",
+      background: deckColor + "11",
+      borderStyle: "solid",
+      borderWidth: "1px"
+    },
+    value: active,
+    placeholder: activeLabel,
+    options: opts,
+    accent: deckColor,
+    onChange: (v) => {
+      if (v && v.length > 0) {
+        pickVoice(project, ch, v, setProject, tplMirrorFlush)
+      }
+    }
+  })
 }
+
 
 // Maps a voice/fx field name to its TPL emit address (used by the pitch selector knobs + fx controls);
 // every edit is one rt.emit through the gated ingest door.
@@ -339,9 +397,13 @@ fn ModuleCard(title, tplBlock, module, ctx, children, wide, extraClass) {
   let headStyle = accent ? { borderLeftColor: accent, background: accent + "11" } : {}
   let tplStyle = accent ? { color: accent } : {}
   let toggleStyle = accent ? { borderColor: accent + "33" } : {}
+  let headerTooltip = null
+  if (title === "Sound" && ctx.ch) {
+    headerTooltip = generatorDescriptionById(ctx.ch.generatorId || "basicOsc")
+  }
   return (
     <section class={cardClass}>
-      <div class="instr-module-head" style={headStyle}>
+      <div class="instr-module-head" style={headStyle} title={headerTooltip}>
         <span class="instr-module-title">{title}</span>
         {hasRaw ? (
           <span class="instr-module-toggle" style={toggleStyle}>
@@ -413,13 +475,10 @@ fn SoundModule(ctx, gid) {
   let wide = gid === "matrixFm" || gid === "patch" || ctx.ch.macroName != null
   return ModuleCard(
     "Sound",
-    "→ gen",
+    "",
     "gen",
     ctx,
-    <Fragment>
-      {voiceDesigner(ctx.project, ctx.ch, gid, ctx.setProject, ctx.tplMirrorFlush, ctx.rt)}
-      <p class="instr-desc">{generatorDescriptionById(gid)}</p>
-    </Fragment>,
+    voiceDesigner(ctx.project, ctx.ch, gid, ctx.setProject, ctx.tplMirrorFlush, ctx.rt),
     wide
   )
 }
@@ -434,7 +493,7 @@ fn PitchModule(ctx) {
   let invDefs = [["Root", "root"], ["1st", "1st"], ["2nd", "2nd"]]
   return ModuleCard(
     "Pitch",
-    "→ voice",
+    "",
     "voice",
     ctx,
     <div class="instr-pitch-knobs" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
@@ -445,38 +504,6 @@ fn PitchModule(ctx) {
       {selectorKnob("Rate", ch, "arpRate", arpRateDefs, rt, accent)}
       {msKnob("Strum", ch, "strum", 150, rt, accent)}
     </div>
-  )
-}
-
-fn LevelModule(ctx) {
-  let ch = ctx.ch
-  let rt = ctx.rt
-  let g = ch.gain != null ? ch.gain : 0.85
-  let acc = ctx.accent ? ctx.accent : "var(--accent-warm, #e8945c)"
-  fn onSet(p) {
-    if (rt && rt.emit) {
-      rt.emit("track/" + ch.id + "/mix/gain", p)
-    }
-  }
-  return ModuleCard(
-    "Mixer",
-    "",
-    "",
-    ctx,
-    <div class="instr-level-body" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
-      <div class="dk-fader-wave">
-        <canvas class={"dk-stem-wave dk-wave-" + ch.id} width="64" height="34" />
-      </div>
-      <div class="dk-lever">
-        {vertLeverEl(g, acc, onSet)}
-        <div class={"dk-lever-meter dk-lvl-" + ch.id}>
-          <div class="dk-lever-meter-fill" style={{ background: acc }} />
-        </div>
-      </div>
-      <div class="dk-fader-db" style={{ fontSize: "0.58rem", fontWeight: "700", marginTop: "2px" }}>{gainToDb(g)}</div>
-    </div>,
-    false,
-    "instr-module-level"
   )
 }
 
@@ -553,37 +580,88 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
       badgeText = "KEYS"
     }
     
+    let g = ch.gain != null ? ch.gain : 0.85
+    let acc = deckColor
+    let chId = ch.id
+    let onSet = (p) => {
+      if (rt && rt.emit) {
+        rt.emit("track/" + chId + "/mix/gain", p)
+      }
+    }
+
+    let headerMixer = (
+      <div class="instr-head-mixer">
+        <div class="dk-fader-wave">
+          <canvas class={"dk-stem-wave dk-wave-" + chId} width="60" height="20" />
+        </div>
+        <div class="dk-lever">
+          {vertLeverEl(g, acc, onSet)}
+          <div class={"dk-lever-meter dk-lvl-" + chId}>
+            <div class="dk-lever-meter-fill" style={{ background: acc }} />
+          </div>
+        </div>
+      </div>
+    )
+
     cards.push(
       <section class="panel instr-stack-panel" style={{ borderColor: deckColor + "55", margin: "8px 0" }} key={"ic-" + ch.id}>
         {PanelHeader(
           <Fragment>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <span class="deck-nav-dot" style={{ background: deckColor, boxShadow: "0 0 8px " + deckColor }}></span>
-              <h2 style={{ color: "white", fontSize: "0.8rem" }}>{ch.name}</h2>
-              <span class="logo-beta" style={{ fontSize: "0.52rem", padding: "1px 4px", color: deckColor, borderColor: deckColor + "66", background: deckColor + "11" }}>{badgeText}</span>
+              <h2
+                style={{ color: "white", fontSize: "0.8rem", cursor: "pointer" }}
+                title="Click to rename channel"
+                onclick={() => {
+                  let newName = prompt("Rename channel", ch.name)
+                  if (newName && newName.trim().length > 0) {
+                    if (rt && rt.emit) {
+                      rt.emit("track/" + ch.id + "/name", newName.trim())
+                    } else {
+                      ch.name = newName.trim()
+                      setProjectFromUI(project)
+                    }
+                  }
+                }}
+              >
+                {ch.name}
+              </h2>
+              {voiceDropdown(project, ch, setProjectFromUI, tplMirrorFlush, rt, deckColor, badgeText)}
             </div>
           </Fragment>,
           <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
-            {voiceDropdown(project, ch, setProjectFromUI, tplMirrorFlush, rt)}
+            {headerMixer}
             {instrumentPresetBar(project, ch, setProjectFromUI, tplMirrorFlush)}
             <button
               type="button"
               class={ch.mute ? "btn-deck btn-deck-cue btn-deck-on" : "btn-deck"}
-              style={{ padding: "0.15rem 0.45rem", fontSize: "0.6rem" }}
+              style={{ padding: "0.2rem 0.35rem" }}
+              title={ch.mute ? "Unmute track" : "Mute track"}
               onclick={() => {
                 if (rt && rt.emit) {
                   rt.emit("track/" + ch.id + "/mix/mute", !ch.mute)
                 }
               }}
             >
-              {ch.mute ? "MUTE" : "PLAY"}
+              {ch.mute ? (
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                  <line x1="22" x2="16" y1="9" y2="15"/>
+                  <line x1="16" x2="22" y1="15" y2="9"/>
+                </svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+                </svg>
+              )}
             </button>
           </div>
         )}
         <div class="instr-modules-row">
           {SoundModule(ctx, gid)}
           {PitchModule(ctx)}
-          {LevelModule(ctx)}
         </div>
       </section>
     )

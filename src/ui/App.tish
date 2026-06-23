@@ -255,7 +255,7 @@ export fn App() {
   migrateProjectGenerators(project)
   let tplInit = emitProject(project)
   let [tplText, setTplText] = useState(tplInit)
-  let [activeDeck, setActiveDeck] = useState(null)
+  let [activeDeck, setActiveDeck] = useState("A")
   let [selectedCh, setSelectedCh] = useState(3)
   let [playing, setPlaying] = useState(false)
   let [previewing, setPreviewing] = useState(false)
@@ -2545,28 +2545,28 @@ export fn App() {
     </header>
     <div class="daw-app-layout">
       <aside class="daw-sidebar-left">
-        <div class={"deck-nav-btn deck-a" + (activeDeck === "A" ? " deck-active" : "")} onclick={() => setActiveDeck(activeDeck === "A" ? null : "A")}>
+        <div class={"deck-nav-btn deck-a" + (activeDeck === "A" ? " deck-active" : "")} onclick={() => setActiveDeck("A")}>
           <div class="deck-nav-title-row">
             <span class="deck-nav-dot"></span>
             <span class="deck-nav-text">{"DECK A"}</span>
           </div>
           {renderDeckPips(project, "A")}
         </div>
-        <div class={"deck-nav-btn deck-b" + (activeDeck === "B" ? " deck-active" : "")} onclick={() => setActiveDeck(activeDeck === "B" ? null : "B")}>
+        <div class={"deck-nav-btn deck-b" + (activeDeck === "B" ? " deck-active" : "")} onclick={() => setActiveDeck("B")}>
           <div class="deck-nav-title-row">
             <span class="deck-nav-dot"></span>
             <span class="deck-nav-text">{"DECK B"}</span>
           </div>
           {renderDeckPips(project, "B")}
         </div>
-        <div class={"deck-nav-btn deck-c" + (activeDeck === "C" ? " deck-active" : "")} onclick={() => setActiveDeck(activeDeck === "C" ? null : "C")}>
+        <div class={"deck-nav-btn deck-c" + (activeDeck === "C" ? " deck-active" : "")} onclick={() => setActiveDeck("C")}>
           <div class="deck-nav-title-row">
             <span class="deck-nav-dot"></span>
             <span class="deck-nav-text">{"DECK C"}</span>
           </div>
           {renderDeckPips(project, "C")}
         </div>
-        <div class={"deck-nav-btn deck-d" + (activeDeck === "D" ? " deck-active" : "")} onclick={() => setActiveDeck(activeDeck === "D" ? null : "D")}>
+        <div class={"deck-nav-btn deck-d" + (activeDeck === "D" ? " deck-active" : "")} onclick={() => setActiveDeck("D")}>
           <div class="deck-nav-title-row">
             <span class="deck-nav-dot"></span>
             <span class="deck-nav-text">{"DECK D"}</span>

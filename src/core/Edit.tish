@@ -227,6 +227,26 @@ export fn fragmentForEdit(project, address, value) {
     let section = parts[2]
     let param = parts.length >= 4 ? parts[3] : null
     let hdr = trackHeader(ch)
+    if (section === "name") {
+      let gid = ch.generatorId ? ch.generatorId : "basicOsc"
+      let genTok = (ch.macroName != null) ? ch.macroName : generatorIdToTpl(gid)
+      let s = "track " + String(value) + " id " + ch.id + " gen " + genTok
+      if (ch.patternBars != null) {
+        let pn = Math.floor(Number(ch.patternBars))
+        if (pn >= 2 && pn === pn) {
+          s = s + " * " + String(pn)
+        }
+      }
+      if (ch.macroName != null && ch.macroParams) {
+        let mk = Object.keys(ch.macroParams)
+        let i = 0
+        while (i < mk.length) {
+          s = s + " " + mk[i] + " " + String(ch.macroParams[mk[i]])
+          i = i + 1
+        }
+      }
+      return s
+    }
     if (section === "mix") {
       return hdr + "\n" + mixLine(ch, param, value)
     }
@@ -359,6 +379,9 @@ export fn readAddr(project, address) {
     let section = parts[2]
     // mix/fx/voice/gen carry a 4th param part; steps/pattern/notes/deck are section-only (3 parts).
     let p = parts.length >= 4 ? parts[3] : null
+    if (section === "name") {
+      return ch.name
+    }
     if (section === "mix") {
       if (p === "gain") { return ch.gain != null ? ch.gain : 0.85 }
       if (p === "pan") { return ch.pan != null ? ch.pan : 0 }

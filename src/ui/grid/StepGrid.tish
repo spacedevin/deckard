@@ -991,8 +991,27 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
         >
           {expanded ? "▾" : "▸"}
         </button>
-        <div class="sg-gutter-main" onclick={() => setSelectedCh(chIdx)} title="Select channel">
-          <span class="sg-ch-name">{ch.name}{barPitch !== null ? <span class="sg-ch-rootpitch">{barPitch}</span> : null}</span>
+        <div class="sg-gutter-main" onclick={() => setSelectedCh(chIdx)} title="Select channel (Double-click name to rename)">
+          <span
+            class="sg-ch-name"
+            style={{ cursor: "pointer" }}
+            title="Double-click to rename channel"
+            ondblclick={(e) => {
+              e.stopPropagation()
+              let newName = prompt("Rename channel", ch.name)
+              if (newName && newName.trim().length > 0) {
+                if (rt && rt.emit) {
+                  rt.emit("track/" + ch.id + "/name", newName.trim())
+                } else {
+                  ch.name = newName.trim()
+                  setProjectFromUI(project)
+                }
+              }
+            }}
+          >
+            {ch.name}
+            {barPitch !== null ? <span class="sg-ch-rootpitch">{barPitch}</span> : null}
+          </span>
           <span class="sg-ch-instr">{generatorLabelById(gid)}</span>
         </div>
         <div class="sg-gutter-ctl">

@@ -224,7 +224,7 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
         <div class="ik-card">
           <div class="ik-card-h">{"Tone"}</div>
           <div class="ik-knob-grid">
-            {pctKnob("Colour", tone, rt, ch, "tone", accent)}
+            {pctKnob("Color", tone, rt, ch, "tone", accent)}
             {pctKnob("Pitch→flt", pf, rt, ch, "pitch_follow", accent)}
           </div>
         </div>
