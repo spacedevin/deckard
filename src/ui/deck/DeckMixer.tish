@@ -368,7 +368,7 @@ export fn VinylRow(deck, rt) {
 
 // Centre DJ-mixer channel strip for one deck: per-deck EQ knobs (HI/MID/LO/FLT) + CUE + per-deck volume
 // fader. This is the "booth" — like a Pioneer DJM channel. The per-track stem faders stay in the deck slot.
-fn DeckChannelStrip(project, deck, setProjectFromUI, touchMixer, rt) {
+export fn DeckChannelStrip(project, deck, setProjectFromUI, touchMixer, rt) {
   ensureDeckEq(project)
   let suf = deck === "B" ? "b" : deck === "C" ? "c" : deck === "D" ? "d" : "a"
   let acc = "dk-acc-" + suf
@@ -402,30 +402,32 @@ fn DeckChannelStrip(project, deck, setProjectFromUI, touchMixer, rt) {
   let cued = rt && rt.cuedDecks && rt.cuedDecks[deck] === true
   return (
     <div class={active ? "dk-ch-strip dk-deck-" + suf : "dk-ch-strip dk-deck-" + suf + " dk-ch-strip-empty"}>
-      <div class="dk-ch-knobs">
+      <div class="dk-ch-left-col">
+        <button
+          type="button"
+          class={cued ? "dk-cue dk-cue-on" : "dk-cue"}
+          title={"CUE — pre-listen this deck on your headphones (independent of the crossfader)"}
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={() => { if (rt && rt.onCueToggle) { rt.onCueToggle(deck) } }}
+        >
+          {"CUE"}
+        </button>
+        <div class="dk-ch-vol">
+          <div class="dk-lever">
+            {vertLeverEl(vol, accentColor, setVol)}
+            <div class={"dk-lever-meter dk-deck-lvl-" + deck}>
+              <div class="dk-lever-meter-fill" style={{ background: accentColor }} />
+            </div>
+          </div>
+        </div>
+        <div class="dk-ch-db">{gainToDb(vol)}</div>
+      </div>
+      <div class="dk-ch-right-col">
         {EqSlider("HI", de.hi, (v) => setEq("hi", v), acc)}
         {EqSlider("MID", de.mid, (v) => setEq("mid", v), acc)}
         {EqSlider("LO", de.lo, (v) => setEq("lo", v), acc)}
         {EqSlider("FLT", de.flt, (v) => setEq("flt", v), acc)}
       </div>
-      <button
-        type="button"
-        class={cued ? "dk-cue dk-cue-on" : "dk-cue"}
-        title={"CUE — pre-listen this deck on your headphones (independent of the crossfader)"}
-        onmousedown={(e) => e.stopPropagation()}
-        onclick={() => { if (rt && rt.onCueToggle) { rt.onCueToggle(deck) } }}
-      >
-        {"CUE"}
-      </button>
-      <div class="dk-ch-vol">
-        <div class="dk-lever">
-          {vertLeverEl(vol, accentColor, setVol)}
-          <div class={"dk-lever-meter dk-deck-lvl-" + deck}>
-            <div class="dk-lever-meter-fill" style={{ background: accentColor }} />
-          </div>
-        </div>
-      </div>
-      <div class="dk-ch-db">{gainToDb(vol)}</div>
     </div>
   )
 }
@@ -537,69 +539,59 @@ export fn DeckMixer(project, setProjectFromUI, touchMixer, rt) {
     }
   }
   return (
-    <section class="panel dk-panel">
-      <div class="dk-desk">
-        <div class="dk-center">
-          <div class="dk-mixer">
-            {h(DeckChannelStripMemo, stripProps("C"))}
-            {h(DeckChannelStripMemo, stripProps("A"))}
-            {h(DeckChannelStripMemo, stripProps("B"))}
-            {h(DeckChannelStripMemo, stripProps("D"))}
-          </div>
-          <div class="dk-xfade">
-            <div class="dk-fx-row">
-              <span class="dk-fx-label">{"FX"}</span>
-              {IkSelect({
-                class: "dk-fx-div",
-                value: rt && rt.fxBeatDiv ? String(rt.fxBeatDiv) : "0.75",
-                options: [
-                  { value: "0.5", label: "1/8" },
-                  { value: "0.75", label: "3/16" },
-                  { value: "1", label: "1/4" },
-                  { value: "2", label: "1/2" }
-                ],
-                onChange: (v) => { if (rt) { rt.fxBeatDiv = Number(v) } }
-              })}
-              <button
-                type="button"
-                class="dk-fx-throw"
-                title="ECHO throw — HOLD to punch a tempo-synced master echo into the mix, release to let it ring out (hotkey: hold E). Master only."
-                onmousedown={(e) => { if (e.preventDefault) { e.preventDefault() } if (rt && rt.onFxThrow) { rt.onFxThrow("echo", true) } }}
-                onmouseup={() => { if (rt && rt.onFxThrow) { rt.onFxThrow("echo", false) } }}
-                onmouseleave={() => { if (rt && rt.onFxThrow) { rt.onFxThrow("echo", false) } }}
-              >
-                {"ECHO"}
-              </button>
-              <button
-                type="button"
-                class="dk-fx-throw"
-                title="FILTER throw — HOLD to sweep a master lowpass down over the mix, release to open it back up (hotkey: hold F). Master only."
-                onmousedown={(e) => { if (e.preventDefault) { e.preventDefault() } if (rt && rt.onFxThrow) { rt.onFxThrow("filter", true) } }}
-                onmouseup={() => { if (rt && rt.onFxThrow) { rt.onFxThrow("filter", false) } }}
-                onmouseleave={() => { if (rt && rt.onFxThrow) { rt.onFxThrow("filter", false) } }}
-              >
-                {"FILTER"}
-              </button>
-            </div>
-            <div class="dk-xfade-labels">
-              <span class="dk-xfade-mid">{"4-WAY FADER"}</span>
-            </div>
-            <div
-              class="dk-xypad"
-              onmousedown={onPadDown}
-            >
-              <span class="dk-xypad-corner dk-xy-tl dk-acc-a">{"A"}</span>
-              <span class="dk-xypad-corner dk-xy-tr dk-acc-b">{"B"}</span>
-              <span class="dk-xypad-corner dk-xy-bl dk-acc-c">{"C"}</span>
-              <span class="dk-xypad-corner dk-xy-br dk-acc-d">{"D"}</span>
-              <span
-                class="dk-xypad-knob"
-                style={{ left: String(Math.round(x * 100)) + "%", top: String(Math.round(y * 100)) + "%" }}
-              />
-            </div>
-          </div>
+    <div class="dk-center" style={{ margin: "0 auto" }}>
+      <div class="dk-xfade">
+        <div class="dk-fx-row">
+          <span class="dk-fx-label">{"FX"}</span>
+          {IkSelect({
+            class: "dk-fx-div",
+            value: rt && rt.fxBeatDiv ? String(rt.fxBeatDiv) : "0.75",
+            options: [
+              { value: "0.5", label: "1/8" },
+              { value: "0.75", label: "3/16" },
+              { value: "1", label: "1/4" },
+              { value: "2", label: "1/2" }
+            ],
+            onChange: (v) => { if (rt) { rt.fxBeatDiv = Number(v) } }
+          })}
+          <button
+            type="button"
+            class="dk-fx-throw"
+            title="ECHO throw — HOLD to punch a tempo-synced master echo into the mix, release to let it ring out (hotkey: hold E). Master only."
+            onmousedown={(e) => { if (e.preventDefault) { e.preventDefault() } if (rt && rt.onFxThrow) { rt.onFxThrow("echo", true) } }}
+            onmouseup={() => { if (rt && rt.onFxThrow) { rt.onFxThrow("echo", false) } }}
+            onmouseleave={() => { if (rt && rt.onFxThrow) { rt.onFxThrow("echo", false) } }}
+          >
+            {"ECHO"}
+          </button>
+          <button
+            type="button"
+            class="dk-fx-throw"
+            title="FILTER throw — HOLD to sweep a master lowpass down over the mix, release to open it back up (hotkey: hold F). Master only."
+            onmousedown={(e) => { if (e.preventDefault) { e.preventDefault() } if (rt && rt.onFxThrow) { rt.onFxThrow("filter", true) } }}
+            onmouseup={() => { if (rt && rt.onFxThrow) { rt.onFxThrow("filter", false) } }}
+            onmouseleave={() => { if (rt && rt.onFxThrow) { rt.onFxThrow("filter", false) } }}
+          >
+            {"FILTER"}
+          </button>
+        </div>
+        <div class="dk-xfade-labels">
+          <span class="dk-xfade-mid">{"4-WAY FADER"}</span>
+        </div>
+        <div
+          class="dk-xypad"
+          onmousedown={onPadDown}
+        >
+          <span class="dk-xypad-corner dk-xy-tl dk-acc-a">{"A"}</span>
+          <span class="dk-xypad-corner dk-xy-tr dk-acc-b">{"B"}</span>
+          <span class="dk-xypad-corner dk-xy-bl dk-acc-c">{"C"}</span>
+          <span class="dk-xypad-corner dk-xy-br dk-acc-d">{"D"}</span>
+          <span
+            class="dk-xypad-knob"
+            style={{ left: String(Math.round(x * 100)) + "%", top: String(Math.round(y * 100)) + "%" }}
+          />
         </div>
       </div>
-    </section>
+    </div>
   )
 }

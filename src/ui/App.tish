@@ -47,7 +47,7 @@ import {
 } from './PianoRoll.tish'
 import { drawScopeCanvas, drawSpectrumCanvas, drawMiniWave, busPeakLevel, drawSetWaveLane, drawSetWaveOverlay } from './Scope.tish'
 import { StepGridPanel } from './grid/StepGrid.tish'
-import { DeckMixer, applyDeckEq, ensureDeckEq, DeckJog, VinylRow, deckEntries } from './deck/DeckMixer.tish'
+import { DeckMixer, applyDeckEq, ensureDeckEq, DeckJog, VinylRow, deckEntries, DeckChannelStrip } from './deck/DeckMixer.tish'
 import { PatternBank } from './PatternBank.tish'
 import { coDjInitWebMidi } from '../codj/MidiProfiles.tish'
 import {
@@ -2664,64 +2664,84 @@ export fn App() {
     <div class="daw-app-layout">
       <aside class="daw-sidebar-left">
         <div class={"deck-nav-btn deck-a" + (activeDeck === "A" ? " deck-active" : "")} onclick={() => setActiveDeck("A")}>
-          <div class="deck-nav-title-row">
-            <span class="deck-nav-dot"></span>
-            <span class="deck-nav-text">{"DECK A"}</span>
-            {renderDeckPips(project, "A")}
-          </div>
-          {deckEntries(project, "A").length > 0 ? (
-            <div class="deck-nav-controls">
-              {DeckJog("A", rt)}
-              {VinylRow("A", rt)}
+          <div class="deck-nav-content-row">
+            <div class="deck-nav-platter-card">
+              <div class="deck-nav-title-row">
+                <span class="deck-nav-dot"></span>
+                <span class="deck-nav-text">{"DECK A"}</span>
+                {renderDeckPips(project, "A")}
+              </div>
+              {deckEntries(project, "A").length > 0 ? (
+                <div class="deck-nav-controls">
+                  {DeckJog("A", rt)}
+                  {VinylRow("A", rt)}
+                </div>
+              ) : (
+                <div class="deck-nav-empty">{"(empty)"}</div>
+              )}
             </div>
-          ) : (
-            <div class="deck-nav-empty">{"(empty)"}</div>
-          )}
+            {DeckChannelStrip(project, "A", setProjectFromUI, touchMixer, rt)}
+          </div>
         </div>
         <div class={"deck-nav-btn deck-b" + (activeDeck === "B" ? " deck-active" : "")} onclick={() => setActiveDeck("B")}>
-          <div class="deck-nav-title-row">
-            <span class="deck-nav-dot"></span>
-            <span class="deck-nav-text">{"DECK B"}</span>
-            {renderDeckPips(project, "B")}
-          </div>
-          {deckEntries(project, "B").length > 0 ? (
-            <div class="deck-nav-controls">
-              {DeckJog("B", rt)}
-              {VinylRow("B", rt)}
+          <div class="deck-nav-content-row">
+            <div class="deck-nav-platter-card">
+              <div class="deck-nav-title-row">
+                <span class="deck-nav-dot"></span>
+                <span class="deck-nav-text">{"DECK B"}</span>
+                {renderDeckPips(project, "B")}
+              </div>
+              {deckEntries(project, "B").length > 0 ? (
+                <div class="deck-nav-controls">
+                  {DeckJog("B", rt)}
+                  {VinylRow("B", rt)}
+                </div>
+              ) : (
+                <div class="deck-nav-empty">{"(empty)"}</div>
+              )}
             </div>
-          ) : (
-            <div class="deck-nav-empty">{"(empty)"}</div>
-          )}
+            {DeckChannelStrip(project, "B", setProjectFromUI, touchMixer, rt)}
+          </div>
         </div>
         <div class={"deck-nav-btn deck-c" + (activeDeck === "C" ? " deck-active" : "")} onclick={() => setActiveDeck("C")}>
-          <div class="deck-nav-title-row">
-            <span class="deck-nav-dot"></span>
-            <span class="deck-nav-text">{"DECK C"}</span>
-            {renderDeckPips(project, "C")}
-          </div>
-          {deckEntries(project, "C").length > 0 ? (
-            <div class="deck-nav-controls">
-              {DeckJog("C", rt)}
-              {VinylRow("C", rt)}
+          <div class="deck-nav-content-row">
+            <div class="deck-nav-platter-card">
+              <div class="deck-nav-title-row">
+                <span class="deck-nav-dot"></span>
+                <span class="deck-nav-text">{"DECK C"}</span>
+                {renderDeckPips(project, "C")}
+              </div>
+              {deckEntries(project, "C").length > 0 ? (
+                <div class="deck-nav-controls">
+                  {DeckJog("C", rt)}
+                  {VinylRow("C", rt)}
+                </div>
+              ) : (
+                <div class="deck-nav-empty">{"(empty)"}</div>
+              )}
             </div>
-          ) : (
-            <div class="deck-nav-empty">{"(empty)"}</div>
-          )}
+            {DeckChannelStrip(project, "C", setProjectFromUI, touchMixer, rt)}
+          </div>
         </div>
         <div class={"deck-nav-btn deck-d" + (activeDeck === "D" ? " deck-active" : "")} onclick={() => setActiveDeck("D")}>
-          <div class="deck-nav-title-row">
-            <span class="deck-nav-dot"></span>
-            <span class="deck-nav-text">{"DECK D"}</span>
-            {renderDeckPips(project, "D")}
-          </div>
-          {deckEntries(project, "D").length > 0 ? (
-            <div class="deck-nav-controls">
-              {DeckJog("D", rt)}
-              {VinylRow("D", rt)}
+          <div class="deck-nav-content-row">
+            <div class="deck-nav-platter-card">
+              <div class="deck-nav-title-row">
+                <span class="deck-nav-dot"></span>
+                <span class="deck-nav-text">{"DECK D"}</span>
+                {renderDeckPips(project, "D")}
+              </div>
+              {deckEntries(project, "D").length > 0 ? (
+                <div class="deck-nav-controls">
+                  {DeckJog("D", rt)}
+                  {VinylRow("D", rt)}
+                </div>
+              ) : (
+                <div class="deck-nav-empty">{"(empty)"}</div>
+              )}
             </div>
-          ) : (
-            <div class="deck-nav-empty">{"(empty)"}</div>
-          )}
+            {DeckChannelStrip(project, "D", setProjectFromUI, touchMixer, rt)}
+          </div>
         </div>
       </aside>
       <div class="daw-main-area">
@@ -2730,13 +2750,15 @@ export fn App() {
             {h(InstrumentStackMemo, { project: project, selectedCh: selectedCh, setProjectFromUI: setProjectFromUI, tplMirrorFlush: tplMirrorFlush, rt: rt, channelsRev: channelsRev, activeDeck: activeDeck })}
             {seqSession}
           </div>
-          {h(DeckMixerMemo, { project: project, setProjectFromUI: setProjectFromUI, touchMixer: touchMixer, rt: rt, xfadeX: xfadeX, xfadeY: xfadeY, channelsRev: channelsRev, deckMixRev: deckMixRev, playing: playing })}
         </div>
 
       </div>
       <aside class="daw-sidebar-right">
         <div class="daw-bottom-col daw-bottom-codj">{CoDjPanel(project, setProject, tplMirrorFlush, rt)}</div>
         <div class="daw-bottom-col daw-tpl-dock">{CodeDebugView(project, setProject, tplText, setTplText, rt, true)}</div>
+        <div class="daw-bottom-col">
+          {h(DeckMixerMemo, { project: project, setProjectFromUI: setProjectFromUI, touchMixer: touchMixer, rt: rt, xfadeX: xfadeX, xfadeY: xfadeY, channelsRev: channelsRev, deckMixRev: deckMixRev, playing: playing })}
+        </div>
       </aside>
     </div>
     <footer class="daw-foot daw-foot-pinned">

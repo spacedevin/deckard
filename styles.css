@@ -438,7 +438,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .daw-sidebar-left {
-  flex: 0 0 180px;
+  flex: 0 0 310px;
   display: flex;
   flex-direction: column;
   padding: 0;
@@ -452,7 +452,7 @@ input[type="range"]::-moz-range-thumb {
   flex-direction: column;
   justify-content: flex-start;
   align-items: stretch;
-  padding: 12px 10px;
+  padding: 10px;
   cursor: pointer;
   border-radius: 0;
   margin-bottom: 0;
@@ -539,6 +539,30 @@ input[type="range"]::-moz-range-thumb {
   text-align: center;
   margin-top: 14px;
   text-transform: uppercase;
+}
+
+.deck-nav-content-row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 10px;
+  width: 100%;
+}
+
+.deck-nav-platter-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.deck-nav-btn .dk-ch-strip {
+  flex: 0 0 106px;
+  width: 106px;
+  padding: 2px 0px;
+  background: transparent;
+  border-color: #14141c;
+  align-self: stretch;
 }
 
 .deck-nav-indicator-sq {
@@ -4618,9 +4642,10 @@ input[type="range"]::-moz-range-thumb {
 }
 .dk-ch-strip {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 5px;
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 8px;
   padding: 7px 4px;
   border: 1px solid #1c1c22;
   border-radius: 5px;
@@ -4631,11 +4656,29 @@ input[type="range"]::-moz-range-thumb {
 .dk-ch-strip-empty {
   opacity: 0.45;
 }
-.dk-ch-knobs {
+.dk-ch-left-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 48px;
+  flex-shrink: 0;
+  align-self: stretch;
+}
+.dk-ch-left-col .dk-cue {
+  width: 100%;
+  padding: 4px 0;
+  margin: 0;
+  height: auto;
+  text-align: center;
+}
+.dk-ch-right-col {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 1px;
+  width: 44px;
+  flex-shrink: 0;
 }
 /* Pin the volume fader + its dB readout to the BOTTOM of the strip so all four decks' faders line up on one
    baseline regardless of how tall the EQ-knob/CUE block above them is (a deck with loaded content can render a
