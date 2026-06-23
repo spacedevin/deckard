@@ -112,7 +112,11 @@ fn instrumentEq(a, b) {
 let InstrumentStackMemo = memo((p) => InstrumentStack(p.project, p.selectedCh, p.setProjectFromUI, p.tplMirrorFlush, p.rt, p.activeDeck), instrumentEq)
 
 fn deckMixerEq(a, b) {
-  return a.xfadeX === b.xfadeX && a.xfadeY === b.xfadeY && a.channelsRev === b.channelsRev && a.deckMixRev === b.deckMixRev
+  let ap = a.project
+  let bp = b.project
+  let abpm = ap ? ap.bpm : 120
+  let bbpm = bp ? bp.bpm : 120
+  return a.xfadeX === b.xfadeX && a.xfadeY === b.xfadeY && a.channelsRev === b.channelsRev && a.deckMixRev === b.deckMixRev && a.playing === b.playing && abpm === bbpm
 }
 let DeckMixerMemo = memo((p) => DeckMixer(p.project, p.setProjectFromUI, p.touchMixer, p.rt), deckMixerEq)
 
@@ -667,10 +671,110 @@ export fn App() {
     window.addEventListener("keydown", onKey)
     window.addEventListener("keyup", onKeyUp)
     window.addEventListener("contextmenu", onCtx)
+
+    let lastTime = 0
+    let spinRafId = 0
+    fn jogSpinFrame(timestamp) {
+      if (typeof document === "undefined") {
+        return
+      }
+      if (lastTime === 0) {
+        lastTime = timestamp
+      }
+      let dt = (timestamp - lastTime) / 1000
+      lastTime = timestamp
+      if (dt > 0.1) {
+        dt = 0.1
+      }
+
+      let markers = document.querySelectorAll(".dk-jog-marker")
+      let i = 0
+      while (i < markers.length) {
+        let mk = markers[i]
+        let deck = null
+        if (mk) {
+          if (mk.classList.contains("dk-marker-A")) { deck = "A" }
+          else if (mk.classList.contains("dk-marker-B")) { deck = "B" }
+          else if (mk.classList.contains("dk-marker-C")) { deck = "C" }
+          else if (mk.classList.contains("dk-marker-D")) { deck = "D" }
+        }
+        let r = rtRef.current
+        if (mk && deck && r) {
+          if (!r.deckRot) {
+            r.deckRot = { A: 0, B: 0, C: 0, D: 0 }
+          }
+          if (!r.deckBrakeTime) {
+            r.deckBrakeTime = { A: 0, B: 0, C: 0, D: 0 }
+          }
+          if (!r.deckSpinTime) {
+            r.deckSpinTime = { A: 0, B: 0, C: 0, D: 0 }
+          }
+
+          let grabbed = false
+          let activeMove = ""
+          if (r.scratchHold && r.scratchHold[deck]) {
+            let keys = Object.keys(r.scratchHold[deck])
+            if (keys.length > 0) {
+              grabbed = true
+              if (keys.indexOf("jog") >= 0) {
+                activeMove = "jog"
+              } else if (keys.indexOf("spin") >= 0) {
+                activeMove = "spin"
+              } else if (keys.indexOf("brake") >= 0) {
+                activeMove = "brake"
+              } else if (keys.indexOf("rev") >= 0) {
+                activeMove = "rev"
+              }
+            }
+          }
+
+          if (activeMove !== "jog") {
+            let rate = 0
+            if (activeMove === "rev") {
+              rate = -1
+            } else if (activeMove === "brake") {
+              r.deckBrakeTime[deck] = r.deckBrakeTime[deck] + dt
+              let progress = r.deckBrakeTime[deck] / 0.5
+              if (progress > 1) {
+                progress = 1
+              }
+              rate = 1 - progress
+            } else if (activeMove === "spin") {
+              r.deckSpinTime[deck] = r.deckSpinTime[deck] + dt
+              let progress = r.deckSpinTime[deck] / 0.35
+              if (progress > 1) {
+                progress = 1
+              }
+              rate = -10 * (1 - progress)
+            } else {
+              r.deckBrakeTime[deck] = 0
+              r.deckSpinTime[deck] = 0
+              if (r.playing) {
+                rate = 1
+              }
+            }
+
+            let bpm = r.project && typeof r.project.bpm === "number" ? r.project.bpm : 120
+            let revsPerSecond = bpm / 60 / 4
+            let dAngle = rate * revsPerSecond * 2 * Math.PI * dt
+            r.deckRot[deck] = r.deckRot[deck] + dAngle
+
+            mk.style.transform = "translateX(-50%) rotate(" + String(r.deckRot[deck]) + "rad)"
+          }
+        }
+        i = i + 1
+      }
+      spinRafId = requestAnimationFrame(jogSpinFrame)
+    }
+    spinRafId = requestAnimationFrame(jogSpinFrame)
+
     return () => {
       window.removeEventListener("keydown", onKey)
       window.removeEventListener("keyup", onKeyUp)
       window.removeEventListener("contextmenu", onCtx)
+      if (spinRafId) {
+        cancelAnimationFrame(spinRafId)
+      }
     }
   }, [])
 
@@ -1798,6 +1902,18 @@ export fn App() {
       cls = "bpm-debug warn"
     }
     el.className = cls
+
+    // Sync active jog wheel rotation speed directly with the BPM
+    let markers = document.querySelectorAll(".dk-jog-marker")
+    let mi = 0
+    let dur = String((60 / Number(target)) * 4) + "s"
+    while (mi < markers.length) {
+      let mk = markers[mi]
+      if (mk && (mk.classList.contains("dk-jog-spinning") || mk.classList.contains("dk-jog-spinning-rev"))) {
+        mk.style.animationDuration = dur
+      }
+      mi = mi + 1
+    }
   }
 
   // ---- Live transport: Sequence ⟷ Session on ONE shared clock ----------------------------------
@@ -2582,7 +2698,7 @@ export fn App() {
             {h(InstrumentStackMemo, { project: project, selectedCh: selectedCh, setProjectFromUI: setProjectFromUI, tplMirrorFlush: tplMirrorFlush, rt: rt, channelsRev: channelsRev, activeDeck: activeDeck })}
             {seqSession}
           </div>
-          {h(DeckMixerMemo, { project: project, setProjectFromUI: setProjectFromUI, touchMixer: touchMixer, rt: rt, xfadeX: xfadeX, xfadeY: xfadeY, channelsRev: channelsRev, deckMixRev: deckMixRev })}
+          {h(DeckMixerMemo, { project: project, setProjectFromUI: setProjectFromUI, touchMixer: touchMixer, rt: rt, xfadeX: xfadeX, xfadeY: xfadeY, channelsRev: channelsRev, deckMixRev: deckMixRev, playing: playing })}
         </div>
 
       </div>

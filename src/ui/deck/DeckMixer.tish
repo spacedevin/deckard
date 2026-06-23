@@ -183,6 +183,8 @@ fn StemFader(entry, setProjectFromUI, touchMixer, project, rt, accentColor) {
 fn DeckJog(deck, rt) {
   let suf = deck === "B" ? "b" : deck === "C" ? "c" : deck === "D" ? "d" : "a"
   let acc = "dk-acc-" + suf
+  let currentRot = (rt && rt.deckRot && typeof rt.deckRot[deck] === "number") ? rt.deckRot[deck] : 0
+
   fn angleOf(e, el) {
     let r = el.getBoundingClientRect()
     let cx = r.left + r.width / 2
@@ -206,7 +208,7 @@ fn DeckJog(deck, rt) {
     let done = false
     let lastAngle = angleOf(e, el)
     let accum = 0
-    let rot = 0
+    let rot = currentRot
     let GAIN = 7
     let pid = e.pointerId
     if (el.setPointerCapture && pid != null) {
@@ -258,6 +260,9 @@ fn DeckJog(deck, rt) {
       if (rt && rt.scratchRelease) {
         rt.scratchRelease(deck, "jog")
       }
+      if (rt && rt.deckRot) {
+        rt.deckRot[deck] = rot
+      }
       el.removeEventListener("pointermove", move)
       el.removeEventListener("pointerup", up)
       el.removeEventListener("pointercancel", up)
@@ -282,7 +287,7 @@ fn DeckJog(deck, rt) {
   return (
     <div class="dk-jog">
       <div class={"dk-jog-wheel " + acc} onpointerdown={onWheelDown} title={"Scratch deck " + deck + " — grab + rub (forward, back, reverse). No movement = silence; the deck ducks while you hold it."}>
-        <div class="dk-jog-marker" />
+        <div class={"dk-jog-marker dk-marker-" + deck} style={{ transform: "translateX(-50%) rotate(" + String(currentRot) + "rad)" }} />
         <div class="dk-jog-hub" />
       </div>
       <button
