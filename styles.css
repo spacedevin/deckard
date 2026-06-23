@@ -438,7 +438,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .daw-sidebar-left {
-  flex: 0 0 110px;
+  flex: 0 0 38px;
   display: flex;
   flex-direction: column;
   padding: 0;
@@ -451,8 +451,8 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  align-items: flex-start;
-  padding: 0 8px;
+  align-items: center;
+  padding: 10px 2px;
   cursor: pointer;
   border-radius: 0;
   margin-bottom: 0;
@@ -477,17 +477,22 @@ input[type="range"]::-moz-range-thumb {
 .deck-nav-btn.deck-d.deck-active { border-left-color: var(--deck-d); }
 .deck-nav-title-row {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .deck-nav-text {
-  font-size: 0.72rem;
+  font-size: 0.65rem;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   color: #4a4a54;
   transition: color 0.15s ease;
   text-transform: uppercase;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transform: rotate(180deg);
+  white-space: nowrap;
 }
 
 .deck-nav-btn:hover .deck-nav-text {
@@ -500,8 +505,8 @@ input[type="range"]::-moz-range-thumb {
 .deck-nav-btn.deck-d.deck-active .deck-nav-text { color: var(--deck-d); text-shadow: 0 0 8px rgba(74, 222, 128, 0.35); }
 
 .deck-nav-dot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #2a2a35;
   transition: all 0.15s ease;
@@ -514,14 +519,15 @@ input[type="range"]::-moz-range-thumb {
 
 .deck-nav-indicators {
   display: flex;
+  flex-direction: column;
   gap: 2px;
-  margin-top: 5px;
-  margin-left: 15px;
+  margin-top: 8px;
+  margin-left: 0;
 }
 
 .deck-nav-indicator-sq {
-  width: 3px;
-  height: 4px;
+  width: 4px;
+  height: 3px;
   background: transparent;
   transition: all 0.15s ease;
 }
@@ -6392,6 +6398,30 @@ input[type="range"]::-moz-range-thumb:hover {
 input[type="range"]::-moz-range-thumb:active {
   background: var(--accent-warm, #e8945c) !important;
   transform: scale(1.1) !important;
+}
+
+/* Inline track/instrument name editor styling */
+.instr-name-input {
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  color: #fff !important;
+  font-size: 0.8rem !important;
+  font-weight: 700 !important;
+  padding: 2px 4px !important;
+  width: 90px !important;
+  border-radius: 3px !important;
+  font-family: inherit !important;
+  transition: border-color 0.12s ease, background 0.12s ease !important;
+}
+.instr-name-input:hover {
+  border-color: #2a2a32 !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+.instr-name-input:focus {
+  border-color: var(--accent-warm, #e8945c) !important;
+  background: #14141a !important;
+  box-shadow: 0 0 0 1px rgba(232, 148, 92, 0.2) !important;
+  outline: none !important;
 }
 
 

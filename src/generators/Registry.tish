@@ -79,7 +79,7 @@ export fn generatorCatalog() {
     },
     {
       id: "acid303",
-      label: "Acid Synth",
+      label: "Acid 303",
       description: "Classic 303-style bassline with resonant filter and envMod sweep."
     },
     {

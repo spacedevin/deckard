@@ -47,8 +47,10 @@ let VOICE_GROUPS = [
     title: "Bass designer",
     voices: [
       ["acid303", "Acid 303"],
+      ["bass_acid", "Acid 303"],
       ["sub808", "Sub 808"],
       ["reeseBass", "Reese Bass"],
+      ["bass_reese", "Reese Bass"],
       ["bass_reese_punch", "Punch"],
       ["bass_reese_sc", "Reese SC"],
       ["bass_wobble", "Wobble"]
@@ -637,23 +639,28 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
           <Fragment>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <span class="deck-nav-dot" style={{ background: deckColor, boxShadow: "0 0 8px " + deckColor }}></span>
-              <h2
-                style={{ color: "white", fontSize: "0.8rem", cursor: "pointer" }}
-                title="Click to rename channel"
-                onclick={() => {
-                  let newName = prompt("Rename channel", ch.name)
-                  if (newName && newName.trim().length > 0) {
+              <input
+                type="text"
+                class="instr-name-input"
+                value={ch.name}
+                onchange={(e) => {
+                  let newName = e.target.value.trim()
+                  if (newName.length > 0) {
                     if (rt && rt.emit) {
-                      rt.emit("track/" + ch.id + "/name", newName.trim())
+                      rt.emit("track/" + ch.id + "/name", newName)
                     } else {
-                      ch.name = newName.trim()
+                      ch.name = newName
                       setProjectFromUI(project)
                     }
                   }
                 }}
-              >
-                {ch.name}
-              </h2>
+                onkeydown={(e) => {
+                  if (e.key === "Enter") {
+                    e.target.blur()
+                  }
+                }}
+                title="Hover or double click to edit track name"
+              />
               {voiceDropdown(project, ch, setProjectFromUI, tplMirrorFlush, rt, deckColor, badgeText)}
               <button
                 type="button"
