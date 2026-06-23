@@ -1489,3 +1489,35 @@ export fn effectiveTplLoopCap(project, rt, chIdx) {
   }
   return null
 }
+
+export fn syncActiveClipsInstrumentsFromChannels(project, rt) {
+  if (!project || !project.channels || !rt) {
+    return
+  }
+  let editingScene = rt.editingScene != null ? Math.floor(Number(rt.editingScene)) : null
+  if (editingScene === null || editingScene < 0) {
+    return
+  }
+  ensureProjectSession(project)
+  let sc = Math.floor(Number(project.session.sceneCount))
+  if (editingScene >= sc) {
+    return
+  }
+  let ti = 0
+  while (ti < project.channels.length) {
+    let ch = project.channels[ti]
+    if (ch.clipInstrMode === "store") {
+      let clipId = ""
+      if (project.session.slots[ti] && project.session.slots[ti][editingScene] != null) {
+        clipId = project.session.slots[ti][editingScene]
+      }
+      if (clipId !== "") {
+        let clip = findClipOnChannel(ch, clipId)
+        if (clip) {
+          clip.instrument = snapshotInstrument(ch)
+        }
+      }
+    }
+    ti = ti + 1
+  }
+}

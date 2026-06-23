@@ -77,7 +77,8 @@ import {
   sceneBarLength,
   armSceneWithOverrides,
   mirrorStepToggleToMainClip,
-  mirrorClearStepToMainClip
+  mirrorClearStepToMainClip,
+  syncActiveClipsInstrumentsFromChannels
 } from '../model/Session.tish'
 import { SessionView } from './SessionView.tish'
 import { PlaylistView } from './PlaylistView.tish'
@@ -812,6 +813,7 @@ export fn App() {
   }
 
   fn setProjectFromUI(p) {
+    syncActiveClipsInstrumentsFromChannels(p, rtRef.current)
     // Legacy direct-mutation commit: it mutated `p` in place without declaring what changed, so bump ALL
     // slice revs to invalidate every memo'd panel (full re-render, as before). Migrated emit-path edits get
     // precise per-slice bumps at the ingest boundary instead.

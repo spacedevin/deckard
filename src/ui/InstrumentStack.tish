@@ -628,6 +628,25 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
                 {ch.name}
               </h2>
               {voiceDropdown(project, ch, setProjectFromUI, tplMirrorFlush, rt, deckColor, badgeText)}
+              <button
+                type="button"
+                class="btn-deck btn-deck-outline"
+                style={{
+                  marginTop: 0,
+                  padding: "0.2rem 0.45rem",
+                  fontSize: "0.6rem",
+                  borderColor: ch.clipInstrMode === "store" ? "rgba(232, 148, 92, 0.7)" : deckColor + "44",
+                  color: ch.clipInstrMode === "store" ? "var(--accent-warm, #e8945c)" : "#999",
+                  background: ch.clipInstrMode === "store" ? "rgba(232, 148, 92, 0.1)" : "transparent"
+                }}
+                title={ch.clipInstrMode === "store" ? "Per-Pattern: Instrument parameters are stored in the active session program. Click to switch to Global (shared)." : "Global: Instrument parameters are shared across all patterns. Click to switch to Per-Pattern (individual)."}
+                onclick={() => {
+                  ch.clipInstrMode = ch.clipInstrMode === "store" ? "sync" : "store"
+                  setProjectFromUI(project)
+                }}
+              >
+                {ch.clipInstrMode === "store" ? "Per-Pattern" : "Global"}
+              </button>
             </div>
           </Fragment>,
           <div class="instr-head-mixer" style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>

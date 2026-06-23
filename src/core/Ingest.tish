@@ -8,6 +8,7 @@
 
 import { isLaunchDirective, isPrivateDirective, applyLaunchDirective } from '../codj/Launch.tish'
 import { applyCoDjTplSource } from '../codj/Merge.tish'
+import { syncActiveClipsInstrumentsFromChannels } from '../model/Session.tish'
 
 // ---- Render-scoping via per-slice REVISION COUNTERS (kept ON the project, bumped IN PLACE — the project
 // ref stays stable, so the codebase's pervasive closed-over project refs + in-place fold keep working).
@@ -149,6 +150,7 @@ export fn createIngest(store) {
     if (docSrc.trim().length > 0) {
       // The single gated fold — same path for local, remote, and agent statements.
       applyCoDjTplSource(p, "tpl 1\n" + docSrc + "\n", actorId, authorId, perfStep, skillIds)
+      syncActiveClipsInstrumentsFromChannels(p, store.runtime)
       echo(docSrc, "doc", c)
     }
 
