@@ -259,11 +259,7 @@ export fn CodeDebugView(project, setProject, tplText, setTplText, rt, dock) {
   return (
     <section class={panelCls}>
       <h2>{"TPL"}</h2>
-      {docked ? (
-        <p class="code-debug-hint code-debug-hint-dock">
-          {"Co-DJ: use the Sequencer tab. Apply / Sync updates the project."}
-        </p>
-      ) : (
+      {docked ? null : (
         <Fragment>
           <p class="code-debug-hint code-debug-hint-hub">
             {

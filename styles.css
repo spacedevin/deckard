@@ -3516,8 +3516,10 @@ input[type="range"]::-moz-range-thumb {
 .session-scene-row {
   display: flex;
   gap: 0.35rem;
-  margin-left: 108px;
-  margin-right: 44px;
+  /* Align the P columns with the clip columns below: clear the track-row leading cells (name 100 + ■ 26 +
+     🔗 24 + three 0.35rem gaps) and run to the right edge, exactly like .session-cells does. */
+  margin-left: calc(150px + 1.05rem);
+  margin-right: 0;
 }
 
 .session-scene-head {
@@ -5537,8 +5539,8 @@ input[type="range"]::-moz-range-thumb {
 .patch-cable-mod { stroke: #e8945c; stroke-dasharray: 5 3; }             /* amber dashed = modulation */
 .patch-cable-out { stroke: #8ab6ff; stroke-width: 2.4; opacity: 0.85; }  /* blue bold = reaches output */
 /* Output / reverb sink tiles — cables terminate here so "what's audible" is obvious. Pack like any card. */
-.patch-sink { break-inside: avoid; margin: 0 0 0.5rem; min-height: 2.6rem; display: flex; align-items: center;
-  justify-content: center; border-radius: 8px; position: relative; z-index: 1; }
+.patch-sink { break-inside: avoid; margin: 0.1rem 0 0.4rem; min-height: 1.45rem; display: inline-flex; align-items: center;
+  justify-content: center; border-radius: 6px; position: relative; z-index: 1; padding: 2px 18px; align-self: flex-start; }
 .patch-sink-out { border: 1.5px solid #8ab6ff; background: rgba(138, 182, 255, 0.1); }
 .patch-sink-rev { border: 1.5px solid #c9a6e0; background: rgba(201, 166, 224, 0.1); }
 .patch-sink-label { font-size: 0.62rem; font-weight: 800; letter-spacing: 0.08em; color: var(--text, #e8e8ea); }
@@ -5778,6 +5780,27 @@ input[type="range"]::-moz-range-thumb {
 
 .ik-card { border: none !important; background: transparent !important; padding: 0 !important; margin: 0 !important; box-shadow: none !important; }
 .ik-card-h { display: none !important; }
+/* Matrix FM / Patch collapse to this launcher in their grid card; it opens their full editor in a modal. */
+.gen-open-modal { width: 100%; padding: 10px 8px; border: 1px dashed var(--border, #2a2a2a); border-radius: 5px; background: rgba(255, 255, 255, 0.03); color: var(--text, #e8e8ea); cursor: pointer; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.gen-open-modal:hover { background: rgba(255, 255, 255, 0.07); border-color: var(--accent, #22d3ee); }
+.gen-modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.62); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.gen-modal { background: var(--bg, #0e0e12); border: 1px solid var(--border, #2a2a2a); border-radius: 8px; width: min(1100px, 94vw); max-height: 88vh; display: flex; flex-direction: column; box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6); }
+.gen-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 9px 14px; border-bottom: 1px solid var(--border, #2a2a2a); }
+.gen-modal-title { font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.78rem; color: var(--text, #e8e8ea); }
+.gen-modal-close { background: transparent; border: 1px solid var(--border, #2a2a2a); border-radius: 4px; color: var(--text, #e8e8ea); cursor: pointer; width: 26px; height: 26px; font-size: 0.85rem; }
+.gen-modal-close:hover { background: rgba(255, 255, 255, 0.08); }
+.gen-modal-body { padding: 12px 14px; overflow-y: auto; }
+/* The modal header already shows the instrument name — drop the panel's own duplicate "MATRIX FM" / "PATCH"
+   title (keep the rest of its header, e.g. the patch View/Edit toggle). */
+.gen-modal .sytrus-panel-title { display: none; }
+/* Inside the modal the panel is NOT its own card — strip the duplicate border / background / padding / margin
+   so the content sits flush in the modal's own frame (no card-in-a-card). The head row, now title-less, also
+   loses its divider + spacing (Patch keeps its View/Edit toggle there). */
+.gen-modal .sytrus-panel { border: none !important; background: transparent !important; padding: 0 !important; border-radius: 0 !important; }
+.gen-modal .matrixfm-panel-wrap,
+.gen-modal .patch-panel-wrap,
+.gen-modal .instr-params-wrap { margin: 0 !important; padding: 0 !important; }
+.gen-modal .sytrus-panel-head { margin-bottom: 0.3rem; padding-bottom: 0; border-bottom: none; }
 .ik-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0.55rem; }
 @media (max-width: 720px) { .ik-cols { grid-template-columns: 1fr; } }
 .ik-wave-pair { display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; margin-bottom: 0.6rem; }
@@ -5861,10 +5884,10 @@ input[type="range"]::-moz-range-thumb {
 
 /* ---- I/O Rack (multi-output device pickers) + per-deck CUE -------------------------------------- */
 .io-rack { display: inline-flex; align-items: center; gap: 10px; margin-left: 14px; padding: 0 10px;
-  height: 26px; background: #0d0d12; border: 1px solid #20202a; border-radius: 6px; }
+  height: 26px; }
 /* MIDI strip — mirrors the I/O Rack styling. */
 .midi-rack { display: inline-flex; align-items: center; gap: 8px; margin-left: 10px; padding: 0 10px;
-  height: 26px; background: #0d0d12; border: 1px solid #20202a; border-radius: 6px; }
+  height: 26px; }
 .midi-rack-title { font-size: 10px; letter-spacing: 0.16em; color: var(--accent-green); font-weight: 600; }
 .midi-dot { width: 7px; height: 7px; border-radius: 50%; background: #33333c; }
 .midi-dot-on { background: var(--accent-green); box-shadow: 0 0 6px rgba(124,255,124,0.6); }
@@ -5997,6 +6020,7 @@ input[type="range"]::-moz-range-thumb {
   grid-template-columns: repeat(3, 1fr);
   gap: 8px !important;
   width: 100%;
+  align-items: start;
 }
 
 /* Compact rules when instruments are inside the grid */

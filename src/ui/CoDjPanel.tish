@@ -676,11 +676,6 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
   return <section class="panel codj-panel">
     <h2>{"Co-DJ (WebSocket)"}</h2>
     <p class="codj-pairing"><strong>{"Session actors"}</strong>{" · "}{actorSummary}</p>
-    <p class="codj-hint">
-      {
-        "Deckard ↔ gateway (this UI). Optional agent worker is another actor. Connect, join session, then Play streams your project TPL as tpl.line. Left = last chunk you sent; right = last data seen from the hub (lines/chunks)."
-      }
-    </p>
     <div class="codj-stream-grid">
       <div class="codj-stream-wrap codj-stream-local">
         <div class="codj-stream-label">

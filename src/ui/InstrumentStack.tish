@@ -372,6 +372,17 @@ fn setModuleRaw(ctx, module, on) {
   ctx.setProject(ctx.project)
 }
 
+// Matrix FM / Patch open their full editor in a modal (they don't fit a grid card). Transient UI state on rt,
+// same mechanism as the Designer/Raw toggle.
+fn closeGenModal(rt, project, setProject) {
+  if (rt) {
+    rt.genModal = null
+    if (setProject) {
+      setProject(project)
+    }
+  }
+}
+
 fn ModuleCard(title, tplBlock, module, ctx, children, wide, extraClass) {
   let hasRaw = module != null && module !== ""
   let raw = hasRaw && moduleRawActive(ctx, module)
@@ -425,7 +436,7 @@ fn ModuleCard(title, tplBlock, module, ctx, children, wide, extraClass) {
   )
 }
 
-fn voiceDesigner(project, ch, gid, setProject, tplMirrorFlush, rt) {
+fn voiceDesigner(project, ch, gid, setProject, tplMirrorFlush, rt, inModal) {
   let isMacro = ch.macroName != null
   // Ownership gate: the modular patch/matrix editors mutate the project locally + broadcast, so a non-owner
   // (a co-DJ track you don't own, or a master-locked track) must not author edits — else the optimistic
@@ -433,6 +444,17 @@ fn voiceDesigner(project, ch, gid, setProject, tplMirrorFlush, rt) {
   // the local actor is rt.coDjActorId (defaults to "human", which owns everything in a solo session).
   let selfActor = (rt && rt.coDjActorId) ? rt.coDjActorId : "human"
   let mayEdit = actorMayEditTrack(project, ch.id, selfActor, false)
+  // Matrix FM / Patch / a frozen macro graph are the ONLY voices edited in a modal — they don't fit a grid
+  // card. Inline they collapse to a launcher button; the real editor renders only in the modal (inModal=true).
+  let isModular = gid === "matrixFm" || gid === "patch" || isMacro
+  if (isModular && !inModal) {
+    let label = isMacro ? "macro" : (gid === "patch" ? "Patch" : "Matrix FM")
+    return (
+      <div class="instr-params-wrap">
+        <button type="button" class="gen-open-modal" onclick={() => { if (rt) { rt.genModal = ch.id; setProject(project) } }}>{"⤢ Edit " + label}</button>
+      </div>
+    )
+  }
   return (
     <Fragment>
       <div class="instr-params-wrap">{GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt)}</div>
@@ -485,7 +507,7 @@ fn SoundModule(ctx, gid) {
     "",
     "gen",
     ctx,
-    voiceDesigner(ctx.project, ctx.ch, gid, ctx.setProject, ctx.tplMirrorFlush, ctx.rt),
+    voiceDesigner(ctx.project, ctx.ch, gid, ctx.setProject, ctx.tplMirrorFlush, ctx.rt, false),
     wide
   )
 }
@@ -791,8 +813,35 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
     k = k + 1
   }
   
-  if (activeDeck !== null && activeDeck !== undefined && activeDeck !== "") {
-    return <div class="instr-grid-container">{cards}</div>
+  let modalEl = null
+  if (rt && rt.genModal) {
+    let mch = null
+    let mi = 0
+    while (mi < project.channels.length) {
+      if (project.channels[mi].id === rt.genModal) {
+        mch = project.channels[mi]
+      }
+      mi = mi + 1
+    }
+    if (mch) {
+      let mgid = mch.generatorId ? mch.generatorId : "basicOsc"
+      modalEl = (
+        <div class="gen-modal-backdrop" onmousedown={(e) => { if (e.target === e.currentTarget) { closeGenModal(rt, project, setProjectFromUI) } }}>
+          <div class="gen-modal">
+            <div class="gen-modal-head">
+              <span class="gen-modal-title">{mch.name}</span>
+              <button type="button" class="gen-modal-close" onclick={() => closeGenModal(rt, project, setProjectFromUI)}>{"✕"}</button>
+            </div>
+            <div class="gen-modal-body">
+              {voiceDesigner(project, mch, mgid, setProjectFromUI, tplMirrorFlush, rt, true)}
+            </div>
+          </div>
+        </div>
+      )
+    }
   }
-  return <Fragment>{cards}</Fragment>
+  if (activeDeck !== null && activeDeck !== undefined && activeDeck !== "") {
+    return <Fragment><div class="instr-grid-container">{cards}</div>{modalEl}</Fragment>
+  }
+  return <Fragment>{cards}{modalEl}</Fragment>
 }

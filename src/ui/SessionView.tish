@@ -676,11 +676,6 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
           </button>
         </div>
       </div>
-      <p class="session-hint">
-        {
-          "Per pattern: LOAD it into the rack to edit · SAVE the rack into it · LAUNCH it live (queues to the next bar). Click a clip to queue just that track. Stop all applies immediately."
-        }
-      </p>
       <div class="session-grid-wrap">
         <div class="session-corner" />
         <div class="session-scene-row">{sceneHeaders}</div>

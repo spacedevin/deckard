@@ -182,6 +182,29 @@ fn genSelectorKnob(label, current, opts, rt, ch, key, accent, disabled) {
   })
 }
 
+// Shared performance-macro row (pitch drop / vibrato / arpeggio) — identical across every chip voice, so it
+// lives here ONCE instead of being copy-pasted into all 7. Always visible; a dense, de-duplicated knob grid.
+fn perfMacrosSection(rt, ch, project, setProject, p, accent, vibDisabled) {
+  let pitchDrop = p.pitchDrop != null ? Math.round(p.pitchDrop) : 0
+  let pitchDec = p.pitchDec != null ? p.pitchDec : 0.05
+  let vibRate = p.vibRate != null ? p.vibRate : 0
+  let vibAmt = p.vibAmt != null ? p.vibAmt : 0
+  let arpRate = p.arpRate != null ? p.arpRate : 0
+  let arpSemis = p.arpSemis != null ? Math.round(p.arpSemis) : 0
+  return (
+    <div class="ik-card">
+      <div class="ik-knob-grid">
+        {numKnob("Drop.st", pitchDrop, -48, 48, 1, "st", rt, ch, "pitchDrop", accent)}
+        {msKnob("Drop.ms", pitchDec, 1, rt, ch, "pitchDec", accent)}
+        {numKnob("Vib.Hz", vibRate, 0, 20, 0.5, "Hz", rt, ch, "vibRate", accent, vibDisabled)}
+        {numKnob("Vib.¢", vibAmt, 0, 200, 1, "ct", rt, ch, "vibAmt", accent, vibDisabled)}
+        {numKnob("Arp.Hz", arpRate, 0, 40, 1, "Hz", rt, ch, "arpRate", accent)}
+        {numKnob("Arp.st", arpSemis, -24, 24, 1, "st", rt, ch, "arpSemis", accent)}
+      </div>
+    </div>
+  )
+}
+
 export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
   let id = ch.generatorId
   if (!id) {
@@ -950,20 +973,15 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
           </div>
         </div>
         <div class="ik-card">
-          <div class="ik-card-h">{"Tracker Macros"}</div>
+          <div class="ik-card-h">{"Envelope"}</div>
           <div class="ik-knob-grid">
             {msKnob("Att", attack, 2, rt, ch, "attack", accent)}
             {msKnob("Dec", decay, 2, rt, ch, "decay", accent)}
             {numKnob("Sus", sustain, 0, 15, 1, "", rt, ch, "sustain", accent)}
             {msKnob("Rel", release, 5, rt, ch, "release", accent)}
-            {numKnob("Drop.st", pitchDrop, -48, 48, 1, "st", rt, ch, "pitchDrop", accent)}
-            {msKnob("Drop.ms", pitchDec, 1, rt, ch, "pitchDec", accent)}
-            {numKnob("Vib.Hz", vibRate, 0, 20, 0.5, "Hz", rt, ch, "vibRate", accent, isNoise)}
-            {numKnob("Vib.¢", vibAmt, 0, 200, 1, "ct", rt, ch, "vibAmt", accent, isNoise)}
-            {numKnob("Arp.Hz", arpRate, 0, 40, 1, "Hz", rt, ch, "arpRate", accent)}
-            {numKnob("Arp.st", arpSemis, -24, 24, 1, "st", rt, ch, "arpSemis", accent)}
           </div>
         </div>
+        {perfMacrosSection(rt, ch, project, setProject, p, accent, isNoise)}
       </article>
     )
   }
@@ -1006,17 +1024,7 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
             {numKnob("EFB", echoFb, -128, 127, 1, "", rt, ch, "echoFeedback", accent, !echoEn)}
           </div>
         </div>
-        <div class="ik-card">
-          <div class="ik-card-h">{"Tracker Macros"}</div>
-          <div class="ik-knob-grid">
-            {numKnob("Drop.st", pitchDrop, -48, 48, 1, "st", rt, ch, "pitchDrop", accent)}
-            {msKnob("Drop.ms", pitchDec, 1, rt, ch, "pitchDec", accent)}
-            {numKnob("Vib.Hz", vibRate, 0, 20, 0.5, "Hz", rt, ch, "vibRate", accent)}
-            {numKnob("Vib.¢", vibAmt, 0, 200, 1, "ct", rt, ch, "vibAmt", accent)}
-            {numKnob("Arp.Hz", arpRate, 0, 40, 1, "Hz", rt, ch, "arpRate", accent)}
-            {numKnob("Arp.st", arpSemis, -24, 24, 1, "st", rt, ch, "arpSemis", accent)}
-          </div>
-        </div>
+        {perfMacrosSection(rt, ch, project, setProject, p, accent, false)}
       </article>
     )
   }
@@ -1056,17 +1064,7 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
             {genSelectorKnob("Duty", duty, [["12_5", "12.5%"], ["25", "25%"], ["50", "50%"], ["75", "75%"]], rt, ch, "duty", accent, wf !== "pulse")}
           </div>
         </div>
-        <div class="ik-card">
-          <div class="ik-card-h">{"Tracker Macros"}</div>
-          <div class="ik-knob-grid">
-            {numKnob("Drop.st", pitchDrop, -48, 48, 1, "st", rt, ch, "pitchDrop", accent)}
-            {msKnob("Drop.ms", pitchDec, 1, rt, ch, "pitchDec", accent)}
-            {numKnob("Vib.Hz", vibRate, 0, 20, 0.5, "Hz", rt, ch, "vibRate", accent)}
-            {numKnob("Vib.¢", vibAmt, 0, 200, 1, "ct", rt, ch, "vibAmt", accent)}
-            {numKnob("Arp.Hz", arpRate, 0, 40, 1, "Hz", rt, ch, "arpRate", accent)}
-            {numKnob("Arp.st", arpSemis, -24, 24, 1, "st", rt, ch, "arpSemis", accent)}
-          </div>
-        </div>
+        {perfMacrosSection(rt, ch, project, setProject, p, accent, false)}
       </article>
     )
   }
@@ -1119,17 +1117,7 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
         {opKnobs(2)}
         {opKnobs(3)}
         {opKnobs(4)}
-        <div class="ik-card">
-          <div class="ik-card-h">{"Tracker Macros"}</div>
-          <div class="ik-knob-grid">
-            {numKnob("Drop.st", pitchDrop, -48, 48, 1, "st", rt, ch, "pitchDrop", accent)}
-            {msKnob("Drop.ms", pitchDec, 1, rt, ch, "pitchDec", accent)}
-            {numKnob("Vib.Hz", vibRate, 0, 20, 0.5, "Hz", rt, ch, "vibRate", accent)}
-            {numKnob("Vib.¢", vibAmt, 0, 200, 1, "ct", rt, ch, "vibAmt", accent)}
-            {numKnob("Arp.Hz", arpRate, 0, 40, 1, "Hz", rt, ch, "arpRate", accent)}
-            {numKnob("Arp.st", arpSemis, -24, 24, 1, "st", rt, ch, "arpSemis", accent)}
-          </div>
-        </div>
+        {perfMacrosSection(rt, ch, project, setProject, p, accent, false)}
       </article>
     )
   }
@@ -1179,20 +1167,15 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
           </div>
         </div>
         <div class="ik-card">
-          <div class="ik-card-h">{"Tracker Macros"}</div>
+          <div class="ik-card-h">{"Envelope"}</div>
           <div class="ik-knob-grid">
             {msKnob("Att", attack, 2, rt, ch, "attack", accent, envMode !== "adsr")}
             {msKnob("Dec", decay, 2, rt, ch, "decay", accent, envMode !== "adsr")}
             {numKnob("Sus", sustain, 0, 15, 1, "", rt, ch, "sustain", accent, envMode !== "adsr")}
             {msKnob("Rel", release, 5, rt, ch, "release", accent, envMode !== "adsr")}
-            {numKnob("Drop.st", pitchDrop, -48, 48, 1, "st", rt, ch, "pitchDrop", accent)}
-            {msKnob("Drop.ms", pitchDec, 1, rt, ch, "pitchDec", accent)}
-            {numKnob("Vib.Hz", vibRate, 0, 20, 0.5, "Hz", rt, ch, "vibRate", accent)}
-            {numKnob("Vib.¢", vibAmt, 0, 200, 1, "ct", rt, ch, "vibAmt", accent)}
-            {numKnob("Arp.Hz", arpRate, 0, 40, 1, "Hz", rt, ch, "arpRate", accent)}
-            {numKnob("Arp.st", arpSemis, -24, 24, 1, "st", rt, ch, "arpSemis", accent)}
           </div>
         </div>
+        {perfMacrosSection(rt, ch, project, setProject, p, accent, false)}
       </article>
     )
   }
@@ -1241,20 +1224,15 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
           </div>
         </div>
         <div class="ik-card">
-          <div class="ik-card-h">{"Tracker Macros"}</div>
+          <div class="ik-card-h">{"Envelope"}</div>
           <div class="ik-knob-grid">
             {msKnob("Att", attack, 2, rt, ch, "attack", accent, envMode !== "adsr")}
             {msKnob("Dec", decay, 2, rt, ch, "decay", accent, envMode !== "adsr")}
             {numKnob("Sus", sustain, 0, 15, 1, "", rt, ch, "sustain", accent, envMode !== "adsr")}
             {msKnob("Rel", release, 5, rt, ch, "release", accent, envMode !== "adsr")}
-            {numKnob("Drop.st", pitchDrop, -48, 48, 1, "st", rt, ch, "pitchDrop", accent)}
-            {msKnob("Drop.ms", pitchDec, 1, rt, ch, "pitchDec", accent)}
-            {numKnob("Vib.Hz", vibRate, 0, 20, 0.5, "Hz", rt, ch, "vibRate", accent, isNoise)}
-            {numKnob("Vib.¢", vibAmt, 0, 200, 1, "ct", rt, ch, "vibAmt", accent, isNoise)}
-            {numKnob("Arp.Hz", arpRate, 0, 40, 1, "Hz", rt, ch, "arpRate", accent)}
-            {numKnob("Arp.st", arpSemis, -24, 24, 1, "st", rt, ch, "arpSemis", accent)}
           </div>
         </div>
+        {perfMacrosSection(rt, ch, project, setProject, p, accent, isNoise)}
       </article>
     )
   }
@@ -1309,17 +1287,7 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
             {pickPills(ringMod ? "rm_on" : "rm_off", [["rm_off", "RM Off"], ["rm_on", "Ring Mod"]], rt, ch, "ringMod", accent, (v) => v === "rm_on")}
           </div>
         </div>
-        <div class="ik-card">
-          <div class="ik-card-h">{"Tracker Macros"}</div>
-          <div class="ik-knob-grid">
-            {numKnob("Drop.st", pitchDrop, -48, 48, 1, "st", rt, ch, "pitchDrop", accent)}
-            {msKnob("Drop.ms", pitchDec, 1, rt, ch, "pitchDec", accent)}
-            {numKnob("Vib.Hz", vibRate, 0, 20, 0.5, "Hz", rt, ch, "vibRate", accent, hardSync || ringMod || wf === "noise")}
-            {numKnob("Vib.¢", vibAmt, 0, 200, 1, "ct", rt, ch, "vibAmt", accent, hardSync || ringMod || wf === "noise")}
-            {numKnob("Arp.Hz", arpRate, 0, 40, 1, "Hz", rt, ch, "arpRate", accent)}
-            {numKnob("Arp.st", arpSemis, -24, 24, 1, "st", rt, ch, "arpSemis", accent)}
-          </div>
-        </div>
+        {perfMacrosSection(rt, ch, project, setProject, p, accent, hardSync || ringMod || wf === "noise")}
       </article>
     )
   }
