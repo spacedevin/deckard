@@ -1,15 +1,15 @@
 :root {
-  --bg: #0b0b0b;
-  --panel: #111111;
-  --border: #222222;
+  --bg: #050507;
+  --panel: #09090d;
+  --border: #14141c;
   --text: #cccccc;
-  --muted: #666666;
+  --muted: #55555e;
   --accent-green: #7cff7c;
   --accent-warm: #e8945c;
   /* Aliases for legacy rules across this file */
   --accent: var(--accent-warm);
   --mint: var(--accent-green);
-  --range-track: #1a1a1a;
+  --range-track: #14141a;
   --range-fill: var(--accent-green);
 }
 
@@ -441,41 +441,59 @@ input[type="range"]::-moz-range-thumb {
   flex: 0 0 110px;
   display: flex;
   flex-direction: column;
-  padding: 0;
-  background: #09090d;
+  padding: 0.5rem 0.4rem;
+  background: #060608;
   border-right: 1px solid #14141c;
   align-self: stretch;
 }
 
-.deck-nav-btn {
+.tracks-sidebar-title {
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 0.8rem;
+  padding-left: 0.4rem;
+}
+
+.tracks-sidebar-list {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  align-items: flex-start;
-  padding: 0 8px;
+  gap: 0.35rem;
+}
+
+.tracks-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.25rem 0.4rem;
   cursor: pointer;
-  border-radius: 0;
-  margin-bottom: 0;
-  border-left: 3px solid transparent;
-  border-bottom: 1px solid #14141c;
-  background: #09090d;
-  flex: 1;
-  transition: all 0.15s ease;
+  border-radius: 3px;
+  transition: background 0.15s ease;
 }
 
-.deck-nav-btn:hover {
-  background: #111118;
+.tracks-sidebar-item:hover {
+  background: rgba(255, 255, 255, 0.03);
 }
 
-.deck-nav-btn.deck-active {
-  background: #14141c;
+.tracks-sidebar-item.active {
+  background: rgba(255, 255, 255, 0.05);
 }
 
-.deck-nav-btn.deck-a.deck-active { border-left-color: var(--deck-a); }
-.deck-nav-btn.deck-b.deck-active { border-left-color: var(--deck-b); }
-.deck-nav-btn.deck-c.deck-active { border-left-color: var(--deck-c); }
-.deck-nav-btn.deck-d.deck-active { border-left-color: var(--deck-d); }
+.tracks-sidebar-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
 
+.tracks-sidebar-name {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
 .deck-nav-title-row {
   display: flex;
   align-items: center;
@@ -554,8 +572,8 @@ input[type="range"]::-moz-range-thumb {
   flex: 0 0 340px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 14px;
+  gap: 4px;
+  padding: 4px;
   background: var(--bg);
   border-left: 1px solid var(--border);
   overflow-y: auto;
@@ -831,11 +849,14 @@ input[type="range"]::-moz-range-thumb {
   background: transparent;
   color: var(--accent-warm);
   border: 1px solid var(--accent-warm);
-  padding: 0.4rem 0.9rem;
-  border-radius: 4px;
+  padding: 0.25rem 0.6rem;
+  border-radius: 3px;
   font-weight: 700;
   letter-spacing: 0.06em;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .btn-play:hover:not(:disabled) {
@@ -847,21 +868,8 @@ input[type="range"]::-moz-range-thumb {
   cursor: default;
 }
 
-/* Two transports: Preview (audition the rack, orange) vs Song (the session arrangement, green). */
-.btn-play {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
 .btn-key {
-  font-size: 0.5rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  opacity: 0.55;
-  border: 1px solid currentColor;
-  border-radius: 3px;
-  padding: 0 4px;
-  line-height: 1.4;
+  display: none !important;
 }
 .btn-play-seq {
   color: var(--accent-orange, #f97316);
@@ -971,31 +979,23 @@ input[type="range"]::-moz-range-thumb {
 .bpm-stepper {
   display: inline-flex;
   align-items: stretch;
-  height: 34px;
+  height: 24px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 2px;
   overflow: hidden;
-  background: var(--bg);
+  background: transparent;
 }
 .bpm-stepper-cap {
-  display: inline-flex;
-  align-items: center;
-  padding: 0 8px;
-  font-size: 0.6rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  color: var(--muted);
-  background: rgba(255, 255, 255, 0.03);
-  border-right: 1px solid var(--border);
+  display: none;
 }
 .bpm-btn {
-  width: 34px;
+  width: 24px;
   flex: 0 0 auto;
-  font-size: 1.35rem;
+  font-size: 0.9rem;
   font-weight: 700;
   line-height: 1;
-  background: #15151b;
-  color: var(--text);
+  background: transparent;
+  color: var(--muted);
   border: none;
   cursor: pointer;
   display: inline-flex;
@@ -1009,12 +1009,12 @@ input[type="range"]::-moz-range-thumb {
 .bpm-btn:hover { background: #21212b; color: var(--accent-warm, #e8945c); }
 .bpm-btn:active { background: var(--accent-warm, #e8945c); color: #0a0a0a; }
 .bpm-input {
-  width: 3.2rem;
+  width: 2.4rem;
   background: transparent;
   border: none;
   color: var(--text);
   text-align: center;
-  font-size: 0.95rem;
+  font-size: 0.78rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   padding: 0;
@@ -1077,8 +1077,8 @@ input[type="range"]::-moz-range-thumb {
 .daw-body {
   display: grid;
   grid-template-columns: 1fr minmax(220px, 320px);
-  gap: 0.5rem;
-  padding: 0.5rem;
+  gap: 4px;
+  padding: 4px;
   flex: 1;
   min-height: 0;
   align-items: stretch;
@@ -1087,7 +1087,7 @@ input[type="range"]::-moz-range-thumb {
 .daw-workspace-column {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 4px;
   min-width: 0;
   min-height: 0;
 }
@@ -1106,7 +1106,7 @@ input[type="range"]::-moz-range-thumb {
 .daw-main-stack {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -1123,8 +1123,8 @@ input[type="range"]::-moz-range-thumb {
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 0.75rem;
+  border-radius: 3px;
+  padding: 0.4rem;
 }
 
 .panel h2 {
@@ -2374,8 +2374,8 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
+  gap: 4px;
+  padding: 4px 8px;
   font-size: 0.7rem;
   color: var(--muted);
   background: var(--panel);
@@ -5592,9 +5592,9 @@ input[type="range"]::-moz-range-thumb {
 .instr-stack-head h2 { margin: 0; }
 .instr-stack-sub { font-size: 0.6rem; color: var(--muted); letter-spacing: 0.04em; }
 /* Horizontal rack: instrument modules sit side by side as small boxes and wrap. */
-.instr-modules-row { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: stretch; }
-.instr-module { border: 1px solid var(--border, #2a2a2a); border-radius: 8px;
-  background: rgba(0, 0, 0, 0.18); display: flex; flex-direction: column;
+.instr-modules-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: stretch; }
+.instr-module { border: 1px solid var(--border, #14141c); border-radius: 2px;
+  background: rgba(0, 0, 0, 0.05); display: flex; flex-direction: column;
   flex: 1 1 18rem; min-width: 16rem; max-width: 30rem; }
 /* min-width:0 lets the body shrink to its flex track so long content (the desc, wide designers)
    wraps/clips instead of stretching the column and breaking the row. */
@@ -5602,14 +5602,14 @@ input[type="range"]::-moz-range-thumb {
 /* Modular designers (Matrix FM / Patch / macros) get a full-width box. */
 .instr-module-wide { flex: 100 1 36rem; max-width: 100%; }
 .instr-module-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
-  padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--border, #2a2a2a);
-  border-left: 3px solid var(--accent-warm, #e8945c); border-radius: 8px 8px 0 0;
-  background: rgba(232, 148, 92, 0.06); }
+  padding: 0.2rem 0.4rem; border-bottom: 1px solid var(--border, #14141c);
+  border-left: none; border-radius: 0;
+  background: transparent; }
 .instr-module-title { font-size: 0.66rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--text, #e8e8ea); }
 .instr-module-tpl { font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.6rem;
   color: var(--accent-warm, #e8945c); letter-spacing: 0.04em; }
-.instr-module-body { padding: 0.55rem 0.6rem; }
+.instr-module-body { padding: 0.35rem 0.4rem; }
 /* Designer ⇄ Raw segmented toggle in each module header */
 .instr-module-toggle { display: inline-flex; border: 1px solid var(--border, #2a2a2a); border-radius: 4px;
   overflow: hidden; margin-left: auto; margin-right: 0.5rem; }
@@ -5959,9 +5959,13 @@ input[type="range"]::-moz-range-thumb {
 /* Compact rules when instruments are inside the grid */
 .instr-grid-container .instr-stack-panel {
   margin: 0 !important;
-  padding: 4px 6px !important;
+  padding: 4px 0px !important;
   display: flex;
   flex-direction: column;
+  background: transparent !important;
+  border: none !important;
+  border-top: 2px solid var(--accent) !important;
+  border-radius: 0 !important;
 }
 
 .instr-grid-container .panel-head {
@@ -6023,13 +6027,20 @@ input[type="range"]::-moz-range-thumb {
   flex: 1 1 50%;
   min-width: 0;
   max-width: none;
-  background: rgba(0, 0, 0, 0.25);
-  border-radius: 4px !important;
+  background: transparent !important;
+  border: none !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border-radius: 0 !important;
+}
+.instr-grid-container .instr-module:last-child {
+  border-right: none !important;
 }
 
 .instr-grid-container .instr-module-head {
-  padding: 2px 4px !important;
+  padding: 2px 0px !important;
   gap: 3px !important;
+  background: transparent !important;
+  border: none !important;
 }
 
 .instr-grid-container .instr-module-title {
@@ -6042,7 +6053,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .instr-grid-container .instr-module-body {
-  padding: 3px 4px !important;
+  padding: 3px 0px !important;
   display: flex !important;
   flex-direction: column !important;
   flex: 1 1 auto !important;

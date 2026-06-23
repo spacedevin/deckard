@@ -2483,6 +2483,34 @@ export fn App() {
     rci = rci + 1
   }
 
+  let tracksSidebarItems = []
+  if (project && project.channels) {
+    let tIdx = 0
+    let chs = project.channels
+    let len = chs.length
+    while (tIdx < len) {
+      let ch = chs[tIdx]
+      let idx = tIdx
+      let active = selectedCh === idx
+      let deck = channelDeck(project, ch)
+      let color = deckWaveColorHex(deck)
+      tracksSidebarItems.push(
+        <div
+          class={"tracks-sidebar-item" + (active ? " active" : "")}
+          onclick={() => {
+            setSelectedCh(idx)
+            setActiveDeck(deck)
+          }}
+          key={"sidebar-ch-" + ch.id}
+        >
+          <span class="tracks-sidebar-dot" style={{ background: color, boxShadow: active ? "0 0 8px " + color : "none" }}></span>
+          <span class="tracks-sidebar-name" style={{ color: active ? "white" : "#666" }}>{ch.name}</span>
+        </div>
+      )
+      tIdx = tIdx + 1
+    }
+  }
+
   return <div class="daw-root">
     <header class="daw-header">
       <h1 class="logo">{"Deckard"}<span class="logo-beta" title="beata">{"beata"}</span></h1>
@@ -2547,33 +2575,9 @@ export fn App() {
     </header>
     <div class="daw-app-layout">
       <aside class="daw-sidebar-left">
-        <div class={"deck-nav-btn deck-a" + (activeDeck === "A" ? " deck-active" : "")} onclick={() => setActiveDeck("A")}>
-          <div class="deck-nav-title-row">
-            <span class="deck-nav-dot"></span>
-            <span class="deck-nav-text">{"DECK A"}</span>
-          </div>
-          {renderDeckPips(project, "A")}
-        </div>
-        <div class={"deck-nav-btn deck-b" + (activeDeck === "B" ? " deck-active" : "")} onclick={() => setActiveDeck("B")}>
-          <div class="deck-nav-title-row">
-            <span class="deck-nav-dot"></span>
-            <span class="deck-nav-text">{"DECK B"}</span>
-          </div>
-          {renderDeckPips(project, "B")}
-        </div>
-        <div class={"deck-nav-btn deck-c" + (activeDeck === "C" ? " deck-active" : "")} onclick={() => setActiveDeck("C")}>
-          <div class="deck-nav-title-row">
-            <span class="deck-nav-dot"></span>
-            <span class="deck-nav-text">{"DECK C"}</span>
-          </div>
-          {renderDeckPips(project, "C")}
-        </div>
-        <div class={"deck-nav-btn deck-d" + (activeDeck === "D" ? " deck-active" : "")} onclick={() => setActiveDeck("D")}>
-          <div class="deck-nav-title-row">
-            <span class="deck-nav-dot"></span>
-            <span class="deck-nav-text">{"DECK D"}</span>
-          </div>
-          {renderDeckPips(project, "D")}
+        <div class="tracks-sidebar-title">{"TRACKS"}</div>
+        <div class="tracks-sidebar-list">
+          {tracksSidebarItems}
         </div>
       </aside>
       <div class="daw-main-area">

@@ -605,7 +605,23 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
     )
 
     cards.push(
-      <section class="panel instr-stack-panel" style={{ borderColor: deckColor + "55", margin: "8px 0" }} key={"ic-" + ch.id}>
+      <section
+        class="panel instr-stack-panel"
+        style={{
+          borderTopColor: deckColor,
+          borderTopWidth: "2px",
+          borderTopStyle: "solid",
+          borderLeft: "none",
+          borderRight: "none",
+          borderBottom: "none",
+          background: "transparent",
+          margin: "0",
+          borderRadius: "0",
+          paddingLeft: "0",
+          paddingRight: "0"
+        }}
+        key={"ic-" + ch.id}
+      >
         {PanelHeader(
           <Fragment>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
