@@ -1,5 +1,0 @@
-# @tishlang/tish has a postinstall that downloads the platform `tish` binary (the compiler used by the build).
-# pnpm v10+ blocks dependency build scripts unless allow-listed here. npm runs postinstall by default, so this
-# only matters when the install host (e.g. DigitalOcean App Platform's buildpack) uses pnpm.
-onlyBuiltDependencies:
-  - '@tishlang/tish'

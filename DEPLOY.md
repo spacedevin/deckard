@@ -64,11 +64,12 @@ install step MUST be allowed to run that script.
 
 - **npm** runs postinstall automatically — nothing to configure.
 - **pnpm v10+** made dependency build scripts **opt-in** (it prints `ERR_PNPM_IGNORED_BUILDS: @tishlang/tish` and
-  the build fails with no `tish`), and it **no longer reads `pnpm.onlyBuiltDependencies` from `package.json`** (it
-  moved to `pnpm-workspace.yaml`, and even that wasn't honored on DO's buildpack). **Fix:** `package.json` pins
-  **`"packageManager": "pnpm@9.15.4"`** — pnpm 9 runs the `@tishlang/tish` postinstall by default. The lockfile is
-  `lockfileVersion 9.0` (pnpm-9 native), so the pin is fully compatible. `pnpm-workspace.yaml` /
-  `pnpm.onlyBuiltDependencies` remain as belt-and-suspenders for anyone on pnpm 10/11 locally.
+  the build fails with no `tish`), and it **no longer reads `pnpm.onlyBuiltDependencies` from `package.json`**.
+  **Fix:** `package.json` pins **`"packageManager": "pnpm@9.15.4"`** — pnpm 9 reads `pnpm.onlyBuiltDependencies`
+  from `package.json` and runs the `@tishlang/tish` postinstall. The lockfile is `lockfileVersion 9.0` (pnpm-9
+  native), so the pin is fully compatible. There is **no `pnpm-workspace.yaml`** — pnpm 9 treats that file as a
+  monorepo definition and errors `packages field missing or empty` if it has no `packages:` key (this is not a
+  workspace), so the allow-list lives only in `package.json`.
 - `engines.node` is pinned to **`22.x`** (the Active LTS) rather than a wide `>=20` range, which the Heroku/DO
   Node buildpack flags as a "dangerous range".
 
