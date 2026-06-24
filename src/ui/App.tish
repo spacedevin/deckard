@@ -4,7 +4,7 @@ import { channelDeck, crossfadeValue, crossfadeValueY } from '../model/DeckRouti
 import { freshSetEnergy, freshActiveDecks, foldSetEnergyStep } from '../model/SetEnergy.tish'
 import { loadDefaultDeckardProject, loadProjectFromTpl } from '../model/ProjectLoad.tish'
 import { createStationPresets } from '../core/StationPresets.tish'
-import { cancelTtsVocal } from '../generators/TTSVocal.tish'
+import { cancelTtsVocal } from '../generators/TtsVocal.tish'
 import { emitLevel, retargetTpl } from '../core/Levels.tish'
 import { createSetLibrary, emitSet, loadSet, freeDecks, emitSetStream, parseSetStream, isStreamSet } from '../core/SetLibrary.tish'
 import { loadDeckSet, deckSetCatalog } from '../model/DeckSets.tish'
