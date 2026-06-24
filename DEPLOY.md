@@ -59,14 +59,21 @@ doctl apps update <APP_ID> --spec .do/app.yaml
 ## How the build resolves the `tish` compiler
 
 `npm run build` shells out to `tish` (the Tish compiler). That binary is installed by the **postinstall** script
-of the `@tishlang/tish` dependency, which downloads the right binary for the build host's OS/arch.
+of the `@tishlang/tish` dependency, which downloads the right binary for the build host's OS/arch — so the
+install step MUST be allowed to run that script.
 
 - **npm** runs postinstall automatically — nothing to configure.
-- **pnpm v10+** blocks dependency build scripts by default; [`pnpm-workspace.yaml`](pnpm-workspace.yaml) and the
-  `pnpm.onlyBuiltDependencies` field in `package.json` allow-list `@tishlang/tish` so the postinstall runs.
+- **pnpm v10+** made dependency build scripts **opt-in** (it prints `ERR_PNPM_IGNORED_BUILDS: @tishlang/tish` and
+  the build fails with no `tish`), and it **no longer reads `pnpm.onlyBuiltDependencies` from `package.json`** (it
+  moved to `pnpm-workspace.yaml`, and even that wasn't honored on DO's buildpack). **Fix:** `package.json` pins
+  **`"packageManager": "pnpm@9.15.4"`** — pnpm 9 runs the `@tishlang/tish` postinstall by default. The lockfile is
+  `lockfileVersion 9.0` (pnpm-9 native), so the pin is fully compatible. `pnpm-workspace.yaml` /
+  `pnpm.onlyBuiltDependencies` remain as belt-and-suspenders for anyone on pnpm 10/11 locally.
+- `engines.node` is pinned to **`22.x`** (the Active LTS) rather than a wide `>=20` range, which the Heroku/DO
+  Node buildpack flags as a "dangerous range".
 
-If a build ever fails with `tish: not found`, it means the postinstall was skipped — confirm those allow-list
-entries are present (they are committed), or set the App Platform build command to `npm install && npm run build:static`.
+If a build ever fails with `tish: not found` or `ERR_PNPM_IGNORED_BUILDS`, the install skipped the postinstall —
+confirm the `packageManager` pin is present, or switch the App Platform build to npm.
 
 ## No special headers needed
 

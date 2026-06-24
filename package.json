@@ -22,8 +22,9 @@
     "token-demo": "tish run services/token-stream-demo/main.tish"
   },
   "engines": {
-    "node": ">=20"
+    "node": "22.x"
   },
+  "packageManager": "pnpm@9.15.4",
   "dependencies": {
     "@tishlang/lattish": "^2.0.0",
     "@tishlang/tish": "^2.2.5",
