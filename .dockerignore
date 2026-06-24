@@ -1,0 +1,15 @@
+# Keep the gateway Docker build context small. The build stage fetches the Linux `tish` binary fresh via
+# `npm install @tishlang/tish`, so the host's macOS/arm64 node_modules must never leak into the image.
+node_modules
+**/node_modules
+dist
+build
+target
+**/target
+.git
+.cursor
+.claude
+*.log
+*.sqlite
+.env
+.DS_Store

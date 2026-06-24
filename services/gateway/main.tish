@@ -5,9 +5,13 @@
 import { Server, wsSend, wsBroadcast } from "tish:ws"
 import { process } from "tish:process"
 
+// Port: CODJ_HUB_PORT (explicit override) wins, else PORT (App Platform / generic PaaS injects it),
+// else the local default 35987. So `tish run` locally stays on 35987; a DO service listens on $PORT.
 let port = 35987
-if (process != null && process.env && "CODJ_HUB_PORT" in process.env) {
-  let v = process.env["CODJ_HUB_PORT"]
+if (process !== null && process.env) {
+  let v = null
+  if ("CODJ_HUB_PORT" in process.env) v = process.env["CODJ_HUB_PORT"]
+  else if ("PORT" in process.env) v = process.env["PORT"]
   if (v) port = parseInt(v, 10)
 }
 if (!(port >= 1 && port <= 65535)) port = 35987
@@ -69,8 +73,8 @@ fn collectActors(room) {
 }
 
 fn nextSeq(room, actorId) {
-  if (actorId == null || actorId === "") actorId = "unknown"
-  if (room.seq[actorId] == null) room.seq[actorId] = 0
+  if (actorId === null || actorId === "") actorId = "unknown"
+  if (room.seq[actorId] === null) room.seq[actorId] = 0
   room.seq[actorId] = room.seq[actorId] + 1
   return room.seq[actorId]
 }
@@ -78,16 +82,16 @@ fn nextSeq(room, actorId) {
 // Send to all conns in room except sender. Build array of raw ws objects for wsBroadcast.
 fn broadcast(room, msg, except) {
   let s = typeof msg === "string" ? msg : JSON.stringify(msg)
-  console.log("[gateway] OUTPUT broadcast " + (msg != null && typeof msg === "object" ? msg.type : "?") + ":", s.length > 200 ? (s.substring(0, 200) + "...") : s)
+  console.log("[gateway] OUTPUT broadcast " + (msg !== null && typeof msg === "object" ? msg.type : "?") + ":", s.length > 200 ? (s.substring(0, 200) + "...") : s)
   let wsArray = []
   let exceptWs = null
-  if (except != null && except.ws != null) {
+  if (except !== null && except.ws !== null) {
     exceptWs = except.ws
   }
   let i = 0
   while (i < room.conns.length) {
     let c = room.conns[i]
-    if (c.ws != null) {
+    if (c.ws !== null) {
       if (c !== except) {
         wsArray.push(c.ws)
         console.log("[gateway] broadcast: adding conn[" + String(i) + "] actorId=" + (c.actorId || "?") + " ws=ok")
@@ -100,7 +104,7 @@ fn broadcast(room, msg, except) {
   console.log("[gateway] broadcast: wsArray.length=" + String(wsArray.length) + " room.conns.length=" + String(room.conns.length))
   let n = wsBroadcast(wsArray, exceptWs, s)
   console.log("[gateway] wsBroadcast returned n=" + String(n))
-  if (msg != null && typeof msg === "object") {
+  if (msg !== null && typeof msg === "object") {
     if (msg.type === "presence") {
       console.log("[gateway] broadcast presence -> " + String(n) + " recipients (room has " + String(room.conns.length) + " conns)")
     } else if (msg.type === "tpl.block" || msg.type === "tpl.line") {
@@ -113,6 +117,17 @@ fn clientId() {
   return "tish-" + Date.now() + "-" + (Math.random() * 1000000000 | 0)
 }
 
+// Message types that get fanned out to the room. A function (fresh bool per call) rather than a reused
+// `let` so the AOT native backend doesn't trip its move-checker on a boomeranged boolean.
+fn isFanoutType(mt) {
+  if (mt === "tpl.line") return true
+  if (mt === "tpl.block") return true
+  if (mt === "direct") return true
+  if (mt === "tpl.stream_chunk") return true
+  if (mt === "control") return true
+  return false
+}
+
 // wsSend returns false once a connection is closed — use it to prune dead conns. A closed conn that
 // lingers would keep "occupying" a player slot / room-cap seat and (if it was the host) freeze the
 // room on a dead source of truth. Ping each conn; drop the ones that fail; reassign host if it died.
@@ -123,12 +138,12 @@ fn pruneDeadConns() {
   let i = 0
   while (i < allConns.length) {
     let c = allConns[i]
-    let ok = c.ws != null && wsSend(c.ws, "{\"type\":\"ping\"}")
+    let ok = c.ws !== null && wsSend(c.ws, "{\"type\":\"ping\"}")
     if (ok) {
       survivors.push(c)
     } else {
       console.log("[gateway] pruned dead conn actorId=" + (c.actorId || "?") + " session=" + (c.sessionId || "?"))
-      if (c.joined && c.sessionId != null) {
+      if (c.joined && c.sessionId !== null) {
         let room = getRoom(c.sessionId)
         let rc = []
         let j = 0
@@ -165,9 +180,9 @@ fn pruneDeadConns() {
           }
         }
         console.log("[gateway] host reassigned to " + (room.hostActorId || "(none)") + " session=" + room.id)
-        if (room.hostActorId != null) {
+        if (room.hostActorId !== null) {
           let nh = connForActor(room, room.hostActorId)
-          if (nh != null && nh.ws != null) {
+          if (nh !== null && nh.ws !== null) {
             wsSend(nh.ws, JSON.stringify({ type: "request.snapshot", sessionId: room.id }))
           }
         }
@@ -198,10 +213,10 @@ while (true) {
     let conn = allConns[ci]
     let msgObj = conn.ws.receiveTimeout ? conn.ws.receiveTimeout(50) : conn.ws.receive()
     let raw = null
-    if (msgObj != null) {
-      if (msgObj.data != null) raw = msgObj.data
+    if (msgObj !== null) {
+      if (msgObj.data !== null) raw = msgObj.data
     }
-    if (raw != null) {
+    if (raw !== null) {
       let rawPreview = raw.length > 120 ? (raw.substring(0, 120) + "... (" + String(raw.length) + " bytes)") : raw
       console.log("[gateway] INPUT raw preview:", rawPreview)
       let msg = null
@@ -210,10 +225,10 @@ while (true) {
       } catch (e) {
         let errPayload = JSON.stringify({ type: "error", code: "BAD_JSON", message: "invalid JSON" })
         console.log("[gateway] OUTPUT wsSend error:", errPayload)
-        if (conn.ws != null) wsSend(conn.ws, errPayload)
+        if (conn.ws !== null) wsSend(conn.ws, errPayload)
       }
-      if (msg != null) {
-        let mt = msg.type != null ? String(msg.type) : "?"
+      if (msg !== null) {
+        let mt = msg.type !== null ? String(msg.type) : "?"
         console.log("[gateway] INPUT parsed type=" + mt + " from conn actorId=" + (conn.actorId || "?") + " joined=" + String(conn.joined))
         if (!conn.joined) {
           if (msg.type === "join") {
@@ -225,7 +240,7 @@ while (true) {
             if (!aid) {
               let errPayload = JSON.stringify({ type: "error", code: "JOIN_BAD", message: "actorId required" })
               console.log("[gateway] OUTPUT wsSend error:", errPayload)
-              if (conn.ws != null) wsSend(conn.ws, errPayload)
+              if (conn.ws !== null) wsSend(conn.ws, errPayload)
             } else {
               let sid = (typeof msg.sessionId === "string" && msg.sessionId !== "") ? msg.sessionId : "default"
               let roomPre = getRoom(sid)
@@ -235,7 +250,7 @@ while (true) {
                 // Max 4 players per room.
                 let fullPayload = JSON.stringify({ type: "error", code: "ROOM_FULL", message: "room is full (max 4 players)" })
                 console.log("[gateway] ROOM_FULL reject " + aid + " session=" + sid)
-                if (conn.ws != null) wsSend(conn.ws, fullPayload)
+                if (conn.ws !== null) wsSend(conn.ws, fullPayload)
               } else {
               conn.joined = true
               conn.sessionId = sid
@@ -244,16 +259,16 @@ while (true) {
               conn.skillIds = ("skillIds" in msg && Array.isArray(msg["skillIds"])) ? msg["skillIds"] : []
               conn.clientId = clientId()
               let room = getRoom(conn.sessionId)
-              if (room != null) {
+              if (room !== null) {
                 room.conns.push(conn)
                 console.log("[gateway] joined session=" + conn.sessionId + " actorId=" + conn.actorId)
                 // Host = source of truth: the first joiner carrying master_mixer becomes the room host.
-                if (room.hostActorId == null && skillsHaveMaster(conn.skillIds)) {
+                if (room.hostActorId === null && skillsHaveMaster(conn.skillIds)) {
                   room.hostActorId = conn.actorId
                   console.log("[gateway] host designated: " + conn.actorId + " session=" + conn.sessionId)
                 }
                 let actors = collectActors(room)
-                if (conn.ws != null) {
+                if (conn.ws !== null) {
                   let joinedPayload = JSON.stringify({
                     type: "joined",
                     sessionId: conn.sessionId,
@@ -270,14 +285,14 @@ while (true) {
                 // A joining FOLLOWER gets the host's authoritative state: deliver the cached snapshot
                 // now (if any) and ask the host to push a fresh one so the joiner's default is clobbered.
                 if (conn.actorId !== room.hostActorId) {
-                  if (room.hostSnapshot != null && conn.ws != null) {
+                  if (room.hostSnapshot !== null && conn.ws !== null) {
                     let snapPayload = JSON.stringify({ type: "state.snapshot", sessionId: conn.sessionId, fromHost: room.hostActorId, lines: room.hostSnapshot })
                     console.log("[gateway] OUTPUT wsSend cached state.snapshot -> " + conn.actorId + " (" + String(room.hostSnapshot.length) + " lines)")
                     wsSend(conn.ws, snapPayload)
                   }
-                  if (room.hostActorId != null) {
+                  if (room.hostActorId !== null) {
                     let hostConn = connForActor(room, room.hostActorId)
-                    if (hostConn != null && hostConn.ws != null) {
+                    if (hostConn !== null && hostConn.ws !== null) {
                       let reqPayload = JSON.stringify({ type: "request.snapshot", sessionId: conn.sessionId, forActorId: conn.actorId })
                       console.log("[gateway] OUTPUT wsSend request.snapshot -> host " + room.hostActorId + " (for " + conn.actorId + ")")
                       wsSend(hostConn.ws, reqPayload)
@@ -290,35 +305,29 @@ while (true) {
           } else {
             let errPayload = JSON.stringify({ type: "error", code: "JOIN_FIRST", message: "send join first" })
             console.log("[gateway] OUTPUT wsSend error:", errPayload)
-            if (conn.ws != null) wsSend(conn.ws, errPayload)
+            if (conn.ws !== null) wsSend(conn.ws, errPayload)
           }
         } else {
           let actorId = conn.actorId
           let room = getRoom(conn.sessionId)
-          if (room != null) {
-            let mt0 = msg.type != null ? String(msg.type) : ""
+          if (room !== null) {
+            let mt0 = msg.type !== null ? String(msg.type) : ""
             // Host pushes its authoritative project as state.snapshot: cache it (so future joiners get
             // it) and fan it out to current followers so they clobber their local state.
             if (mt0 === "state.snapshot" && Array.isArray(msg.lines)) {
-              if (room.hostActorId == null || actorId === room.hostActorId) {
+              if (room.hostActorId === null || actorId === room.hostActorId) {
                 room.hostSnapshot = msg.lines
                 console.log("[gateway] cached host snapshot from " + actorId + " (" + String(msg.lines.length) + " lines)")
                 broadcast(room, { type: "state.snapshot", sessionId: conn.sessionId, fromHost: actorId, lines: msg.lines }, conn)
               }
             }
-            let mt = msg.type != null ? String(msg.type) : ""
+            let mt = msg.type !== null ? String(msg.type) : ""
             let n = 0
             let bi = 0
             while (bi < room.conns.length) {
               if (room.conns[bi] !== conn) n = n + 1
               bi = bi + 1
             }
-            let doFanout =
-              mt === "tpl.line" ||
-              mt === "tpl.block" ||
-              mt === "direct" ||
-              mt === "tpl.stream_chunk" ||
-              mt === "control"
             console.log(
               "[gateway] recv " +
                 mt +
@@ -331,9 +340,9 @@ while (true) {
                 " peer(s), room " +
                 String(room.conns.length) +
                 " conn(s), broadcast=" +
-                String(doFanout)
+                String(isFanoutType(mt))
             )
-            if (doFanout && n === 0 && (mt === "tpl.block" || mt === "tpl.line")) {
+            if (isFanoutType(mt) && n === 0 && (mt === "tpl.block" || mt === "tpl.line")) {
               console.log("[gateway] note: 0 peers — only sender in room; open another client on same sessionId to receive")
             }
             let seq = nextSeq(room, actorId)
@@ -349,10 +358,10 @@ while (true) {
             out.sessionId = conn.sessionId
             out.actorId = actorId
             // Stamp the sender's declared skills so receivers can enforce skill-gating on apply.
-            if (out.skillIds == null) {
+            if (out.skillIds === null) {
               out.skillIds = conn.skillIds
             }
-            if (doFanout) {
+            if (isFanoutType(mt)) {
               broadcast(room, out, conn)
             }
           }

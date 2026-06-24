@@ -12,6 +12,19 @@ import { loadProjectFromTpl } from '../model/ProjectLoad.tish'
 import { ensureCoDjMeta, setTrackOwner } from '../codj/CoDjMeta.tish'
 import { IkSelect } from './InstrumentKit.tish'
 
+// Default gateway URL. Locally that's the dev gateway on 35987; when served from a real host (the DigitalOcean
+// deploy) the gateway rides the SAME origin behind the `/codj` ingress route, so connect same-origin over
+// ws/wss. The user can still override via the WS field (rt.coDjWsUrl). globalThis.location is a member read
+// (undefined off-browser, no `typeof` throw).
+fn defaultWsUrl() {
+  let loc = globalThis.location
+  if (loc != null && loc.hostname != null && loc.hostname !== "" && loc.hostname !== "localhost" && loc.hostname !== "127.0.0.1") {
+    let proto = loc.protocol === "https:" ? "wss:" : "ws:"
+    return proto + "//" + loc.host + "/codj"
+  }
+  return "ws://127.0.0.1:35987"
+}
+
 export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
   let [poll, setPoll] = useState(0)
   if (rt) {
@@ -549,7 +562,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
   }
   fn connectWs() {
     let sock = null
-    let base = "ws://127.0.0.1:35987"
+    let base = defaultWsUrl()
     let sess = "default"
     let actorId = "actor-" + Date.now() + "-" + (Math.random() * 1000000000 | 0)
     if (rt) {
@@ -696,7 +709,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       <label>{"WS "}<input
         type="text"
         class="codj-input"
-        placeholder="ws://127.0.0.1:35987"
+        placeholder={defaultWsUrl()}
         oninput={(e) => {
           if (rt) {
             rt.coDjWsUrl = e.target.value

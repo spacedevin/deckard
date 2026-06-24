@@ -83,17 +83,53 @@ static host is sufficient. Fonts load from Google Fonts over HTTPS.
 
 ---
 
-## Optional: co-DJ multiplayer gateway
+## Co-DJ multiplayer gateway (the `gateway` service)
 
-Solo/offline play needs nothing else. **Multiplayer** (the Co-DJ panel) needs the WebSocket gateway in
-[`services/gateway/main.tish`](services/gateway/main.tish), which runs on the Tish runtime — not a Node static
-build — so it deploys as a separate **Service**, not a static site. To add it:
+Solo/offline play needs nothing else, but [.do/app.yaml](.do/app.yaml) now also ships the **multiplayer
+WebSocket hub** as a second component so the Co-DJ panel works live. It is **pure Tish** (no Node or JS), **AOT-
+compiled** to a native binary and shipped in **distroless** — exactly the
+[tishlang/tish container-example](https://github.com/tishlang/tish/tree/main/examples/container-example) flow
+(compile `.tish` → Linux glibc binary → `distroless/cc`):
 
-- It listens on `CODJ_HUB_PORT` (default `35987`); App Platform injects `$PORT`, so run it as
-  `CODJ_HUB_PORT=$PORT npm run gateway` (`tish run services/gateway/main.tish`).
-- In the deployed app, point the Co-DJ panel's **WS** field at the gateway's public URL (`wss://…`).
-- The LLM co-DJ agent ([`services/agent-worker`](services/agent-worker/main.tish)) is a third process; it reads
-  `GRADIENT_MODEL_ACCESS_KEY` (DO serverless inference) and falls back to an offline demo patch without a key.
+- **`services/gateway/main.tish`** — the WS hub (rooms, fan-out, host election). It listens on `$PORT` (App
+  Platform injects it; falls back to `CODJ_HUB_PORT`, then `35987` locally) and speaks WebSocket only. **Strict
+  equality throughout** — the native backend rejects loose `==`/`!=` (and it's banned anyway).
+- **`services/gateway/Dockerfile`** — a 2-stage build → a **~20 MB distroless image** (binary only):
+  - **build stage `rust:bookworm`** — provides a *current* cargo + C toolchain. tish's native backends compile
+    a cargo project, so a recent Rust is required (the distro's older cargo fails with `missing field 'when'`).
+    bookworm's glibc (2.36) **matches the distroless/cc-debian12 runtime** — build on anything newer and the
+    binary needs GLIBC_2.38+ and won't load there. `npm install`s `@tishlang/tish` only to fetch the compiler,
+    then `tish build --target native --native-backend cranelift main.tish -o gateway`.
+  - **runtime stage `gcr.io/distroless/cc-debian12`** — just the compiled binary (links only glibc/libgcc/libm).
+    No shell, node, cargo, or package manager.
+  - **Backend = `cranelift`, not the default `rust`.** cranelift embeds bytecode + the VM runtime, so it
+    sidesteps a `rust`-backend codegen bug (E0382 move-of-reused-`let`, filed as
+    [tishlang/tish#328](https://github.com/tishlang/tish/issues/328)). Both are `tish build` AOT; only cranelift
+    compiles this gateway cleanly today. (Revisit the default backend once #328 is fixed.)
+- **Health check is TCP, not HTTP.** The gateway has no HTTP layer, so `.do/app.yaml` **omits `http_path`** —
+  App Platform then does a TCP check on the port, and the open WS listener satisfies it. No HTTP shim needed.
+- **Ingress** routes `/codj` → gateway and everything else → web, so the browser connects **same-origin** at
+  `wss://<app-domain>/codj` — exactly the default the Co-DJ panel computes (`defaultWsUrl()` in
+  [src/ui/CoDjPanel.tish](src/ui/CoDjPanel.tish)); the WS field can still override it.
 
-These services need the `tish` runtime on PATH at *run* time (not just build), so a Dockerfile-based service is
-the most reliable route for them. They're out of scope for the static-site deploy above.
+Verify the image locally (matches what App Platform builds — `linux/amd64`, distroless). The cargo build of the
+cranelift runtime takes a few minutes (and is much slower under Mac emulation):
+
+```bash
+docker build --platform linux/amd64 -f services/gateway/Dockerfile -t deckard-gw .
+docker run --rm -e PORT=8080 -p 35987:8080 deckard-gw   # logs: "listening ws://0.0.0.0:8080"
+# in another shell: tish run services/agent-worker/test-recv.tish   → SUCCESS: cross-process WebSocket works
+```
+
+> Keep the `@tishlang/tish@<version>` pin in `services/gateway/Dockerfile` in sync with `package.json` when you
+> bump the compiler.
+
+**Cost:** the gateway is an always-on `basic-xxs` instance (an hourly charge). If you only want the free static
+site, delete the `services:` block + the `/codj` ingress rule from `.do/app.yaml` — solo play is unaffected.
+
+### Optional: the LLM co-DJ agent
+
+The AI co-DJ ([`services/agent-worker`](services/agent-worker/main.tish)) is a *third* process — a **worker**, not
+a web-facing service. It connects to the gateway as a client and reads `GRADIENT_MODEL_ACCESS_KEY` (DO serverless
+inference; falls back to an offline demo patch without a key). To run it, add a `workers:` component with the same
+Dockerfile pattern and `CMD` = `npm run agent` (point `--hub` at the gateway). Not included by default.

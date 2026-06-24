@@ -1,26 +1,59 @@
-# DigitalOcean App Platform spec — deploys Deckard as a static site (CDN-served, no server needed; the DAW
-# runs entirely in the browser and works offline).
+# DigitalOcean App Platform spec — Deckard.
+#   • web      : the static browser DAW (CDN-served).
+#   • gateway  : the Co-DJ multiplayer WebSocket hub (a Docker service; only needed for multiplayer + AI co-DJ).
+# Ingress routes /codj -> gateway and everything else -> web, so the app is ONE domain and the browser talks to
+# the gateway same-origin at wss://<app-domain>/codj (see CoDjPanel's default WS URL).
 #
-# Deploy:
-#   doctl apps create --spec .do/app.yaml      # first deploy
-#   doctl apps update <app-id> --spec .do/app.yaml
-# or paste this into the DO console: Apps -> Create App -> "Edit your App Spec".
-#
-# Requires the DigitalOcean GitHub app to be authorized on the repo below (Settings -> Integrations on GitHub,
-# or you'll be prompted on first deploy).
+# Deploy:  doctl apps create --spec .do/app.yaml   (or paste in the DO console -> Create App -> Edit App Spec).
+# NOTE: the `gateway` service is an always-on instance (has an hourly cost); delete that component + the ingress
+# rule if you only want the free static site (solo/offline play needs nothing else).
 name: deckard
 region: nyc
+
 static_sites:
   - name: web
     github:
       repo: spacedevin/deckard
       branch: main
       deploy_on_push: true
-    # Compiles the Tish app (`tish build` -> dist/bundle.js + scope worker) then assembles ./build with
-    # index.html, styles.css, the audio workers/worklets, and the mespeak TTS assets. See scripts/build-static.mjs.
+    # Compiles the Tish app then assembles ./build (index.html, workers/worklets, mespeak assets). See
+    # scripts/build-static.mjs. pnpm is pinned to 9 in package.json so @tishlang/tish's postinstall runs.
     build_command: npm run build:static
     output_dir: build
     index_document: index.html
-    # No client-side router — serve the single page for any unmatched path.
     catchall_document: index.html
     environment_slug: node-js
+
+services:
+  - name: gateway
+    github:
+      repo: spacedevin/deckard
+      branch: main
+      deploy_on_push: true
+    # Pure Tish: services/gateway/main.tish is compiled to a native binary and run on a distroless image
+    # (services/gateway/Dockerfile — no Node/JS in the runtime). Build context = repo root.
+    dockerfile_path: services/gateway/Dockerfile
+    source_dir: /
+    # The gateway listens on $PORT (App Platform injects it; main.tish reads PORT) and speaks WebSocket only.
+    http_port: 8080
+    instance_size_slug: basic-xxs
+    instance_count: 1
+    # WS-only service: omit http_path so App Platform uses a TCP health check (the open WS port = healthy).
+    health_check:
+      initial_delay_seconds: 15
+      period_seconds: 15
+      timeout_seconds: 5
+      failure_threshold: 5
+
+ingress:
+  rules:
+    - match:
+        path:
+          prefix: /codj
+      component:
+        name: gateway
+    - match:
+        path:
+          prefix: /
+      component:
+        name: web
