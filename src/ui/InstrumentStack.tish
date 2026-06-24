@@ -444,11 +444,14 @@ fn voiceDesigner(project, ch, gid, setProject, tplMirrorFlush, rt, inModal) {
   // the local actor is rt.coDjActorId (defaults to "human", which owns everything in a solo session).
   let selfActor = (rt && rt.coDjActorId) ? rt.coDjActorId : "human"
   let mayEdit = actorMayEditTrack(project, ch.id, selfActor, false)
-  // Matrix FM / Patch / a frozen macro graph are the ONLY voices edited in a modal — they don't fit a grid
-  // card. Inline they collapse to a launcher button; the real editor renders only in the modal (inModal=true).
-  let isModular = gid === "matrixFm" || gid === "patch" || isMacro
+  // ONLY a bare Matrix FM or Patch voice is edited in a modal — their graph editors don't fit a grid card.
+  // Inline they collapse to a launcher button; the real editor renders only in the modal (inModal=true). EVERY
+  // other voice renders fully inline in its card — INCLUDING a macro built ON a patch/matrix graph (its gid is
+  // "patch"/"matrixFm" but it's authored through the small MacroDesignerPanel, NOT the raw graph), so a macro
+  // must never trigger the modal regardless of its underlying generator.
+  let isModular = (gid === "matrixFm" || gid === "patch") && !isMacro
   if (isModular && !inModal) {
-    let label = isMacro ? "macro" : (gid === "patch" ? "Patch" : "Matrix FM")
+    let label = gid === "patch" ? "Patch" : "Matrix FM"
     return (
       <div class="instr-params-wrap">
         <button type="button" class="gen-open-modal" onclick={() => { if (rt) { rt.genModal = ch.id; setProject(project) } }}>{"⤢ Edit " + label}</button>

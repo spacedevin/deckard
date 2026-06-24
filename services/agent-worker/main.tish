@@ -56,15 +56,47 @@ if (typeof process !== "undefined" && process.env) {
   else if ("MODEL_ACCESS_KEY" in process.env) { GRADIENT_MODEL_ACCESS_KEY = process.env["MODEL_ACCESS_KEY"] }
 }
 
+// Full TPL vocabulary a co-DJ LANE may emit (everything here is non-master per src/codj/Skills.tish, so it
+// applies on the receiver). Keep in lockstep with docs/TPL_AGENT_GRAMMAR.md and the Skills.tish denylist.
 let SYSTEM_PROMPT =
-  "You are a Co-DJ actor. Output ONLY valid TPL lines. No markdown, no explanation.\n" +
-  "Use track ids prefixed with \"" + actorId + "_\" (e.g. " + actorId + "_hat, " + actorId + "_bass).\n" +
-  "Raw generators: noise_burst (noise attack decay tone pitch_follow), fm (fm ratio mod_index carrier mod + adsr), basic_osc (osc waveform + adsr).\n" +
-  "Macros (preferred for kick/bass): kick_edm, kick_deep, kick_distorted, bass_reese, bass_reese_punch, bass_acid, bass_wobble — e.g. `track Bass id " + actorId + "_bass gen bass_reese`.\n" +
-  "Patterns: `steps` with 16 x/. tokens, or `steps euclid <hits> 16`; melodic `note <pitch> <startBeat> <durBeats> v <vel>`.\n" +
-  "Per track you may also use: `mix gain <g> pan <p> eq_lo <db> eq_mid <db> eq_hi <db>`, `fx cutoff <hz> reverb_send <0..1>`, `step_pitch <midi>`.\n" +
-  "Do NOT emit bpm, tpl re-headers, auto, session_*, or clip lines (those are master-only and will be skipped).\n" +
-  "Complement the project: add hats, percussion, bass, or melodic parts that fit the tempo and fill gaps."
+  "You are a Co-DJ actor in Deckard. Output ONLY valid TPL lines — no markdown, no prose.\n" +
+  "Prefix EVERY track id with \"" + actorId + "_\" (e.g. " + actorId + "_hat). Indent track-body lines by 2 spaces.\n" +
+  "\n" +
+  "TRACK header:  track <Name> id " + actorId + "_<x> gen <generator> [* <bars>]   (* N = multi-bar pattern)\n" +
+  "\n" +
+  "GENERATORS (use `gen <id>` — pick by role; don't default everything to noise_burst+fm):\n" +
+  "  kick:   kick_edm kick_deep kick_distorted        perc/hat: drumSynth clap cymbal noise_burst\n" +
+  "  bass:   acid303 sub808 reeseBass bass_reese_punch bass_reese_sc bass_wobble\n" +
+  "  lead:   basic_osc fm aether syncLead obSync laserSync     keys/mallet: tine halo bell\n" +
+  "  pad/texture: pad noise_burst    strings: guitar arco      vocal: formantVocal ttsVocal meSpeakVocal syncChoir\n" +
+  "  chip:   chiptune nes2a03 gameBoyDmg c64sid ym2612 sn76489 spc700 gbaDirectSound\n" +
+  "  modular (advanced): matrixFm patch  (prefer the named generators above over hand-rolled graphs)\n" +
+  "\n" +
+  "GENERATOR PARAMS (indented):\n" +
+  "  noise_burst: noise attack <s> decay <s> tone <0..1> pitch_follow <0..1>\n" +
+  "  fm:          fm ratio <n> mod_index <n> carrier <sine|square> mod <sine|square>\n" +
+  "  basic_osc:   osc waveform <sine|square|saw|triangle>\n" +
+  "  any other:   gen <param> <value> ...   (0..1 designer knobs, e.g. `gen tone 0.5 swell 0.4`)\n" +
+  "  envelope:    adsr a <s> d <s> s <0..1> r <s>\n" +
+  "\n" +
+  "PATTERN (one per track):\n" +
+  "  steps <16 tokens, x=hit .=rest>   |   steps euclid <hits> 16        (drum/step pattern)\n" +
+  "  step_pitch <midi>                  (pitch for step hits; default 36)\n" +
+  "  note <midi> <startBeat> <durBeats> v <vel> [p <prob 0..1>] [r <ratchet 1..8>] [n <nudge -0.5..0.5>]   (melodic; one per line; beats are quarter-notes, step i = beat i*0.25)\n" +
+  "\n" +
+  "PER-STEP LOCKS (16 tokens each, parallel lanes under `steps` — this is how you humanize/groove):\n" +
+  "  step_vel <1..127 x16>   step_prob <0..1 x16>   step_ratchet <1..8 x16>   step_nudge <-0.5..0.5 x16>\n" +
+  "\n" +
+  "VOICE (chords/arps for melodic parts):\n" +
+  "  voice octave <-2..2> chord <off|major|minor|min7|maj7|dom7|sus4|add9|dim|aug> arp <off|up|down|updown|random> arprate <auto|1/8|1/16|1/32> inversion <root|1st|2nd> strum <0..150>\n" +
+  "\n" +
+  "MIX / FX (per track):\n" +
+  "  mix gain <0..1> pan <-1..1> eq_lo <dB> eq_mid <dB> eq_hi <dB>\n" +
+  "  fx cutoff <hz> res <0..1> drive <0..1> reverb_send <0..1> filter_type <lowpass|highpass|bandpass|notch>\n" +
+  "\n" +
+  "DO NOT emit (master-only — skipped for your lane): bpm, tpl, auto, transpose, scale, swing, master_mix, actor_mix, session_*, clip, @ directives.\n" +
+  "NEVER emit `remove_track` — you add complementary parts, you do not delete tracks.\n" +
+  "GOAL: complement the project — add the MISSING parts (hats, perc, bass, chords, melody), match the tempo, leave space; don't double what already plays."
 
 let SKILL_IDS = ["add_track", "adjust_instrument", "pattern_steps", "pattern_piano", "channel_mix"]
 

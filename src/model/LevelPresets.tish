@@ -1,27 +1,72 @@
 // Contextual presets for the in-project levels: sequence (a channel's pattern), rack (all channels),
-// session (scenes/song/follow). Same idea as instrument presets (project.instrumentPresets) — saved in
-// the project, loaded WHERE you edit that thing. Each preset is a named TPL fragment (from emitLevel), so
-// loading just routes its TPL through the gated ingest. Station presets are separate (whole-workspace, can't
-// nest in the project — see StationPresets.tish). NOT a global browser — that can't know the target.
+// session (scenes/song/follow). Each preset is a named TPL fragment (from emitLevel); loading routes its TPL
+// through the gated ingest, retargeted onto wherever you're editing. These are a personal LIBRARY of patterns
+// — NOT document/TPL content — so they live in localStorage (key below) and survive reloads, mirroring the
+// StationPresets / SetLibrary / AudioDeviceSettings backend pattern. (They used to live on project.levelPresets,
+// which was never serialized → silently lost on every reload.) Station presets remain separate (whole-workspace).
+// The `project` arg is kept on every signature for call-site compatibility but is no longer the storage.
 
+let KEY = "deckard.levelpresets.v1"
 let LEVELS = ["sequence", "rack", "session"]
 
-export fn ensureLevelPresets(project) {
-  if (!project.levelPresets) {
-    project.levelPresets = {}
-  }
-  let i = 0
-  while (i < LEVELS.length) {
-    if (!project.levelPresets[LEVELS[i]]) {
-      project.levelPresets[LEVELS[i]] = []
+fn backend() {
+  // Gate via globalThis member access — `typeof localStorage` compiles to code that READS `localStorage`,
+  // which throws ReferenceError under Node (tests import this module). `globalThis.localStorage` is a plain
+  // property read → undefined off-browser, no throw. (See memory: lattish typeof-undeclared-global gotcha.)
+  let ls = globalThis.localStorage
+  if (ls != null) {
+    return {
+      read: () => ls.getItem(KEY),
+      write: (s) => {
+        try {
+          ls.setItem(KEY, s)
+        } catch (e) {}
+      }
     }
-    i = i + 1
+  }
+  let mem = { v: null }
+  return {
+    read: () => mem.v,
+    write: (s) => {
+      mem.v = s
+    }
   }
 }
 
+let be = backend()
+
+fn readAll() {
+  let raw = be.read()
+  let obj = null
+  if (raw != null && String(raw).length > 0) {
+    try {
+      obj = JSON.parse(raw)
+    } catch (e) {
+      obj = null
+    }
+  }
+  if (obj == null || typeof obj !== "object") {
+    obj = {}
+  }
+  let i = 0
+  while (i < LEVELS.length) {
+    if (!Array.isArray(obj[LEVELS[i]])) {
+      obj[LEVELS[i]] = []
+    }
+    i = i + 1
+  }
+  return obj
+}
+
+fn writeAll(obj) {
+  be.write(JSON.stringify(obj))
+}
+
+// Kept for call-site compatibility (storage is localStorage now; nothing to seed).
+export fn ensureLevelPresets(project) {}
+
 export fn levelPresetList(project, level) {
-  ensureLevelPresets(project)
-  let m = project.levelPresets[level]
+  let m = readAll()[level]
   return m ? m : []
 }
 
@@ -37,25 +82,30 @@ export fn findLevelPreset(project, level, name) {
   return null
 }
 
-// Upsert by name (saving with an existing name overwrites it).
+// Upsert by name (saving with an existing name overwrites it). Persists immediately.
 export fn addLevelPreset(project, level, name, tpl) {
-  ensureLevelPresets(project)
-  let list = project.levelPresets[level]
+  let all = readAll()
+  let list = all[level]
+  let row = { name: name, tpl: tpl }
   let i = 0
+  let found = false
   while (i < list.length) {
     if (list[i].name === name) {
-      list[i] = { name: name, tpl: tpl }
-      return list[i]
+      list[i] = row
+      found = true
     }
     i = i + 1
   }
-  let row = { name: name, tpl: tpl }
-  list.push(row)
+  if (!found) {
+    list.push(row)
+  }
+  writeAll(all)
   return row
 }
 
 export fn removeLevelPreset(project, level, name) {
-  let list = levelPresetList(project, level)
+  let all = readAll()
+  let list = all[level]
   let out = []
   let removed = false
   let i = 0
@@ -67,6 +117,7 @@ export fn removeLevelPreset(project, level, name) {
     }
     i = i + 1
   }
-  project.levelPresets[level] = out
+  all[level] = out
+  writeAll(all)
   return removed
 }

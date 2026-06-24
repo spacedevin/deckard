@@ -44,6 +44,7 @@ track <displayName> id <channelId> gen <generatorId|macro> [ * <N> ] [ <param> <
 - **generatorId** (TPL): `noise_burst`, `fm`, `basic_osc`, `fm_tone`, `matrix_fm`, `patch` → internal `noiseBurst`, `fmTone`, `basicOsc`, `matrixFm`, `patch`. The id may instead be a **macro** name (built-in or user-defined) — see [Macros](#macros).
 - Trailing `key value` pairs after the gen id (and the optional `* N`) are **macro parameter overrides** (ignored for plain generators).
 - Indented lines (2+ spaces or tab) belong to this track until the next top-level statement (`track`, `macro`, `auto`, `bpm`, `tpl`).
+- **Delete a channel:** `remove_track <channelId>` (top-level, no body). An incremental edit fragment only — it never appears in a full snapshot (a deleted channel is simply not emitted), so loading is unaffected. NOT master-scope; **ownership-gated** by `actorMayEditTrack` (a lane removes its own track; a master removes any). The UI's per-row × emits it (undoable: the inverse re-creates the channel from its captured TPL).
 
 ### Pattern length (`* N`) vs loop cap (`loops N`)
 

@@ -5,12 +5,12 @@ Skills limit what a **lane** (especially AI) may emit. Hub or browser validates.
 | skill id | Allowed TPL / ops |
 |----------|-------------------|
 | `add_track` | New `track ... id <id> gen <generator|macro>` (id allocation may be server-assisted) |
-| `remove_track` | `control` remove (not in base TPL — future) |
+| `remove_track` | `remove_track <id>` — delete a channel. NOT master-scope (not in the denylist); per-track **ownership-gated** by `actorMayEditTrack` (a lane removes its own; a master removes any). Round-trips as absence (a deleted channel is simply not emitted). |
 | `adjust_instrument` | `gen <generator|macro>`, `gen_block patch` (`osc`/`noise`/`filter`/`shaper`/`gain`/`conn`/`env`/`dur`), `osc`, `fm`, `noise`, `adsr`, `fx cutoff|reverb_send` on **owned** tracks |
 | `pattern_steps` | `steps`, `steps euclid`, `step_pitch` (incl. `bar <sel>`) on owned tracks |
 | `pattern_piano` | `note` lines on owned tracks |
-| `channel_mix` | `mix gain|pan|mute|solo|eq_lo|eq_mid|eq_hi` on owned tracks |
-| `master_mixer` | `bpm`, `tpl`, `auto`, `master_mix`, `actor_mix`, `session_scenes`, `session_slot`, `clip` — usually **human + master** only |
+| `channel_mix` | `mix gain|pan|mute|solo|eq_lo|eq_mid|eq_hi`, `fx`, `voice`, `step_vel|prob|ratchet|nudge` locks on owned tracks |
+| `master_mixer` | the master-scope denylist — `bpm`, `tpl`, `auto`, `transpose`, `scale`, `swing`, `master_mix`, `actor_mix`, `session_scenes`, `session_slot`, `clip` — usually **human + master** only |
 | `transpose_track` | `transpose` in body |
 | `promote_song` | Append to full song doc |
 
@@ -23,14 +23,16 @@ The agent's **primary contribution is a deck preset** on its own lane, not a sin
 - `prefixTrackIds` rewrites every `track … id <id>` → `<actorId>_<id>`, so the whole preset is **owned by this lane** and lands on **Deck B** (the human stays on Deck A; the crossfader blends them).
 - A **fine single-element** direct (`"add a hihat"`) still produces one LLM/demo track instead of a full preset (`looksLikeSingleElement`).
 
-**Synthesis vocabulary a preset (or the LLM) may emit** — all of these are non-master, so the denylist gating below allows them on the receiver:
+**Synthesis vocabulary a preset (or the LLM) may emit** — all of these are non-master, so they apply on the
+receiver. The **full, current palette** the agent should use lives in **[TPL_AGENT_GRAMMAR.md](TPL_AGENT_GRAMMAR.md)**
+(kept in lockstep with the agent `SYSTEM_PROMPT`); in brief:
 
-- Generators: `noise_burst`, `fm`, `basic_osc`.
-- Macros (kick/bass): `kick_edm`, `kick_deep`, `kick_distorted`, `bass_reese`, `bass_reese_punch`, `bass_reese_sc`, `bass_acid`, `bass_wobble` (see [`src/tpl/Macros.tish`](../src/tpl/Macros.tish)).
-- Modular voices: `gen_block patch` with `osc`/`noise`/`filter`/`shaper`/`gain`/`conn`/`env`/`dur`.
-- Per-track: `steps`, `steps euclid`, `step_pitch`, `note`, `mix … eq_*`, `fx cutoff/reverb_send`.
+- **33 fixed generators** by role — perc (`drumSynth`/`clap`/`cymbal`/`noise_burst`), bass (`acid303`/`sub808`/`reeseBass`), lead (`basic_osc`/`fm`/`aether`/`syncLead`/`obSync`/`laserSync`), keys (`tine`/`halo`/`bell`), pad (`pad`), strings (`guitar`/`arco`), chip (`chiptune`/`nes2a03`/`gameBoyDmg`/`c64sid`/`ym2612`/`sn76489`/`spc700`/`gbaDirectSound`), vocal (`formantVocal`/`ttsVocal`/`meSpeakVocal`/`syncChoir`), modular (`matrixFm`/`patch`).
+- **8 macro voices** — kick (`kick_edm`/`kick_deep`/`kick_distorted`), bass (`bass_reese_punch`/`bass_reese_sc`/`bass_wobble`; `bass_acid`/`bass_reese` are legacy, superseded in the picker by the `acid303`/`reeseBass` generators — see project memory *macro-generator-boundary-policy*). Catalog: [`src/model/MacroVoice.tish`](../src/model/MacroVoice.tish) / [`src/tpl/Macros.tish`](../src/tpl/Macros.tish).
+- **Modular voices**: `gen_block patch` (`osc`/`noise`/`string`/`filter`/`shaper`/`gain`/`conn`/`env`/`dur`) and `gen_block matrix_fm`.
+- **Per-track**: `steps`/`steps euclid`/`step_pitch` (`bar <sel>`), `note` (with `p`/`r`/`n` locks), `step_vel|prob|ratchet|nudge` lock lanes, `mix … eq_*`, `fx cutoff|res|drive|reverb_send|lfo_rate|lfo_depth|filter_type`, `voice octave|chord|arp|arprate|inversion|strum`, `adsr`, `* <bars>`, `loops`.
 
-The agent's declared skills are `add_track`, `adjust_instrument`, `pattern_steps`, `pattern_piano`, `channel_mix` (no `master_mixer`) — which is exactly the set a preset needs, since presets never emit master-scope lines.
+The agent's declared skills are `add_track`, `adjust_instrument`, `pattern_steps`, `pattern_piano`, `channel_mix` (no `master_mixer`) — exactly the set a preset needs, since presets never emit master-scope lines.
 
 ## Lane matrix (default)
 
@@ -46,11 +48,11 @@ Same skill ids for every row; **human** and **ai-a** columns show who may use ea
 | `master_mixer` | yes | no (`bpm`, `auto`) |
 | `transpose_track` | no* | no |
 | `promote_song` | no* | no |
-| `remove_track` | no* | no |
+| `remove_track` | yes (UI ×) | no |
 
 \*Same registry entry shape for future use.
 
-Actors with **`master_mixer`** may stream full project shape including `bpm` / `tpl` / `auto`. Agents (without `master_mixer`) must not emit `bpm`, `tpl`, top-level `auto`, or `transpose` (enforced in [`coDjLineAllowedForSkills`](../src/codj/Skills.tish), with [`skillAllowsLine`](../src/codj/Skills.tish) as a back-compat facade).
+Actors with **`master_mixer`** may stream full project shape including `bpm` / `tpl` / `auto`. Agents (without `master_mixer`) must not emit any master-scope head — `bpm`, `tpl`, top-level `auto`, `transpose`, **`scale`**, **`swing`**, `master_mix`, `actor_mix`, `session_scenes`, `session_slot`, `clip` (enforced in [`coDjLineAllowedForSkills`](../src/codj/Skills.tish), with [`skillAllowsLine`](../src/codj/Skills.tish) as a back-compat facade). `scale`/`swing` are master-scope because they re-key / re-shuffle the **whole** session for every player.
 
 **Implementation:** [`src/codj/Skills.tish`](../src/codj/Skills.tish) — `coDjLineAllowedForSkills`, `skillIdsAllowMaster`, `hasSkill`, `actorHasSkill`, `skillAllowsLine`.
 

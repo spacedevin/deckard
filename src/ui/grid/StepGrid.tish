@@ -43,7 +43,7 @@ fn sgNoteName(midi) {
 }
 
 /// Number of bars the rack spans = the widest channel pattern (so the bar pager can step through them).
-fn gridBarsForProject(project) {
+export fn gridBarsForProject(project) {
   let mx = 1
   let i = 0
   while (i < project.channels.length) {
@@ -409,6 +409,72 @@ fn genProb(rt, project, chIdx, ch) {
   } else {
     emitGenerated(rt, project, chIdx, sprinkleProbability(ch.steps, Math.random, 0.5))
   }
+}
+
+// One generate-action card (name + one-line description) for the EUCLID & GENERATE takeover. Spread out to use
+// the takeover's space (vs the old cramped top-bar pills).
+fn egAction(cls, name, desc, onClick) {
+  return (
+    <button type="button" class={"sg-eg-action " + cls} title={desc} onclick={onClick}>
+      <span class="sg-eg-action-name">{name}</span>
+      <span class="sg-eg-action-desc">{desc}</span>
+    </button>
+  )
+}
+
+// The EUCLID + GENERATE controls for ONE channel, laid out for the full-panel takeover (NOT the old static
+// top toolbar): a EUCLID fill-density row + a GENERATE action grid. All actions route through the same gated
+// gen* doors (broadcast + round-trip) as before — only the presentation moved into the overlay.
+fn euclidGenContent(project, ch, chIdx, rt) {
+  let chips = []
+  chips.push(
+    <button
+      type="button"
+      class={(!ch.euclid || ch.euclid === 0) ? "sg-eg-chip sg-eg-chip-on" : "sg-eg-chip"}
+      title="Clear the pattern"
+      onclick={() => { ch.euclid = 0; genClear(rt, project, chIdx, ch) }}
+    >
+      {"Off"}
+    </button>
+  )
+  let ek = 1
+  while (ek <= 8) {
+    let hits = ek
+    chips.push(
+      <button
+        type="button"
+        class={ch.euclid === ek ? "sg-eg-chip sg-eg-chip-on" : "sg-eg-chip"}
+        title={"Euclidean " + String(ek) + " hits across 16"}
+        onclick={() => { ch.euclid = hits; genEuclid(rt, project, chIdx, ch, hits) }}
+      >
+        {String(ek)}
+      </button>
+    )
+    ek = ek + 1
+  }
+  return (
+    <div class="sg-eg-body">
+      <div class="sg-eg-section">
+        <div class="sg-eg-shead">
+          <span class="sg-eg-slabel">{"EUCLID"}</span>
+          <span class="sg-eg-shint">{"evenly-spaced hits across 16 steps"}</span>
+        </div>
+        <div class="sg-eg-chips">{chips}</div>
+      </div>
+      <div class="sg-eg-section">
+        <div class="sg-eg-shead">
+          <span class="sg-eg-slabel sg-gen-label">{"GENERATE"}</span>
+          <span class="sg-eg-shint">{"randomize & evolve the pattern"}</span>
+        </div>
+        <div class="sg-eg-actions">
+          {egAction("sg-eg-action-reseed", "⟳ RESEED", "Fresh random pattern — new density + rotation, humanized", () => { ch.euclid = 0; genReseed(rt, project, chIdx, ch) })}
+          {egAction("", "MUTATE", "Flip a few steps + jitter velocities — evolve what's there", () => { genMutate(rt, project, chIdx, ch) })}
+          {egAction("", "HUMANIZE", "Jitter every hit's velocity so the groove breathes", () => { genHumanize(rt, project, chIdx, ch) })}
+          {egAction("", "PROB", "Sprinkle probability so the pattern varies each loop", () => { genProb(rt, project, chIdx, ch) })}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // Vertical drag on a lock-lane cell: top = max, bottom = min. Coalesced (only emits when the quantized value
@@ -936,6 +1002,7 @@ fn closeAllGridOverlays(rt) {
   rt.gridLocks = {}
   rt.gridPianoLocks = {}
   rt.gridAuto = {}
+  rt.gridEuclid = {}
 }
 
 // Toggle one overlay map (gridExpanded / gridLocks / gridPianoLocks / gridAuto) for a channel: close everything,
@@ -1000,6 +1067,7 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
   // Automation lane is offered for any channel whose (simple) generator exposes a sweepable param.
   let autoCapable = defaultAutoParam(ch.generatorId ? ch.generatorId : "basicOsc") != null
   let autoOpen = rt != null && rt.gridAuto != null && rt.gridAuto[ch.id] === true
+  let euclidOpen = rt != null && rt.gridEuclid != null && rt.gridEuclid[ch.id] === true
   return (
     <div class={rowCls}>
       <div class="sg-gutter">
@@ -1076,6 +1144,30 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
               {"∿"}
             </button>
           ) : null}
+          <button
+            type="button"
+            class={euclidOpen ? "sg-tog sg-tog-gen sg-tog-gen-on" : "sg-tog sg-tog-gen"}
+            title="Euclid & Generate — fill / reseed / mutate this track's pattern (takes over the sequencer)"
+            onclick={(e) => {
+              e.stopPropagation()
+              toggleGridOverlay(rt, ch.id, "gridEuclid")
+            }}
+          >
+            {LucideIcon("dice")}
+          </button>
+          <button
+            type="button"
+            class="sg-tog sg-tog-del"
+            title={"Delete channel \"" + ch.name + "\""}
+            onclick={(e) => {
+              e.stopPropagation()
+              if (rt && rt.onDeleteTrack) {
+                rt.onDeleteTrack(ch.id)
+              }
+            }}
+          >
+            {"×"}
+          </button>
         </div>
       </div>
       <div class="sg-cells">{cells}</div>
@@ -1335,11 +1427,36 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
     }
     lti = lti + 1
   }
+
+  // Single EUCLID & GENERATE takeover overlay — same full-panel takeover as the piano roll / lanes (opened by
+  // the per-channel ⚄ toggle), replacing the old static top toolbar. Mutually exclusive with the others.
+  let euclidTakeover = null
+  let eti = 0
+  while (eti < project.channels.length) {
+    let ec = project.channels[eti]
+    if (rt != null && rt.gridEuclid != null && rt.gridEuclid[ec.id] === true && (activeDeck == null || channelDeck(project, ec) === activeDeck)) {
+      let eIx = eti
+      euclidTakeover = (
+        <div class="sg-piano-takeover">
+          <div class="sg-piano-takeover-head">
+            <span class="sg-piano-takeover-title">{ec.name + " · EUCLID & GENERATE"}</span>
+            <button type="button" class="sg-piano-takeover-close" title="Close" onclick={(e) => { e.stopPropagation(); closeAllGridOverlays(rt); if (rt && rt.bumpGrid) { rt.bumpGrid() } }}>{"✕"}</button>
+          </div>
+          <div class="sg-piano-takeover-body sg-eg-takeover-body">{euclidGenContent(project, ec, eIx, rt)}</div>
+        </div>
+      )
+    }
+    eti = eti + 1
+  }
   // Bar pager — view one bar at a time, page through a multi-bar progression.
   let pager = []
   if (gridBars > 1) {
+    // Show the first few VIEW buttons inline; once there are more bars than that, the overflow collapses into
+    // a "···" dropdown so a 16-bar pattern's pager doesn't push SWING/SCALE off the toolbar.
+    let maxInline = 4
+    let inlineCount = gridBars <= maxInline ? gridBars : maxInline
     let b = 0
-    while (b < gridBars) {
+    while (b < inlineCount) {
       let bb = b
       let pcls = "sg-barbtn sg-barbtn-" + String(b)
       if (b === viewBar) {
@@ -1365,6 +1482,33 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
       )
       b = b + 1
     }
+    if (gridBars > maxInline) {
+      // Overflow bars (maxInline..gridBars-1) live in a select. When the viewed bar is one of them the select
+      // shows its number (and lights up); otherwise it shows "···".
+      let moreOpts = []
+      let bo = maxInline
+      while (bo < gridBars) {
+        moreOpts.push({ value: String(bo), label: String(bo + 1) })
+        bo = bo + 1
+      }
+      let viewInMore = viewBar >= maxInline
+      pager.push(
+        IkSelect({
+          class: viewInMore ? "sg-barpager-more sg-barpager-more-on" : "sg-barpager-more",
+          value: viewInMore ? String(viewBar) : "",
+          placeholder: "···",
+          options: moreOpts,
+          onChange: (v) => {
+            if (rt && v != null && String(v).length > 0) {
+              rt.gridViewBar = Math.floor(Number(v))
+              if (rt.bumpGrid) {
+                rt.bumpGrid()
+              }
+            }
+          }
+        })
+      )
+    }
   }
   let ruler = []
   let r = 0
@@ -1380,109 +1524,24 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
       applyGridPlayhead(st, rt.playing === true, gridBars, viewBar)
     }, 0)
   }
-  // Euclidean fill for the selected channel — moved here from the instrument (it edits `steps`,
-  // which is the rack's pattern, not the sound).
-  let selCh = (selectedCh >= 0 && selectedCh < project.channels.length) ? project.channels[selectedCh] : null
-  // EUCLID + generative toolbar shows for ANY selected channel (it edits the step pattern). NOTE: melodic
-  // channels play their `note`s, so generating a step pattern on them is currently a no-op for playback —
-  // generating into NOTES for melodic tracks is a follow-up; this restores the toolbar's visibility.
-  let euclidRow = null
-  if (selCh) {
-    let pills = []
-    // OFF clears the row (emit an all-off pattern, keeping the locks structure).
-    pills.push(
-      <button
-        type="button"
-        class={(!selCh.euclid || selCh.euclid === 0) ? "sg-euclid-pill sg-euclid-on" : "sg-euclid-pill"}
-        title="Clear the pattern"
-        onclick={() => {
-          selCh.euclid = 0
-          genClear(rt, project, selectedCh, selCh)
-        }}
-      >
-        {"Off"}
-      </button>
-    )
-    let ek = 1
-    while (ek <= 8) {
-      let hits = ek
-      pills.push(
-        <button
-          type="button"
-          class={selCh.euclid === ek ? "sg-euclid-pill sg-euclid-on" : "sg-euclid-pill"}
-          title={"Euclidean " + String(ek) + " hits across 16"}
-          onclick={() => {
-            selCh.euclid = hits
-            genEuclid(rt, project, selectedCh, selCh, hits)
-          }}
-        >
-          {String(ek)}
-        </button>
-      )
-      ek = ek + 1
-    }
-    euclidRow = (
-      <div class="sg-euclid">
-        <span class="sg-euclid-label">{"EUCLID"}</span>
-        <span class="sg-euclid-target">{selCh.name}</span>
-        <div class="sg-euclid-pills">{pills}</div>
-        <span class="sg-euclid-sep">{"·"}</span>
-        <span class="sg-euclid-label sg-gen-label">{"GEN"}</span>
-        <div class="sg-euclid-pills">
-          <button
-            type="button"
-            class="sg-gen-btn sg-gen-reseed"
-            title="RESEED — a fresh random pattern (new density + rotation, humanized). Broadcasts to peers."
-            onclick={() => {
-              selCh.euclid = 0
-              genReseed(rt, project, selectedCh, selCh)
-            }}
-          >
-            {"⟳ RESEED"}
-          </button>
-          <button
-            type="button"
-            class="sg-gen-btn"
-            title="MUTATE — flip a few steps/notes + jitter velocities (evolve the current pattern)."
-            onclick={() => {
-              genMutate(rt, project, selectedCh, selCh)
-            }}
-          >
-            {"MUTATE"}
-          </button>
-          <button
-            type="button"
-            class="sg-gen-btn"
-            title="HUMANIZE — jitter the velocity of every hit/note so it breathes."
-            onclick={() => {
-              genHumanize(rt, project, selectedCh, selCh)
-            }}
-          >
-            {"HUMAN"}
-          </button>
-          <button
-            type="button"
-            class="sg-gen-btn"
-            title="PROB — sprinkle probability onto off-beat hits/notes so the pattern varies every loop (seeded, peers agree)."
-            onclick={() => {
-              genProb(rt, project, selectedCh, selCh)
-            }}
-          >
-            {"PROB"}
-          </button>
-        </div>
-      </div>
-    )
-  }
+  // EUCLID & GENERATE moved OUT of the static top toolbar — it's now a per-channel takeover overlay (the ⚄
+  // toggle in each channel row → euclidTakeover above), matching the piano-roll / lane pattern.
   return (
     <section class="panel sg-panel">
       {PanelHeader(
         <Fragment>
           <h2 class="sg-head-h2">{"SEQ"}</h2>
+          <button
+            type="button"
+            class="sg-add-track"
+            title="Add a new channel (on the active deck)"
+            onclick={() => { if (rt && rt.onAddTrack) { rt.onAddTrack() } }}
+          >
+            {"+ TRACK"}
+          </button>
         </Fragment>,
         headerRight
       )}
-      {euclidRow}
       <div class="sg-barpager" title="Shift + scroll to page through bars" onwheel={(e) => handleBarWheel(e, rt, gridBars)}>
         <span class="sg-barpager-label">{"BARS"}</span>
         <button
@@ -1582,13 +1641,16 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
           }
         })}
       </div>
-      <div class="sg-ruler">
-        <div class="sg-ruler-pad" />
-        <div class="sg-ruler-ticks">{ruler}</div>
+      <div class="sg-grid-anchor">
+        <div class="sg-ruler">
+          <div class="sg-ruler-pad" />
+          <div class="sg-ruler-ticks">{ruler}</div>
+        </div>
+        <div class="sg-grid" onwheel={(e) => handleBarWheel(e, rt, gridBars)}>{rows}</div>
       </div>
-      <div class="sg-grid" onwheel={(e) => handleBarWheel(e, rt, gridBars)}>{rows}</div>
       {pianoTakeover}
       {laneTakeover}
+      {euclidTakeover}
     </section>
   )
 }

@@ -23,9 +23,12 @@ export fn skillIdsAllowMaster(skillIds) {
 
 /**
  * Check if an actor with skillIds may emit this TPL line.
- * Global / master-scope lines (bpm, tpl re-header, auto, transpose, master_mix, actor_mix,
- * session_scenes/session_slot, clip) require the master_mixer skill; everything else is allowed
- * (per-track ownership is enforced separately by Merge.tish:actorMayEditTrack).
+ * Global / master-scope lines require the master_mixer skill; everything else is allowed (per-track
+ * ownership is enforced separately by Merge.tish:actorMayEditTrack). Master-scope = anything that changes
+ * the WHOLE session for every player: bpm, tpl re-header, auto, transpose, master_mix, actor_mix,
+ * session_scenes/session_slot, clip, AND the global key/groove (scale, swing) — a co-DJ lane must not
+ * re-key or re-shuffle the whole mix out from under the host. Keep this list in lockstep with
+ * docs/DJ_SKILLS.md and the agent SYSTEM_PROMPT (services/agent-worker/main.tish).
  */
 export fn coDjLineAllowedForSkills(line, skillIds) {
   let t = line.trim()
@@ -43,7 +46,9 @@ export fn coDjLineAllowedForSkills(line, skillIds) {
     h === "actor_mix" ||
     h === "session_scenes" ||
     h === "session_slot" ||
-    h === "clip"
+    h === "clip" ||
+    h === "scale" ||
+    h === "swing"
   ) {
     return skillIdsAllowMaster(skillIds)
   }

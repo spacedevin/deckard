@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tish build --target js src/main.tish -o dist/bundle.js && tish build --target js src/ScopeWorker.tish -o scope-worker.js",
+    "build:static": "npm run build && node scripts/build-static.mjs",
+    "serve:static": "npx --yes serve build -p 3456",
     "test": "npm run test:smoke && npm run test:mp && npm run test:levels && npm run test:multiword && npm run test:voicereset && npm run test:ratchet",
     "test:multiword": "tish build --target js test/multiword.tish -o /tmp/deckard-mw.js && node /tmp/deckard-mw.js",
     "test:voicereset": "tish build --target js test/voicereset.tish -o /tmp/deckard-vr.js && node /tmp/deckard-vr.js",
@@ -19,6 +21,9 @@
     "agent": "tish run services/agent-worker/main.tish",
     "token-demo": "tish run services/token-stream-demo/main.tish"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "@tishlang/lattish": "^2.0.0",
     "@tishlang/tish": "^2.2.5",
@@ -27,5 +32,10 @@
   "devDependencies": {
     "lucide": "^0.469.0",
     "vite": "^8.0.14"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@tishlang/tish"
+    ]
   }
 }

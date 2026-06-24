@@ -46,7 +46,7 @@ import {
   updatePianoRollCtx
 } from './PianoRoll.tish'
 import { drawScopeCanvas, drawSpectrumCanvas, drawMiniWave, busPeakLevel, drawSetWaveLane, drawSetWaveOverlay } from './Scope.tish'
-import { StepGridPanel } from './grid/StepGrid.tish'
+import { StepGridPanel, gridBarsForProject } from './grid/StepGrid.tish'
 import { DeckMixer, applyDeckEq, ensureDeckEq, DeckJog, VinylRow, deckEntries, DeckChannelStrip } from './deck/DeckMixer.tish'
 import { PatternBank } from './PatternBank.tish'
 import { coDjInitWebMidi } from '../codj/MidiProfiles.tish'
@@ -433,6 +433,50 @@ export fn App() {
   rt.redo = () => editorRef.current.redo()
   rt.canUndo = () => editorRef.current.canUndo()
   rt.canRedo = () => editorRef.current.canRedo()
+
+  // Add a new channel: emit a bare `track` header on the ACTIVE deck (the ingest creates it via makeChannel
+  // with an empty 16-step pattern), undoable (inverse = remove it), and select it.
+  rt.onAddTrack = () => {
+    let p = rtRef.current.project
+    // Mint a doc-unique id (don't collide with existing channels — agents prefix theirs, the host uses c<N>).
+    let n = p.channels.length
+    let id = "c" + String(n)
+    let conflict = true
+    while (conflict) {
+      conflict = false
+      let i = 0
+      while (i < p.channels.length) {
+        if (p.channels[i].id === id) {
+          conflict = true
+        }
+        i = i + 1
+      }
+      if (conflict) {
+        n = n + 1
+        id = "c" + String(n)
+      }
+    }
+    let slot = activeDeck === "B" ? 1 : (activeDeck === "C" ? 2 : (activeDeck === "D" ? 3 : 0))
+    let fwd = "track Track id " + id + " gen basic_osc\n  deck " + activeDeck + " slot " + String(slot)
+    rt.directiveUndoable(fwd, "remove_track " + id, "track/" + id + "/add")
+    setSelectedCh(rtRef.current.project.channels.length - 1)
+  }
+  // Delete a channel: capture its full TPL as the undo inverse BEFORE removing (so undo recreates exactly it,
+  // not a project snapshot), emit `remove_track`, then rebuild the index-keyed audio buses (a splice misaligns
+  // them) and clamp the selection if it ran off the end.
+  rt.onDeleteTrack = (chId) => {
+    let p = rtRef.current.project
+    let inv = emitLevel(p, "channel", chId)
+    rt.directiveUndoable("remove_track " + chId, inv, "track/" + chId + "/del")
+    let p2 = rtRef.current.project
+    if (audioStore.ctx) {
+      resyncAllChannelBuses(p2, audioStore)
+      updateMixerFromProject(p2, audioStore)
+    }
+    if (typeof rt.selectedCh === "number" && rt.selectedCh >= p2.channels.length) {
+      setSelectedCh(p2.channels.length > 0 ? p2.channels.length - 1 : 0)
+    }
+  }
 
   // ---- MIDI: keyboard notes audition the SELECTED instrument; a learned CC drives a control via emit (the
   // same gated/broadcast/round-tripping TPL a UI drag emits → multiplayer-native).
@@ -2321,6 +2365,13 @@ export fn App() {
     let scope = level === "sequence" && project.channels[selectedCh] ? project.channels[selectedCh].id : null
     addLevelPreset(project, level, nm, emitLevel(project, level, scope))
     setProjectFromUI(project)
+    // The preset list now lives in localStorage (read fresh each render), but the memoized SEQ/Session headers
+    // won't re-render on this save unless we bump their gen — without this the just-saved preset never shows
+    // in the load dropdown ("doesn't load").
+    if (rt && rt.bumpGrid) {
+      rt.bumpGrid()
+    }
+    bumpSessionUi()
   }
   fn loadPreset(level, nm) {
     let pr = findLevelPreset(project, level, nm)
@@ -2526,7 +2577,8 @@ export fn App() {
     onSave: onPatternSave,
     onSaveBar: onPatternSaveBar,
     onLaunch: onPatternLaunch,
-    viewBar: rt.gridViewBar != null ? Math.floor(Number(rt.gridViewBar)) : 0
+    viewBar: rt.gridViewBar != null ? Math.floor(Number(rt.gridViewBar)) : 0,
+    bars: gridBarsForProject(project)
   }
 
   // One view — no tab. Sequencer + session on top, then the selected channel's instrument rack boxes.
@@ -2782,21 +2834,19 @@ export fn App() {
         <button
           type="button"
           class={compOn ? "master-chip master-chip-on" : "master-chip master-chip-off"}
-          title={"Master glue compressor — click to bypass. Readout = live gain reduction (dB)."}
+          title={"COMPRESSOR — master glue compressor; click to bypass. Readout = live gain reduction (dB)."}
           onmousedown={(e) => e.stopPropagation()}
           onclick={() => { if (rt && rt.emit) { rt.emit("master/comp", !compOn) } }}
         >
-          {"COMPRESSOR · "}
           <span class="master-comp-gr">{compOn ? "0.0dB" : "BYPASS"}</span>
         </button>
         <button
           type="button"
           class={reverbOn ? "master-chip master-chip-on" : "master-chip master-chip-off"}
-          title={"Shared reverb send bus — click to mute. Readout = channels currently sending."}
+          title={"REVERB_BUS — shared reverb send bus; click to mute. Readout = channels currently sending."}
           onmousedown={(e) => e.stopPropagation()}
           onclick={() => { if (rt && rt.emit) { rt.emit("master/reverb", !reverbOn) } }}
         >
-          {"REVERB_BUS · "}
           <span class="master-rev-state">{reverbOn ? ("ON · " + String(revSends) + " send" + (revSends === 1 ? "" : "s")) : "OFF"}</span>
         </button>
         {AudioRackPanel(audioStore)}

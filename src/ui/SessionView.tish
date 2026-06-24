@@ -525,27 +525,26 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
       let loadCls = "btn-scene-op btn-scene-load" + loadOn
       let sceneI = si
       let barN = pb.viewBar != null ? Math.floor(Number(pb.viewBar)) + 1 : 1
+      let totalBars = pb.bars != null && Math.floor(Number(pb.bars)) >= 1 ? Math.floor(Number(pb.bars)) : 1
       headOps = (
         <div class="session-scene-ops">
           <button type="button" class={launchCls} onclick={() => pb.onLaunch(sceneI)} title={"Launch this pattern live (queues to the next bar while a song plays)"}>
             {launchLabel}
           </button>
           <div class="session-scene-oprow">
-            <span class="session-scene-oplabel" title="LOAD">{LucideIcon("download")}</span>
-            <button type="button" class={loadCls} onclick={() => pb.onLoadBar(sceneI)} title={"Load only bar " + String(barN) + " (the bar you're viewing) — other bars untouched"} style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {LucideIcon("square")}
+            <button type="button" class={loadCls + " btn-scene-op-icon"} onclick={() => pb.onLoadBar(sceneI)} title={"Load only bar " + String(barN) + " (the bar you're viewing) — other bars untouched"}>
+              {LucideIcon("folder-open")}<span class="op-barnum">{"1"}</span>
             </button>
-            <button type="button" class={loadCls} onclick={() => pb.onLoad(sceneI)} title={"Load all bars of this pattern into the rack"} style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {LucideIcon("layout-grid")}
+            <button type="button" class={loadCls + " btn-scene-op-icon"} onclick={() => pb.onLoad(sceneI)} title={"Load all " + String(totalBars) + " bars of this pattern into the rack"}>
+              {LucideIcon("folder-open")}<span class="op-barnum">{String(totalBars)}</span>
             </button>
           </div>
           <div class="session-scene-oprow">
-            <span class="session-scene-oplabel" title="SAVE">{LucideIcon("save")}</span>
-            <button type="button" class="btn-scene-op btn-scene-save" onclick={() => pb.onSaveBar(sceneI)} title={"Save only bar " + String(barN) + " (the bar you're viewing) into this pattern"} style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {LucideIcon("square")}
+            <button type="button" class="btn-scene-op btn-scene-save btn-scene-op-icon" onclick={() => pb.onSaveBar(sceneI)} title={"Save only bar " + String(barN) + " (the bar you're viewing) into this pattern"}>
+              {LucideIcon("save")}<span class="op-barnum">{"1"}</span>
             </button>
-            <button type="button" class="btn-scene-op btn-scene-save" onclick={() => pb.onSave(sceneI)} title={"Save the whole rack (all bars) into this pattern"} style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {LucideIcon("layout-grid")}
+            <button type="button" class="btn-scene-op btn-scene-save btn-scene-op-icon" onclick={() => pb.onSave(sceneI)} title={"Save the whole rack (all " + String(totalBars) + " bars) into this pattern"}>
+              {LucideIcon("save")}<span class="op-barnum">{String(totalBars)}</span>
             </button>
           </div>
           {followRow(sceneI)}

@@ -189,6 +189,15 @@ let gp = makePeer("guest2", [])
 let gpBpm = gp.project.bpm
 gp.editor.emit("bpm", 200)
 check("[auth] non-master guest cannot change bpm (own fold unchanged)", gp.project.bpm === gpBpm)
+// scale & swing are master-scope too (global key / groove change the whole session) — a non-master lane is denied.
+let gpScale = makePeer("guest3", [])
+let gpScaleMode = gpScale.project.scaleMode
+gpScale.editor.emit("scale", { root: 2, mode: "minor" })
+check("[auth] non-master guest cannot change scale (own fold unchanged)", gpScale.project.scaleMode === gpScaleMode)
+let gpSwing = makePeer("guest4", [])
+let gpSwingV = gpSwing.project.swing != null ? gpSwing.project.swing : 0
+gpSwing.editor.emit("swing", 0.42)
+check("[auth] non-master guest cannot change swing (own fold unchanged)", Math.abs((gpSwing.project.swing != null ? gpSwing.project.swing : 0) - gpSwingV) < 1e-6)
 // non-owner guest cannot edit a track it does not own:
 let gOther = makePeer("guest9", [])
 let gGain = findChannelById(gOther.project, T).gain

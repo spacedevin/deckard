@@ -37,6 +37,7 @@ export fn parseProgram(source) {
   let tplVersion = 0
   let bpm = null
   let tracks = []
+  let removeTrackIds = []
   let autos = []
   let masterMixTokens = null
   let actorMixRows = []
@@ -284,6 +285,18 @@ export fn parseProgram(source) {
       }
       continue
     }
+    // `remove_track <id>` — delete a channel (incremental edit fragment; never appears in a full snapshot,
+    // since emitChannelTpl only emits surviving channels). Applied + ownership-gated in applyCoDjTplSource.
+    if (head === "remove_track") {
+      currentClip = null
+      currentTrack = null
+      if (toks.length >= 2) {
+        removeTrackIds.push(toks[1])
+      } else {
+        errors.push({ line: i, msg: "remove_track: expected `remove_track <id>`" })
+      }
+      continue
+    }
     if (head === "macro" && toks.length >= 2) {
       currentClip = null
       currentTrack = null
@@ -459,6 +472,7 @@ export fn parseProgram(source) {
     tplVersion: tplVersion,
     bpm: bpm,
     tracks: tracks,
+    removeTrackIds: removeTrackIds,
     macros: macros,
     autos: autos,
     masterMixTokens: masterMixTokens,

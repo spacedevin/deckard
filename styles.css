@@ -3372,6 +3372,28 @@ input[type="range"]::-moz-range-thumb {
 .session-scene-oprow .btn-scene-op {
   flex: 1 1 0;
 }
+/* LOAD/SAVE program buttons: an icon (folder-open = load, save = save) + a bar-count badge (1 = this bar,
+   N = all bars). Slightly tighter than the text op buttons. */
+.btn-scene-op-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0.2rem 0.1rem;
+}
+.btn-scene-op-icon svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  display: block;
+}
+.op-barnum {
+  font-size: 0.5rem;
+  font-weight: 800;
+  line-height: 1;
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+}
 /* Follow-action ("THEN") block: per-scene progression rule with an optional weighted second action.
    Progressive disclosure — a single readable action select by default, the chance row appears on ⚖. */
 .session-scene-follow {
@@ -3889,6 +3911,39 @@ input[type="range"]::-moz-range-thumb {
 .sg-lane-takeover-body .sg-lk-cells { height: 100%; }
 .sg-lane-takeover-body .sg-lk-cell,
 .sg-lane-takeover-body .sg-auto-cell { height: auto; }
+/* EUCLID & GENERATE takeover — a fill-density chip row + a generate-action grid, spread to use the panel. */
+.sg-eg-takeover-body { padding: 14px 16px; overflow-y: auto; }
+.sg-eg-body { display: flex; flex-direction: column; gap: 18px; }
+.sg-eg-section { display: flex; flex-direction: column; gap: 9px; }
+.sg-eg-shead { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+.sg-eg-slabel { font-size: 0.7rem; font-weight: 800; letter-spacing: 0.12em; color: var(--accent-warm, #e8945c); }
+.sg-eg-slabel.sg-gen-label { color: #c08bf0; }
+.sg-eg-shint { font-size: 0.6rem; color: #6a6a76; letter-spacing: 0.02em; }
+.sg-eg-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.sg-eg-chip {
+  min-width: 34px; height: 30px; padding: 0 11px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid #2a2a35; border-radius: 5px; background: #0d0d11; color: #9a9aa6;
+  font-family: inherit; font-size: 0.78rem; cursor: pointer;
+  transition: background 90ms, color 90ms, border-color 90ms, box-shadow 90ms;
+}
+.sg-eg-chip:hover { background: #1c1c24; color: #d8d8e2; }
+.sg-eg-chip.sg-eg-chip-on {
+  border-color: var(--accent-warm, #e8945c); color: #fff;
+  background: rgba(232, 148, 92, 0.18); box-shadow: 0 0 8px rgba(232, 148, 92, 0.35);
+}
+.sg-eg-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.sg-eg-action {
+  flex: 1 1 calc(50% - 8px); min-width: 190px; text-align: left;
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 9px 13px; border: 1px solid #2a2a35; border-radius: 6px; background: #0d0d11; cursor: pointer;
+  transition: border-color 90ms, background 90ms, box-shadow 90ms, transform 60ms;
+}
+.sg-eg-action:hover { border-color: #a06be0; background: #16121d; box-shadow: 0 0 10px rgba(160, 107, 224, 0.3); }
+.sg-eg-action:active { transform: translateY(1px); }
+.sg-eg-action-name { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.06em; color: #d7b8f5; }
+.sg-eg-action-reseed .sg-eg-action-name { color: #ecd9ff; }
+.sg-eg-action-desc { font-size: 0.6rem; color: #7a7a86; letter-spacing: 0.01em; }
 .sg-head {
   display: flex;
   align-items: baseline;
@@ -3910,7 +3965,14 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   flex-direction: column;
   gap: 5px;
+}
+/* Bottom-anchor the ruler + grid AS ONE BLOCK (margin-top:auto), so the column ruler stays glued directly
+   above the grid and the panel's slack collects ABOVE them — not as a gap between the numbers and the cells. */
+.sg-grid-anchor {
   margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 .sg-row {
   display: flex;
@@ -4044,6 +4106,32 @@ input[type="range"]::-moz-range-thumb {
   gap: 6px;
   margin: 2px 0 10px;
   padding-left: 168px;
+}
+/* VIEW overflow "···" dropdown — an IkSelect styled to match the bar buttons (.sg-barbtn). */
+.ik-sel.sg-barpager-more {
+  min-width: 30px;
+  height: 22px;
+  padding: 0 6px;
+  gap: 2px;
+  border-radius: 4px;
+  border: 1px solid #2a2a35;
+  background: #0d0d11;
+  color: #8a8a96;
+  font-size: 0.72rem;
+  box-sizing: border-box;
+}
+.ik-sel.sg-barpager-more:hover {
+  background: #1c1c24;
+  border-color: #2a2a35;
+}
+.ik-sel.sg-barpager-more.sg-barpager-more-on {
+  border-color: var(--row-accent, #00f3ff);
+  color: #fff;
+  box-shadow: 0 0 8px var(--row-glow, rgba(0, 243, 255, 0.4));
+}
+.sg-barpager-more .ik-sel-arrow {
+  font-size: 0.5rem;
+  margin-left: 0;
 }
 .sg-barpager-label {
   font-size: 0.6rem;
@@ -4274,6 +4362,45 @@ input[type="range"]::-moz-range-thumb {
   border-color: #e0a85a;
   color: #1a1206;
   box-shadow: 0 0 8px rgba(224, 168, 90, 0.5);
+}
+/* Euclid & Generate overlay toggle — purple (generative) identity, matching the GEN label. */
+.sg-tog-gen { color: #b08bf0; }
+.sg-tog-gen-on {
+  background: #b08bf0;
+  border-color: #b08bf0;
+  color: #120a1c;
+  box-shadow: 0 0 8px rgba(176, 139, 240, 0.5);
+}
+/* Per-channel delete toggle — neutral until hover, then red. */
+.sg-tog-del {
+  color: #6a6a72;
+  font-size: 0.82rem;
+  line-height: 1;
+}
+.sg-tog-del:hover {
+  border-color: #e0556e;
+  color: #ff7a8f;
+  background: #1a0c10;
+}
+/* "+ TRACK" button beside the SEQ title. */
+.sg-add-track {
+  height: 18px;
+  padding: 0 7px;
+  border: 1px solid #2a2a35;
+  border-radius: 4px;
+  background: #0d0d11;
+  color: #8a8a96;
+  font-family: inherit;
+  font-size: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: background 90ms, border-color 90ms, color 90ms;
+}
+.sg-add-track:hover {
+  border-color: var(--accent-green, #7cff7c);
+  color: var(--accent-green, #7cff7c);
+  background: #0c140c;
 }
 .sg-auto-label {
   color: #e0a85a;
@@ -5838,11 +5965,12 @@ input[type="range"]::-moz-range-thumb {
 .instr-stack-host { position: relative; }
 .gen-modal-backdrop { position: absolute; inset: 0; background: rgba(8, 8, 12, 0.86); display: flex; align-items: stretch; justify-content: stretch; z-index: 50; }
 .gen-modal { background: var(--bg, #0e0e12); border: 1px solid var(--border, #2a2a2a); border-radius: 6px; width: 100%; height: 100%; max-width: none; max-height: 100%; display: flex; flex-direction: column; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45); }
-.gen-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 9px 14px; border-bottom: 1px solid var(--border, #2a2a2a); }
-.gen-modal-title { font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.78rem; color: var(--text, #e8e8ea); }
-.gen-modal-close { background: transparent; border: 1px solid var(--border, #2a2a2a); border-radius: 4px; color: var(--text, #e8e8ea); cursor: pointer; width: 26px; height: 26px; font-size: 0.85rem; }
+/* Match the minimalist inline cards: a tight title row + tight body, not the chunky modal chrome. */
+.gen-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 3px 8px; border-bottom: 1px solid var(--border, #2a2a2a); }
+.gen-modal-title { font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; font-size: 0.66rem; color: var(--text, #e8e8ea); }
+.gen-modal-close { background: transparent; border: 1px solid var(--border, #2a2a2a); border-radius: 4px; color: var(--text, #e8e8ea); cursor: pointer; width: 18px; height: 18px; font-size: 0.7rem; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
 .gen-modal-close:hover { background: rgba(255, 255, 255, 0.08); }
-.gen-modal-body { padding: 12px 14px; overflow-y: auto; }
+.gen-modal-body { padding: 5px 8px; overflow-y: auto; }
 /* The modal header already shows the instrument name — drop the panel's own duplicate "MATRIX FM" / "PATCH"
    title (keep the rest of its header, e.g. the patch View/Edit toggle). */
 .gen-modal .sytrus-panel-title { display: none; }
@@ -5860,24 +5988,10 @@ input[type="range"]::-moz-range-thumb {
 .ik-wave-lbl { font-size: 0.56rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
 .gen-params.ik-cols { border: none; padding: 0; }
 
-/* ---- Euclidean fill, rehomed into the channel rack header ---- */
-.sg-euclid { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin: 0.1rem 0 0.5rem; }
-.sg-euclid-label { font-size: 0.58rem; font-weight: 700; letter-spacing: 0.08em; color: var(--muted); }
-.sg-euclid-target { font-size: 0.62rem; color: var(--accent-warm, #e8945c); font-weight: 600; }
-.sg-euclid-pills { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
-.sg-euclid-pill { font-family: inherit; font-size: 0.62rem; padding: 0.18rem 0.45rem; border-radius: 4px;
-  border: 1px solid var(--border, #2a2a2a); background: var(--panel, #15151b); color: var(--text, #e8e8ea);
-  cursor: pointer; }
-.sg-euclid-pill.sg-euclid-on { border-color: var(--accent-warm, #e8945c); color: var(--accent-warm, #e8945c);
-  background: rgba(232, 148, 92, 0.12); }
-.sg-euclid-sep { color: var(--muted); opacity: 0.5; }
+/* GEN label colour — the GENERATE section header in the Euclid & Generate takeover (.sg-eg-* styles live up
+   near the other takeover-body rules). The old static .sg-euclid / .sg-gen-btn toolbar was removed when Euclid
+   & Generate became a takeover overlay. */
 .sg-gen-label { color: #c08bf0; }
-.sg-gen-btn { font-family: inherit; font-size: 0.62rem; font-weight: 600; padding: 0.18rem 0.5rem; border-radius: 4px;
-  border: 1px solid #3a2a4a; background: rgba(150, 90, 220, 0.12); color: #d7b8f5; cursor: pointer;
-  transition: background 90ms, border-color 90ms, box-shadow 90ms; }
-.sg-gen-btn:hover { border-color: #a06be0; box-shadow: 0 0 8px rgba(160, 107, 224, 0.4); }
-.sg-gen-btn:active { transform: translateY(1px); }
-.sg-gen-reseed { background: rgba(160, 107, 224, 0.2); border-color: #7a4bd0; color: #ecd9ff; }
 
 /* ---- TPL Playback / Playlist timeline (the recorded TPL stream over time) ------------------------- */
 .seq-session-wrap { display: flex; flex-direction: column; gap: 10px; }

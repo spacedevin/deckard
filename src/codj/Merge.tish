@@ -147,6 +147,51 @@ export fn applyCoDjTplSource(project, source, actorId, authorId, currentPerfStep
     tplLoopResetChannel(tb.id)
     ti = ti + 1
   }
+  // Track removals (`remove_track <id>`): splice each channel the actor may delete — an owner deletes its own,
+  // a master deletes anything. Pure document mutation; the caller (App.tish onDeleteTrack) rebuilds audio buses
+  // since a splice misaligns the index-keyed bus array. coDjMeta for removed ids is dropped (mirrors Prune).
+  let rmIds = parsed.removeTrackIds ? parsed.removeTrackIds : []
+  let removedIds = []
+  let rmi = 0
+  while (rmi < rmIds.length) {
+    let rmId = rmIds[rmi]
+    if (actorMayEditTrack(project, rmId, actorId, false) || canMaster) {
+      let idx = -1
+      let ci = 0
+      while (ci < project.channels.length) {
+        if (project.channels[ci].id === rmId) {
+          idx = ci
+        }
+        ci = ci + 1
+      }
+      if (idx >= 0) {
+        project.channels.splice(idx, 1)
+        removedIds.push(rmId)
+      }
+    }
+    rmi = rmi + 1
+  }
+  if (removedIds.length > 0 && project.coDjMeta && project.coDjMeta.tracks) {
+    let newTracks = {}
+    let keys = Object.keys(project.coDjMeta.tracks)
+    let ki = 0
+    while (ki < keys.length) {
+      let key = keys[ki]
+      let drop = false
+      let di = 0
+      while (di < removedIds.length) {
+        if (removedIds[di] === key) {
+          drop = true
+        }
+        di = di + 1
+      }
+      if (!drop) {
+        newTracks[key] = project.coDjMeta.tracks[key]
+      }
+      ki = ki + 1
+    }
+    project.coDjMeta.tracks = newTracks
+  }
   if (canMaster) {
     applySessionClipBlocks(project, parsed.clipBlocks ? parsed.clipBlocks : [], errs)
     applySessionGrid(project, parsed.sessionSceneCount, parsed.sessionSlots ? parsed.sessionSlots : [])

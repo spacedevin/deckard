@@ -1,0 +1,26 @@
+# DigitalOcean App Platform spec — deploys Deckard as a static site (CDN-served, no server needed; the DAW
+# runs entirely in the browser and works offline).
+#
+# Deploy:
+#   doctl apps create --spec .do/app.yaml      # first deploy
+#   doctl apps update <app-id> --spec .do/app.yaml
+# or paste this into the DO console: Apps -> Create App -> "Edit your App Spec".
+#
+# Requires the DigitalOcean GitHub app to be authorized on the repo below (Settings -> Integrations on GitHub,
+# or you'll be prompted on first deploy).
+name: deckard
+region: nyc
+static_sites:
+  - name: web
+    github:
+      repo: spacedevin/deckard
+      branch: main
+      deploy_on_push: true
+    # Compiles the Tish app (`tish build` -> dist/bundle.js + scope worker) then assembles ./build with
+    # index.html, styles.css, the audio workers/worklets, and the mespeak TTS assets. See scripts/build-static.mjs.
+    build_command: npm run build:static
+    output_dir: build
+    index_document: index.html
+    # No client-side router — serve the single page for any unmatched path.
+    catchall_document: index.html
+    environment_slug: node-js

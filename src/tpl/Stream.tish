@@ -54,7 +54,8 @@ fn isStandaloneTopLevel(head) {
     head === "xfade" ||
     head === "main_deck" ||
     head === "swing" ||
-    head === "scale"
+    head === "scale" ||
+    head === "remove_track"
   )
 }
 

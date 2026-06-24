@@ -37,7 +37,7 @@ export fn detectTouchedSlices(source) {
   let i = 0
   while (i < lines.length) {
     let h = ingestFirstToken(lines[i])
-    if (h === "track") {
+    if (h === "track" || h === "remove_track") {
       out.channels = true
     } else if (h === "master_mix") {
       out.master = true
