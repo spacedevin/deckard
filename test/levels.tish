@@ -20,7 +20,7 @@ import { compileGeneratorToPatchLines, canCompileToPatch } from '../src/model/Pa
 import { parsePatchGraph } from '../src/tpl/TplExtension.tish'
 import { patchGraphToLines } from '../src/tpl/PatchGraph.tish'
 import { resolveExpr } from '../src/generators/Patch.tish'
-import { parseMidiBytes, ccKey, normalize01, createMidiController, midiTargetList } from '../src/midi/Midi.tish'
+import { parseMidiBytes, ccKey, normalize01, createMidiController, midiTargetList, defaultMidiMappings } from '../src/midi/Midi.tish'
 import { fragmentForEdit } from '../src/core/Edit.tish'
 import { snapToScale, parseScaleRoot, scaleIntervals, projectSnapPitch } from '../src/model/Scale.tish'
 import { rotatePattern, euclidSteps, reseedSteps, mutateSteps, humanizeSteps, sprinkleProbability, cloneSteps16 } from '../src/model/Generative.tish'
@@ -528,7 +528,8 @@ let ctl = createMidiController({
   onNote: (n, v) => { captured.note = { n: n, v: v } },
   onControl: (id, v01) => { captured.control = { id: id, v: v01 } },
   onChange: () => { captured.changes = captured.changes + 1 },
-  backend: midiBe
+  backend: midiBe,
+  seedDefaults: false
 })
 ctl.feed([144, 60, 110])
 check("[midi] note-on routes to onNote", (captured.note !== null && captured.note !== undefined) && captured.note.n === 60 && captured.note.v === 110)
@@ -542,13 +543,23 @@ ctl.setLearn(false)
 ctl.feed([176, 7, 127])
 check("[midi] a mapped CC drives onControl with normalized value", (captured.control !== null && captured.control !== undefined) && captured.control.id === "bpm" && Math.abs(captured.control.v - 1) < 1e-9)
 // Persistence: a fresh controller on the same backend restores the mapping.
-let ctl2 = createMidiController({ onControl: (id, v01) => {}, backend: midiBe })
+let ctl2 = createMidiController({ onControl: (id, v01) => {}, backend: midiBe, seedDefaults: false })
 check("[midi] mappings persist across controller instances", ctl2.state().mappings["cc:0:7"] === "bpm")
 ctl.removeMapping("cc:0:7")
 check("[midi] removeMapping clears it", ctl.state().mappings["cc:0:7"] === null || ctl.state().mappings["cc:0:7"] === undefined)
-// The mappable target list includes the globals + a per-channel gain for every track.
+// The mappable target list includes the globals, per-DECK booth EQ/vol (visible knobs), + per-track gains.
 let mtl = midiTargetList(loadDefaultDeckardProject().project)
 check("[midi] target list has globals + per-track gains", mtl.some(t => t.id === "bpm") && mtl.some(t => t.id === "xfade_x") && mtl.some(t => String(t.id).indexOf("track:") === 0))
+check("[midi] target list exposes per-deck EQ/vol (visible booth knobs)", mtl.some(t => t.id === "deck:A:hi") && mtl.some(t => t.id === "deck:A:flt") && mtl.some(t => t.id === "deck:B:vol"))
+check("[midi] target list no longer offers the master EQ (it has no on-screen control)", !mtl.some(t => String(t.id).indexOf("master_") === 0))
+// Defaults: a fresh machine (backend has never been written) seeds + persists a working layout; clearing stays clear.
+let seedMem = { v: null }
+let seedBe = { read: () => seedMem.v, write: (s) => { seedMem.v = s } }
+let ctlSeed = createMidiController({ onControl: (id, v01) => {}, backend: seedBe })
+check("[midi] first run seeds default mappings", ctlSeed.state().mappings["cc:0:16"] === "deck:A:hi" && ctlSeed.state().mappings["cc:0:8"] === "xfade_x")
+check("[midi] seeded defaults are persisted", (seedMem.v !== null && seedMem.v !== undefined) && seedMem.v.indexOf("deck:A:hi") >= 0)
+let ctlSeed2 = createMidiController({ onControl: (id, v01) => {}, backend: seedBe })
+check("[midi] a populated backend is NOT re-seeded (respects user edits)", Object.keys(ctlSeed2.state().mappings).length === Object.keys(defaultMidiMappings()).length)
 
 // ===================================================================================================
 // Per-step PARAMETER LOCKS — velocity / probability / ratchet / nudge round-trip + the player's deterministic

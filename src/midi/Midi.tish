@@ -65,28 +65,63 @@ export fn normalize01(value) {
   return v
 }
 
-/// The curated set of MIDI-mappable targets (id → label). Each id is resolved to a `rt.emit` call by the
-/// App (keep the two in sync). Per-track gains are appended dynamically. Mapping these = a hardware knob
-/// drives a TPL edit (gated, broadcast, round-tripping) just like a UI drag.
+/// The curated set of MIDI-mappable targets (id → label). Each id is resolved by the App's midiControl.
+/// EVERY target here drives a control that is VISIBLE on screen and updates when the hardware moves —
+/// that is the rule (a knob you can hear but not see is a bug). So the per-deck booth EQ/filter/volume
+/// knobs are the targets, NOT the master EQ (which has no on-screen control). Per-track stem gains are
+/// appended dynamically. `group` lets the panel cluster them (deck A / deck B / global / tracks).
 export fn midiTargetList(project) {
   let out = [
-    { id: "bpm", label: "BPM" },
-    { id: "scratch", label: "Scratch (jog/pitch)" },
-    { id: "xfade_x", label: "Crossfade X" },
-    { id: "xfade_y", label: "Crossfade Y" },
-    { id: "master_lo", label: "Master EQ Lo" },
-    { id: "master_mid", label: "Master EQ Mid" },
-    { id: "master_hi", label: "Master EQ Hi" }
+    { id: "bpm", label: "BPM", group: "Transport" },
+    { id: "xfade_x", label: "Crossfade ◀ ▶", group: "Transport" },
+    { id: "xfade_y", label: "Crossfade ▲ ▼", group: "Transport" },
+    { id: "scratch", label: "Scratch (Deck A jog)", group: "Transport" }
   ]
+  // Per-deck DJ-booth controls — these are the HI/MID/LO/FILTER knobs + volume fader in each deck's
+  // centre channel strip (DeckChannelStrip). They exist for all four decks even before a deck is loaded.
+  let decks = ["A", "B", "C", "D"]
+  let di = 0
+  while (di < decks.length) {
+    let dk = decks[di]
+    let g = "Deck " + dk
+    out.push({ id: "deck:" + dk + ":hi", label: "Deck " + dk + " · EQ Hi", group: g })
+    out.push({ id: "deck:" + dk + ":mid", label: "Deck " + dk + " · EQ Mid", group: g })
+    out.push({ id: "deck:" + dk + ":lo", label: "Deck " + dk + " · EQ Lo", group: g })
+    out.push({ id: "deck:" + dk + ":flt", label: "Deck " + dk + " · Filter", group: g })
+    out.push({ id: "deck:" + dk + ":vol", label: "Deck " + dk + " · Volume", group: g })
+    di = di + 1
+  }
   if (project && project.channels) {
     let i = 0
     while (i < project.channels.length) {
       let ch = project.channels[i]
-      out.push({ id: "track:" + ch.id, label: String(ch.name) + " gain" })
+      out.push({ id: "track:" + ch.id, label: String(ch.name) + " gain", group: "Tracks" })
       i = i + 1
     }
   }
   return out
+}
+
+/// A sensible out-of-the-box mapping (CC → target) for a generic knob/fader controller, seeded ONCE on a
+/// machine that has never saved any mappings. Channel 0 is assumed (the common default). The layout follows
+/// a typical 8-knob + 8-fader bank: knobs 16–23 = deck A/B EQ, faders 0–1 = deck volumes, plus crossfade +
+/// BPM. Controllers aren't standard, so this is just a starting point — any learned mapping overrides it,
+/// and once a user clears all mappings the empty set is respected (no re-seed).
+export fn defaultMidiMappings() {
+  return {
+    "cc:0:16": "deck:A:hi",
+    "cc:0:17": "deck:A:mid",
+    "cc:0:18": "deck:A:lo",
+    "cc:0:19": "deck:A:flt",
+    "cc:0:20": "deck:B:hi",
+    "cc:0:21": "deck:B:mid",
+    "cc:0:22": "deck:B:lo",
+    "cc:0:23": "deck:B:flt",
+    "cc:0:0": "deck:A:vol",
+    "cc:0:1": "deck:B:vol",
+    "cc:0:8": "xfade_x",
+    "cc:0:9": "bpm"
+  }
 }
 
 /// Resolve a mapped target's label (for the panel's mapping list). Falls back to the raw id.
@@ -140,7 +175,7 @@ export fn createMidiController(deps) {
     pending: null,
     mappings: {}
   }
-  // restore persisted mappings
+  // restore persisted mappings, or seed defaults on a machine that has never saved any
   let raw = backend.read()
   if (raw !== null && raw !== undefined && String(raw).length > 0) {
     try {
@@ -149,6 +184,11 @@ export fn createMidiController(deps) {
         state.mappings = m
       }
     } catch (e) {}
+  } else if (d.seedDefaults !== false) {
+    // First run here — seed + persist a working default layout (deck A/B EQ + volumes + crossfade + BPM)
+    // so a hardware controller does something immediately. Re-learning overrides; clearing all stays cleared.
+    state.mappings = defaultMidiMappings()
+    backend.write(JSON.stringify(state.mappings))
   }
   let access = null
   let connectedInput = null

@@ -604,7 +604,6 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
         <div class="session-head-right">
           {headerRight}
           <div class="sg-barpager session-prog-pager" title="Programs — the P columns (scenes). Add or remove a program slot, like BARS on the rack.">
-            <span class="sg-barpager-label">{"PROGRAMS"}</span>
             <button type="button" class="sg-barbtn sg-barbtn-mod" title="Remove the last program" disabled={sc <= 1} onclick={() => removeProgram()}>
               {"−"}
             </button>
@@ -613,8 +612,8 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
               {"+"}
             </button>
           </div>
-          <button type="button" class="btn-session-stop-all" onclick={stopAll}>
-            {"Stop all clips"}
+          <button type="button" class="btn-session-stop-all" title="Stop all clips" onclick={stopAll}>
+            {"■"}
           </button>
         </div>
       </div>

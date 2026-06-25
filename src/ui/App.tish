@@ -283,6 +283,7 @@ export fn App() {
   let [sessionUiGen, setSessionUiGen] = useState(0)
   let [seqPromoteUi, setSeqPromoteUi] = useState(0)
   let [midiGen, setMidiGen] = useState(0)
+  let midiRenderRaf = useRef(false)
   let [songBrowserOpen, setSongBrowserOpen] = useState(false)
   let [songQuery, setSongQuery] = useState("")
   let [scratchGen, setScratchGen] = useState(0)
@@ -499,13 +500,17 @@ export fn App() {
     let gch = generatorChannelAtBeat(project, ch, 0)
     playHitAt(ctx, bus, ctx.currentTime + 0.005, note, vel, 0.5, gch, 0, null)
   }
-  // A mapped CC (value 0..1) → resolve its target to one emit. Keep these ids in sync with midiTargetList.
+  // A mapped CC (value 0..1) → resolve its target. Keep these ids in sync with midiTargetList. EVERY target
+  // drives a control that is VISIBLE on screen and moves with the hardware (the rule: nothing audible-but-invisible).
   fn midiControl(targetId, v01) {
     let ed = editorRef.current
     if (!ed) {
       return
     }
     let p = rtRef.current.project
+    // `scoped` targets repaint themselves (deck booth knobs via scheduleDeckMix → deckMixRev) or need no React
+    // paint at all (scratch = audio + a canvas jog), so they skip the broad bumpAllRev re-render below.
+    let scoped = false
     if (targetId === "bpm") {
       ed.emit("bpm", Math.round(40 + v01 * 200))
     } else if (targetId === "scratch") {
@@ -514,6 +519,7 @@ export fn App() {
       if (rt.scratchRate) {
         rt.scratchRate("A", (v01 - 0.5) * 16)
       }
+      scoped = true
     } else if (targetId === "master_lo") {
       ed.emit("master/eq_lo", Math.round((-12 + v01 * 24) * 10) / 10)
     } else if (targetId === "master_mid") {
@@ -524,8 +530,43 @@ export fn App() {
       ed.emit("xfade", [v01, p.transportCrossfadeY !== null && p.transportCrossfadeY !== undefined ? p.transportCrossfadeY : 0])
     } else if (targetId === "xfade_y") {
       ed.emit("xfade", [p.transportCrossfade !== null && p.transportCrossfade !== undefined ? p.transportCrossfade : 0.5, v01])
+    } else if (String(targetId).indexOf("deck:") === 0) {
+      // deck:<X>:<band> — the per-deck booth HI/MID/LO/FILTER knobs + volume fader. Drive them through the EXACT
+      // path the on-screen knobs use (mutate deckEq → applyDeckEq → scheduleDeckMix), so the visible knob tracks
+      // the hardware (deckMixRev re-renders just that strip) and the audio reconciles once per frame.
+      let parts = String(targetId).split(":")
+      let dk = parts[1]
+      let band = parts[2]
+      ensureDeckEq(p)
+      let de = p.deckEq[dk]
+      if (de !== null && de !== undefined) {
+        if (band === "vol") {
+          de.vol = Math.round(v01 * 1000) / 1000
+        } else if (band === "flt") {
+          de.flt = Math.round((-1 + v01 * 2) / 0.02) * 0.02
+        } else {
+          // hi / mid / lo — ±12 dB, integer detents (matches the knob's step)
+          de[band] = Math.round(-12 + v01 * 24)
+        }
+        applyDeckEq(p, dk)
+        if (rt.scheduleDeckMix) {
+          rt.scheduleDeckMix()
+        }
+      }
+      scoped = true
     } else if (String(targetId).indexOf("track:") === 0) {
       ed.emit("track/" + String(targetId).substring(6) + "/mix/gain", Math.round(v01 * 1000) / 1000)
+    }
+    // The remaining emits go through the gated door (which bumps slice revs) but never call a React setter, so the
+    // UI knob/fader never followed the hardware. Coalesce a re-render to once per frame so it tracks the move.
+    if (!scoped && !midiRenderRaf.current) {
+      midiRenderRaf.current = true
+      requestAnimationFrame(() => {
+        midiRenderRaf.current = false
+        let pr = rtRef.current.project
+        if (pr) { bumpAllRev(pr) }
+        setMidiGen((x) => x + 1)
+      })
     }
   }
   let midiRef = useRef(null)
@@ -2393,6 +2434,40 @@ export fn App() {
     }
     rt.applyTpl(tpl)
   }
+  // Per-TRACK presets — the whole channel (instrument + pattern), saved/loaded from each sequencer ROW's own
+  // icons (level "channel"). Distinct from the top "Sequence" (pattern only, selected channel) / "Rack" bars.
+  rt.onSaveTrack = (chId) => {
+    if (!chId) {
+      return
+    }
+    let nm = prompt("Save track as", String(chId))
+    if (!nm || nm.length === 0) {
+      return
+    }
+    addLevelPreset(project, "channel", nm, emitLevel(project, "channel", chId))
+    setProjectFromUI(project)
+    if (rt && rt.bumpGrid) {
+      rt.bumpGrid()
+    }
+  }
+  rt.onLoadTrack = (chId, nm) => {
+    let pr = findLevelPreset(project, "channel", nm)
+    if (!pr) {
+      return
+    }
+    let ch = null
+    let i = 0
+    while (i < project.channels.length) {
+      if (project.channels[i].id === chId) {
+        ch = project.channels[i]
+      }
+      i = i + 1
+    }
+    if (!ch) {
+      return
+    }
+    rt.applyTpl(retargetTpl(pr.tpl, ch))
+  }
 
   fn onLoadSet(nm) {
     let sp = setPresets.get(nm)
@@ -2590,10 +2665,10 @@ export fn App() {
   }
 
   // One view — no tab. Sequencer + session on top, then the selected channel's instrument rack boxes.
-  let seqChName = project.channels[selectedCh] ? project.channels[selectedCh].name : ""
   // Load/save now lives in each panel's header (the common PanelHeader), right-aligned — no extra strip.
+  // Per-track (per-channel) load/save now lives on each sequencer ROW (onSaveTrack/onLoadTrack); the old top
+  // "Sequence" bar was the duplicate — removed. "Rack" (the whole rack of channels) stays, it's not per-track.
   let seqHeaderRight = [
-    PresetBar("Sequence", levelPresetList(project, "sequence"), (n) => loadPreset("sequence", n), () => savePreset("sequence"), seqChName),
     PresetBar("Rack", levelPresetList(project, "rack"), (n) => loadPreset("rack", n), () => savePreset("rack"), "")
   ]
   let sessionHeaderRight = PresetBar("Session", levelPresetList(project, "session"), (n) => loadPreset("session", n), () => savePreset("session"), "")
@@ -2733,6 +2808,25 @@ export fn App() {
           <input type="file" accept=".tpl,.txt" style={{ display: "none" }} onchange={onImportSetLibFile} />
         </label>
       </div>
+      <button
+        type="button"
+        class="daw-fullscreen-btn"
+        title="Toggle fullscreen"
+        onclick={() => {
+          let d = globalThis.document
+          if (d !== null && d !== undefined) {
+            if (d.fullscreenElement) {
+              if (d.exitFullscreen) { d.exitFullscreen() }
+            } else if (d.documentElement && d.documentElement.requestFullscreen) {
+              d.documentElement.requestFullscreen()
+            }
+          }
+        }}
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+        </svg>
+      </button>
     </header>
     <div class="daw-app-layout">
       <aside class="daw-sidebar-left">

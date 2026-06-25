@@ -438,7 +438,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .daw-sidebar-left {
-  flex: 0 0 310px;
+  flex: 0 0 280px;
   display: flex;
   flex-direction: column;
   padding: 0;
@@ -452,7 +452,7 @@ input[type="range"]::-moz-range-thumb {
   flex-direction: column;
   justify-content: flex-start;
   align-items: stretch;
-  padding: 10px;
+  padding: 10px 6px;
   cursor: pointer;
   border-radius: 0;
   margin-bottom: 0;
@@ -545,7 +545,7 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   flex-direction: row;
   align-items: stretch;
-  gap: 10px;
+  gap: 6px;
   width: 100%;
 }
 
@@ -603,6 +603,11 @@ input[type="range"]::-moz-range-thumb {
   padding: 4px;
   background: var(--bg);
   border-left: 1px solid var(--border);
+  /* Clip the horizontal axis explicitly. With only `overflow-y: auto`, CSS computes `overflow-x` as `auto` too,
+     so any child wider than the column (the CO-DJ TPL-snapshot panes on Play) spawns an 11px-tall horizontal
+     scrollbar — which inflates this sidebar's border-box by 11px and stretches the whole row (incl. the left
+     decks) on playback. Vertical scroll only; horizontal content scrolls inside its own pane. */
+  overflow-x: hidden;
   overflow-y: auto;
 }
 
@@ -1947,7 +1952,10 @@ input[type="range"]::-moz-range-thumb {
 
 .codj-stream-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, 1fr) — NOT `1fr` (which is minmax(auto,1fr) and can't shrink below the panes' min-content, pushing
+     the grid wider than the sidebar on Play). The 0 minimum lets each track shrink to the column width; the panes
+     then wrap / scroll inside their own `overflow: auto` box instead of overflowing the sidebar. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 0.65rem;
   margin-bottom: 0.75rem;
 }
@@ -1958,6 +1966,9 @@ input[type="range"]::-moz-range-thumb {
 }
 .codj-stream-wrap {
   margin: 0.5rem 0 0.75rem;
+  /* Allow this grid item to shrink below its content width so the pane (with overflow:auto) scrolls internally
+     rather than widening the grid → the sidebar. */
+  min-width: 0;
 }
 .codj-stream-label {
   font-size: 0.7rem;
@@ -1965,10 +1976,16 @@ input[type="range"]::-moz-range-thumb {
   letter-spacing: 0.06em;
   color: #8a9;
   margin-bottom: 0.25rem;
+  /* On Play the lane id is appended; keep it to ONE line so the pane (and the whole row) doesn't grow. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .codj-stream-preview {
   margin: 0;
-  max-height: 6.5rem;
+  /* Fixed height (not just max) — otherwise the pane is a 1-line placeholder when stopped and balloons to its
+     max on Play (fills with the TPL snapshot), stretching the right sidebar → the whole row → the left decks. */
+  height: 6.5rem;
   overflow: auto;
   padding: 0.45rem 0.5rem;
   font-size: 0.68rem;
@@ -1985,7 +2002,9 @@ input[type="range"]::-moz-range-thumb {
 .codj-log {
   font-family: ui-monospace, monospace;
   font-size: 0.6rem;
-  max-height: 10rem;
+  /* Fixed (not max) height + scroll — the log gains a line on Play and over a session; without a fixed height
+     that growth stretches the right sidebar → the row → the left decks. Scrolls internally for older lines. */
+  height: 3.5rem;
   overflow-y: auto;
   background: #0a0c10;
   border: 1px solid var(--border);
@@ -4978,10 +4997,9 @@ input[type="range"]::-moz-range-thumb {
   font-weight: 700;
 }
 .dk-xfade {
-  border: 1px solid #1f1f26;
-  border-radius: 4px;
-  background: var(--panel-2);
-  padding: 8px 10px;
+  border: none;
+  background: none;
+  padding: 0;
 }
 /* Live FX throw row (above the 4-way fader): hold ECHO to punch a master echo. */
 .dk-fx-row {
@@ -5997,23 +6015,23 @@ input[type="range"]::-moz-range-thumb {
 .seq-session-wrap { display: flex; flex-direction: column; gap: 10px; }
 .seq-arrange { width: 100%; display: flex; justify-content: flex-start; }
 .pl-view { flex: 1; background: var(--panel-2, #0a0a0c); padding: 0; display: flex; align-items: center; gap: 12px; }
-.pl-head { display: flex; align-items: center; gap: 10px; min-height: 22px; flex-shrink: 0; }
-.pl-title { font-size: 11px; letter-spacing: 0.16em; color: var(--accent-green); font-weight: 600; }
-.pl-status { font-size: 11px; color: var(--muted); margin-left: auto; }
-.pl-rec { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px;
-  background: #14141a; border: 1px solid #2a2a32; border-radius: 5px; color: var(--text); font-size: 11px;
+.pl-head { display: flex; align-items: center; gap: 10px; min-height: 20px; flex-shrink: 0; }
+.pl-title { font-size: 10px; letter-spacing: 0.16em; color: var(--accent-green); font-weight: 600; }
+.pl-status { font-size: 10px; color: var(--muted); margin-left: auto; }
+.pl-rec { display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 9px;
+  background: #14141a; border: 1px solid #2a2a32; border-radius: 5px; color: var(--text); font-size: 10px;
   font-weight: 600; letter-spacing: 0.08em; cursor: default; }
-.pl-rec-dot { width: 9px; height: 9px; border-radius: 50%; background: #6a2230; box-shadow: none; }
+.pl-rec-dot { width: 7px; height: 7px; border-radius: 50%; background: #6a2230; box-shadow: none; }
 .pl-rec-on { border-color: #e0556e; color: #ff7a8f; }
 .pl-rec-on .pl-rec-dot { background: #ff3b57; box-shadow: 0 0 7px rgba(255,59,87,0.85);
   animation: pl-rec-blink 1s steps(2, start) infinite; }
 @keyframes pl-rec-blink { 50% { opacity: 0.35; } }
-.pl-btn { height: 24px; padding: 0 10px; background: #14141a; border: 1px solid #2a2a32; border-radius: 5px;
-  color: var(--text); font-size: 11px; cursor: pointer; }
+.pl-btn { height: 20px; padding: 0 9px; background: #14141a; border: 1px solid #2a2a32; border-radius: 5px;
+  color: var(--text); font-size: 10px; cursor: pointer; }
 .pl-btn:hover { border-color: #3a3a44; background: #1b1b22; }
 .pl-btn:disabled { opacity: 0.4; cursor: default; }
-.pl-replay-select { height: 24px; background: #14141a; border: 1px solid #2a2a32; border-radius: 5px;
-  color: var(--text); font-size: 11px; padding: 0 6px; max-width: 220px; }
+.pl-replay-select { height: 20px; background: #14141a; border: 1px solid #2a2a32; border-radius: 5px;
+  color: var(--text); font-size: 10px; padding: 0 6px; max-width: 220px; }
 .pl-scroll { flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: #3a4150 transparent; }
 .pl-scroll::-webkit-scrollbar { height: 9px; }
 .pl-scroll::-webkit-scrollbar-track { background: transparent; }
@@ -6722,6 +6740,27 @@ input[type="text"].instr-name-input:focus {
 .codj-deck-prompt-msg { font-size: 11px; color: var(--text, #cccccc); line-height: 1.35; margin-bottom: 7px; }
 .codj-deck-prompt-btns { display: flex; gap: 6px; }
 .btn-codj-primary { background: var(--accent-warm, #e8945c); color: #111111; border-color: var(--accent-warm, #e8945c); font-weight: 600; }
+
+/* Per-track load (folder dropdown) icon in the sequencer row tool group — sized to match the .sg-tog icons */
+.sg-track-load { width: 17px; min-width: 17px; height: 17px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.sg-track-load .ik-sel-label { padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.sg-track-load .ik-sel-arrow { display: none; }
+
+/* Per-track row tools (sequencer rows only) wrap into 2 rows instead of one long strip */
+.sg-row .sg-gutter-ctl { flex-wrap: wrap; max-width: 80px; row-gap: 3px; }
+
+/* Session "Stop all clips" is now a compact square stop icon (was a wide text button) */
+.btn-session-stop-all { padding: 0; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.62rem; }
+
+/* Fullscreen toggle — pinned to the very top-right corner of the app */
+.daw-fullscreen-btn { position: absolute; top: 7px; right: 8px; z-index: 60;
+  display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;
+  background: #14141a; border: 1px solid #2a2a32; border-radius: 5px; color: var(--muted); cursor: pointer; }
+.daw-fullscreen-btn:hover { color: var(--text); border-color: #3a3a44; }
+
+/* SOUND-module knobs sat 3px lower than PITCH's — .instr-grid-container .ik-card forces a 3px top pad (!important)
+   that the PITCH knobs (not in an ik-card) lack. Override it for the sound params so the two columns align. */
+.instr-params-wrap .gen-params .ik-card { padding-top: 0 !important; }
 
 
 

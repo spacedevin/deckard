@@ -7,7 +7,8 @@
 // The `project` arg is kept on every signature for call-site compatibility but is no longer the storage.
 
 let KEY = "deckard.levelpresets.v1"
-let LEVELS = ["sequence", "rack", "session"]
+// "channel" = a whole TRACK (instrument + pattern), saved/loaded from each sequencer row's own icons.
+let LEVELS = ["sequence", "rack", "session", "channel"]
 
 fn backend() {
   // Gate via globalThis member access — `typeof localStorage` compiles to code that READS `localStorage`,

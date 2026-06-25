@@ -12,6 +12,7 @@ import { setRackBars } from '../../model/RackBars.tish'
 import { channelDeck, channelDeckColor } from '../../model/DeckRouting.tish'
 import { scaleRootNames, scaleModeNames, scaleModeLabel } from '../../model/Scale.tish'
 import { IkSelect, LucideIcon } from '../InstrumentKit.tish'
+import { levelPresetList } from '../../model/LevelPresets.tish'
 import { euclidSteps, reseedSteps, mutateSteps, humanizeSteps, sprinkleProbability } from '../../model/Generative.tish'
 import { euclidNotes, reseedNotes, mutateNotes, humanizeNotes, sprinkleNoteProbability, notePitchForChannel, notesAfterFirstBar } from '../../model/Generative.tish'
 import { defaultAutoParam, autoLaneValues, autoNorm, autoDenorm } from '../../model/AutoParams.tish'
@@ -1068,6 +1069,14 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
   let autoCapable = defaultAutoParam(ch.generatorId ? ch.generatorId : "basicOsc") !== null && defaultAutoParam(ch.generatorId ? ch.generatorId : "basicOsc") !== undefined
   let autoOpen = rt !== null && rt !== undefined && rt.gridAuto !== null && rt.gridAuto !== undefined && rt.gridAuto[ch.id] === true
   let euclidOpen = rt !== null && rt !== undefined && rt.gridEuclid !== null && rt.gridEuclid !== undefined && rt.gridEuclid[ch.id] === true
+  // Per-track presets (whole channel: instrument + pattern) for this row's own load/save icons.
+  let trackPresetOpts = []
+  let tpList = levelPresetList(project, "channel")
+  let tpi = 0
+  while (tpi < tpList.length) {
+    trackPresetOpts.push({ value: tpList[tpi].name, label: tpList[tpi].name })
+    tpi = tpi + 1
+  }
   return (
     <div class={rowCls}>
       <div class="sg-gutter">
@@ -1092,7 +1101,6 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
             {ch.name}
             {barPitch !== null ? <span class="sg-ch-rootpitch">{barPitch}</span> : null}
           </span>
-          <span class="sg-ch-instr">{generatorLabelById(gid)}</span>
         </div>
         <div class="sg-gutter-ctl">
           <button
@@ -1154,6 +1162,30 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
             }}
           >
             {LucideIcon("dice")}
+          </button>
+          {IkSelect({
+            class: "sg-tog sg-track-load",
+            value: "",
+            placeholder: LucideIcon("folder-open"),
+            options: trackPresetOpts,
+            onChange: (v) => {
+              if (v && v.length > 0 && rt && rt.onLoadTrack) {
+                rt.onLoadTrack(ch.id, v)
+              }
+            }
+          })}
+          <button
+            type="button"
+            class="sg-tog sg-tog-save"
+            title="Save this track (instrument + pattern) as a preset"
+            onclick={(e) => {
+              e.stopPropagation()
+              if (rt && rt.onSaveTrack) {
+                rt.onSaveTrack(ch.id)
+              }
+            }}
+          >
+            {LucideIcon("save")}
           </button>
           <button
             type="button"
