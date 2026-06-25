@@ -698,7 +698,7 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
               <div class="sg-gutter-ctl" style={{ display: "flex", gap: "3px", marginRight: "4px" }}>
                 <button
                   type="button"
-                  class="sg-deck-chip"
+                  class={"sg-deck-chip" + ((rt !== null && rt !== undefined && rt.coDjWs && rt.coDjWs.readyState === 1) ? " sg-deck-chip-locked" : "")}
                   style={{
                     borderColor: deckColor,
                     color: deckColor,
@@ -712,9 +712,13 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
                     alignItems: "center",
                     justifyContent: "center"
                   }}
-                  title="Click to cycle this channel through the 4 decks (A → B → C → D)."
+                  title={(rt !== null && rt !== undefined && rt.coDjWs && rt.coDjWs.readyState === 1) ? "Decks are locked in a co-DJ session — fixed per player (A=P1, B=P2, C=P3, D=P4)" : "Click to cycle this channel through the 4 decks (A → B → C → D)."}
                   onclick={(e) => {
                     e.stopPropagation()
+                    // In a co-DJ session the deck↔player mapping is fixed — block re-routing instruments between decks.
+                    if (rt !== null && rt !== undefined && rt.coDjWs && rt.coDjWs.readyState === 1) {
+                      return
+                    }
                     let cur = channelDeck(project, ch)
                     let curIdx = cur === "B" ? 1 : cur === "C" ? 2 : cur === "D" ? 3 : 0
                     ch.deckSlot = (curIdx + 1) % 4

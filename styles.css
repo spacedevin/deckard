@@ -6689,5 +6689,39 @@ input[type="text"].instr-name-input:focus {
   border-radius: 0 !important;
 }
 
+/* "created with 🎹 by space.la" credit — fixed bottom-right corner */
+.made-by-credit {
+  position: fixed;
+  right: 9px;
+  bottom: 3px;
+  z-index: 60;
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--muted, #55555e);
+  opacity: 0.7;
+  pointer-events: auto;
+  user-select: none;
+  white-space: nowrap;
+}
+.made-by-credit:hover { opacity: 1; }
+.made-by-credit a { color: inherit; text-decoration: none; }
+.made-by-credit a:hover { color: var(--accent, #e8945c); text-decoration: underline; }
+
+/* Deck-cycler chip is non-interactive in a co-DJ session (deck↔player mapping is fixed) */
+.sg-deck-chip-locked { opacity: 0.45; cursor: not-allowed; filter: grayscale(0.4); }
+
+/* Host "leave or merge decks" inline prompt in the Co-DJ panel */
+.codj-deck-prompt {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--accent-warm, #e8945c);
+  border-radius: 4px;
+  background: rgba(232, 148, 92, 0.08);
+}
+.codj-deck-prompt-msg { font-size: 11px; color: var(--text, #cccccc); line-height: 1.35; margin-bottom: 7px; }
+.codj-deck-prompt-btns { display: flex; gap: 6px; }
+.btn-codj-primary { background: var(--accent-warm, #e8945c); color: #111111; border-color: var(--accent-warm, #e8945c); font-weight: 600; }
+
 
 

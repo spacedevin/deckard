@@ -330,6 +330,9 @@ export fn App() {
     setGridGen((x) => x + 1)
   }
   rt.touchMixer = touchMixer
+  // Exposed so the Co-DJ panel can force a full re-render (bumpAllRev) when the connection state changes —
+  // e.g. so the deck-routing lock visibly engages/releases on connect/disconnect.
+  rt.setProjectFromUI = setProjectFromUI
   rt.mirrorStepToSessionClip = (ch, si) => {
     mirrorStepToggleToMainClip(ch, si)
   }
@@ -2171,6 +2174,11 @@ export fn App() {
       editorRef.current.emit("bpm", Math.round(Number(bpm)))
     }
     setProjectFromUI(project)
+    // In a co-DJ session, push this deck change to peers so it syncs (host: snapshot; follower: stream own
+    // lines, host applies the tracks it owns). Without this a follower's deck load never reaches the host.
+    if (rt.coDjWs && rt.coDjWs.readyState === 1 && rt.coDjBroadcastNow) {
+      rt.coDjBroadcastNow()
+    }
   }
   // ---- Per-deck scratch (CDJ-style: each deck A/B/C/D has its own jog platter). Each renders ITS OWN pattern
   // loop into ITS OWN worklet, and grabbing a deck's wheel drives that deck's signed read-rate + ducks that
@@ -2854,5 +2862,10 @@ export fn App() {
       </div>
     </footer>
     {songBrowserOpen ? SongBrowser(project, rt, () => setSongBrowserOpen(false), songQuery, setSongQuery) : null}
+    <div class="made-by-credit">
+      <a href="https://github.com/spacedevin/deckard" target="_blank" rel="noopener noreferrer">created with 🎹</a>
+      {" by "}
+      <a href="https://space.la" target="_blank" rel="noopener noreferrer">space.la</a>
+    </div>
   </div>
 }

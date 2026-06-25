@@ -58,6 +58,15 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
     }
     rt.coDjLogDirty = true
   }
+  // Force a full app re-render (App.setProjectFromUI → bumpAllRev) when available, else the plain setter.
+  // Used on connect/disconnect/merge so memo'd panels (e.g. the deck-routing lock) reflect the new state.
+  fn rerenderAll(p) {
+    if (rt && rt.setProjectFromUI) {
+      rt.setProjectFromUI(p)
+    } else {
+      setProject(p)
+    }
+  }
   if (rt) {
     rt.coDjPushLog = pushLog
     rt.coDjApplyScheduledTpl = (tpl, actorId, authorId, perfStep, skillIds) => {
@@ -86,6 +95,19 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       }
     }
     rt.coDjTplMirrorFlush = tplMirrorFlush
+    // Push the current project to peers OUTSIDE of playback (e.g. right after a deck load / add) so the change
+    // syncs even when stopped. Host = authority (full snapshot); a follower streams its OWN lines and the host
+    // applies the tracks it owns (ownership-gated). Fixes "follower edits a deck, host never sees it".
+    rt.coDjBroadcastNow = () => {
+      if (!(rt.coDjWs && rt.coDjWs.readyState === 1)) {
+        return
+      }
+      if (rt.coDjIsHost === true) {
+        sendStateSnapshot()
+      } else {
+        broadcastSelfLines()
+      }
+    }
     rt.coDjNotifyPlaying = (playing) => {
       let ws = rt.coDjWs
       let wsOk = ws && ws.readyState === 1
@@ -457,6 +479,85 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
     pushLog("pushed host snapshot (" + String(p.channels.length) + " tracks)")
   }
 
+  // A follower streams its full project to the hub as tpl.lines; the host applies the lines for the tracks the
+  // follower owns (ownership-gated), so a follower's deck content reaches the host even while stopped.
+  fn broadcastSelfLines() {
+    let ws = rt && rt.coDjWs
+    if (!ws || ws.readyState !== 1) {
+      return
+    }
+    let p = rt && rt.project ? rt.project : project
+    let lines = emitProject(p).split("\n")
+    let c = rt && rt.coDjActorId ? rt.coDjActorId : (rt && rt.coDjClientId ? rt.coDjClientId : "actor-unknown")
+    let idx = 0
+    fn pumpSelf() {
+      let w = rt.coDjWs
+      if (!w || w.readyState !== 1) {
+        return
+      }
+      let end = idx + 6
+      if (end > lines.length) {
+        end = lines.length
+      }
+      while (idx < end) {
+        w.send(JSON.stringify({ type: "tpl.line", line: lines[idx], authorId: c }))
+        idx = idx + 1
+      }
+      if (idx < lines.length) {
+        setTimeout(pumpSelf, 100)
+      }
+    }
+    pumpSelf()
+    pushLog("broadcast self (" + String(p.channels.length) + " tracks)")
+  }
+
+  // Does the host carry instruments on decks B/C/D (deckSlot 1..3)? On connect we offer to merge them onto
+  // Deck A so each remote player cleanly owns one deck — or leave them for more local control.
+  fn hostHasMultiDeckContent() {
+    let p = rt && rt.project ? rt.project : project
+    if (!p || !Array.isArray(p.channels)) {
+      return false
+    }
+    let i = 0
+    while (i < p.channels.length) {
+      let s = p.channels[i].deckSlot
+      if (s !== null && s !== undefined) {
+        let n = Math.floor(Number(s))
+        if (n >= 1 && n <= 3 && n === n) {
+          return true
+        }
+      }
+      i = i + 1
+    }
+    return false
+  }
+
+  // Host chose "Merge into Deck A": collapse every channel onto Deck A (deckSlot 0) and re-broadcast the
+  // authoritative state so followers' decks B/C/D are clear.
+  fn mergeHostDecksToA() {
+    let p = rt && rt.project ? rt.project : project
+    if (p && Array.isArray(p.channels)) {
+      let i = 0
+      while (i < p.channels.length) {
+        p.channels[i].deckSlot = 0
+        p.channels[i].actorLane = ""
+        i = i + 1
+      }
+    }
+    if (rt) {
+      rt.coDjHostDeckPrompt = false
+    }
+    rerenderAll(p)
+    if (rt && rt.resyncAudio) {
+      rt.resyncAudio()
+    }
+    sendStateSnapshot()
+    pushLog("merged decks B/C/D into Deck A")
+    if (rt && rt.coDjBumpUi) {
+      rt.coDjBumpUi()
+    }
+  }
+
   // Follower: replace (clobber) the local project with the host's authoritative state.
   fn applyHostSnapshot(lines, owners, fromHost) {
     if (!Array.isArray(lines) || lines.length === 0) {
@@ -538,8 +639,12 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       )
       // Host seeds the gateway cache immediately so any follower already waiting gets the real project.
       if (rt && rt.coDjIsHost) {
+        // If the host carries instruments on decks B/C/D, offer to merge them onto Deck A (or keep them).
+        rt.coDjHostDeckPrompt = hostHasMultiDeckContent()
         sendStateSnapshot()
       }
+      // Re-render the whole app so the deck-routing lock reflects the now-connected state.
+      rerenderAll(rt && rt.project ? rt.project : project)
       return
     }
     if (t === "request.snapshot") {
@@ -641,6 +746,9 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       rt.coDjWs.close()
       rt.coDjWs = null
     }
+    rt.coDjHostDeckPrompt = false
+    // Re-render so the deck-routing lock releases now that we're disconnected.
+    rerenderAll(rt.project ? rt.project : project)
   }
   let streamPreview = rt && rt.coDjStreamPreview ? rt.coDjStreamPreview : ""
   let streamLane = rt && rt.coDjStreamLane ? rt.coDjStreamLane : ""
@@ -689,6 +797,22 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
   return <section class="panel codj-panel">
     <h2>{"Co-DJ (WebSocket)"}</h2>
     <p class="codj-pairing"><strong>{"Session actors"}</strong>{" · "}{actorSummary}</p>
+    {rt !== null && rt !== undefined && rt.coDjHostDeckPrompt === true ? (
+      <div class="codj-deck-prompt">
+        <div class="codj-deck-prompt-msg">{"You have instruments on decks B/C/D. In multiplayer each player owns one deck — merge yours onto Deck A for a clean session, or leave them for more local control."}</div>
+        <div class="codj-deck-prompt-btns">
+          <button type="button" class="btn-codj" onclick={() => {
+            if (rt) {
+              rt.coDjHostDeckPrompt = false
+              if (rt.coDjBumpUi) {
+                rt.coDjBumpUi()
+              }
+            }
+          }}>{"Leave them"}</button>
+          <button type="button" class="btn-codj btn-codj-primary" onclick={mergeHostDecksToA}>{"Merge into Deck A"}</button>
+        </div>
+      </div>
+    ) : null}
     <div class="codj-stream-grid">
       <div class="codj-stream-wrap codj-stream-local">
         <div class="codj-stream-label">
