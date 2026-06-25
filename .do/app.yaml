@@ -1,14 +1,17 @@
-# DigitalOcean App Platform spec — Deckard.
-#   • web      : the static browser DAW (CDN-served).
-#   • gateway  : the Co-DJ multiplayer WebSocket hub (a Docker service; only needed for multiplayer + AI co-DJ).
-# Ingress routes /codj -> gateway and everything else -> web, so the app is ONE domain and the browser talks to
-# the gateway same-origin at wss://<app-domain>/codj (see CoDjPanel's default WS URL).
+# DigitalOcean App Platform spec — Deckard.   TWO components, ONE domain:
+#   • web      : the browser DAW. It is a STATIC, client-side bundle, so it MUST be a `static_sites` component
+#                (CDN-served, no health check, free). Deploying it as a Web Service is THE bug behind
+#                "container did not respond to health checks" — a static bundle has nothing listening on a port.
+#   • gateway  : the Co-DJ multiplayer WebSocket hub — a Docker `service` (the only paid, always-on piece).
+# Ingress routes /codj -> gateway and everything else -> web; the browser talks to the gateway same-origin at
+# wss://<app-domain>/codj (see CoDjPanel's defaultWsUrl()).
 #
-# Deploy:  doctl apps create --spec .do/app.yaml   (or paste in the DO console -> Create App -> Edit App Spec).
-# NOTE: the `gateway` service is an always-on instance (has an hourly cost); delete that component + the ingress
-# rule if you only want the free static site (solo/offline play needs nothing else).
-name: deckard
-region: nyc
+# APPLY THIS to fix the failing deploy — DO console: your app -> Settings -> "App Spec" -> Edit -> paste this
+# whole file -> Save. (Or `doctl apps update <APP_ID> --spec .do/app.yaml`.) That replaces the mis-detected
+# buildpack Web Service with the static site + gateway.  `name`/`region` below match your existing app so it
+# edits in place. Want only the free static site? Delete the `services:` block + the `/codj` ingress rule.
+name: deckard-one
+region: sfo
 
 static_sites:
   - name: web
@@ -34,8 +37,13 @@ services:
     # (services/gateway/Dockerfile — no Node/JS in the runtime). Build context = repo root.
     dockerfile_path: services/gateway/Dockerfile
     source_dir: /
-    # The gateway listens on $PORT (App Platform injects it; main.tish reads PORT) and speaks WebSocket only.
+    # The gateway speaks WebSocket only and listens on CODJ_HUB_PORT (it reads that first, then $PORT). We pin
+    # it to 8080 explicitly — matching http_port — so the bind never depends on how App Platform injects $PORT.
     http_port: 8080
+    envs:
+      - key: CODJ_HUB_PORT
+        scope: RUN_TIME
+        value: "8080"
     instance_size_slug: basic-xxs
     instance_count: 1
     # WS-only service: omit http_path so App Platform uses a TCP health check (the open WS port = healthy).
