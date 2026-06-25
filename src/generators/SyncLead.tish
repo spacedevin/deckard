@@ -2,24 +2,24 @@ export fn playSyncLead(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let gp = ch.generatorParams ? ch.generatorParams : {}
   
   // Oscillator & Sync
-  let masterTune = gp.masterTune != null ? gp.masterTune : 0
-  let slaveBase = gp.slaveBase != null ? gp.slaveBase : 12
-  let sweepAmt = gp.sweepAmt != null ? gp.sweepAmt : 24
-  let sweepDecay = gp.sweepDecay != null ? gp.sweepDecay : 0.4
-  let lfoRate = gp.lfoRate != null ? gp.lfoRate : 0
-  let lfoAmt = gp.lfoAmt != null ? gp.lfoAmt : 0
+  let masterTune = gp.masterTune !== null && gp.masterTune !== undefined ? gp.masterTune : 0
+  let slaveBase = gp.slaveBase !== null && gp.slaveBase !== undefined ? gp.slaveBase : 12
+  let sweepAmt = gp.sweepAmt !== null && gp.sweepAmt !== undefined ? gp.sweepAmt : 24
+  let sweepDecay = gp.sweepDecay !== null && gp.sweepDecay !== undefined ? gp.sweepDecay : 0.4
+  let lfoRate = gp.lfoRate !== null && gp.lfoRate !== undefined ? gp.lfoRate : 0
+  let lfoAmt = gp.lfoAmt !== null && gp.lfoAmt !== undefined ? gp.lfoAmt : 0
 
   // Filter
-  let cutoff = gp.cutoff != null ? gp.cutoff : 3000
-  let res = gp.resonance != null ? gp.resonance : 5
-  let filterEnvAmt = gp.filterEnvAmt != null ? gp.filterEnvAmt : 0
-  let filterDecay = gp.filterDecay != null ? gp.filterDecay : 0.4
+  let cutoff = gp.cutoff !== null && gp.cutoff !== undefined ? gp.cutoff : 3000
+  let res = gp.resonance !== null && gp.resonance !== undefined ? gp.resonance : 5
+  let filterEnvAmt = gp.filterEnvAmt !== null && gp.filterEnvAmt !== undefined ? gp.filterEnvAmt : 0
+  let filterDecay = gp.filterDecay !== null && gp.filterDecay !== undefined ? gp.filterDecay : 0.4
 
   // ADSR
-  let att = gp.attack != null ? gp.attack : 0.05
-  let dec = gp.decay != null ? gp.decay : 0.3
-  let sus = gp.sustain != null ? gp.sustain : 0.8
-  let rel = gp.release != null ? gp.release : 0.5
+  let att = gp.attack !== null && gp.attack !== undefined ? gp.attack : 0.05
+  let dec = gp.decay !== null && gp.decay !== undefined ? gp.decay : 0.3
+  let sus = gp.sustain !== null && gp.sustain !== undefined ? gp.sustain : 0.8
+  let rel = gp.release !== null && gp.release !== undefined ? gp.release : 0.5
   
   let masterPitch = midi + bendSemis + masterTune
   let masterFreq = 440 * Math.pow(2, (masterPitch - 69) / 12)

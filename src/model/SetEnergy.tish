@@ -20,7 +20,7 @@ export fn freshActiveDecks() {
  * uses that to mount the new lane (a one-off re-render) without re-rendering every bar.
  */
 export fn foldSetEnergyStep(energy, activeDecks, deckOfBus, step, trs) {
-  let triggers = trs != null ? trs : []
+  let triggers = trs !== null && trs !== undefined ? trs : []
   if (step > energy.maxStep) {
     energy.maxStep = step
   }
@@ -29,15 +29,15 @@ export fn foldSetEnergyStep(energy, activeDecks, deckOfBus, step, trs) {
   let k = 0
   while (k < triggers.length) {
     let bus = Math.floor(Number(triggers[k].busIndex))
-    let dk = (deckOfBus != null && bus >= 0 && bus < deckOfBus.length && deckOfBus[bus] != null) ? deckOfBus[bus] : "A"
-    if (energy[dk] == null) {
+    let dk = (deckOfBus !== null && deckOfBus !== undefined && bus >= 0 && bus < deckOfBus.length && deckOfBus[bus] !== null && deckOfBus[bus] !== undefined) ? deckOfBus[bus] : "A"
+    if ((energy[dk] === null || energy[dk] === undefined)) {
       dk = "A"
     }
-    let vel = triggers[k].vel != null ? Number(triggers[k].vel) : 100
+    let vel = triggers[k].vel !== null && triggers[k].vel !== undefined ? Number(triggers[k].vel) : 100
     if (vel !== vel || vel <= 0) {
       vel = 100
     }
-    let cur = energy[dk][key] != null ? energy[dk][key] : 0
+    let cur = energy[dk][key] !== null && energy[dk][key] !== undefined ? energy[dk][key] : 0
     let tot = cur + vel
     energy[dk][key] = tot
     if (tot > energy.maxE) {

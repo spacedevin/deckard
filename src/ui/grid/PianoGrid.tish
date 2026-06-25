@@ -43,7 +43,7 @@ fn pitchWindow(ch) {
   let center = 60
   let below = 12
   let above = 13
-  if (ch.stepPitch != null) {
+  if (ch.stepPitch !== null && ch.stepPitch !== undefined) {
     center = Math.floor(ch.stepPitch)
   }
   let pn = ch.pianoNotes
@@ -80,11 +80,11 @@ fn pianoNotesArray(ch) {
       startBeat: n.startBeat,
       durBeats: n.durBeats,
       pitch: n.pitch,
-      vel: n.vel != null ? n.vel : 100,
-      prob: n.prob != null ? n.prob : 1,
-      ratchet: n.ratchet != null ? n.ratchet : 1,
-      nudge: n.nudge != null ? n.nudge : 0,
-      lyric: n.lyric != null ? n.lyric : ""
+      vel: n.vel !== null && n.vel !== undefined ? n.vel : 100,
+      prob: n.prob !== null && n.prob !== undefined ? n.prob : 1,
+      ratchet: n.ratchet !== null && n.ratchet !== undefined ? n.ratchet : 1,
+      nudge: n.nudge !== null && n.nudge !== undefined ? n.nudge : 0,
+      lyric: n.lyric !== null && n.lyric !== undefined ? n.lyric : ""
     })
     i = i + 1
   }
@@ -111,7 +111,7 @@ fn emitPianoNotes(rt, project, chIdx, arr) {
   }
   // Grow (never shrink) patternBars so notes pushed into later bars fit — the `* N` in the emitted track
   // header reads ch.patternBars, and apply rejects notes beyond bars*4.
-  let cur = (ch.patternBars != null && Math.floor(ch.patternBars) >= 1) ? Math.floor(ch.patternBars) : 1
+  let cur = (ch.patternBars !== null && ch.patternBars !== undefined && Math.floor(ch.patternBars) >= 1) ? Math.floor(ch.patternBars) : 1
   let need = neededBarsFor(arr)
   ch.patternBars = need > cur ? need : cur
   rt.emit("track/" + ch.id + "/notes", arr)
@@ -140,13 +140,13 @@ fn pianoSetNote(rt, project, chIdx, noteIdx, pitch, startBeat, durBeats) {
   if (noteIdx < 0 || noteIdx >= arr.length) {
     return
   }
-  if (pitch != null) {
+  if (pitch !== null && pitch !== undefined) {
     arr[noteIdx].pitch = Math.floor(pitch)
   }
-  if (startBeat != null) {
+  if (startBeat !== null && startBeat !== undefined) {
     arr[noteIdx].startBeat = startBeat
   }
-  if (durBeats != null) {
+  if (durBeats !== null && durBeats !== undefined) {
     arr[noteIdx].durBeats = durBeats
   }
   emitPianoNotes(rt, project, chIdx, arr)
@@ -175,7 +175,7 @@ fn cellUnderPointer(chIdx, clientX, clientY) {
 // Drag the note body → move it to whatever (pitch, beat) cell the pointer is over.
 fn pianoNoteMoveDown(e, rt, project, chIdx, noteIdx, vb, curPitch, curCol) {
   // Skip the drag-setup on the SECOND mousedown of a double-click (which deletes) so the two don't collide.
-  if (e.detail != null && e.detail >= 2) {
+  if ((e.detail !== null && e.detail !== undefined) && e.detail >= 2) {
     return
   }
   e.stopPropagation()
@@ -366,8 +366,8 @@ fn pianoCell(rt, project, chIdx, ch, pitch, col, vb, isStep, stepPitch, stepTogg
 
 // The pitch a step channel plays in a given bar (per-bar override, else the channel's single step pitch).
 fn stepPitchForBar(ch, bar) {
-  let sp = ch.stepPitch != null ? Math.floor(ch.stepPitch) : 36
-  if (ch.stepPitchByBar != null && bar < ch.stepPitchByBar.length && ch.stepPitchByBar[bar] != null) {
+  let sp = ch.stepPitch !== null && ch.stepPitch !== undefined ? Math.floor(ch.stepPitch) : 36
+  if ((ch.stepPitchByBar !== null && ch.stepPitchByBar !== undefined) && bar < ch.stepPitchByBar.length && (ch.stepPitchByBar[bar] !== null && ch.stepPitchByBar[bar] !== undefined)) {
     sp = Math.floor(ch.stepPitchByBar[bar])
   }
   return sp
@@ -384,16 +384,16 @@ fn stepsToNotes(ch) {
   let i = 0
   while (i < ch.steps.length) {
     let s = ch.steps[i]
-    if (s != null && s.on === true) {
+    if ((s !== null && s !== undefined) && s.on === true) {
       arr.push({
         startBeat: i * 0.25,
         durBeats: 0.25,
         pitch: stepPitchForBar(ch, Math.floor(i / 16)),
-        vel: s.vel != null ? s.vel : 100,
-        prob: s.prob != null ? s.prob : 1,
-        ratchet: s.ratchet != null ? s.ratchet : 1,
-        nudge: s.nudge != null ? s.nudge : 0,
-        lyric: s.lyric != null ? s.lyric : ""
+        vel: s.vel !== null && s.vel !== undefined ? s.vel : 100,
+        prob: s.prob !== null && s.prob !== undefined ? s.prob : 1,
+        ratchet: s.ratchet !== null && s.ratchet !== undefined ? s.ratchet : 1,
+        nudge: s.nudge !== null && s.nudge !== undefined ? s.nudge : 0,
+        lyric: s.lyric !== null && s.lyric !== undefined ? s.lyric : ""
       })
     }
     i = i + 1
@@ -478,14 +478,14 @@ fn pianoNoteBar(rt, project, chIdx, n, noteIdx, vb) {
 
 /** Array of inline piano rows for one channel — appended under its step row, showing the viewed bar. */
 export fn pianoRowsForChannel(project, ch, chIdx, rt, setProjectFromUI, viewBar, gridBars, stepToggle) {
-  let vb = (viewBar != null && viewBar >= 0) ? Math.floor(viewBar) : 0
+  let vb = (viewBar !== null && viewBar !== undefined && viewBar >= 0) ? Math.floor(viewBar) : 0
   let win = pitchWindow(ch)
   let deckCls = "sg-deck-" + channelDeckColor(project, ch)
   // A STEP channel (no pianoNotes) plays its `steps` at one pitch — DISPLAY those hits as note bars on the
   // step-pitch row, so a non-piano-roll track still shows its notes on the piano roll.
   let isStep = !ch.pianoNotes || ch.pianoNotes.length === 0
-  let stepPitch = ch.stepPitch != null ? Math.floor(ch.stepPitch) : 36
-  if (ch.stepPitchByBar != null && ch.stepPitchByBar.length > vb && ch.stepPitchByBar[vb] != null) {
+  let stepPitch = ch.stepPitch !== null && ch.stepPitch !== undefined ? Math.floor(ch.stepPitch) : 36
+  if ((ch.stepPitchByBar !== null && ch.stepPitchByBar !== undefined) && ch.stepPitchByBar.length > vb && (ch.stepPitchByBar[vb] !== null && ch.stepPitchByBar[vb] !== undefined)) {
     stepPitch = Math.floor(ch.stepPitchByBar[vb])
   }
   let rows = []
@@ -505,7 +505,7 @@ export fn pianoRowsForChannel(project, ch, chIdx, rt, setProjectFromUI, viewBar,
         let si = 0
         while (si < 16) {
           let absStep = vb * 16 + si
-          if (absStep < ch.steps.length && ch.steps[absStep] != null && ch.steps[absStep].on === true) {
+          if (absStep < ch.steps.length && (ch.steps[absStep] !== null && ch.steps[absStep] !== undefined) && ch.steps[absStep].on === true) {
             bars.push(stepNoteBar(si, stepToggle))
           }
           si = si + 1

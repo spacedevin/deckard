@@ -12,8 +12,8 @@ export fn coDjClockPayload(actorId, perfStep, scene, bpm, playMode) {
     actorId: actorId,
     authorId: actorId,
     perfStep: Math.floor(Number(perfStep)),
-    scene: scene != null ? Math.floor(Number(scene)) : null,
-    bpm: bpm != null ? Number(bpm) : null,
+    scene: scene !== null && scene !== undefined ? Math.floor(Number(scene)) : null,
+    bpm: bpm !== null && bpm !== undefined ? Number(bpm) : null,
     playMode: playMode === "sequence" ? "sequence" : "song"
   }
 }
@@ -39,7 +39,7 @@ export fn coDjShouldFollow(rt) {
 export fn coDjClockAlign(localTick, hostTick, threshold) {
   let lt = Math.floor(Number(localTick))
   let ht = Math.floor(Number(hostTick))
-  let th = threshold != null && Math.floor(Number(threshold)) >= 0 ? Math.floor(Number(threshold)) : 1
+  let th = threshold !== null && threshold !== undefined && Math.floor(Number(threshold)) >= 0 ? Math.floor(Number(threshold)) : 1
   if (Math.abs(lt - ht) > th) {
     return ht + 1
   }

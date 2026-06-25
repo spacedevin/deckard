@@ -88,7 +88,7 @@ let rackSnap = emitLevel(p, "rack", null)
 let freshRack = emptyProjectShell()
 applyTplSource(freshRack, rackSnap)
 check("rack snapshot recreates every channel", freshRack.channels.length === p.channels.length)
-check("rack snapshot carries sound (cutoff) for T", findChannelById(freshRack, T) != null && Math.abs(findChannelById(freshRack, T).filterCutoff - 1234) < 1e-6)
+check("rack snapshot carries sound (cutoff) for T", (findChannelById(freshRack, T) !== null && findChannelById(freshRack, T) !== undefined) && Math.abs(findChannelById(freshRack, T).filterCutoff - 1234) < 1e-6)
 
 // ---- deck: only the channels routed to that deck ----
 applyTplSource(p, "tpl 1\ntrack " + nameT2 + " id " + T2 + " gen basic_osc\n  deck B slot 0\n")
@@ -119,22 +119,22 @@ console.log("=== Station presets (whole-workspace, global) ===")
 let setMem = { v: null }
 let setBe = { read: () => setMem.v, write: (s) => { setMem.v = s } }
 let sets = createStationPresets(setBe)
-check("[station] built-in Default present", sets.get("Default") != null && sets.get("Default").factory === true)
+check("[station] built-in Default present", (sets.get("Default") !== null && sets.get("Default") !== undefined) && sets.get("Default").factory === true)
 check("[station] list starts with just Default", sets.list().length === 1)
 sets.save("MySet", "tpl 1\nbpm 142\n")
-check("[station] save adds a user station", sets.list().length === 2 && sets.get("MySet") != null)
+check("[station] save adds a user station", sets.list().length === 2 && (sets.get("MySet") !== null && sets.get("MySet") !== undefined))
 check("[station] saved station tpl intact", sets.get("MySet").tpl.indexOf("bpm 142") >= 0)
 check("[station] cannot remove the factory Default", sets.remove("Default") === false)
 check("[station] can remove a user station", sets.remove("MySet") === true && sets.list().length === 1)
 // persistence + export/import
 sets.save("Keep", "tpl 1\nbpm 99\n")
 let sets2 = createStationPresets(setBe)
-check("[station] persists across instances", sets2.get("Keep") != null)
+check("[station] persists across instances", sets2.get("Keep") !== null && sets2.get("Keep") !== undefined)
 let setExp = sets.exportText("Keep")
 check("[station] export carries name tag", setExp.indexOf("# deckard-station name=Keep") === 0)
 let sets3 = createStationPresets({ read: () => null, write: (s) => {} })
 let setImp = sets3.importText(setExp, null)
-check("[station] import recovers the station", setImp != null && setImp.name === "Keep" && setImp.tpl.indexOf("bpm 99") >= 0)
+check("[station] import recovers the station", (setImp !== null && setImp !== undefined) && setImp.name === "Keep" && setImp.tpl.indexOf("bpm 99") >= 0)
 
 console.log("=== Contextual level presets (sequence/rack/session, in-project) ===")
 let lp = loadDefaultDeckardProject().project
@@ -142,7 +142,7 @@ check("[lp] starts empty", levelPresetList(lp, "rack").length === 0)
 addLevelPreset(lp, "rack", "r1", "tpl 1\nbpm 100\n")
 addLevelPreset(lp, "rack", "r2", "tpl 1\nbpm 101\n")
 check("[lp] add appends", levelPresetList(lp, "rack").length === 2)
-check("[lp] find by name", findLevelPreset(lp, "rack", "r2") != null && findLevelPreset(lp, "rack", "r2").tpl.indexOf("bpm 101") >= 0)
+check("[lp] find by name", (findLevelPreset(lp, "rack", "r2") !== null && findLevelPreset(lp, "rack", "r2") !== undefined) && findLevelPreset(lp, "rack", "r2").tpl.indexOf("bpm 101") >= 0)
 addLevelPreset(lp, "rack", "r1", "tpl 1\nbpm 999\n")
 check("[lp] save with same name upserts (no dupe)", levelPresetList(lp, "rack").length === 2 && findLevelPreset(lp, "rack", "r1").tpl.indexOf("bpm 999") >= 0)
 check("[lp] levels are independent", levelPresetList(lp, "sequence").length === 0 && levelPresetList(lp, "session").length === 0)
@@ -153,7 +153,7 @@ let setLib = createSetLibrary({ read: () => null, write: (s) => {} })
 let cat = deckSetCatalog()
 check("[setlib] seeded from deck-set catalog (non-empty)", cat.length > 0 && setLib.list().length === cat.length)
 let seeded = setLib.get(cat[0].id)
-check("[setlib] a seeded set is 1 player", seeded != null && seeded.players === 1)
+check("[setlib] a seeded set is 1 player", (seeded !== null && seeded !== undefined) && seeded.players === 1)
 let seededParsed = parseSet(seeded.tpl)
 check("[setlib] seeded set parses to 1 player with tracks", seededParsed.players.length === 1 && seededParsed.players[0].indexOf("track ") >= 0)
 
@@ -181,7 +181,7 @@ let exp = setLib.exportText("MyJam")
 check("[setlib] export carries tag + player count", exp.indexOf("# deckard-set name=MyJam players=2") === 0)
 let lib2 = createSetLibrary({ read: () => null, write: (s) => {} })
 let imp = lib2.importText(exp, null)
-check("[setlib] import recovers set with players", imp != null && imp.name === "MyJam" && imp.players === 2)
+check("[setlib] import recovers set with players", (imp !== null && imp !== undefined) && imp.name === "MyJam" && imp.players === 2)
 let impParsed = parseSet(imp.tpl)
 check("[setlib] imported set keeps 2 players + arrangement", impParsed.players.length === 2 && impParsed.song.length === 2)
 
@@ -261,9 +261,9 @@ let ctlTape = [
 let ctlStream = emitSetStream(emitProject(loadDefaultDeckardProject().project), ctlTape, "song")
 let ctlParsed = parseSetStream(ctlStream)
 check("[rec] control-only step (no notes, fader moved) is kept", ctlParsed.events.length === 2 && ctlParsed.events[1].step === 6 && ctlParsed.events[1].triggers.length === 0)
-check("[rec] crossfader X/Y snapshot round-trips", ctlParsed.events[1].ctl != null && Math.abs(ctlParsed.events[1].ctl.xf - 0.25) < 1e-6 && Math.abs(ctlParsed.events[1].ctl.xfy - 0.75) < 1e-6)
-check("[rec] per-deck FLT snapshot round-trips", ctlParsed.events[1].ctl != null && Math.abs(ctlParsed.events[1].ctl.fA - (-0.6)) < 1e-6 && Math.abs(ctlParsed.events[1].ctl.fC - 0.3) < 1e-6)
-check("[rec] old Sets without a control token still parse (ctl null)", ps.events[0].ctl == null)
+check("[rec] crossfader X/Y snapshot round-trips", (ctlParsed.events[1].ctl !== null && ctlParsed.events[1].ctl !== undefined) && Math.abs(ctlParsed.events[1].ctl.xf - 0.25) < 1e-6 && Math.abs(ctlParsed.events[1].ctl.xfy - 0.75) < 1e-6)
+check("[rec] per-deck FLT snapshot round-trips", (ctlParsed.events[1].ctl !== null && ctlParsed.events[1].ctl !== undefined) && Math.abs(ctlParsed.events[1].ctl.fA - (-0.6)) < 1e-6 && Math.abs(ctlParsed.events[1].ctl.fC - 0.3) < 1e-6)
+check("[rec] old Sets without a control token still parse (ctl null)", ps.events[0].ctl === null || ps.events[0].ctl === undefined)
 
 // Deck vinyl moves (cut/rev/brake/spin) ride the tape per step and round-trip → the ghost re-fires them.
 let mvTape = [
@@ -274,9 +274,9 @@ let mvTape = [
 let mvStream = emitSetStream(emitProject(loadDefaultDeckardProject().project), mvTape, "song")
 let mvParsed = parseSetStream(mvStream)
 check("[rec] move-only step (no notes) is kept", mvParsed.events.length === 3 && mvParsed.events[1].step === 4 && mvParsed.events[1].triggers.length === 0)
-check("[rec] deck moves round-trip (cut on+off)", mvParsed.events[1].moves != null && mvParsed.events[1].moves.length === 2 && mvParsed.events[1].moves[0].deck === "C" && mvParsed.events[1].moves[0].move === "cut" && mvParsed.events[1].moves[0].on === true && mvParsed.events[1].moves[1].on === false)
-check("[rec] spin one-shot round-trips (on defaults true)", mvParsed.events[2].moves != null && mvParsed.events[2].moves[0].deck === "B" && mvParsed.events[2].moves[0].move === "spin" && mvParsed.events[2].moves[0].on === true)
-check("[rec] a step with no moves parses moves null", mvParsed.events[0].moves == null)
+check("[rec] deck moves round-trip (cut on+off)", (mvParsed.events[1].moves !== null && mvParsed.events[1].moves !== undefined) && mvParsed.events[1].moves.length === 2 && mvParsed.events[1].moves[0].deck === "C" && mvParsed.events[1].moves[0].move === "cut" && mvParsed.events[1].moves[0].on === true && mvParsed.events[1].moves[1].on === false)
+check("[rec] spin one-shot round-trips (on defaults true)", (mvParsed.events[2].moves !== null && mvParsed.events[2].moves !== undefined) && mvParsed.events[2].moves[0].deck === "B" && mvParsed.events[2].moves[0].move === "spin" && mvParsed.events[2].moves[0].on === true)
+check("[rec] a step with no moves parses moves null", mvParsed.events[0].moves === null || mvParsed.events[0].moves === undefined)
 
 // End-to-end with the REAL engine: stepTriggers (what plays) → tape → Set → parse → replay map.
 let rp = loadDefaultDeckardProject().project
@@ -303,7 +303,7 @@ while (rmi < recParsed.events.length) {
   rmi = rmi + 1
 }
 let firstStep = recTape.length > 0 ? recTape[0].step : -1
-check("[rec] replay map returns the triggers recorded for a step", recTape.length > 0 && rmap[firstStep] != null && rmap[firstStep].length === recTape[0].triggers.length)
+check("[rec] replay map returns the triggers recorded for a step", recTape.length > 0 && (rmap[firstStep] !== null && rmap[firstStep] !== undefined) && rmap[firstStep].length === recTape[0].triggers.length)
 check("[rec] a replayed note matches what actually played (bus + pitch)", recTape.length > 0 && rmap[firstStep][0].busIndex === recTape[0].triggers[0].busIndex && rmap[firstStep][0].pitch === recTape[0].triggers[0].pitch)
 
 console.log("=== I/O Rack (audio device settings + cue routing) ===")
@@ -350,7 +350,7 @@ console.log("=== Patch compile (switch-to-Patch reduces every voice to a valid g
 // valid set/lin/exp segments, and there is at least one output. Catches typos / orphan node refs that would
 // silently break the sound when a user clicks "Patch".
 fn validatePatchVoice(lines) {
-  if (lines == null) {
+  if (lines === null || lines === undefined) {
     return "compiled null"
   }
   let g = parsePatchGraph(lines)
@@ -507,15 +507,15 @@ check("[patch] resolveExpr: min(dur,0.5)", rxClose(resolveExpr("min(dur,0.5)", 2
 
 console.log("=== MIDI (parse + learn/map flow + persistence) ===")
 let mNoteOn = parseMidiBytes([144, 60, 100])
-check("[midi] parse noteOn", mNoteOn != null && mNoteOn.kind === "noteOn" && mNoteOn.note === 60 && mNoteOn.velocity === 100 && mNoteOn.channel === 0)
+check("[midi] parse noteOn", (mNoteOn !== null && mNoteOn !== undefined) && mNoteOn.kind === "noteOn" && mNoteOn.note === 60 && mNoteOn.velocity === 100 && mNoteOn.channel === 0)
 let mNoteOn0 = parseMidiBytes([145, 60, 0])
-check("[midi] parse noteOn vel 0 = noteOff", mNoteOn0 != null && mNoteOn0.kind === "noteOff" && mNoteOn0.channel === 1)
+check("[midi] parse noteOn vel 0 = noteOff", (mNoteOn0 !== null && mNoteOn0 !== undefined) && mNoteOn0.kind === "noteOff" && mNoteOn0.channel === 1)
 let mNoteOff = parseMidiBytes([128, 64, 0])
-check("[midi] parse noteOff", mNoteOff != null && mNoteOff.kind === "noteOff" && mNoteOff.note === 64)
+check("[midi] parse noteOff", (mNoteOff !== null && mNoteOff !== undefined) && mNoteOff.kind === "noteOff" && mNoteOff.note === 64)
 let mCc = parseMidiBytes([176, 7, 64])
-check("[midi] parse CC", mCc != null && mCc.kind === "cc" && mCc.controller === 7 && mCc.value === 64)
+check("[midi] parse CC", (mCc !== null && mCc !== undefined) && mCc.kind === "cc" && mCc.controller === 7 && mCc.value === 64)
 let mPb = parseMidiBytes([224, 0, 64])
-check("[midi] parse pitchBend 14-bit", mPb != null && mPb.kind === "pitchBend" && mPb.value14 === 8192)
+check("[midi] parse pitchBend 14-bit", (mPb !== null && mPb !== undefined) && mPb.kind === "pitchBend" && mPb.value14 === 8192)
 check("[midi] system messages ignored", parseMidiBytes([248]) === null && parseMidiBytes([240, 1, 2]) === null)
 check("[midi] normalize01 maps 0..127 → 0..1", normalize01(0) === 0 && Math.abs(normalize01(127) - 1) < 1e-9 && Math.abs(normalize01(64) - (64 / 127)) < 1e-9)
 check("[midi] ccKey is stable per channel+controller", ccKey({ channel: 2, controller: 7 }) === "cc:2:7")
@@ -531,21 +531,21 @@ let ctl = createMidiController({
   backend: midiBe
 })
 ctl.feed([144, 60, 110])
-check("[midi] note-on routes to onNote", captured.note != null && captured.note.n === 60 && captured.note.v === 110)
+check("[midi] note-on routes to onNote", (captured.note !== null && captured.note !== undefined) && captured.note.n === 60 && captured.note.v === 110)
 ctl.setLearn(true)
 ctl.feed([176, 7, 50])
-check("[midi] in learn mode a CC becomes pending (not a control)", ctl.state().pending != null && ctl.state().pending.controller === 7 && captured.control === null)
+check("[midi] in learn mode a CC becomes pending (not a control)", (ctl.state().pending !== null && ctl.state().pending !== undefined) && ctl.state().pending.controller === 7 && captured.control === null)
 ctl.bindPending("bpm")
 check("[midi] bindPending stores the mapping + clears pending", ctl.state().mappings["cc:0:7"] === "bpm" && ctl.state().pending === null)
-check("[midi] mapping persisted to the backend", midiMem.v != null && midiMem.v.indexOf("bpm") >= 0)
+check("[midi] mapping persisted to the backend", (midiMem.v !== null && midiMem.v !== undefined) && midiMem.v.indexOf("bpm") >= 0)
 ctl.setLearn(false)
 ctl.feed([176, 7, 127])
-check("[midi] a mapped CC drives onControl with normalized value", captured.control != null && captured.control.id === "bpm" && Math.abs(captured.control.v - 1) < 1e-9)
+check("[midi] a mapped CC drives onControl with normalized value", (captured.control !== null && captured.control !== undefined) && captured.control.id === "bpm" && Math.abs(captured.control.v - 1) < 1e-9)
 // Persistence: a fresh controller on the same backend restores the mapping.
 let ctl2 = createMidiController({ onControl: (id, v01) => {}, backend: midiBe })
 check("[midi] mappings persist across controller instances", ctl2.state().mappings["cc:0:7"] === "bpm")
 ctl.removeMapping("cc:0:7")
-check("[midi] removeMapping clears it", ctl.state().mappings["cc:0:7"] == null)
+check("[midi] removeMapping clears it", ctl.state().mappings["cc:0:7"] === null || ctl.state().mappings["cc:0:7"] === undefined)
 // The mappable target list includes the globals + a per-channel gain for every track.
 let mtl = midiTargetList(loadDefaultDeckardProject().project)
 check("[midi] target list has globals + per-track gains", mtl.some(t => t.id === "bpm") && mtl.some(t => t.id === "xfade_x") && mtl.some(t => String(t.id).indexOf("track:") === 0))
@@ -730,7 +730,7 @@ console.log("=== Scale lock ===")
 
 check("[scale] parseScaleRoot note names", parseScaleRoot("C") === 0 && parseScaleRoot("A") === 9 && parseScaleRoot("F#") === 6 && parseScaleRoot("Bb") === 10)
 check("[scale] parseScaleRoot pitch-class numbers", parseScaleRoot("0") === 0 && parseScaleRoot("7") === 7 && parseScaleRoot("11") === 11)
-check("[scale] parseScaleRoot rejects junk", parseScaleRoot("zz") == null && parseScaleRoot("13") == null)
+check("[scale] parseScaleRoot rejects junk", (parseScaleRoot("zz") === null || parseScaleRoot("zz") === undefined) && (parseScaleRoot("13") === null || parseScaleRoot("13") === undefined))
 
 fn pitchInScale(pitch, root, mode) {
   let ivs = scaleIntervals(mode)
@@ -773,7 +773,7 @@ let sc2 = loadDefaultDeckardProject().project
 applyTplSource(sc2, scTpl)
 check("[scale] round-trips root + mode", sc2.scaleRoot === 9 && sc2.scaleMode === "dorian")
 applyTplSource(sc2, "tpl 1\nscale off\n")
-check("[scale] `scale off` clears the lock", sc2.scaleRoot == null && sc2.scaleMode == null)
+check("[scale] `scale off` clears the lock", (sc2.scaleRoot === null || sc2.scaleRoot === undefined) && (sc2.scaleMode === null || sc2.scaleMode === undefined))
 let scClean = emitProject(loadDefaultDeckardProject().project)
 check("[scale] no scale line when inactive", scClean.indexOf("scale ") < 0)
 
@@ -782,7 +782,7 @@ check("[scale] projectSnapPitch no-op when inactive", projectSnapPitch(loadDefau
 let scP = loadDefaultDeckardProject().project
 scP.scaleRoot = 0
 scP.scaleMode = "minor"
-check("[scale] projectSnapPitch snaps when active", scP.scaleRoot != null && projectSnapPitch(scP, 61) !== 61)
+check("[scale] projectSnapPitch snaps when active", (scP.scaleRoot !== null && scP.scaleRoot !== undefined) && projectSnapPitch(scP, 61) !== 61)
 
 // The player honors the lock: a melodic note off-scale comes out snapped.
 let scPlay = emptyProjectShell()
@@ -997,10 +997,10 @@ check("[gennote] generated notes round-trip through the notes door", findChannel
 console.log("")
 console.log("=== Automation lanes ===")
 
-check("[auto] defaultAutoParam(any) = the universal filterCutoff", defaultAutoParam("pad") != null && defaultAutoParam("pad").key === "filterCutoff")
-check("[auto] defaultAutoParam(drumSynth) is a param", defaultAutoParam("drumSynth") != null)
+check("[auto] defaultAutoParam(any) = the universal filterCutoff", (defaultAutoParam("pad") !== null && defaultAutoParam("pad") !== undefined) && defaultAutoParam("pad").key === "filterCutoff")
+check("[auto] defaultAutoParam(drumSynth) is a param", defaultAutoParam("drumSynth") !== null && defaultAutoParam("drumSynth") !== undefined)
 // patch/macro/deck voices ARE now automatable — via the universal channel filter cutoff (the deck-automation fix).
-check("[auto] patch/macro voice gets the universal cutoff", defaultAutoParam("patch") != null && defaultAutoParam("patch").key === "filterCutoff" && defaultAutoParam("matrixFm") != null)
+check("[auto] patch/macro voice gets the universal cutoff", (defaultAutoParam("patch") !== null && defaultAutoParam("patch") !== undefined) && defaultAutoParam("patch").key === "filterCutoff" && (defaultAutoParam("matrixFm") !== null && defaultAutoParam("matrixFm") !== undefined))
 
 // Linear norm/denorm round-trips.
 check("[auto] linear norm 0.5 of 0..1", Math.abs(autoNorm(0.5, 0, 1, false) - 0.5) < 1e-9)
@@ -1026,7 +1026,7 @@ check("[auto] fragment has a point at beat 0.25", auFrag.indexOf("\n  0.25 700")
 let auP2 = loadDefaultDeckardProject().project
 applyTplSource(auP2, "tpl 1\n" + auFrag + "\n")
 let auPts = channelAutoPoints(auP2, auCh.id, "cutoff")
-check("[auto] applied as a paramAutomation (16 points)", auPts != null && auPts.length === 16)
+check("[auto] applied as a paramAutomation (16 points)", (auPts !== null && auPts !== undefined) && auPts.length === 16)
 let auCh2 = findChannelById(auP2, auCh.id)
 let gAt0 = generatorChannelAtBeat(auP2, auCh2, 0)
 let gAt1 = generatorChannelAtBeat(auP2, auCh2, 0.25)
@@ -1044,7 +1044,7 @@ let auEmit = emitProject(auP2)
 check("[auto] emitProject includes the auto block", auEmit.indexOf("auto " + auCh.id + " gen cutoff") >= 0)
 let auP3 = loadDefaultDeckardProject().project
 applyTplSource(auP3, auEmit)
-check("[auto] auto curve survives a full round-trip", channelAutoPoints(auP3, auCh.id, "cutoff") != null)
+check("[auto] auto curve survives a full round-trip", channelAutoPoints(auP3, auCh.id, "cutoff") !== null && channelAutoPoints(auP3, auCh.id, "cutoff") !== undefined)
 
 // ---- UNIVERSAL channel filter cutoff automation (works on ALL voices incl. patch/deck) ----
 let fcP = loadDefaultDeckardProject().project
@@ -1061,7 +1061,7 @@ check("[autofilt] door emits `auto … gen filter_cutoff`", fcFrag.indexOf("auto
 let fcP2 = loadDefaultDeckardProject().project
 applyTplSource(fcP2, "tpl 1\n" + fcFrag + "\n")
 let fcPts = channelAutoPoints(fcP2, fcCh.id, "filterCutoff")
-check("[autofilt] applies as a paramAutomation (param=filterCutoff, 16 pts)", fcPts != null && fcPts.length === 16)
+check("[autofilt] applies as a paramAutomation (param=filterCutoff, 16 pts)", (fcPts !== null && fcPts !== undefined) && fcPts.length === 16)
 // the scheduler apply writes the channel filter node at the given beat (when=null → immediate .value)
 let fakeFreq = { value: 0, setValueAtTime: (v, t) => {} }
 let fakeStore = { buses: [{ filterNode: { frequency: fakeFreq } }] }
@@ -1093,7 +1093,7 @@ fn buildToggleArr(ch, idx, forceOff) {
   let i = 0
   while (i < ch.steps.length) {
     let s = ch.steps[i]
-    arr.push({ on: s.on === true, vel: s.vel != null ? s.vel : 100, prob: s.prob != null ? s.prob : 1, ratchet: s.ratchet != null ? s.ratchet : 1, nudge: s.nudge != null ? s.nudge : 0 })
+    arr.push({ on: s.on === true, vel: (s.vel !== null && s.vel !== undefined) ? s.vel : 100, prob: (s.prob !== null && s.prob !== undefined) ? s.prob : 1, ratchet: (s.ratchet !== null && s.ratchet !== undefined) ? s.ratchet : 1, nudge: (s.nudge !== null && s.nudge !== undefined) ? s.nudge : 0 })
     i = i + 1
   }
   arr[idx].on = forceOff ? false : !(arr[idx].on === true)

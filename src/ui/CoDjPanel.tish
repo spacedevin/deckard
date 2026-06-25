@@ -18,7 +18,7 @@ import { IkSelect } from './InstrumentKit.tish'
 // (undefined off-browser, no `typeof` throw).
 fn defaultWsUrl() {
   let loc = globalThis.location
-  if (loc != null && loc.hostname != null && loc.hostname !== "" && loc.hostname !== "localhost" && loc.hostname !== "127.0.0.1") {
+  if (loc !== null && loc !== undefined && loc.hostname !== null && loc.hostname !== undefined && loc.hostname !== "" && loc.hostname !== "localhost" && loc.hostname !== "127.0.0.1") {
     let proto = loc.protocol === "https:" ? "wss:" : "ws:"
     return proto + "//" + loc.host + "/codj"
   }
@@ -224,9 +224,9 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
     if (t === "presence") {
       if (rt) {
         rt.coDjActors = msg.actors ? msg.actors : []
-        if (msg.hostActorId != null) {
+        if (msg.hostActorId !== null && msg.hostActorId !== undefined) {
           rt.coDjHostActorId = msg.hostActorId
-          rt.coDjIsHost = rt.coDjActorId != null && msg.hostActorId === rt.coDjActorId
+          rt.coDjIsHost = rt.coDjActorId !== null && rt.coDjActorId !== undefined && msg.hostActorId === rt.coDjActorId
         }
         syncPlayerRoster()
         let al = rt.coDjActors
@@ -318,7 +318,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       return
     }
     if (t === "tpl.line") {
-      let ln = msg.line != null ? String(msg.line) : ""
+      let ln = msg.line !== null && msg.line !== undefined ? String(msg.line) : ""
       let fromId = msg.actorId ? msg.actorId : (msg.laneId ? msg.laneId : "?")
       let authorId = msg.authorId ? msg.authorId : fromId
       // Live token-line preview (read-only "Hub → you" pane).
@@ -376,7 +376,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
     // the host, or the user switched to independent mode.)
     if (t === "control" && msg.op === "playing_start" && rt && coDjShouldFollow(rt)) {
       rt.coDjHostPlaying = true
-      let hs = msg.perfStep != null ? Math.floor(Number(msg.perfStep)) : 0
+      let hs = msg.perfStep !== null && msg.perfStep !== undefined ? Math.floor(Number(msg.perfStep)) : 0
       if (rt.coDjFollowStart) {
         rt.coDjFollowStart(hs, msg.playMode)
       }
@@ -393,7 +393,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
     }
     if (t === "control" && msg.op === "clock" && rt && coDjShouldFollow(rt)) {
       rt.coDjHostPlaying = true
-      let hs2 = msg.perfStep != null ? Math.floor(Number(msg.perfStep)) : 0
+      let hs2 = msg.perfStep !== null && msg.perfStep !== undefined ? Math.floor(Number(msg.perfStep)) : 0
       if (!rt.playing && rt.coDjFollowStart) {
         rt.coDjFollowStart(hs2, msg.playMode)
       } else if (rt.coDjApplyClock) {
@@ -408,10 +408,10 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
     if (!rt || !rt.project) {
       return
     }
-    let host = rt.coDjHostActorId != null ? rt.coDjHostActorId : null
+    let host = rt.coDjHostActorId !== null && rt.coDjHostActorId !== undefined ? rt.coDjHostActorId : null
     let actors = Array.isArray(rt.coDjActors) ? rt.coDjActors : []
     let players = []
-    if (host != null && host !== "") {
+    if (host !== null && host !== undefined && host !== "") {
       players.push(host)
     }
     let sorted = actors.slice().sort()
@@ -422,7 +422,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       }
       i = i + 1
     }
-    rt.project.coDjSelfActorId = rt.coDjActorId != null ? rt.coDjActorId : ""
+    rt.project.coDjSelfActorId = rt.coDjActorId !== null && rt.coDjActorId !== undefined ? rt.coDjActorId : ""
     rt.project.coDjHostActorId = host
     rt.project.coDjIsHost = rt.coDjIsHost === true
     rt.project.coDjPlayers = players
@@ -470,11 +470,11 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
     // Reconstruct ownership so decks survive the clobber: the host's tracks → Deck A, agents on their
     // own lanes. Without this every track would default to "human" and collapse onto Deck A.
     ensureCoDjMeta(np)
-    if (owners != null) {
+    if (owners !== null && owners !== undefined) {
       let ci = 0
       while (ci < np.channels.length) {
         let cid = np.channels[ci].id
-        if (owners[cid] != null) {
+        if (owners[cid] !== null && owners[cid] !== undefined) {
           setTrackOwner(np, cid, owners[cid], owners[cid])
         }
         ci = ci + 1
@@ -500,7 +500,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
     } catch (e) {
       return
     }
-    if (msg != null && msg.type === "ping") {
+    if (msg !== null && msg !== undefined && msg.type === "ping") {
       return
     }
     if (typeof console !== "undefined" && console.log) {
@@ -524,8 +524,8 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
           }
         }
         rt.coDjActors = msg.actors ? msg.actors : []
-        rt.coDjHostActorId = msg.hostActorId != null ? msg.hostActorId : null
-        rt.coDjIsHost = rt.coDjActorId != null && msg.hostActorId === rt.coDjActorId
+        rt.coDjHostActorId = msg.hostActorId !== null && msg.hostActorId !== undefined ? msg.hostActorId : null
+        rt.coDjIsHost = rt.coDjActorId !== null && rt.coDjActorId !== undefined && msg.hostActorId === rt.coDjActorId
         syncPlayerRoster()
         rt.coDjPairingDirty = true
       }
@@ -622,7 +622,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
     }
     sock.onclose = (ev) => {
       if (typeof console !== "undefined" && console.log) {
-        let code = ev && ev.code != null ? ev.code : "?"
+        let code = ev && ev.code !== null && ev.code !== undefined ? ev.code : "?"
         let reason = ev && ev.reason ? ev.reason : ""
         console.log("[Co-DJ] ws closed", code, reason)
       }
@@ -753,7 +753,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
         <input
           type="checkbox"
           checked={rt ? rt.coDjFollowTransport !== false : true}
-          disabled={rt != null && rt.coDjIsHost === true}
+          disabled={rt !== null && rt !== undefined && rt.coDjIsHost === true}
           onchange={(e) => {
             if (rt) {
               rt.coDjFollowTransport = e.target.checked === true
@@ -763,7 +763,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
             }
           }}
         />
-        {rt != null && rt.coDjIsHost === true ? " Host (clock master)" : " Follow host transport"}
+        {rt !== null && rt !== undefined && rt.coDjIsHost === true ? " Host (clock master)" : " Follow host transport"}
       </label>
     </div>
     <div class="codj-actions">

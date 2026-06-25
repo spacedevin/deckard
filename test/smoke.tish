@@ -224,14 +224,14 @@ let chCh = findChannelById(barProj, "ch")
 check("bar sel: note expands across loop bars (3 sel -> 4 notes)", chCh !== null && chCh.pianoNotes.length === 4)
 check("bar sel: 'bar 1,3' note lands at beats 4 and 12", chCh !== null && chCh.pianoNotes.some(n => n.pitch === 43 && n.startBeat === 4) && chCh.pianoNotes.some(n => n.pitch === 43 && n.startBeat === 12))
 let bsCh = findChannelById(barProj, "bs")
-check("bar sel: per-bar step_pitch builds [36,31,34,34]", bsCh !== null && bsCh.stepPitchByBar != null && bsCh.stepPitchByBar.length === 4 && bsCh.stepPitchByBar[0] === 36 && bsCh.stepPitchByBar[1] === 31 && bsCh.stepPitchByBar[3] === 34)
+check("bar sel: per-bar step_pitch builds [36,31,34,34]", bsCh !== null && bsCh.stepPitchByBar !== null && bsCh.stepPitchByBar !== undefined && bsCh.stepPitchByBar.length === 4 && bsCh.stepPitchByBar[0] === 36 && bsCh.stepPitchByBar[1] === 31 && bsCh.stepPitchByBar[3] === 34)
 let barEmit = emitProject(barProj)
 check("bar sel: emit keeps the * 4 loop header", barEmit.indexOf("gen patch * 4") >= 0)
 let barProj2 = loadDefaultDeckardProject().project
 let barRT = applyTplSource(barProj2, barEmit)
 check("bar sel: multi-bar emit re-parses clean", barRT.errors.length === 0)
 let bs2 = findChannelById(barProj2, "bs")
-check("bar sel: round-trip preserves per-bar step_pitch", bs2 !== null && bs2.stepPitchByBar != null && bs2.stepPitchByBar[1] === 31)
+check("bar sel: round-trip preserves per-bar step_pitch", bs2 !== null && bs2.stepPitchByBar !== null && bs2.stepPitchByBar !== undefined && bs2.stepPitchByBar[1] === 31)
 
 // 5d. Macros: built-in reference, param override, user-defined macro, concise emit + round-trip
 let macSrc = "tpl 1\nmacro my_zap top=4000 q=18\n  osc o sawtooth note\n  filter f lowpass q $q\n  gain a\n  conn o f\n  conn f a\n  conn a out\n  env f.freq set 0 $top exp 0.2 100\n  env a.gain set 0 0.3 lin dur 0.01\nend macro\ntrack Kick id mk gen kick_edm\n  step_pitch 36\n  steps x . . . x . . . x . . . x . . .\ntrack Bass id mb gen bass_acid q 9\n  step_pitch 36\n  steps x . x . x . x . x . x . x . x .\ntrack Lead id ml gen my_zap top 5000\n  note 60 0 0.5 v 90"
@@ -480,7 +480,7 @@ check("arp down: reversed order (47→44→40)", arpDown[0].pitch === 47 && arpD
 check("arp without a chord: nothing to arpeggiate (single note)", expandTriggerNotes({ id: "z3", chord: "off", arp: "up" }, 40, 0.3).length === 1)
 // guitar → patch: the REAL Karplus-Strong string primitive (not a saw approximation) → body lowpass → amp.
 let gtrPatchG = parsePatchGraph(compileGeneratorToPatchLines("guitar", { tone: 0.5, decay: 0.6, drive: 0.3, body: 3000 }, null))
-check("guitar→patch: KS string→lowpass→amp (no saw approximation)", gtrPatchG.nodes.some(n => n.kind === "string") && !gtrPatchG.nodes.some(n => n.kind === "osc") && gtrPatchG.nodes.some(n => n.kind === "filter") && gtrPatchG.envs.some(e => e.node === "a1") && gtrPatchG.dur != null)
+check("guitar→patch: KS string→lowpass→amp (no saw approximation)", gtrPatchG.nodes.some(n => n.kind === "string") && !gtrPatchG.nodes.some(n => n.kind === "osc") && gtrPatchG.nodes.some(n => n.kind === "filter") && gtrPatchG.envs.some(e => e.node === "a1") && (gtrPatchG.dur !== null && gtrPatchG.dur !== undefined))
 // matrixFm → patch: the operator/matrix graph reduces to oscillators + FM-routed connections + envelopes.
 // Factory Matrix FM patch bank (Sytrus-style) — every patch must parse into a valid graph: >=2 operators,
 // at least one route to out, and every mod/route references an operator that exists (no dangling ids).
@@ -492,8 +492,8 @@ while (fmbi < fmBank.length) {
   let bg = parseGenBlock("matrix_fm", fmBank[fmbi].lines).graph
   let okOps = Object.keys(bg.ops).length >= 2
   let okOut = bg.routes.some(r => r.dstKind === "out")
-  let okMods = bg.mods.every(m => bg.ops[m.src] != null && bg.ops[m.dst] != null)
-  let okRoutes = bg.routes.every(r => r.srcKind === "filter" || bg.ops[r.srcId] != null)
+  let okMods = bg.mods.every(m => bg.ops[m.src] !== null && bg.ops[m.src] !== undefined && bg.ops[m.dst] !== null && bg.ops[m.dst] !== undefined)
+  let okRoutes = bg.routes.every(r => r.srcKind === "filter" || (bg.ops[r.srcId] !== null && bg.ops[r.srcId] !== undefined))
   if (!(okOps && okOut && okMods && okRoutes)) {
     fmBad = fmBad + 1
   }
@@ -539,7 +539,7 @@ check("macro expand: defaults apply when no override", expDef.join("\n").indexOf
 let lenProj = loadDefaultDeckardProject().project
 applyTplSource(lenProj, "tpl 1\ntrack A id la gen basic_osc * 4\n  steps x . . . x . . . x . . . x . . .\ntrack B id lb gen basic_osc\n  loops 2\n  steps x . . . x . . . x . . . x . . .")
 let la = findChannelById(lenProj, "la")
-check("pattern len: `* 4` sets patternBars=4, no loop cap", la !== null && la.patternBars === 4 && la.tplLoopBars == null)
+check("pattern len: `* 4` sets patternBars=4, no loop cap", la !== null && la.patternBars === 4 && (la.tplLoopBars === null || la.tplLoopBars === undefined))
 let lb = findChannelById(lenProj, "lb")
 check("loop cap: `loops 2` sets tplLoopBars cap, patternBars stays 1", lb !== null && lb.tplLoopBars === 2 && lb.patternBars === 1)
 
@@ -593,17 +593,17 @@ let pmRt = { sessionArmedClipIds: [] }
 sessionArmScene(pmProj, pmRt, 0)
 pmRt.playMode = "song"
 let songClip = playbackClipForChannel(pmProj, pmRt, 0)
-check("play song: armed pattern (P1) drives audio, not the rack", songClip != null && !songClip.silent && songClip.steps[0].on && !songClip.steps[8].on)
+check("play song: armed pattern (P1) drives audio, not the rack", songClip !== null && songClip !== undefined && !songClip.silent && songClip.steps[0].on && !songClip.steps[8].on)
 pmRt.playMode = "sequence"
 let seqClip = playbackClipForChannel(pmProj, pmRt, 0)
-check("play sequence: ignores arming, returns null so the rack is monitored", seqClip == null)
+check("play sequence: ignores arming, returns null so the rack is monitored", seqClip === null || seqClip === undefined)
 // Session mode with an UNSAVED slot (default main clip) is silent — it must NOT fall back to the rack.
 let emptyProj2 = loadDefaultDeckardProject().project
 ensureProjectSession(emptyProj2)
 let emptyRt = { sessionArmedClipIds: [], playMode: "song" }
 sessionArmScene(emptyProj2, emptyRt, 0)   // fresh session → slots are default main clips
 let emptyClip = playbackClipForChannel(emptyProj2, emptyRt, 0)
-check("play session: unsaved slot is SILENT, not the rack", emptyClip != null && emptyClip.silent === true)
+check("play session: unsaved slot is SILENT, not the rack", emptyClip !== null && emptyClip !== undefined && emptyClip.silent === true)
 
 // 5k. Song chain — Play Song advances through SAVED patterns, skipping empty ones, wrapping.
 let songProj = loadDefaultDeckardProject().project
@@ -705,7 +705,7 @@ tlc.stepPitchByBar = [36, 34, 32, 34]
 sessionWriteRackBarToSceneClip(tlProj, 1, 1)                                       // SAVE 1 BAR from bar 1
 let tlClip = findClipOnChannel(tlc, tlc.id + "_sc1")
 check("save 1 bar: tiled stepped pattern captured (not empty)", tlClip.steps.length === 16 && tlClip.steps[0].on === true)
-check("save 1 bar: per-bar pitch of the viewed bar captured", tlClip.stepPitchByBar != null && tlClip.stepPitchByBar[0] === 34)
+check("save 1 bar: per-bar pitch of the viewed bar captured", tlClip.stepPitchByBar !== null && tlClip.stepPitchByBar !== undefined && tlClip.stepPitchByBar[0] === 34)
 
 // 5q. Per-track STOP silences just that track, persists across song scene advances, and is distinct
 // from following the song (an empty "" override that armSceneWithOverrides re-applies each scene).
@@ -737,7 +737,7 @@ check("emit: song entry P2 x4", sgEmit.indexOf("  P2 x4") >= 0)
 let sgBack = loadDefaultDeckardProject().project
 applyTplSource(sgBack, sgEmit)
 check("round-trip: launch_quant preserved", sgBack.launchQuant === 8)
-check("round-trip: song length preserved", sgBack.session.song != null && sgBack.session.song.length === 3)
+check("round-trip: song length preserved", sgBack.session.song !== null && sgBack.session.song !== undefined && sgBack.session.song.length === 3)
 check("round-trip: song entry 0 = scene 0 x2", sgBack.session.song[0].scene === 0 && sgBack.session.song[0].repeat === 2)
 check("round-trip: song entry 1 = scene 2 x1", sgBack.session.song[1].scene === 2 && sgBack.session.song[1].repeat === 1)
 check("round-trip: song entry 2 = scene 1 x4", sgBack.session.song[2].scene === 1 && sgBack.session.song[2].repeat === 4)
@@ -779,9 +779,9 @@ let faBack = loadDefaultDeckardProject().project
 applyTplSource(faBack, faEmit)
 check("follow round-trip: seed", faBack.songSeed === 42)
 let faF1 = sceneFollow(faBack, 1)
-check("follow round-trip: scene 1 A=next wA=0.7 B=repeat wB=0.3", faF1 != null && faF1.a === "next" && Math.abs(faF1.wa - 0.7) < 0.001 && faF1.b === "repeat" && Math.abs(faF1.wb - 0.3) < 0.001)
+check("follow round-trip: scene 1 A=next wA=0.7 B=repeat wB=0.3", faF1 !== null && faF1 !== undefined && faF1.a === "next" && Math.abs(faF1.wa - 0.7) < 0.001 && faF1.b === "repeat" && Math.abs(faF1.wb - 0.3) < 0.001)
 let faF3 = sceneFollow(faBack, 3)
-check("follow round-trip: scene 3 = stop", faF3 != null && faF3.a === "stop")
+check("follow round-trip: scene 3 = stop", faF3 !== null && faF3 !== undefined && faF3.a === "stop")
 
 // detRand01 determinism: same (seed,n) → same value; different n → varies.
 check("detRand01: deterministic", detRand01(42, 5) === detRand01(42, 5))
@@ -978,14 +978,15 @@ while (dz < dsProj.channels.length) {
 }
 check("deck swap: deck A channel survives the swap", aIdx >= 0)
 check("deck swap: deck A's saved scene 0 PERSISTS (not cleared)", aIdx >= 0 && dsProj.session.slots[aIdx][0] === aId + "_sc0")
-check("deck swap: deck A channel keeps its saved clip object", findClipOnChannel(dsProj.channels[aIdx], aId + "_sc0") != null)
+let dsClipA = findClipOnChannel(dsProj.channels[aIdx], aId + "_sc0")
+check("deck swap: deck A channel keeps its saved clip object", dsClipA !== null && dsClipA !== undefined)
 let bChan = null
 let bz = 0
 while (bz < dsProj.channels.length) {
   if (String(dsProj.channels[bz].id).indexOf("b_") === 0) { bChan = dsProj.channels[bz] }
   bz = bz + 1
 }
-check("deck swap: deck B preset loaded its stems", bChan != null)
+check("deck swap: deck B preset loaded its stems", bChan !== null && bChan !== undefined)
 
 // 6. Every stem deck set parses cleanly into >= 5 stems (the deck.tsx conversions)
 let cat = deckSetCatalog()
@@ -1028,8 +1029,8 @@ check("round-trip: crossfade Y survives", Math.abs(rtp2.transportCrossfadeY - 0.
 check("round-trip: main_deck survives", rtp2.transportMainDeck === "local")
 check("round-trip: swing survives", Math.abs(rtp2.swing - 0.25) < 1e-6)
 let rtpCh0 = findChannelById(rtp2, rtp.channels[0].id)
-check("round-trip: channel deck survives", rtpCh0 != null && rtpCh0.deck === "B")
-check("round-trip: channel deckSlot survives", rtpCh0 != null && rtpCh0.deckSlot === 1)
+check("round-trip: channel deck survives", rtpCh0 !== null && rtpCh0 !== undefined && rtpCh0.deck === "B")
+check("round-trip: channel deckSlot survives", rtpCh0 !== null && rtpCh0 !== undefined && rtpCh0.deckSlot === 1)
 // REGRESSION (saved-set deck routing): graftRackOntoDeck parks B/C/D channels on ch.deck="live" with the
 // real deck living ONLY in deckSlot. Emit must still write the slot, or instruments collapse onto deck A
 // when a recorded Set is loaded. Gate on deckSlot, not just a non-"live" deck letter.
@@ -1041,7 +1042,7 @@ check("emit: deckSlot emitted even when ch.deck stays 'live'", rtpLiveEmit.index
 let rtpLive2 = emptyProjectShell()
 applyTplSource(rtpLive2, rtpLiveEmit)
 let rtpLiveCh0 = findChannelById(rtpLive2, rtpLive.channels[0].id)
-check("round-trip: 'live'+slot keeps deckSlot (deck C routing survives load)", rtpLiveCh0 != null && rtpLiveCh0.deckSlot === 2)
+check("round-trip: 'live'+slot keeps deckSlot (deck C routing survives load)", rtpLiveCh0 !== null && rtpLiveCh0 !== undefined && rtpLiveCh0.deckSlot === 2)
 // Defaults must NOT emit (keeps round-trip minimal/stable).
 let rtpDef = loadDefaultDeckardProject().project
 let rtpDefEmit = emitProject(rtpDef)
@@ -1072,7 +1073,7 @@ check("detect: fx is a control directive", isLaunchDirective("@ fx echo on") ===
 check("private: fx throw is NOT private (shared punch)", isPrivateDirective("@ fx echo on") === false)
 let fxRt = { fxFired: null, triggerMasterFx: (type, on, params) => { fxRt.fxFired = { type: type, on: on, params: params } } }
 let fxProj = loadDefaultDeckardProject().project
-check("fx: master applies + fires the audio hook", applyLaunchDirective(fxProj, fxRt, "@ fx echo on time 0.3 fb 0.4", "human", ["master_mixer"]) === true && fxRt.fxFired != null && fxRt.fxFired.type === "echo" && fxRt.fxFired.on === true && Math.abs(fxRt.fxFired.params.time - 0.3) < 1e-9 && Math.abs(fxRt.fxFired.params.fb - 0.4) < 1e-9)
+check("fx: master applies + fires the audio hook", applyLaunchDirective(fxProj, fxRt, "@ fx echo on time 0.3 fb 0.4", "human", ["master_mixer"]) === true && fxRt.fxFired !== null && fxRt.fxFired !== undefined && fxRt.fxFired.type === "echo" && fxRt.fxFired.on === true && Math.abs(fxRt.fxFired.params.time - 0.3) < 1e-9 && Math.abs(fxRt.fxFired.params.fb - 0.4) < 1e-9)
 let fxRt2 = { fxFired: null, triggerMasterFx: (type, on, params) => { fxRt2.fxFired = { type: type, on: on } } }
 check("fx: off parses on=false", applyLaunchDirective(fxProj, fxRt2, "@ fx echo off", "human", ["master_mixer"]) === true && fxRt2.fxFired.on === false)
 let fxRt3 = { fxFired: null, triggerMasterFx: (type, on, params) => { fxRt3.fxFired = { type: type } } }
@@ -1095,7 +1096,7 @@ let uncueRt = { cued: null, uncued: false, onCueScene: (s) => { uncueRt.cued = s
 check("cue: @ cue off un-cues (onUncue, not onCueScene)", applyLaunchDirective(ctProj, uncueRt, "@ cue off", "human", ["master_mixer"]) === true && uncueRt.uncued === true && uncueRt.cued === null)
 // FILTER FX throw routes type "filter" through the same gate.
 let filtRt = { fx: null, triggerMasterFx: (type, on, params) => { filtRt.fx = { type: type, on: on } } }
-check("fx: @ fx filter routes type 'filter'", applyLaunchDirective(ctProj, filtRt, "@ fx filter on", "human", ["master_mixer"]) === true && filtRt.fx != null && filtRt.fx.type === "filter" && filtRt.fx.on === true)
+check("fx: @ fx filter routes type 'filter'", applyLaunchDirective(ctProj, filtRt, "@ fx filter on", "human", ["master_mixer"]) === true && filtRt.fx !== null && filtRt.fx !== undefined && filtRt.fx.type === "filter" && filtRt.fx.on === true)
 check("fx: filter directive detected + not private", isLaunchDirective("@ fx filter on") === true && isPrivateDirective("@ fx filter on") === false)
 
 // 6d. Signal bus (rearch step 2): publish/subscribe, last-value replay, unsubscribe.
@@ -1121,7 +1122,7 @@ ingA.ingest("bpm 128", ctxMaster)
 check("ingest: master sets global bpm", projA.bpm === 128)
 ingA.ingest("track New id tnew gen drum\n  mix gain 0.42 pan 0 mute 0 solo 0 eq_lo 0 eq_mid 0 eq_hi 0", ctxMaster)
 let tnewA = findChannelById(projA, "tnew")
-check("ingest: new track folded (gain)", tnewA != null && Math.abs(tnewA.gain - 0.42) < 1e-6)
+check("ingest: new track folded (gain)", tnewA !== null && tnewA !== undefined && Math.abs(tnewA.gain - 0.42) < 1e-6)
 check("ingest: doc fragments echoed to out-stream", wire.length === 2)
 // Convergence: a second machine replays A's authored stream → identical fold.
 let projB = loadDefaultDeckardProject().project
@@ -1133,7 +1134,7 @@ while (wi < wire.length) {
 }
 let tnewB = findChannelById(projB, "tnew")
 check("converge: peer B bpm matches A", projB.bpm === 128)
-check("converge: peer B track gain matches A", tnewB != null && Math.abs(tnewB.gain - 0.42) < 1e-6)
+check("converge: peer B track gain matches A", tnewB !== null && tnewB !== undefined && Math.abs(tnewB.gain - 0.42) < 1e-6)
 // Gate: a non-master, non-owner actor cannot change globals or someone else's track.
 let ctxGuest = { actorId: "agentB", skillIds: [] }
 ingB.ingest("bpm 200", ctxGuest)
@@ -1211,8 +1212,8 @@ editor.emit("track/" + chId0 + "/gen/waveform", "square")
 check("edit-loop: gen/waveform param folds", findChannelById(projE, chId0).generatorParams.waveform === "square")
 editor.emit("track/" + chId0 + "/adsr", { a: 0.02, d: 0.6, s: 0.3, r: 0.9 })
 let gp0 = findChannelById(projE, chId0).generatorParams
-check("edit-loop: adsr folds attack", gp0.attack != null && Math.abs(gp0.attack - 0.02) < 1e-6)
-check("edit-loop: adsr folds release", gp0.release != null && Math.abs(gp0.release - 0.9) < 1e-6)
+check("edit-loop: adsr folds attack", gp0.attack !== null && gp0.attack !== undefined && Math.abs(gp0.attack - 0.02) < 1e-6)
+check("edit-loop: adsr folds release", gp0.release !== null && gp0.release !== undefined && Math.abs(gp0.release - 0.9) < 1e-6)
 
 // ---- Undo / redo (Phase 4): inverse TPL re-ingested through the same gated door ----
 let uProj = loadDefaultDeckardProject().project
@@ -1503,7 +1504,7 @@ uiP.channels[0].pianoNotes = [{ startBeat: 0, durBeats: 0.25, pitch: 60, vel: 10
 let uiRendered = false
 try {
   let uiVnode = StepGridPanel(uiP, 0, () => {}, () => {}, uiRt, null)
-  uiRendered = uiVnode != null
+  uiRendered = uiVnode !== null && uiVnode !== undefined
 } catch (uiErr) {
   console.log("  (render threw: " + String(uiErr) + ")")
   uiRendered = false
@@ -1513,7 +1514,7 @@ check("UI: StepGridPanel renders with all lanes/expansions open (no h-shadow / r
 // ---- Pitch selector knobs: detent-dot rendering on the shared Knob + the octave/arp/chord index<->value
 // mapping. Catches a knob-render crash (h-shadow) and locks the new stepped-selector behaviour. ----
 fn pkCircles(node, acc) {
-  if (node == null) {
+  if (node === null || node === undefined) {
     return acc
   }
   if (Array.isArray(node)) {
@@ -1530,23 +1531,23 @@ fn pkCircles(node, acc) {
   if (node.tag === "circle") {
     acc.push(node)
   }
-  if (node.children != null) {
+  if (node.children !== null && node.children !== undefined) {
     pkCircles(node.children, acc)
   }
   return acc
 }
 fn pkClass(n) {
-  return n.props != null && n.props.class != null ? n.props.class : ""
+  return n.props !== null && n.props !== undefined && n.props.class !== null && n.props.class !== undefined ? n.props.class : ""
 }
 fn pkFindTag(node, tagName) {
-  if (node == null || typeof node !== "object") {
+  if (node === null || node === undefined || typeof node !== "object") {
     return null
   }
   if (Array.isArray(node)) {
     let pfi = 0
     while (pfi < node.length) {
       let pfr = pkFindTag(node[pfi], tagName)
-      if (pfr != null) {
+      if (pfr !== null && pfr !== undefined) {
         return pfr
       }
       pfi = pfi + 1
@@ -1556,30 +1557,30 @@ fn pkFindTag(node, tagName) {
   if (node.tag === tagName) {
     return node
   }
-  if (node.children != null) {
+  if (node.children !== null && node.children !== undefined) {
     return pkFindTag(node.children, tagName)
   }
   return null
 }
 fn pkClassText(node, cls) {
-  if (node == null || typeof node !== "object") {
+  if (node === null || node === undefined || typeof node !== "object") {
     return null
   }
   if (Array.isArray(node)) {
     let pti = 0
     while (pti < node.length) {
       let ptr = pkClassText(node[pti], cls)
-      if (ptr != null) {
+      if (ptr !== null && ptr !== undefined) {
         return ptr
       }
       pti = pti + 1
     }
     return null
   }
-  if (pkClass(node) === cls && node.children != null && node.children.length > 0) {
+  if (pkClass(node) === cls && node.children !== null && node.children !== undefined && node.children.length > 0) {
     return node.children[0]
   }
-  if (node.children != null) {
+  if (node.children !== null && node.children !== undefined) {
     return pkClassText(node.children, cls)
   }
   return null
@@ -1660,14 +1661,14 @@ check("patch gen emit: keeps the dur line (was dropped)", pgEmit.indexOf("dur 0.
 let pgG = parsePatchGraph(defaultPatchRawLines())
 let pgPanId = addPatchNode(pgG, "pan")
 let pgPanNode = pgG.nodes.filter(n => n.id === pgPanId)[0]
-check("addPatchNode pan: creates a pan node (not gain)", pgPanNode != null && pgPanNode.kind === "pan")
+check("addPatchNode pan: creates a pan node (not gain)", pgPanNode !== null && pgPanNode !== undefined && pgPanNode.kind === "pan")
 let pgLines = patchGraphToLines(pgG)
 check("pan node round-trips through a `pan` line", pgLines.some(l => l.indexOf("pan " + pgPanId) >= 0))
 check("pan node re-parses as kind pan", parsePatchGraph(pgLines).nodes.filter(n => n.id === pgPanId)[0].kind === "pan")
 
 // (3) PatchGraphPanel renders one card PER MODULE (decomposed), no h-shadow / render crash.
 fn pgCountClass(node, cls, acc) {
-  if (node == null) {
+  if (node === null || node === undefined) {
     return acc
   }
   if (Array.isArray(node)) {
@@ -1684,7 +1685,7 @@ fn pgCountClass(node, cls, acc) {
   if (pkClass(node).split(" ").indexOf(cls) >= 0) {
     acc.count = acc.count + 1
   }
-  if (node.children != null) {
+  if (node.children !== null && node.children !== undefined) {
     pgCountClass(node.children, cls, acc)
   }
   return acc
@@ -1697,7 +1698,7 @@ let pgVnode = null
 let pgOk = false
 try {
   pgVnode = PatchGraphPanel(pgRCh, pgRP, () => {}, { directive: () => {} })
-  pgOk = pgVnode != null
+  pgOk = pgVnode !== null && pgVnode !== undefined
 } catch (pgErr) {
   console.log("  (patch panel threw: " + String(pgErr) + ")")
   pgOk = false
@@ -1729,14 +1730,14 @@ check("patch broadcast MERGES: gen still patch with the osc node", pgMch2.genera
 // (5) Review fixes: broadcast fires on COMMIT (discrete edit / drag-end), not on render; orphan conns are
 // visible + removable; Knob onCommit fires on a wheel tick.
 fn pgFindClass(node, cls) {
-  if (node == null || typeof node !== "object") {
+  if (node === null || node === undefined || typeof node !== "object") {
     return null
   }
   if (Array.isArray(node)) {
     let pfci = 0
     while (pfci < node.length) {
       let pfcr = pgFindClass(node[pfci], cls)
-      if (pfcr != null) {
+      if (pfcr !== null && pfcr !== undefined) {
         return pfcr
       }
       pfci = pfci + 1
@@ -1746,7 +1747,7 @@ fn pgFindClass(node, cls) {
   if (pkClass(node).split(" ").indexOf(cls) >= 0) {
     return node
   }
-  if (node.children != null) {
+  if (node.children !== null && node.children !== undefined) {
     return pgFindClass(node.children, cls)
   }
   return null
@@ -1759,7 +1760,7 @@ pgOCh.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "gain a1 1", "
 let pgOvnode = PatchGraphPanel(pgOCh, pgOP, () => {}, { directive: (s) => pgOdir.push(s) })
 check("patch: render alone does NOT broadcast (no directive on mount)", pgOdir.length === 0)
 let pgOrph = pgFindClass(pgOvnode, "patch-orphan-route")
-check("patch: an orphan conn (src not a live node) is shown in an Unrouted row", pgOrph != null)
+check("patch: an orphan conn (src not a live node) is shown in an Unrouted row", pgOrph !== null && pgOrph !== undefined)
 pkFindTag(pgOrph, "button").props.onclick()
 check("patch: removing an orphan conn broadcasts + drops it", pgOdir.length === 1 && pgOCh.generatorSpec.graph.conns.filter(c => c.src === "ghost").length === 0)
 let pgNodesBefore = pgOCh.generatorSpec.graph.nodes.length
@@ -1780,8 +1781,10 @@ let pgLCh = pgLP.channels[0]
 pgLCh.generatorId = "patch"
 pgLCh.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "gain a1 1", "conn o1 a1 1", "conn a1 out 1"])
 let pgLvnode = PatchGraphPanel(pgLCh, pgLP, () => {}, { directive: (s) => pgLdir.push(s) }, false)
-check("patch read-only: renders the lock banner", pgFindClass(pgLvnode, "instr-locked-hint") != null)
-check("patch read-only: editable region marked instr-readonly", pgFindClass(pgLvnode, "instr-readonly") != null)
+let pgLockBanner = pgFindClass(pgLvnode, "instr-locked-hint")
+check("patch read-only: renders the lock banner", pgLockBanner !== null && pgLockBanner !== undefined)
+let pgReadonlyRegion = pgFindClass(pgLvnode, "instr-readonly")
+check("patch read-only: editable region marked instr-readonly", pgReadonlyRegion !== null && pgReadonlyRegion !== undefined)
 let pgLnodesBefore = pgLCh.generatorSpec.graph.nodes.length
 pkFindTag(pgFindClass(pgLvnode, "patch-palette"), "button").props.onclick()
 check("patch read-only: a palette click neither broadcasts nor mutates", pgLdir.length === 0 && pgLCh.generatorSpec.graph.nodes.length === pgLnodesBefore)
@@ -1792,7 +1795,8 @@ let pgUCh = pgUP.channels[0]
 pgUCh.generatorId = "patch"
 pgUCh.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "gain a1 1", "conn o1 a1 1", "conn a1 out 1"])
 let pgUvnode = PatchGraphPanel(pgUCh, pgUP, () => {}, { directive: (s) => pgUdir.push(s) }, true)
-check("patch owner: no lock banner when mayEdit", pgFindClass(pgUvnode, "instr-locked-hint") == null)
+let pgUlockBanner = pgFindClass(pgUvnode, "instr-locked-hint")
+check("patch owner: no lock banner when mayEdit", pgUlockBanner === null || pgUlockBanner === undefined)
 let pgUnodesBefore = pgUCh.generatorSpec.graph.nodes.length
 pkFindTag(pgFindClass(pgUvnode, "patch-palette"), "button").props.onclick()
 check("patch owner: a palette click broadcasts + mutates", pgUdir.length === 1 && pgUCh.generatorSpec.graph.nodes.length === pgUnodesBefore + 1)
@@ -1815,12 +1819,13 @@ let pgMxOk = false
 let pgMxVnode = null
 try {
   pgMxVnode = MatrixFmPanel(pgMxCh, pgMxP, () => {}, () => {}, false)
-  pgMxOk = pgMxVnode != null
+  pgMxOk = pgMxVnode !== null && pgMxVnode !== undefined
 } catch (pgMxErr) {
   console.log("  (matrix panel threw: " + String(pgMxErr) + ")")
   pgMxOk = false
 }
-check("UI: MatrixFmPanel renders read-only (no crash) + shows the lock", pgMxOk && pgFindClass(pgMxVnode, "instr-locked-hint") != null)
+let pgMxLockBanner = pgFindClass(pgMxVnode, "instr-locked-hint")
+check("UI: MatrixFmPanel renders read-only (no crash) + shows the lock", pgMxOk && pgMxLockBanner !== null && pgMxLockBanner !== undefined)
 
 // (9) Signal-flow cables: pure geometry + the overlay/sink/anchor DOM the imperative layer measures against.
 let pgCab = cablePathD(10, 20, 110, 70)
@@ -1831,24 +1836,24 @@ check("cableKindFor: a param route is 'mod'", cableKindFor({ dst: "f1", dstParam
 check("cableKindFor: a plain audio route is 'audio'", cableKindFor({ dst: "f1", dstParam: null }) === "audio")
 
 fn pgFindId(node, id) {
-  if (node == null || typeof node !== "object") {
+  if (node === null || node === undefined || typeof node !== "object") {
     return null
   }
   if (Array.isArray(node)) {
     let pii = 0
     while (pii < node.length) {
       let pir = pgFindId(node[pii], id)
-      if (pir != null) {
+      if (pir !== null && pir !== undefined) {
         return pir
       }
       pii = pii + 1
     }
     return null
   }
-  if (node.props != null && node.props.id === id) {
+  if (node.props !== null && node.props !== undefined && node.props.id === id) {
     return node
   }
-  if (node.children != null) {
+  if (node.children !== null && node.children !== undefined) {
     return pgFindId(node.children, id)
   }
   return null
@@ -1858,10 +1863,14 @@ let pgCabCh = pgCabP.channels[0]
 pgCabCh.generatorId = "patch"
 pgCabCh.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "gain a1 1", "conn o1 a1 1", "conn a1 out 1"])
 let pgCabV = PatchGraphPanel(pgCabCh, pgCabP, () => {}, { directive: () => {} }, true)
-check("cables: the SVG overlay renders", pgFindClass(pgCabV, "patch-cables") != null)
-check("cables: an OUT sink renders for cables to land on", pgFindId(pgCabV, "pmsink-out") != null)
-check("cables: node cards carry a stable anchor id (pmnode-o1)", pgFindId(pgCabV, "pmnode-o1") != null)
-check("cables: route rows carry a stable anchor id (pmroute-0)", pgFindId(pgCabV, "pmroute-0") != null)
+let pgCabOverlay = pgFindClass(pgCabV, "patch-cables")
+check("cables: the SVG overlay renders", pgCabOverlay !== null && pgCabOverlay !== undefined)
+let pgCabSink = pgFindId(pgCabV, "pmsink-out")
+check("cables: an OUT sink renders for cables to land on", pgCabSink !== null && pgCabSink !== undefined)
+let pgCabNode = pgFindId(pgCabV, "pmnode-o1")
+check("cables: node cards carry a stable anchor id (pmnode-o1)", pgCabNode !== null && pgCabNode !== undefined)
+let pgCabRoute = pgFindId(pgCabV, "pmroute-0")
+check("cables: route rows carry a stable anchor id (pmroute-0)", pgCabRoute !== null && pgCabRoute !== undefined)
 
 // (10) Patch View ↔ Edit toggle: defaults to View (root class hides the wiring chrome); Edit reveals it.
 let pgTgP = loadDefaultDeckardProject().project
@@ -1871,11 +1880,13 @@ pgTgCh.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "gain a1 1", 
 let pgViewV = PatchGraphPanel(pgTgCh, pgTgP, () => {}, { directive: () => {} }, true)
 check("patch: defaults to View mode (root class patch-view)", pgViewV.props.class.indexOf("patch-view") >= 0)
 check("patch: View shows a compact route dest label", true)
-check("patch: View shows the View/Edit toggle for an owner", pgFindClass(pgViewV, "patch-mode-toggle") != null)
+let pgViewToggle = pgFindClass(pgViewV, "patch-mode-toggle")
+check("patch: View shows the View/Edit toggle for an owner", pgViewToggle !== null && pgViewToggle !== undefined)
 let pgEditV = PatchGraphPanel(pgTgCh, pgTgP, () => {}, { directive: () => {}, patchEditMode: true }, true)
 check("patch: Edit mode sets root class patch-edit", pgEditV.props.class.indexOf("patch-edit") >= 0)
 let pgRoV = PatchGraphPanel(pgTgCh, pgTgP, () => {}, { directive: () => {}, patchEditMode: true }, false)
-check("patch: a non-owner has no View/Edit toggle + stays in View", pgFindClass(pgRoV, "patch-mode-toggle") == null && pgRoV.props.class.indexOf("patch-view") >= 0)
+let pgRoToggle = pgFindClass(pgRoV, "patch-mode-toggle")
+check("patch: a non-owner has no View/Edit toggle + stays in View", (pgRoToggle === null || pgRoToggle === undefined) && pgRoV.props.class.indexOf("patch-view") >= 0)
 
 // (11) Matrix FM flow cues: pure reachability + highlighted cells / audible-op marks / flow strip render.
 let pgRA = matrixOpsReachingOut({ routes: [] }, ["1", "2", "3"])
@@ -1894,7 +1905,8 @@ pgFmCh.generatorSpec = parseGenBlock("matrix_fm", matrixFmPatches()[0].lines)
 let pgFmV = MatrixFmPanel(pgFmCh, pgFmP, () => {}, () => {}, true)
 check("matrix: the signal-flow strip renders", true)
 check("matrix: an audible op is marked (→ OUT)", true)
-check("matrix: an active modulation cell is highlighted", pgFindClass(pgFmV, "sytrus-matrix-active") != null)
+let pgFmActiveCell = pgFindClass(pgFmV, "sytrus-matrix-active")
+check("matrix: an active modulation cell is highlighted", pgFmActiveCell !== null && pgFmActiveCell !== undefined)
 check("matrix: the flow strip shows filter nodes", true)
 check("matrix: the flow strip draws the routing bus (op→filter→out)", true)
 // filter reachability: filter→out is audible; a filter with no route onward is a dead end.
@@ -1917,17 +1929,18 @@ check("rich editor: highlighting wraps the source verbatim (no token loss)", reH
 let reSlotId = "rawed-" + reCh.id + "-gen"
 let reSlot = RichTplEditor({ directive: () => {} }, reSlotId, reGenTpl, () => {})
 let reSlotNode = pgFindClass(reSlot, "rich-tpl-slot")
-check("rich editor: renders a slot div with the given stable id", reSlotNode != null && reSlotNode.props.id === reSlotId)
+check("rich editor: renders a slot div with the given stable id", reSlotNode !== null && reSlotNode !== undefined && reSlotNode.props.id === reSlotId)
 // Headless (no document) the deferred attach is a no-op — calling it twice must not throw or duplicate state.
 let reSlot2 = RichTplEditor({ directive: () => {} }, reSlotId, reGenTpl, () => {})
-check("rich editor: a second render is idempotent (returns the slot, no crash)", pgFindClass(reSlot2, "rich-tpl-slot") != null)
+let reSlot2Node = pgFindClass(reSlot2, "rich-tpl-slot")
+check("rich editor: a second render is idempotent (returns the slot, no crash)", reSlot2Node !== null && reSlot2Node !== undefined)
 
 // (12) Patch ENV dropdowns + envelope cables (matrixFm→patch). The Lattish vdom mounts a <select value=X>
 // before its <option> children, so without a `selected` attribute the select falls back to its FIRST option on
 // mount — the "every ENV dropdown shows op1" bug. selOpt marks the matching option selected. (This asserts the
 // fix is WIRED in the vnode; the DOM mount artifact itself is verified in the browser.)
 fn pgSelectedOptionValues(node, acc) {
-  if (node == null || typeof node !== "object") {
+  if (node === null || node === undefined || typeof node !== "object") {
     return acc
   }
   if (Array.isArray(node)) {
@@ -1938,10 +1951,10 @@ fn pgSelectedOptionValues(node, acc) {
     }
     return acc
   }
-  if (node.tag === "option" && node.props != null && node.props.selected === "selected") {
+  if (node.tag === "option" && node.props !== null && node.props !== undefined && node.props.selected === "selected") {
     acc.push(String(node.props.value))
   }
-  if (node.children != null) {
+  if (node.children !== null && node.children !== undefined) {
     pgSelectedOptionValues(node.children, acc)
   }
   return acc
@@ -1969,9 +1982,11 @@ while (pei < peEnvNodes.length) {
 check("patch env select: every env's target-node option is marked selected (no fallback to the first node)", true)
 check("patch env select: 'gain' param option is marked selected", true)
 check("patch env select: a non-first seg type (lin) from the compiled env is selected", true)
-check("patch env cable: env card carries a pmenv-<idx> anchor for the cable layer", pgFindId(peV, "pmenv-0") != null)
+let peEnvAnchor = pgFindId(peV, "pmenv-0")
+check("patch env cable: env card carries a pmenv-<idx> anchor for the cable layer", peEnvAnchor !== null && peEnvAnchor !== undefined)
 // the target nodes the env cables resolve to are live node cards (pmnode-<id>) → the cable has both endpoints
-check("patch env cable: env target node has a pmnode anchor to land on", pgFindId(peV, "pmnode-eg1") != null)
+let peTargetAnchor = pgFindId(peV, "pmnode-eg1")
+check("patch env cable: env target node has a pmnode anchor to land on", peTargetAnchor !== null && peTargetAnchor !== undefined)
 
 // Matrix FM dropdowns share the same selOpt fix (filter type + route src/dst kind/id). A render that marks ANY
 // option selected proves it's wired — before the fix NO option carried a `selected` attr (set would be empty).
@@ -1999,9 +2014,12 @@ let psCh = psPanelP.channels[0]
 psCh.generatorId = "patch"
 psCh.generatorSpec = parseGenBlock("patch", compileGeneratorToPatchLines("matrixFm", {}, parseGenBlock("matrix_fm", defaultMatrixFmRawLines())))
 let psV = PatchGraphPanel(psCh, psPanelP, () => {}, { directive: () => {} }, true)
-check("flow layout: nodes pack into the masonry (ordered by stage)", pgFindClass(psV, "patch-node-masonry") != null)
+let psMasonry = pgFindClass(psV, "patch-node-masonry")
+check("flow layout: nodes pack into the masonry (ordered by stage)", psMasonry !== null && psMasonry !== undefined)
 check("flow layout: envelopes drop to their own row", true)
-check("flow layout: the OUT sink + node anchors survive the restructure", pgFindId(psV, "pmsink-out") != null && pgFindId(psV, "pmnode-eg1") != null)
+let psSink = pgFindId(psV, "pmsink-out")
+let psNodeAnchor = pgFindId(psV, "pmnode-eg1")
+check("flow layout: the OUT sink + node anchors survive the restructure", psSink !== null && psSink !== undefined && psNodeAnchor !== null && psNodeAnchor !== undefined)
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))

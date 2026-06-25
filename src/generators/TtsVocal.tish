@@ -3,7 +3,7 @@ import { midiToHz } from '../schedule/Engine.tish'
 export fn playTtsVocal(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric) {
   let p = ch.generatorParams
   let voiceIdx = 0
-  if (p && p.voice != null) {
+  if (p && (p.voice !== null && p.voice !== undefined)) {
     voiceIdx = p.voice
   }
 
@@ -55,7 +55,7 @@ export fn playTtsVocal(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric) {
       
       let estimatedDurAt1x = Math.max(0.2, l.length * 0.07)
       let calculatedRate = estimatedDurAt1x / durSec
-      let globalRate = p && p.rate != null ? p.rate : 1.5
+      let globalRate = (p && (p.rate !== null && p.rate !== undefined)) ? p.rate : 1.5
       let finalRate = calculatedRate * globalRate
       
       if (finalRate < 0.1) finalRate = 0.1

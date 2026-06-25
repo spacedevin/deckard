@@ -40,7 +40,7 @@ export fn dispatchPlayNote(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
   if (!id) {
     id = "basicOsc"
   }
-  if (ch.octave != null && ch.octave !== 0) {
+  if (ch.octave !== null && ch.octave !== undefined && ch.octave !== 0) {
     midi = midi + ch.octave * 12
   }
   if (id === "noiseBurst") {

@@ -38,12 +38,12 @@ fn getRateTime(rate) {
 }
 
 fn applyOpEnv(t, tOff, opGain, p, opId, maxVol) {
-  let ar = p[opId + "_ar"] != null ? p[opId + "_ar"] : 31
-  let dr = p[opId + "_dr"] != null ? p[opId + "_dr"] : 5
-  let sr = p[opId + "_sr"] != null ? p[opId + "_sr"] : 5
-  let rr = p[opId + "_rr"] != null ? p[opId + "_rr"] : 5
-  let sl = p[opId + "_sl"] != null ? p[opId + "_sl"] : 0 // 0-15
-  let tl = p[opId + "_tl"] != null ? p[opId + "_tl"] : 0 // 0-127 (Total Level attenuation)
+  let ar = p[opId + "_ar"] !== null && p[opId + "_ar"] !== undefined ? p[opId + "_ar"] : 31
+  let dr = p[opId + "_dr"] !== null && p[opId + "_dr"] !== undefined ? p[opId + "_dr"] : 5
+  let sr = p[opId + "_sr"] !== null && p[opId + "_sr"] !== undefined ? p[opId + "_sr"] : 5
+  let rr = p[opId + "_rr"] !== null && p[opId + "_rr"] !== undefined ? p[opId + "_rr"] : 5
+  let sl = p[opId + "_sl"] !== null && p[opId + "_sl"] !== undefined ? p[opId + "_sl"] : 0 // 0-15
+  let tl = p[opId + "_tl"] !== null && p[opId + "_tl"] !== undefined ? p[opId + "_tl"] : 0 // 0-127 (Total Level attenuation)
   
   // Total Level maps logarithmically. 0 is max volume, 127 is silent.
   let opMax = maxVol * Math.pow(10, -(tl / 127.0) * 4.0) // 40dB of attenuation
@@ -69,8 +69,8 @@ export fn playYm2612(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let gp = ch.generatorParams
   if (!gp) gp = {}
   
-  let algo = gp.algorithm != null ? Math.round(gp.algorithm) : 0
-  let fdbk = gp.feedback != null ? gp.feedback : 0
+  let algo = gp.algorithm !== null && gp.algorithm !== undefined ? Math.round(gp.algorithm) : 0
+  let fdbk = gp.feedback !== null && gp.feedback !== undefined ? gp.feedback : 0
   
   let f0 = 440 * Math.pow(2, (midi + bendSemis - 69) / 12)
   let v = vel / 127
@@ -87,7 +87,7 @@ export fn playYm2612(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let i = 1
   let maxTime = safeDur
   while (i <= 4) {
-    let mul = gp["op" + i + "_mul"] != null ? gp["op" + i + "_mul"] : 1
+    let mul = gp["op" + i + "_mul"] !== null && gp["op" + i + "_mul"] !== undefined ? gp["op" + i + "_mul"] : 1
     if (mul === 0) mul = 0.5
     
     let osc = ctx.createOscillator()

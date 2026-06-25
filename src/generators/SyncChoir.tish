@@ -2,21 +2,21 @@ export fn playSyncChoir(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let gp = ch.generatorParams ? ch.generatorParams : {}
   
   // Vowel
-  let vowelShift = gp.vowelShift != null ? gp.vowelShift : 24
-  let morphRate = gp.morphRate != null ? gp.morphRate : 0.5
-  let morphAmt = gp.morphAmt != null ? gp.morphAmt : 12
+  let vowelShift = gp.vowelShift !== null && gp.vowelShift !== undefined ? gp.vowelShift : 24
+  let morphRate = gp.morphRate !== null && gp.morphRate !== undefined ? gp.morphRate : 0.5
+  let morphAmt = gp.morphAmt !== null && gp.morphAmt !== undefined ? gp.morphAmt : 12
   
   // Ensemble
-  let detune = gp.ensembleDetune != null ? gp.ensembleDetune : 15 // cents
-  let vibRate = gp.vibRate != null ? gp.vibRate : 5.0
-  let vibAmt = gp.vibAmt != null ? gp.vibAmt : 10 // cents
+  let detune = gp.ensembleDetune !== null && gp.ensembleDetune !== undefined ? gp.ensembleDetune : 15 // cents
+  let vibRate = gp.vibRate !== null && gp.vibRate !== undefined ? gp.vibRate : 5.0
+  let vibAmt = gp.vibAmt !== null && gp.vibAmt !== undefined ? gp.vibAmt : 10 // cents
   
   // Tone & Amp
-  let highpassFreq = gp.highpass != null ? gp.highpass : 300
-  let att = gp.attack != null ? gp.attack : 1.0
-  let dec = gp.decay != null ? gp.decay : 1.0
-  let sus = gp.sustain != null ? gp.sustain : 0.8
-  let rel = gp.release != null ? gp.release : 1.5
+  let highpassFreq = gp.highpass !== null && gp.highpass !== undefined ? gp.highpass : 300
+  let att = gp.attack !== null && gp.attack !== undefined ? gp.attack : 1.0
+  let dec = gp.decay !== null && gp.decay !== undefined ? gp.decay : 1.0
+  let sus = gp.sustain !== null && gp.sustain !== undefined ? gp.sustain : 0.8
+  let rel = gp.release !== null && gp.release !== undefined ? gp.release : 1.5
   
   let masterPitch = midi + bendSemis
   let masterFreq = 440 * Math.pow(2, (masterPitch - 69) / 12)

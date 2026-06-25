@@ -411,7 +411,7 @@ export fn playPatch(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
                     // node, no start/stop. Falls back to a gain pass-through if the context lacks createStereoPanner.
                     if (ctx.createStereoPanner) {
                       let sp = ctx.createStereoPanner()
-                      sp.pan.value = nd.pos != null ? nd.pos : 0
+                      sp.pan.value = nd.pos !== null && nd.pos !== undefined ? nd.pos : 0
                       byId[nd.id] = sp
                       disconnectList.push(sp)
                     } else {
@@ -484,7 +484,7 @@ export fn playPatch(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let si = 0
   while (si < graph.nodes.length) {
     let snd = graph.nodes[si]
-    if (snd._ringSec != null && snd._ringSec > maxEnd) {
+    if (snd._ringSec !== null && snd._ringSec !== undefined && snd._ringSec > maxEnd) {
       maxEnd = snd._ringSec
     }
     si = si + 1
@@ -493,7 +493,7 @@ export fn playPatch(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   // Stop time + a short output fade window (declick): a hard osc start/stop or an instantaneous gain
   // jump emits a broadband transient that, through a sub-heavy voice, reads as a phantom kick/thump.
   // Ramping the OUTPUT gain 0→level→0 around the voice removes that without touching the inner envelope.
-  let voiceDur = graph.dur != null ? graph.dur : Math.max(dur, maxEnd)
+  let voiceDur = graph.dur !== null && graph.dur !== undefined ? graph.dur : Math.max(dur, maxEnd)
   let tStop = t + voiceDur + 0.06
   let fadeIn = 0.004
   let fadeOut = 0.008
@@ -545,7 +545,7 @@ export fn playPatch(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
             } else {
               // node→node AUDIO connection: guard against source nodes (osc/noise/string) which have
               // 0 audio inputs — connecting to them throws IndexSizeError.
-              if (dstNode.numberOfInputs != null && dstNode.numberOfInputs === 0) {
+              if (dstNode.numberOfInputs !== null && dstNode.numberOfInputs !== undefined && dstNode.numberOfInputs === 0) {
                 // skip — can't feed audio into a source node
               } else {
                 // Apply the conn WEIGHT via a scaling gain (it was silently dropped —

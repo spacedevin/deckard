@@ -36,7 +36,7 @@ export fn pruneStaleTracks(project, store, currentPerfStep, expirySequences) {
       i = i + 1
       continue
     }
-    let owner = meta.ownerActorId != null ? meta.ownerActorId : meta.ownerLane
+    let owner = meta.ownerActorId !== null && meta.ownerActorId !== undefined ? meta.ownerActorId : meta.ownerLane
     if (isProtectedActor(owner)) {
       i = i + 1
       continue

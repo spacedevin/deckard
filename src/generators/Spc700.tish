@@ -125,21 +125,21 @@ export fn playSpc700(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   if (!gp) gp = {}
   
   let waveform = gp.waveform ? gp.waveform : "strings"
-  let attack = gp.attack != null ? Math.round(gp.attack) : 0
-  let decay = gp.decay != null ? Math.round(gp.decay) : 3
-  let sustainLevel = gp.sustainLevel != null ? Math.round(gp.sustainLevel) : 7
-  let sustainRate = gp.sustainRate != null ? Math.round(gp.sustainRate) : 0
+  let attack = gp.attack !== null && gp.attack !== undefined ? Math.round(gp.attack) : 0
+  let decay = gp.decay !== null && gp.decay !== undefined ? Math.round(gp.decay) : 3
+  let sustainLevel = gp.sustainLevel !== null && gp.sustainLevel !== undefined ? Math.round(gp.sustainLevel) : 7
+  let sustainRate = gp.sustainRate !== null && gp.sustainRate !== undefined ? Math.round(gp.sustainRate) : 0
   
   let echoEnable = gp.echoEnable === true
-  let echoDelay = gp.echoDelay != null ? Math.round(gp.echoDelay) : 4
-  let echoFeedback = gp.echoFeedback != null ? gp.echoFeedback : 0
+  let echoDelay = gp.echoDelay !== null && gp.echoDelay !== undefined ? Math.round(gp.echoDelay) : 4
+  let echoFeedback = gp.echoFeedback !== null && gp.echoFeedback !== undefined ? gp.echoFeedback : 0
   
-  let pitchDrop = gp.pitchDrop != null ? Math.round(gp.pitchDrop) : 0
-  let pitchDec = gp.pitchDec != null ? gp.pitchDec : 0.05
-  let vibRate = gp.vibRate != null ? gp.vibRate : 0
-  let vibAmt = gp.vibAmt != null ? gp.vibAmt : 0
-  let arpRate = gp.arpRate != null ? gp.arpRate : 0
-  let arpSemis = gp.arpSemis != null ? Math.round(gp.arpSemis) : 0
+  let pitchDrop = gp.pitchDrop !== null && gp.pitchDrop !== undefined ? Math.round(gp.pitchDrop) : 0
+  let pitchDec = gp.pitchDec !== null && gp.pitchDec !== undefined ? gp.pitchDec : 0.05
+  let vibRate = gp.vibRate !== null && gp.vibRate !== undefined ? gp.vibRate : 0
+  let vibAmt = gp.vibAmt !== null && gp.vibAmt !== undefined ? gp.vibAmt : 0
+  let arpRate = gp.arpRate !== null && gp.arpRate !== undefined ? gp.arpRate : 0
+  let arpSemis = gp.arpSemis !== null && gp.arpSemis !== undefined ? Math.round(gp.arpSemis) : 0
 
   let f0 = 440 * Math.pow(2, (midi + bendSemis - 69) / 12)
   let v = vel / 127

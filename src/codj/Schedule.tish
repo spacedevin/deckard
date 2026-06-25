@@ -145,7 +145,7 @@ export fn coDjFlushScheduledForStep(perfStep, rt) {
   while (i < arr.length) {
     let it = arr[i]
     if (it.effectivePerfStep <= perfStep) {
-      let aid = it.actorId != null ? it.actorId : it.laneId
+      let aid = it.actorId !== null && it.actorId !== undefined ? it.actorId : it.laneId
       if (log) {
         log("exec@step" + String(perfStep) + " " + aid)
       }

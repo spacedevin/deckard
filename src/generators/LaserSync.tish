@@ -1,10 +1,10 @@
 export fn playLaserSync(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let gp = ch.generatorParams ? ch.generatorParams : {}
-  let dropRate = gp.dropRate != null ? gp.dropRate : 0.8
-  let dropAmt = gp.dropAmt != null ? gp.dropAmt : 36
-  let slaveBase = gp.slaveBase != null ? gp.slaveBase : 18
-  let att = gp.attack != null ? gp.attack : 0.01
-  let dec = gp.decay != null ? gp.decay : 0.3
+  let dropRate = gp.dropRate !== null && gp.dropRate !== undefined ? gp.dropRate : 0.8
+  let dropAmt = gp.dropAmt !== null && gp.dropAmt !== undefined ? gp.dropAmt : 36
+  let slaveBase = gp.slaveBase !== null && gp.slaveBase !== undefined ? gp.slaveBase : 18
+  let att = gp.attack !== null && gp.attack !== undefined ? gp.attack : 0.01
+  let dec = gp.decay !== null && gp.decay !== undefined ? gp.decay : 0.3
 
   let masterPitch = midi + bendSemis
   let masterFreq = 440 * Math.pow(2, (masterPitch - 69) / 12)

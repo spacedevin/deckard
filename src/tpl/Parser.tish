@@ -56,7 +56,7 @@ export fn parseProgram(source) {
   let currentClip = null
 
   let src = source
-  if (src == null || src === undefined) {
+  if ((src === null || src === undefined) || src === undefined) {
     src = ""
   }
   let raw = String(src).split("\n")
@@ -151,7 +151,7 @@ export fn parseProgram(source) {
         rep = 1
       }
       if (sceneNum !== null && sceneNum >= 0 && sceneNum === sceneNum) {
-        if (songEntries == null) {
+        if ((songEntries === null || songEntries === undefined)) {
           songEntries = []
         }
         songEntries.push({ scene: sceneNum, repeat: rep })
@@ -176,7 +176,7 @@ export fn parseProgram(source) {
         let aW = toks.length >= 3 && isNumberToken(toks[2]) ? Number(toks[2]) : 1
         let bAct = toks.length >= 4 ? toks[3] : null
         let bW = toks.length >= 5 && isNumberToken(toks[4]) ? Number(toks[4]) : 0
-        if (followEntries == null) {
+        if ((followEntries === null || followEntries === undefined)) {
           followEntries = []
         }
         followEntries.push({ scene: fScene, a: aAct, wa: aW, b: bAct, wb: bW })
@@ -278,7 +278,7 @@ export fn parseProgram(source) {
         scaleMode = "off"
       } else if (toks.length >= 3) {
         let pr = parseScaleRoot(toks[1])
-        if (pr != null) {
+        if (pr !== null && pr !== undefined) {
           scaleRoot = pr
           scaleMode = toks[2]
         }

@@ -406,7 +406,7 @@ export fn Knob(opts) {
     valD = dialArc(cx, cy, r, -135, curAngle)
   }
   let dot = dialPoint(cx, cy, r, curAngle)
-  let detents = opts.detents != null && opts.detents >= 2 ? Math.round(opts.detents) : 0
+  let detents = opts.detents !== null && opts.detents !== undefined && opts.detents >= 2 ? Math.round(opts.detents) : 0
   let detentDots = []
   if (detents > 0) {
     let curIdx = Math.round(t * (detents - 1))
@@ -451,11 +451,11 @@ export fn Knob(opts) {
     let lastEmit = startV
     let didChange = false
     fn onMove(ev) {
-      let cy2 = ev.clientY != null ? ev.clientY : (ev.touches != null && ev.touches.length > 0 ? ev.touches[0].clientY : startY)
+      let cy2 = ev.clientY !== null && ev.clientY !== undefined ? ev.clientY : (ev.touches !== null && ev.touches !== undefined && ev.touches.length > 0 ? ev.touches[0].clientY : startY)
       let dy = startY - cy2
       let dragRange = Math.max(range, 4) // Make discrete 2-option knobs more sensitive
       let nv = knobClamp(startV + (dy / 150) * dragRange, min, max)
-      if (opts.step != null && opts.step > 0) {
+      if (opts.step !== null && opts.step !== undefined && opts.step > 0) {
         nv = Math.round(nv / opts.step) * opts.step
       }
       // Skip identical consecutive values — within one detent a stepped knob would otherwise
@@ -503,7 +503,7 @@ export fn Knob(opts) {
   }
 
   fn onTouchStart(e) {
-    if (e.touches == null || e.touches.length === 0) {
+    if ((e.touches === null || e.touches === undefined) || e.touches.length === 0) {
       return
     }
     // preventDefault suppresses the ghost mouse/click events that follow a touch tap.
@@ -528,7 +528,7 @@ export fn Knob(opts) {
     if (e.preventDefault) {
       e.preventDefault()
     }
-    let stepV = opts.step != null && opts.step > 0 ? opts.step : 1
+    let stepV = opts.step !== null && opts.step !== undefined && opts.step > 0 ? opts.step : 1
     let dir = e.deltaY < 0 ? 1 : -1
     let nv = knobClamp(v + dir * stepV, min, max)
     // At a boundary the clamp pins nv to the current value — skip the redundant gated emit/broadcast.
@@ -644,7 +644,7 @@ export fn EnvDisplay(a, d, s, r, opts) {
  * Vertical drag = change (up increases). No bounds.
  */
 export fn InfiniteKnob(opts) {
-  let v = opts.value != null ? opts.value : 0
+  let v = opts.value !== null && opts.value !== undefined ? opts.value : 0
   let accent = opts.accent ? opts.accent : "var(--accent-warm, #e8945c)"
   let cx = 24
   let cy = 23
@@ -673,10 +673,10 @@ export fn InfiniteKnob(opts) {
     let lastEmit = startV
     let didChange = false
     fn onMove(ev) {
-      let cy2 = ev.clientY != null ? ev.clientY : (ev.touches != null && ev.touches.length > 0 ? ev.touches[0].clientY : startY)
+      let cy2 = ev.clientY !== null && ev.clientY !== undefined ? ev.clientY : (ev.touches !== null && ev.touches !== undefined && ev.touches.length > 0 ? ev.touches[0].clientY : startY)
       let dy = startY - cy2
       let nv = startV + (dy / 20)
-      if (opts.step != null && opts.step > 0) {
+      if (opts.step !== null && opts.step !== undefined && opts.step > 0) {
         nv = Math.round(nv / opts.step) * opts.step
       }
       if (nv !== lastEmit) {
@@ -718,7 +718,7 @@ export fn InfiniteKnob(opts) {
   }
 
   fn onTouchStart(e) {
-    if (e.touches == null || e.touches.length === 0) {
+    if ((e.touches === null || e.touches === undefined) || e.touches.length === 0) {
       return
     }
     if (e.preventDefault) {
@@ -737,7 +737,7 @@ export fn InfiniteKnob(opts) {
     if (e.preventDefault) {
       e.preventDefault()
     }
-    let stepV = opts.step != null && opts.step > 0 ? opts.step : 1
+    let stepV = opts.step !== null && opts.step !== undefined && opts.step > 0 ? opts.step : 1
     let dir = e.deltaY < 0 ? 1 : -1
     let nv = v + dir * stepV
     if (nv !== v) {
@@ -797,7 +797,7 @@ export fn Switch(opts) {
  * Renders a styled trigger button; clicking opens a positioned option list.
  */
 export fn IkSelect(opts) {
-  let curVal = opts.value != null ? String(opts.value) : ""
+  let curVal = opts.value !== null && opts.value !== undefined ? String(opts.value) : ""
   let items = opts.options ? opts.options : []
   let accent = opts.accent ? opts.accent : "var(--accent-warm, #e8945c)"
   let cls = "ik-sel"
@@ -954,7 +954,7 @@ export fn IkSelect(opts) {
         ev.preventDefault()
         ev.stopPropagation()
         searchBuffer = searchBuffer + ev.key
-        if (searchTimeout != null) {
+        if (searchTimeout !== null && searchTimeout !== undefined) {
           clearTimeout(searchTimeout)
         }
         searchTimeout = setTimeout(() => {

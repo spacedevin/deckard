@@ -40,8 +40,8 @@ export fn playGuitar(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let tone = p.tone >= 0 && p.tone <= 1 ? p.tone : 0.5
   let decayP = p.decay >= 0 && p.decay <= 1 ? p.decay : 0.6
   let damping = p.damping >= 0 && p.damping <= 1 ? p.damping : 0.4
-  let driveAmt = p.drive != null ? p.drive : 0.25
-  let body = p.body != null && p.body > 0 ? p.body : 3500
+  let driveAmt = p.drive !== null && p.drive !== undefined ? p.drive : 0.25
+  let body = p.body !== null && p.body !== undefined && p.body > 0 ? p.body : 3500
   let mute = p.mute >= 0 && p.mute <= 1 ? p.mute : 0
 
   // Palm mute: shorter ring, faster decay, darker body.

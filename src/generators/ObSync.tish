@@ -1,16 +1,16 @@
 export fn playObSync(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let gp = ch.generatorParams ? ch.generatorParams : {}
-  let detune = gp.detune != null ? gp.detune : 15 // cents
-  let sweepRate = gp.sweepRate != null ? gp.sweepRate : 0.5
-  let sweepAmt = gp.sweepAmt != null ? gp.sweepAmt : 24
-  let cutoff = gp.cutoff != null ? gp.cutoff : 1200
-  let res = gp.resonance != null ? gp.resonance : 2
-  let filterEnv = gp.filterEnv != null ? gp.filterEnv : 2400
-  let filterDecay = gp.filterDecay != null ? gp.filterDecay : 0.8
-  let att = gp.attack != null ? gp.attack : 0.1
-  let dec = gp.decay != null ? gp.decay : 0.4
-  let sus = gp.sustain != null ? gp.sustain : 0.6
-  let rel = gp.release != null ? gp.release : 0.5
+  let detune = gp.detune !== null && gp.detune !== undefined ? gp.detune : 15 // cents
+  let sweepRate = gp.sweepRate !== null && gp.sweepRate !== undefined ? gp.sweepRate : 0.5
+  let sweepAmt = gp.sweepAmt !== null && gp.sweepAmt !== undefined ? gp.sweepAmt : 24
+  let cutoff = gp.cutoff !== null && gp.cutoff !== undefined ? gp.cutoff : 1200
+  let res = gp.resonance !== null && gp.resonance !== undefined ? gp.resonance : 2
+  let filterEnv = gp.filterEnv !== null && gp.filterEnv !== undefined ? gp.filterEnv : 2400
+  let filterDecay = gp.filterDecay !== null && gp.filterDecay !== undefined ? gp.filterDecay : 0.8
+  let att = gp.attack !== null && gp.attack !== undefined ? gp.attack : 0.1
+  let dec = gp.decay !== null && gp.decay !== undefined ? gp.decay : 0.4
+  let sus = gp.sustain !== null && gp.sustain !== undefined ? gp.sustain : 0.6
+  let rel = gp.release !== null && gp.release !== undefined ? gp.release : 0.5
 
   let masterPitch = midi + bendSemis
   let masterFreq = 440 * Math.pow(2, (masterPitch - 69) / 12)

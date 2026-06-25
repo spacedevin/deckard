@@ -62,7 +62,7 @@ export fn channelPlayerIndex(project, ch) {
     return 0
   }
   // An explicit deck slot (loadDeckSet / manual deck handoff) is the canonical, shared assignment.
-  if (ch.deckSlot != null) {
+  if (ch.deckSlot !== null && ch.deckSlot !== undefined) {
     let s = Math.floor(Number(ch.deckSlot))
     if (s >= 0 && s <= 3 && s === s) {
       return s
@@ -79,7 +79,7 @@ export fn channelPlayerIndex(project, ch) {
   // Unclaimed / host-owned tracks live on the HOST's deck on EVERY client — NOT the local viewer's. (The
   // old code remapped "human" → coDjSelfActorId, which made the SAME channel a different colour per client.
   // Ownership/order is canonical; the viewer is irrelevant.)
-  if (owner === "human" && project.coDjHostActorId != null && project.coDjHostActorId !== "") {
+  if (owner === "human" && project.coDjHostActorId !== null && project.coDjHostActorId !== undefined && project.coDjHostActorId !== "") {
     owner = String(project.coDjHostActorId)
   }
   let i = 0

@@ -1,9 +1,9 @@
 export fn playSub808(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let gp = ch.generatorParams ? ch.generatorParams : {}
-  let punch = gp.punch != null ? gp.punch : 60
-  let decay = gp.decay != null ? gp.decay : 1.2
-  let drive = gp.drive != null ? gp.drive : 0
-  let glide = gp.glide != null ? gp.glide : 0.05 // short glide for 808 slides
+  let punch = gp.punch !== null && gp.punch !== undefined ? gp.punch : 60
+  let decay = gp.decay !== null && gp.decay !== undefined ? gp.decay : 1.2
+  let drive = gp.drive !== null && gp.drive !== undefined ? gp.drive : 0
+  let glide = gp.glide !== null && gp.glide !== undefined ? gp.glide : 0.05 // short glide for 808 slides
 
   let f0 = 440 * Math.pow(2, (midi + bendSemis - 69) / 12)
   let v = vel / 127

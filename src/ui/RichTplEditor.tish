@@ -16,19 +16,19 @@ fn highlightFragment(src) {
 }
 
 fn attachRichEditor(rt, slotId, value, onCommit) {
-  if (globalThis.document == null || globalThis.document.getElementById == null) {
+  if ((globalThis.document === null || globalThis.document === undefined) || (globalThis.document.getElementById === null || globalThis.document.getElementById === undefined)) {
     return
   }
   let doc = globalThis.document
   let slot = doc.getElementById(slotId)
-  if (slot == null) {
+  if ((slot === null || slot === undefined)) {
     return
   }
-  if (rt._richEd == null) {
+  if ((rt._richEd === null || rt._richEd === undefined)) {
     rt._richEd = {}
   }
   let st = rt._richEd[slotId]
-  if (st != null) {
+  if (st !== null && st !== undefined) {
     // Already mounted — re-append if the vdom diff cleared the slot, and refresh the value when not focused
     // (so an external change to the underlying TPL is reflected; while focused we leave the user's edit alone).
     if (!slot.contains(st.wrap)) {
@@ -81,7 +81,7 @@ fn attachRichEditor(rt, slotId, value, onCommit) {
 // Render the editor. slotId must be STABLE per logical editor (e.g. channel+module) so the textarea persists.
 // onCommit(text) fires on blur.
 export fn RichTplEditor(rt, slotId, value, onCommit) {
-  if (rt != null && typeof setTimeout !== "undefined") {
+  if (rt !== null && rt !== undefined && typeof setTimeout !== "undefined") {
     setTimeout(() => {
       attachRichEditor(rt, slotId, value, onCommit)
     }, 0)

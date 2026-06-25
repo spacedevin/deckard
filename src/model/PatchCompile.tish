@@ -103,8 +103,8 @@ fn noiseBurstLines(p) {
 fn padLines(p) {
   let w1 = normalizeBasicOscWaveform(p.wave1 ? p.wave1 : "sine")
   let w2 = normalizeBasicOscWaveform(p.wave2 ? p.wave2 : "triangle")
-  let detune = p.detune != null ? p.detune : 9
-  let cutoff = p.cutoff != null && p.cutoff > 0 ? p.cutoff : 2200
+  let detune = p.detune !== null && p.detune !== undefined ? p.detune : 9
+  let cutoff = p.cutoff !== null && p.cutoff !== undefined && p.cutoff > 0 ? p.cutoff : 2200
   let a = p.attack > 0 ? p.attack : 0.08
   let d = p.decay > 0 ? p.decay : 0.25
   let s = p.sustain >= 0 && p.sustain <= 1 ? p.sustain : 0.6
@@ -143,13 +143,13 @@ fn bellLines(p) {
 
 fn drumSynthLines(p) {
   let tone = normalizeBasicOscWaveform(p.tone ? p.tone : "sine")
-  let pitchEnv = p.pitchEnv != null ? p.pitchEnv : 36
+  let pitchEnv = p.pitchEnv !== null && p.pitchEnv !== undefined ? p.pitchEnv : 36
   let pitchDecay = p.pitchDecay > 0 ? p.pitchDecay : 0.06
   let decay = p.decay > 0 ? p.decay : 0.35
-  let noise = p.noise != null ? p.noise : 0
+  let noise = p.noise !== null && p.noise !== undefined ? p.noise : 0
   let noiseDecay = p.noiseDecay > 0 ? p.noiseDecay : 0.12
   let noiseHp = p.noiseHp > 0 ? p.noiseHp : 1500
-  let drive = p.drive != null ? p.drive : 0
+  let drive = p.drive !== null && p.drive !== undefined ? p.drive : 0
   let pitchMul = Math.pow(2, pitchEnv / 12)
   let lines = ["osc o1 " + tone + " note", "gain a1 0"]
   if (drive > 0) {
@@ -237,7 +237,7 @@ fn matrixFmLines(graph) {
     let oid = opKeys[i]
     let od = ops[oid]
     let wave = od.wave ? od.wave : "sine"
-    let ratio = od.ratio != null && od.ratio > 0 ? od.ratio : 1
+    let ratio = od.ratio !== null && od.ratio !== undefined && od.ratio > 0 ? od.ratio : 1
     if (wave === "noise") {
       lines.push("noise op" + oid)
     } else {
@@ -271,10 +271,10 @@ fn matrixFmLines(graph) {
   while (ei < opKeys.length) {
     let oid = opKeys[ei]
     let e = opEnvs[oid]
-    let a = e && e.a != null ? e.a : 0.005
-    let d = e && e.d != null ? e.d : 0.1
-    let s = e && e.s != null ? e.s : 0.35
-    let r = e && e.r != null ? e.r : 0.12
+    let a = e && e.a !== null && e.a !== undefined ? e.a : 0.005
+    let d = e && e.d !== null && e.d !== undefined ? e.d : 0.1
+    let s = e && e.s !== null && e.s !== undefined ? e.s : 0.35
+    let r = e && e.r !== null && e.r !== undefined ? e.r : 0.12
     lines.push("gain eg" + oid + " 0")
     lines.push("conn " + tail[oid] + " eg" + oid + " 1")
     lines.push(opVelEnv("eg" + oid, a, d, s, r))
@@ -287,7 +287,7 @@ fn matrixFmLines(graph) {
   while (fi < mods.length) {
     let md = mods[fi]
     if (md.type === "fm" && md.dst && ops[md.dst] && ops[md.dst].wave !== "noise" && tail[md.src]) {
-      let ratioD = ops[md.dst].ratio != null && ops[md.dst].ratio > 0 ? ops[md.dst].ratio : 1
+      let ratioD = ops[md.dst].ratio !== null && ops[md.dst].ratio !== undefined && ops[md.dst].ratio > 0 ? ops[md.dst].ratio : 1
       let amt = md.amount === md.amount ? md.amount : 1
       let depthK = ratioD * amt * 0.12
       let fmgId = "fmg" + String(fmIdx)
@@ -309,8 +309,8 @@ fn matrixFmLines(graph) {
     let fid = fkeys[fk]
     let fd = filters[fid]
     let ptype = patchFilterType(fd.type)
-    let c0 = clampHz(fd.cutoff != null ? fd.cutoff : 8000)
-    let qv = fd.res != null ? fd.res : 0.7
+    let c0 = clampHz(fd.cutoff !== null && fd.cutoff !== undefined ? fd.cutoff : 8000)
+    let qv = fd.res !== null && fd.res !== undefined ? fd.res : 0.7
     let q = qv * 8
     if (q > 40) {
       q = 40
@@ -320,11 +320,11 @@ fn matrixFmLines(graph) {
     }
     let two = String(fd.type).toLowerCase().indexOf("24") >= 0
     let fe = filterEnvs[fid]
-    let amt = fe && fe.amount != null ? fe.amount : 0
-    let fa = fe && fe.a != null ? fe.a : 0.1
-    let fdd = fe && fe.d != null ? fe.d : 0.2
-    let fs = fe && fe.s != null ? fe.s : 0.3
-    let fr = fe && fe.r != null ? fe.r : 0.15
+    let amt = fe && fe.amount !== null && fe.amount !== undefined ? fe.amount : 0
+    let fa = fe && fe.a !== null && fe.a !== undefined ? fe.a : 0.1
+    let fdd = fe && fe.d !== null && fe.d !== undefined ? fe.d : 0.2
+    let fs = fe && fe.s !== null && fe.s !== undefined ? fe.s : 0.3
+    let fr = fe && fe.r !== null && fe.r !== undefined ? fe.r : 0.15
     if (two) {
       lines.push("filter f" + fid + "a " + ptype + " q " + f(q) + " freq " + f(c0))
       lines.push("filter f" + fid + "b " + ptype + " q " + f(q) + " freq " + f(c0))
@@ -389,9 +389,9 @@ fn guitarLines(p) {
   let tone = p.tone >= 0 && p.tone <= 1 ? p.tone : 0.5
   let decayP = p.decay >= 0 && p.decay <= 1 ? p.decay : 0.6
   let damping = p.damping >= 0 && p.damping <= 1 ? p.damping : 0.4
-  let drive = p.drive != null ? p.drive : 0.25
+  let drive = p.drive !== null && p.drive !== undefined ? p.drive : 0.25
   let mute = p.mute >= 0 && p.mute <= 1 ? p.mute : 0
-  let body = p.body != null && p.body > 0 ? p.body : 3500
+  let body = p.body !== null && p.body !== undefined && p.body > 0 ? p.body : 3500
   let bodyHz = body * (1 - mute * 0.5)
   let ringSec = (0.4 + decayP * 2.1) * (1 - mute * 0.8)
   let relStart = ringSec - 0.06
@@ -490,7 +490,7 @@ fn tineLines(p) {
   let tine = p.tine >= 0 && p.tine <= 1 ? p.tine : 0.6
   let tremolo = p.tremolo >= 0 && p.tremolo <= 1 ? p.tremolo : 0.35
   let decay = p.decay >= 0 && p.decay <= 1 ? p.decay : 0.5
-  let drive = p.drive != null ? p.drive : 0.2
+  let drive = p.drive !== null && p.drive !== undefined ? p.drive : 0.2
   // Body decay is key-scaled on a real EP (mid-keyboard ~0.78 factor, note unknown at compile time).
   let bodyDecay = (1.1 + decay * 5.4) * 0.78
   let barkDecay = 0.12 + decay * 0.5
@@ -730,19 +730,19 @@ fn haloLines(p) {
 
 fn syncLeadLines(p) {
   // Use SAME param names and units as native SyncLead.tish
-  let slaveBase = p.slaveBase != null ? p.slaveBase : 12
-  let sweepAmt = p.sweepAmt != null ? p.sweepAmt : 24
-  let sweepDecay = p.sweepDecay != null ? p.sweepDecay : 0.4
-  let lfoRate = p.lfoRate != null ? p.lfoRate : 0
-  let lfoAmt = p.lfoAmt != null ? p.lfoAmt : 0
-  let cutoff = p.cutoff != null ? p.cutoff : 3000
-  let res = p.resonance != null ? p.resonance : 5
-  let filterEnvAmt = p.filterEnvAmt != null ? p.filterEnvAmt : 0
-  let filterDecay = p.filterDecay != null ? p.filterDecay : 0.4
-  let att = p.attack != null ? p.attack : 0.05
-  let dec = p.decay != null ? p.decay : 0.3
-  let sus = p.sustain != null ? p.sustain : 0.8
-  let rel = p.release != null ? p.release : 0.5
+  let slaveBase = p.slaveBase !== null && p.slaveBase !== undefined ? p.slaveBase : 12
+  let sweepAmt = p.sweepAmt !== null && p.sweepAmt !== undefined ? p.sweepAmt : 24
+  let sweepDecay = p.sweepDecay !== null && p.sweepDecay !== undefined ? p.sweepDecay : 0.4
+  let lfoRate = p.lfoRate !== null && p.lfoRate !== undefined ? p.lfoRate : 0
+  let lfoAmt = p.lfoAmt !== null && p.lfoAmt !== undefined ? p.lfoAmt : 0
+  let cutoff = p.cutoff !== null && p.cutoff !== undefined ? p.cutoff : 3000
+  let res = p.resonance !== null && p.resonance !== undefined ? p.resonance : 5
+  let filterEnvAmt = p.filterEnvAmt !== null && p.filterEnvAmt !== undefined ? p.filterEnvAmt : 0
+  let filterDecay = p.filterDecay !== null && p.filterDecay !== undefined ? p.filterDecay : 0.4
+  let att = p.attack !== null && p.attack !== undefined ? p.attack : 0.05
+  let dec = p.decay !== null && p.decay !== undefined ? p.decay : 0.3
+  let sus = p.sustain !== null && p.sustain !== undefined ? p.sustain : 0.8
+  let rel = p.release !== null && p.release !== undefined ? p.release : 0.5
 
   let slaveRatio = Math.pow(2, slaveBase / 12)
   let sweepStartRatio = slaveRatio * Math.pow(2, sweepAmt / 12)
@@ -786,17 +786,17 @@ fn syncLeadLines(p) {
 
 fn syncChoirLines(p) {
   // Use the SAME param names and units as native SyncChoir.tish
-  let vowelShift = p.vowelShift != null ? p.vowelShift : 24
-  let morphRate = p.morphRate != null ? p.morphRate : 0.5
-  let morphAmt = p.morphAmt != null ? p.morphAmt : 12
-  let detuneCents = p.ensembleDetune != null ? p.ensembleDetune : 15
-  let vibRateHz = p.vibRate != null ? p.vibRate : 5.0
-  let vibAmtCents = p.vibAmt != null ? p.vibAmt : 10
-  let highpassFreq = p.highpass != null ? p.highpass : 300
-  let att = p.attack != null ? p.attack : 1.0
-  let dec = p.decay != null ? p.decay : 1.0
-  let sus = p.sustain != null ? p.sustain : 0.8
-  let rel = p.release != null ? p.release : 1.5
+  let vowelShift = p.vowelShift !== null && p.vowelShift !== undefined ? p.vowelShift : 24
+  let morphRate = p.morphRate !== null && p.morphRate !== undefined ? p.morphRate : 0.5
+  let morphAmt = p.morphAmt !== null && p.morphAmt !== undefined ? p.morphAmt : 12
+  let detuneCents = p.ensembleDetune !== null && p.ensembleDetune !== undefined ? p.ensembleDetune : 15
+  let vibRateHz = p.vibRate !== null && p.vibRate !== undefined ? p.vibRate : 5.0
+  let vibAmtCents = p.vibAmt !== null && p.vibAmt !== undefined ? p.vibAmt : 10
+  let highpassFreq = p.highpass !== null && p.highpass !== undefined ? p.highpass : 300
+  let att = p.attack !== null && p.attack !== undefined ? p.attack : 1.0
+  let dec = p.decay !== null && p.decay !== undefined ? p.decay : 1.0
+  let sus = p.sustain !== null && p.sustain !== undefined ? p.sustain : 0.8
+  let rel = p.release !== null && p.release !== undefined ? p.release : 1.5
 
   // slave freq ratio relative to master (vowelShift semitones)
   let slaveRatio = Math.pow(2, vowelShift / 12)
@@ -854,17 +854,17 @@ fn syncChoirLines(p) {
 }
 
 fn obSyncLines(p) {
-  let detune = p.detune != null ? p.detune : 15 // cents
-  let sweepRate = p.sweepRate != null ? p.sweepRate : 0.5
-  let sweepAmt = p.sweepAmt != null ? p.sweepAmt : 24
-  let cutoff = p.cutoff != null ? p.cutoff : 1200
-  let res = p.resonance != null ? p.resonance : 2
-  let filterEnv = p.filterEnv != null ? p.filterEnv : 2400
-  let filterDecay = p.filterDecay != null ? p.filterDecay : 0.8
-  let a = p.attack != null ? p.attack : 0.1
-  let d = p.decay != null ? p.decay : 0.4
-  let s = p.sustain != null ? p.sustain : 0.6
-  let r = p.release != null ? p.release : 0.5
+  let detune = p.detune !== null && p.detune !== undefined ? p.detune : 15 // cents
+  let sweepRate = p.sweepRate !== null && p.sweepRate !== undefined ? p.sweepRate : 0.5
+  let sweepAmt = p.sweepAmt !== null && p.sweepAmt !== undefined ? p.sweepAmt : 24
+  let cutoff = p.cutoff !== null && p.cutoff !== undefined ? p.cutoff : 1200
+  let res = p.resonance !== null && p.resonance !== undefined ? p.resonance : 2
+  let filterEnv = p.filterEnv !== null && p.filterEnv !== undefined ? p.filterEnv : 2400
+  let filterDecay = p.filterDecay !== null && p.filterDecay !== undefined ? p.filterDecay : 0.8
+  let a = p.attack !== null && p.attack !== undefined ? p.attack : 0.1
+  let d = p.decay !== null && p.decay !== undefined ? p.decay : 0.4
+  let s = p.sustain !== null && p.sustain !== undefined ? p.sustain : 0.6
+  let r = p.release !== null && p.release !== undefined ? p.release : 0.5
 
   let sweepDecay = 0.05 + (1 - sweepRate) * 1.5
   let cutoffPeak = cutoff + filterEnv
@@ -896,11 +896,11 @@ fn obSyncLines(p) {
 }
 
 fn laserSyncLines(p) {
-  let dropRate = p.dropRate != null ? p.dropRate : 0.8
-  let dropAmt = p.dropAmt != null ? p.dropAmt : 36
-  let slaveBase = p.slaveBase != null ? p.slaveBase : 18
-  let a = p.attack != null ? p.attack : 0.01
-  let d = p.decay != null ? p.decay : 0.3
+  let dropRate = p.dropRate !== null && p.dropRate !== undefined ? p.dropRate : 0.8
+  let dropAmt = p.dropAmt !== null && p.dropAmt !== undefined ? p.dropAmt : 36
+  let slaveBase = p.slaveBase !== null && p.slaveBase !== undefined ? p.slaveBase : 18
+  let a = p.attack !== null && p.attack !== undefined ? p.attack : 0.01
+  let d = p.decay !== null && p.decay !== undefined ? p.decay : 0.3
 
   let dropDecay = 0.01 + (1 - dropRate) * 0.5
   let slaveRatio = Math.pow(2, slaveBase/12)
@@ -919,15 +919,15 @@ fn laserSyncLines(p) {
 }
 
 fn getRetroVolComp(pVol, maxVol) {
-  let v = pVol != null ? pVol : (maxVol * 0.66)
+  let v = pVol !== null && pVol !== undefined ? pVol : (maxVol * 0.66)
   return f((v / maxVol) * VOL_COMP * 0.8)
 }
 
 fn addRetroGlobals(lines, p, targetOsc) {
-  let pitchDrop = p.pitchDrop != null ? p.pitchDrop : 0
-  let pitchDec = p.pitchDec != null ? p.pitchDec : 0.05
-  let vibRate = p.vibRate != null ? p.vibRate : 0
-  let vibAmt = p.vibAmt != null ? p.vibAmt : 0
+  let pitchDrop = p.pitchDrop !== null && p.pitchDrop !== undefined ? p.pitchDrop : 0
+  let pitchDec = p.pitchDec !== null && p.pitchDec !== undefined ? p.pitchDec : 0.05
+  let vibRate = p.vibRate !== null && p.vibRate !== undefined ? p.vibRate : 0
+  let vibAmt = p.vibAmt !== null && p.vibAmt !== undefined ? p.vibAmt : 0
 
   if (pitchDrop !== 0) {
     let dropRatio = Math.pow(2, pitchDrop / 12.0)
@@ -945,7 +945,7 @@ fn addRetroGlobals(lines, p, targetOsc) {
 }
 
 fn applySweep(lines, p, targetOsc) {
-  if (p.sweep != null && p.sweep !== 0) {
+  if (p.sweep !== null && p.sweep !== undefined && p.sweep !== 0) {
     let sweepRatio = Math.pow(2, p.sweep / 12.0)
     lines.push("env " + targetOsc + ".freq set 0 note lin dur note*" + f(sweepRatio))
   }
@@ -956,9 +956,9 @@ fn nes2a03Lines(p) {
   let isNoise = type === "noise"
   let wave = type === "triangle" ? "triangle" : "square"
   let a = p.attack ? p.attack : 0.005
-  let d = (p.decay != null ? p.decay : 3) / 10.0
-  let s = p.sustain != null ? p.sustain / 15.0 : 0.5
-  let r = p.release != null ? p.release / 10.0 : 0.1
+  let d = (p.decay !== null && p.decay !== undefined ? p.decay : 3) / 10.0
+  let s = p.sustain !== null && p.sustain !== undefined ? p.sustain / 15.0 : 0.5
+  let r = p.release !== null && p.release !== undefined ? p.release / 10.0 : 0.1
   let vComp = getRetroVolComp(p.vol, 15.0)
   let lines = [
     isNoise ? "noise o1" : ("osc o1 " + wave + " note"),
@@ -979,9 +979,9 @@ fn gameBoyDmgLines(p) {
   let isNoise = type === "noise"
   let wave = type === "wave" ? "sine" : "square"
   let a = p.attack ? p.attack : 0.005
-  let d = p.decay != null ? p.decay / 10.0 : 0.2
-  let s = p.sustain != null ? p.sustain / 15.0 : 0.5
-  let r = p.release != null ? p.release / 10.0 : 0.1
+  let d = p.decay !== null && p.decay !== undefined ? p.decay / 10.0 : 0.2
+  let s = p.sustain !== null && p.sustain !== undefined ? p.sustain / 15.0 : 0.5
+  let r = p.release !== null && p.release !== undefined ? p.release / 10.0 : 0.1
   let vComp = getRetroVolComp(p.vol, 15.0)
   let lines = [
     isNoise ? "noise o1" : ("osc o1 " + wave + " note"),
@@ -1002,7 +1002,7 @@ fn c64sidLines(p) {
   if (wave === "pulse") wave = "square"
   let a = p.attack ? p.attack / 5.0 : 0.05
   let d = p.decay ? p.decay / 5.0 : 0.2
-  let s = p.sustain != null ? p.sustain / 15.0 : 0.5
+  let s = p.sustain !== null && p.sustain !== undefined ? p.sustain / 15.0 : 0.5
   let r = p.release ? p.release / 5.0 : 0.2
   let ftype = p.filterType ? p.filterType : "lowpass"
   let fcut = p.cutoff ? p.cutoff : 2000
@@ -1027,11 +1027,11 @@ fn getRateTime(rate) {
 }
 
 fn ymEnvToAdsr(p, opId) {
-  let ar = p[opId + "_ar"] != null ? p[opId + "_ar"] : 31
-  let dr = p[opId + "_dr"] != null ? p[opId + "_dr"] : 5
-  let sr = p[opId + "_sr"] != null ? p[opId + "_sr"] : 5
-  let rr = p[opId + "_rr"] != null ? p[opId + "_rr"] : 5
-  let sl = p[opId + "_sl"] != null ? p[opId + "_sl"] : 0
+  let ar = p[opId + "_ar"] !== null && p[opId + "_ar"] !== undefined ? p[opId + "_ar"] : 31
+  let dr = p[opId + "_dr"] !== null && p[opId + "_dr"] !== undefined ? p[opId + "_dr"] : 5
+  let sr = p[opId + "_sr"] !== null && p[opId + "_sr"] !== undefined ? p[opId + "_sr"] : 5
+  let rr = p[opId + "_rr"] !== null && p[opId + "_rr"] !== undefined ? p[opId + "_rr"] : 5
+  let sl = p[opId + "_sl"] !== null && p[opId + "_sl"] !== undefined ? p[opId + "_sl"] : 0
   
   let atkTime = getRateTime(ar)
   let decTime = getRateTime(dr)
@@ -1042,18 +1042,18 @@ fn ymEnvToAdsr(p, opId) {
 }
 
 fn ym2612Lines(p) {
-  let algo = p.algorithm != null ? Math.round(p.algorithm) : 0
-  let fdbk = p.feedback != null ? p.feedback : 0
+  let algo = p.algorithm !== null && p.algorithm !== undefined ? Math.round(p.algorithm) : 0
+  let fdbk = p.feedback !== null && p.feedback !== undefined ? p.feedback : 0
   
   let ops = {}
   let opEnvs = {}
   
   let i = 1
   while (i <= 4) {
-    let mul = p["op" + i + "_mul"] != null ? p["op" + i + "_mul"] : 1
+    let mul = p["op" + i + "_mul"] !== null && p["op" + i + "_mul"] !== undefined ? p["op" + i + "_mul"] : 1
     if (mul === 0) mul = 0.5
     
-    let dt = p["op" + i + "_dt"] != null ? p["op" + i + "_dt"] : 0
+    let dt = p["op" + i + "_dt"] !== null && p["op" + i + "_dt"] !== undefined ? p["op" + i + "_dt"] : 0
     let detuneCents = dt * 7.0
     
     let oid = String(i)
@@ -1072,7 +1072,7 @@ fn ym2612Lines(p) {
   if (fdbk > 0) mods.push({ type: "fm", src: "1", dst: "1", amount: fAmt })
   
   fn getTl(opId) {
-    let tl = p["op" + opId + "_tl"] != null ? p["op" + opId + "_tl"] : 0
+    let tl = p["op" + opId + "_tl"] !== null && p["op" + opId + "_tl"] !== undefined ? p["op" + opId + "_tl"] : 0
     return Math.pow(10, -(tl / 127.0) * 4.0)
   }
   
@@ -1137,7 +1137,7 @@ fn sn76489Lines(p) {
   let wave = "square"
   let a = p.attack ? p.attack : 0.005
   let d = p.decay ? p.decay : 0.1
-  let s = p.sustain != null ? p.sustain / 15.0 : 0.5
+  let s = p.sustain !== null && p.sustain !== undefined ? p.sustain / 15.0 : 0.5
   let r = p.release ? p.release : 0.1
   let vComp = getRetroVolComp(p.vol, 15.0)
   let lines = [
@@ -1156,7 +1156,7 @@ fn spc700Lines(p) {
   let wave = p.waveform === "sine" ? "sine" : p.waveform === "brass" || p.waveform === "sawtooth" ? "sawtooth" : "square"
   let a = p.attack ? p.attack / 15.0 : 0.05
   let d = p.decay ? p.decay / 7.0 : 0.2
-  let s = p.sustainLevel != null ? p.sustainLevel / 7.0 : 0.5
+  let s = p.sustainLevel !== null && p.sustainLevel !== undefined ? p.sustainLevel / 7.0 : 0.5
   let r = 0.2
   let vComp = getRetroVolComp(p.vol, 10.0)
   let lines = [
@@ -1176,9 +1176,9 @@ fn gbaDirectSoundLines(p) {
   let wave = p.waveform ? p.waveform : "pulse"
   if (wave === "pulse") wave = "square"
   let a = p.attack ? p.attack : 0.005
-  let d = p.decay != null ? p.decay / 10.0 : 0.2
-  let s = p.sustain != null ? p.sustain / 15.0 : 0.5
-  let r = p.release != null ? p.release / 10.0 : 0.1
+  let d = p.decay !== null && p.decay !== undefined ? p.decay / 10.0 : 0.2
+  let s = p.sustain !== null && p.sustain !== undefined ? p.sustain / 15.0 : 0.5
+  let r = p.release !== null && p.release !== undefined ? p.release / 10.0 : 0.1
   let vComp = getRetroVolComp(p.vol, 15.0)
   let lines = [
     "osc o1 " + wave + " note",

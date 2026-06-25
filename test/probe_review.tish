@@ -25,9 +25,9 @@ let proj = loadDefaultDeckardProject().project
 let store = { project: proj }
 let ctx = () => { return { actorId: "me", authorId: "me", skillIds: [] } }
 fn ingest(src, c) {
-  let actorId = c != null ? c.actorId : "me"
-  let authorId = c != null ? c.authorId : "me"
-  let skillIds = c != null ? c.skillIds : []
+  let actorId = c !== null && c !== undefined ? c.actorId : "me"
+  let authorId = c !== null && c !== undefined ? c.authorId : "me"
+  let skillIds = c !== null && c !== undefined ? c.skillIds : []
   applyCoDjTplSource(store.project, src, actorId, authorId, 0, skillIds)
   return true
 }
@@ -41,7 +41,7 @@ ch.generatorId = preset.generatorId
 ch.generatorSpec = preset.generatorSpec
 ch.generatorParams = preset.generatorParams
 let chM = findChannelById(store.project, T)
-check("[setup] channel is matrixFm", chM.generatorSpec != null && chM.generatorSpec.kind === "matrixFm")
+check("[setup] channel is matrixFm", chM.generatorSpec !== null && chM.generatorSpec !== undefined && chM.generatorSpec.kind === "matrixFm")
 
 // gen-slice round-trips op/mod/route (the Levels.tish change).
 let slice = emitInstrumentModuleTpl(store.project, T, "gen")
@@ -130,6 +130,6 @@ ed3.emit("track/" + T3 + "/mix/gain", 0)
 check("[guard] gain->0 records (zero is reversible)", ed3.canUndo() === true)
 ed3.undo()
 let afterGainUndo = findChannelById(ed3store.project, T3)
-check("[guard] undo restores gain 0.85", Math.abs((afterGainUndo.gain != null ? afterGainUndo.gain : 0.85) - 0.85) < 1e-6)
+check("[guard] undo restores gain 0.85", Math.abs((afterGainUndo.gain !== null && afterGainUndo.gain !== undefined ? afterGainUndo.gain : 0.85) - 0.85) < 1e-6)
 
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))

@@ -142,7 +142,7 @@ export fn createMidiController(deps) {
   }
   // restore persisted mappings
   let raw = backend.read()
-  if (raw != null && String(raw).length > 0) {
+  if (raw !== null && raw !== undefined && String(raw).length > 0) {
     try {
       let m = JSON.parse(raw)
       if (m && typeof m === "object") {
@@ -183,7 +183,7 @@ export fn createMidiController(deps) {
         return
       }
       let target = state.mappings[key]
-      if (target != null && d.onControl) {
+      if (target !== null && target !== undefined && d.onControl) {
         d.onControl(target, normalize01(ev.value))
       }
     }
@@ -264,7 +264,7 @@ export fn createMidiController(deps) {
     notify()
   }
   fn removeMapping(key) {
-    if (state.mappings[key] != null) {
+    if (state.mappings[key] !== null && state.mappings[key] !== undefined) {
       delete state.mappings[key]
       persist()
       notify()

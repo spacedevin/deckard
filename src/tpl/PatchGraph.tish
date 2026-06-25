@@ -14,19 +14,19 @@ fn patchWaveTok(w) {
 fn oscLine(nd) {
   let s = "osc " + nd.id + " " + patchWaveTok(nd.wave)
   if (nd.freqMode === "fixed") {
-    let hz = nd.fixedHz != null ? nd.fixedHz : 220
+    let hz = nd.fixedHz !== null && nd.fixedHz !== undefined ? nd.fixedHz : 220
     s = s + " " + formatTplFloat(hz)
   } else {
     s = s + " note"
-    let r = nd.ratio != null ? nd.ratio : 1
+    let r = nd.ratio !== null && nd.ratio !== undefined ? nd.ratio : 1
     if (Math.abs(r - 1) > 0.00001) {
       s = s + " ratio " + formatTplFloat(r)
     }
   }
-  if (nd.detune != null && Math.abs(nd.detune) > 0.00001) {
+  if (nd.detune !== null && nd.detune !== undefined && Math.abs(nd.detune) > 0.00001) {
     s = s + " detune " + formatTplFloat(nd.detune)
   }
-  if (nd.rand != null && nd.rand > 0.00001) {
+  if (nd.rand !== null && nd.rand !== undefined && nd.rand > 0.00001) {
     s = s + " rand " + formatTplFloat(nd.rand)
   }
   return s
@@ -34,8 +34,8 @@ fn oscLine(nd) {
 
 fn filterLine(nd) {
   let s = "filter " + nd.id + " " + (nd.ftype ? nd.ftype : "lowpass")
-  s = s + " q " + formatTplFloat(nd.q != null ? nd.q : 0.7)
-  if (nd.freq != null && nd.freq > 0) {
+  s = s + " q " + formatTplFloat(nd.q !== null && nd.q !== undefined ? nd.q : 0.7)
+  if (nd.freq !== null && nd.freq !== undefined && nd.freq > 0) {
     s = s + " freq " + formatTplFloat(nd.freq)
   }
   return s
@@ -44,19 +44,19 @@ fn filterLine(nd) {
 fn syncoscLine(nd) {
   let s = "syncosc " + nd.id
   if (nd.freqMode === "fixed") {
-    let hz = nd.fixedHz != null ? nd.fixedHz : 220
+    let hz = nd.fixedHz !== null && nd.fixedHz !== undefined ? nd.fixedHz : 220
     s = s + " " + formatTplFloat(hz)
   } else {
     s = s + " note"
-    let r = nd.ratio != null ? nd.ratio : 1
+    let r = nd.ratio !== null && nd.ratio !== undefined ? nd.ratio : 1
     if (Math.abs(r - 1) > 0.00001) {
       s = s + " ratio " + formatTplFloat(r)
     }
   }
-  if (nd.detune != null && Math.abs(nd.detune) > 0.00001) {
+  if (nd.detune !== null && nd.detune !== undefined && Math.abs(nd.detune) > 0.00001) {
     s = s + " detune " + formatTplFloat(nd.detune)
   }
-  if (nd.rand != null && nd.rand > 0.00001) {
+  if (nd.rand !== null && nd.rand !== undefined && nd.rand > 0.00001) {
     s = s + " rand " + formatTplFloat(nd.rand)
   }
   return s
@@ -64,7 +64,7 @@ fn syncoscLine(nd) {
 
 // Append ` gain <v>` to a node line when the per-node level is non-default (not 1).
 fn gainSuffix(nd) {
-  if (nd.gain != null && Math.abs(nd.gain - 1) > 0.00001) {
+  if (nd.gain !== null && nd.gain !== undefined && Math.abs(nd.gain - 1) > 0.00001) {
     return " gain " + formatTplFloat(nd.gain)
   }
   return ""
@@ -83,10 +83,10 @@ fn nodeLine(nd) {
   if (nd.kind === "string") {
     // Always emit tone/damping/decay (round-trip fixpoint); mute only when non-zero.
     let st = "string " + nd.id + " note"
-    st = st + " tone " + formatTplFloat(nd.tone != null ? nd.tone : 0.5)
-    st = st + " damping " + formatTplFloat(nd.damping != null ? nd.damping : 0.4)
-    st = st + " decay " + formatTplFloat(nd.decay != null ? nd.decay : 0.6)
-    if (nd.mute != null && nd.mute > 0.00001) {
+    st = st + " tone " + formatTplFloat(nd.tone !== null && nd.tone !== undefined ? nd.tone : 0.5)
+    st = st + " damping " + formatTplFloat(nd.damping !== null && nd.damping !== undefined ? nd.damping : 0.4)
+    st = st + " decay " + formatTplFloat(nd.decay !== null && nd.decay !== undefined ? nd.decay : 0.6)
+    if (nd.mute !== null && nd.mute !== undefined && nd.mute > 0.00001) {
       st = st + " mute " + formatTplFloat(nd.mute)
     }
     return st + gainSuffix(nd)
@@ -95,17 +95,17 @@ fn nodeLine(nd) {
     return filterLine(nd) + gainSuffix(nd)
   }
   if (nd.kind === "shaper") {
-    let ss = "shaper " + nd.id + " amount " + formatTplFloat(nd.amount != null ? nd.amount : 50)
-    if (nd.curve != null && nd.curve !== "hard" && String(nd.curve).length > 0) {
+    let ss = "shaper " + nd.id + " amount " + formatTplFloat(nd.amount !== null && nd.amount !== undefined ? nd.amount : 50)
+    if (nd.curve !== null && nd.curve !== undefined && nd.curve !== "hard" && String(nd.curve).length > 0) {
       ss = ss + " curve " + String(nd.curve)
     }
     return ss + gainSuffix(nd)
   }
   if (nd.kind === "pan") {
-    return "pan " + nd.id + " " + formatTplFloat(nd.pos != null ? nd.pos : 0) + gainSuffix(nd)
+    return "pan " + nd.id + " " + formatTplFloat(nd.pos !== null && nd.pos !== undefined ? nd.pos : 0) + gainSuffix(nd)
   }
   if (nd.kind === "gain") {
-    return "gain " + nd.id + " " + formatTplFloat(nd.value != null ? nd.value : 1)
+    return "gain " + nd.id + " " + formatTplFloat(nd.value !== null && nd.value !== undefined ? nd.value : 1)
   }
   return ""
 }
@@ -115,7 +115,7 @@ fn connLine(cn) {
   if (cn.dstParam) {
     dstTok = cn.dst + "." + cn.dstParam
   }
-  return "conn " + cn.src + " " + dstTok + " " + formatTplFloat(cn.vol != null ? cn.vol : 1)
+  return "conn " + cn.src + " " + dstTok + " " + formatTplFloat(cn.vol !== null && cn.vol !== undefined ? cn.vol : 1)
 }
 
 fn envLine(en) {
@@ -152,7 +152,7 @@ export fn patchGraphToLines(graph) {
     }
     ei = ei + 1
   }
-  if (graph.dur != null) {
+  if (graph.dur !== null && graph.dur !== undefined) {
     lines.push("dur " + formatTplFloat(graph.dur))
   }
   return lines
@@ -398,8 +398,8 @@ export fn patchSignalStages(graph) {
     let ci = 0
     while (ci < conns.length) {
       let cn = conns[ci]
-      let isAudio = cn.dstParam == null || String(cn.dstParam).length === 0
-      if (isAudio && stageById[cn.src] != null && stageById[cn.dst] != null) {
+      let isAudio = (cn.dstParam === null || cn.dstParam === undefined) || String(cn.dstParam).length === 0
+      if (isAudio && stageById[cn.src] !== null && stageById[cn.src] !== undefined && stageById[cn.dst] !== null && stageById[cn.dst] !== undefined) {
         if (stageById[cn.dst] < stageById[cn.src] + 1) {
           stageById[cn.dst] = stageById[cn.src] + 1
           changed = true

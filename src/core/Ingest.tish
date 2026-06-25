@@ -33,7 +33,7 @@ export fn ensureProjectRev(p) {
 
 export fn detectTouchedSlices(source) {
   let out = { channels: false, session: false, master: false, actor: false, automation: false }
-  let lines = String(source == null ? "" : source).split("\n")
+  let lines = String(source === null || source === undefined ? "" : source).split("\n")
   let i = 0
   while (i < lines.length) {
     let h = ingestFirstToken(lines[i])
@@ -60,7 +60,7 @@ export fn bumpProjectRev(p, touched) {
     return
   }
   r.top = r.top + 1
-  let t = touched != null ? touched : {}
+  let t = touched !== null && touched !== undefined ? touched : {}
   if (t.channels) {
     r.channels = r.channels + 1
   }
@@ -102,7 +102,7 @@ export fn createIngest(store) {
     if (kind === "control" && isPrivateDirective(fragment)) {
       return
     }
-    if (fragment == null || String(fragment).trim().length === 0) {
+    if (fragment === null || fragment === undefined || String(fragment).trim().length === 0) {
       return
     }
     let i = 0
@@ -123,14 +123,14 @@ export fn createIngest(store) {
 
   // THE write door. Returns { ok, version }.
   fn ingest(source, ctx) {
-    let c = ctx != null ? ctx : {}
+    let c = ctx !== null && ctx !== undefined ? ctx : {}
     let p = store.project
-    let actorId = c.actorId != null ? c.actorId : (p.coDjSelfActorId != null ? p.coDjSelfActorId : "self")
-    let authorId = c.authorId != null ? c.authorId : actorId
-    let skillIds = c.skillIds != null ? c.skillIds : null
-    let perfStep = c.perfStep != null ? c.perfStep : (store.runtime && store.runtime.perfStep != null ? store.runtime.perfStep : 0)
+    let actorId = c.actorId !== null && c.actorId !== undefined ? c.actorId : (p.coDjSelfActorId !== null && p.coDjSelfActorId !== undefined ? p.coDjSelfActorId : "self")
+    let authorId = c.authorId !== null && c.authorId !== undefined ? c.authorId : actorId
+    let skillIds = c.skillIds !== null && c.skillIds !== undefined ? c.skillIds : null
+    let perfStep = c.perfStep !== null && c.perfStep !== undefined ? c.perfStep : (store.runtime && (store.runtime.perfStep !== null && store.runtime.perfStep !== undefined) ? store.runtime.perfStep : 0)
 
-    let lines = String(source == null ? "" : source).split("\n")
+    let lines = String(source === null || source === undefined ? "" : source).split("\n")
     let docKept = []
     let i = 0
     while (i < lines.length) {

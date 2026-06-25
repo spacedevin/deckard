@@ -12,12 +12,12 @@ export fn playPad(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   if (n >= 0 && n <= 127) {
     hz = midiToHz(n)
   }
-  let detune = p.detune != null ? p.detune : 9
-  let cutoff = p.cutoff != null && p.cutoff > 0 ? p.cutoff : 2200
-  let a = p.attack != null && p.attack > 0 ? p.attack : 0.08
-  let d = p.decay != null && p.decay > 0 ? p.decay : 0.25
-  let sus = p.sustain != null && p.sustain >= 0 && p.sustain <= 1 ? p.sustain : 0.6
-  let r = p.release != null && p.release > 0 ? p.release : 0.7
+  let detune = (p.detune !== null && p.detune !== undefined) ? p.detune : 9
+  let cutoff = (p.cutoff !== null && p.cutoff !== undefined) && p.cutoff > 0 ? p.cutoff : 2200
+  let a = (p.attack !== null && p.attack !== undefined) && p.attack > 0 ? p.attack : 0.08
+  let d = (p.decay !== null && p.decay !== undefined) && p.decay > 0 ? p.decay : 0.25
+  let sus = (p.sustain !== null && p.sustain !== undefined) && p.sustain >= 0 && p.sustain <= 1 ? p.sustain : 0.6
+  let r = (p.release !== null && p.release !== undefined) && p.release > 0 ? p.release : 0.7
 
   let o1 = ctx.createOscillator()
   o1.type = p.wave1 ? p.wave1 : "sine"

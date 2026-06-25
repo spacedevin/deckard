@@ -21,7 +21,7 @@ if (msg1 === null) {
   console.log("FAIL: receiveTimeout returned null (no joined message)")
   process.exit(1)
 }
-let raw1 = msg1 != null && msg1.data != null ? msg1.data : null
+let raw1 = msg1 !== null && msg1 !== undefined && msg1.data !== null && msg1.data !== undefined ? msg1.data : null
 if (!raw1 || raw1.indexOf("joined") < 0) {
   console.log("FAIL: expected joined, got: " + (raw1 || "null"))
   process.exit(1)
@@ -32,7 +32,7 @@ if (msg2 === null) {
   console.log("FAIL: receiveTimeout returned null (no presence)")
   process.exit(1)
 }
-let raw2 = msg2 != null && msg2.data != null ? msg2.data : null
+let raw2 = msg2 !== null && msg2 !== undefined && msg2.data !== null && msg2.data !== undefined ? msg2.data : null
 if (!raw2 || raw2.indexOf("presence") < 0) {
   console.log("FAIL: expected presence, got: " + (raw2 || "null"))
   process.exit(1)

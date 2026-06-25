@@ -14,7 +14,7 @@ fn backend() {
   // which throws ReferenceError under Node (tests import this module). `globalThis.localStorage` is a plain
   // property read → undefined off-browser, no throw. (See memory: lattish typeof-undeclared-global gotcha.)
   let ls = globalThis.localStorage
-  if (ls != null) {
+  if (ls !== null && ls !== undefined) {
     return {
       read: () => ls.getItem(KEY),
       write: (s) => {
@@ -38,14 +38,14 @@ let be = backend()
 fn readAll() {
   let raw = be.read()
   let obj = null
-  if (raw != null && String(raw).length > 0) {
+  if (raw !== null && raw !== undefined && String(raw).length > 0) {
     try {
       obj = JSON.parse(raw)
     } catch (e) {
       obj = null
     }
   }
-  if (obj == null || typeof obj !== "object") {
+  if ((obj === null || obj === undefined) || typeof obj !== "object") {
     obj = {}
   }
   let i = 0

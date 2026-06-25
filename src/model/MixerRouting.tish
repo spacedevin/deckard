@@ -13,7 +13,7 @@ export fn channelActorLane(ch, project) {
   // host on Deck A; Deck B = every other contributor (you-as-follower + agents). When solo or when
   // YOU are the host, your locally-authored ("human") tracks are the host lane.
   let host = project.coDjHostActorId ? String(project.coDjHostActorId) : null
-  if (host == null) {
+  if (host === null || host === undefined) {
     return owner === "human" ? "local" : owner
   }
   if (owner === host) {

@@ -195,15 +195,15 @@ fn llmPickDeckSetId(text) {
 // Resolve a preset for the given direction → { id, lines } (track ids prefixed), or null.
 fn deckSetLinesForLane(text, allowRotate) {
   let id = matchDeckSetId(text)
-  if (id == null) {
+  if ((id === null || id === undefined)) {
     let llmId = await llmPickDeckSetId(text)
-    if (llmId != null) {
+    if (llmId !== null && llmId !== undefined) {
       id = llmId
     } else if (allowRotate) {
       id = rotateDeckSetId()
     }
   }
-  if (id == null) return null
+  if ((id === null || id === undefined)) return null
   let set = deckSetTplById(id)
   if (!set || !set.tpl) return null
   return { id: id, lines: prefixTrackIds(set.tpl, actorId) }
@@ -256,7 +256,7 @@ fn extractTplFromResponse(raw) {
   let s = String(raw || "").trim()
   let codeBlock = RegExp("```(?:[a-zA-Z0-9_]*)\\n?([\\s\\S]*?)```")
   let m = s.match(codeBlock)
-  if (m != null && m.length > 1) s = m[1].trim()
+  if (m !== null && m !== undefined && m.length > 1) s = m[1].trim()
   let all = s.split("\n")
   let out = []
   let i = 0
@@ -295,7 +295,7 @@ fn extractTplFromResponse(raw) {
 // Raw LLM call — returns the assistant's text content (or null). systemPrompt overrides the default.
 fn callLLMRaw(userPrompt, systemPrompt) {
   if (!GRADIENT_MODEL_ACCESS_KEY || GRADIENT_MODEL_ACCESS_KEY === "") return null
-  let sys = (systemPrompt != null && systemPrompt !== "") ? systemPrompt : SYSTEM_PROMPT
+  let sys = (systemPrompt !== null && systemPrompt !== undefined && systemPrompt !== "") ? systemPrompt : SYSTEM_PROMPT
   try {
     let url = DO_BASE + "/chat/completions"
     let bodyObj = {
@@ -386,11 +386,11 @@ fn llmLinesFrom(directive) {
 
 fn handleDirect(ws, msg) {
   let text = msg.text || "add hi-hat"
-  let ps = (msg.perfStep != null && typeof msg.perfStep === "number") ? msg.perfStep : 0
+  let ps = (msg.perfStep !== null && msg.perfStep !== undefined && typeof msg.perfStep === "number") ? msg.perfStep : 0
   // A fine-grained single-element request stays a single track; anything else loads a full preset.
   if (!looksLikeSingleElement(text)) {
     let ds = await deckSetLinesForLane(text, true)
-    if (ds != null && ds.lines && ds.lines.length > 0 && ws && ws.send) {
+    if (ds !== null && ds !== undefined && ds.lines && ds.lines.length > 0 && ws && ws.send) {
       sendBlockOnly(ws, ds.lines, ps)
       console.log("[worker] direct '" + text + "' -> deck preset '" + ds.id + "' (" + String(ds.lines.length) + " lines)")
       return
@@ -437,7 +437,7 @@ fn handlePlayingStream(ws, perfStep) {
   // rich deck set blended on Deck B rather than a one-line demo. Falls back to LLM/demo if needed.
   let ctx = tplLineBuffer.length > 0 ? tplLineBuffer.join(" ") : ""
   let ds = await deckSetLinesForLane(ctx, true)
-  if (ds != null && ds.lines && ds.lines.length > 0) {
+  if (ds !== null && ds !== undefined && ds.lines && ds.lines.length > 0) {
     console.log("[worker] play response: deck preset '" + ds.id + "' (" + String(ds.lines.length) + " lines) -> " + (playingActorId || "?"))
     sendBlockOnly(ws, ds.lines, perfStep)
     return
@@ -508,7 +508,7 @@ fn run() {
     }
     if (msgObj === null) { }
     else {
-      let raw = (msgObj != null && msgObj.data != null) ? msgObj.data : null
+      let raw = (msgObj !== null && msgObj !== undefined && msgObj.data !== null && msgObj.data !== undefined) ? msgObj.data : null
       if (!raw) { }
       else {
         console.log("[worker] INPUT raw:", raw.length > 300 ? (raw.substring(0, 300) + "...") : raw)
@@ -517,18 +517,18 @@ fn run() {
           msg = JSON.parse(raw)
         } catch (e) {
         }
-        if (msg != null) {
+        if (msg !== null && msg !== undefined) {
           console.log("[worker] INPUT parsed type=" + (msg.type || "?") + " keys=" + JSON.stringify(Object.keys(msg)))
         }
-        if (msg != null && msg.type === "direct") {
+        if (msg !== null && msg !== undefined && msg.type === "direct") {
           let tgt = msg.targetActorId
-          if (tgt === actorId || (tgt == null && msg.laneId === actorId)) {
+          if (tgt === actorId || ((tgt === null || tgt === undefined) && msg.laneId === actorId)) {
             console.log("[worker] got direct: " + (msg.text || ""))
             handleDirect(ws, msg)
             console.log("[worker] sent tpl.block")
           }
         }
-        else if (msg != null && msg.type === "control") {
+        else if (msg !== null && msg !== undefined && msg.type === "control") {
           let op = msg.op || ""
           if (op === "playing_start") {
             playingActorId = msg.actorId || msg.authorId || null
@@ -544,9 +544,9 @@ fn run() {
             console.log("[worker] playing_stop")
           }
         }
-        else if (msg != null && msg.type === "tpl.line") {
+        else if (msg !== null && msg !== undefined && msg.type === "tpl.line") {
           let from = msg.actorId || msg.authorId || msg.laneId || ""
-          if (playingActorId != null && (from === playingActorId || (playingActorId === "" && from !== actorId))) {
+          if (playingActorId !== null && playingActorId !== undefined && (from === playingActorId || (playingActorId === "" && from !== actorId))) {
             let line = msg.line
             if (typeof line === "string") {
               pushContextLine(line)
@@ -554,7 +554,7 @@ fn run() {
             }
           }
         }
-        else if (msg != null && msg.type === "tpl.block") {
+        else if (msg !== null && msg !== undefined && msg.type === "tpl.block") {
           // Fold other actors' committed patches into context so responses are aware of them.
           let bfrom = msg.actorId || msg.authorId || ""
           if (bfrom !== actorId && Array.isArray(msg.lines)) {
@@ -565,17 +565,17 @@ fn run() {
             }
           }
         }
-        else if (msg != null && msg.type === "presence") {
+        else if (msg !== null && msg !== undefined && msg.type === "presence") {
           let al = msg.actors ? msg.actors : []
           console.log("[worker] presence: actors=" + JSON.stringify(al))
         }
-        else if (msg != null && msg.type === "joined" && !joinedLogged) {
+        else if (msg !== null && msg !== undefined && msg.type === "joined" && !joinedLogged) {
           joinedLogged = true
           console.log("[worker] received joined, ready")
         }
       }
     }
-    if (playingActorId != null && !respondedSincePlay && tplLineBuffer.length > 0) {
+    if (playingActorId !== null && playingActorId !== undefined && !respondedSincePlay && tplLineBuffer.length > 0) {
       let elapsed = Date.now() - lastLineAt
       if (elapsed >= DEBOUNCE_MS) {
         respondedSincePlay = true

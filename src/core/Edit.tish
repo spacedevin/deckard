@@ -16,12 +16,12 @@ fn f(v) {
 
 fn trackHeader(ch) {
   let gid = ch.generatorId ? ch.generatorId : "basicOsc"
-  let genTok = (ch.macroName != null) ? ch.macroName : generatorIdToTpl(gid)
+  let genTok = (ch.macroName !== null && ch.macroName !== undefined) ? ch.macroName : generatorIdToTpl(gid)
   let s = "track " + ch.name + " id " + ch.id + " gen " + genTok
   // Preserve the pattern length (`* N`) — applyTrackBody re-reads it on every body apply and would otherwise
   // reset a multi-bar channel to 1 bar on ANY incremental edit (mix/fx/pattern). Mirrors emitProject's order
   // (loop count before macro overrides).
-  if (ch.patternBars != null) {
+  if (ch.patternBars !== null && ch.patternBars !== undefined) {
     let pn = Math.floor(Number(ch.patternBars))
     if (pn >= 2 && pn === pn) {
       s = s + " * " + String(pn)
@@ -30,7 +30,7 @@ fn trackHeader(ch) {
   // CRITICAL: a macro re-expands from this header on apply, so the overrides MUST ride along — otherwise
   // any fx/voice/mix edit re-emits a bare `gen <macro>` and resets the macro to its defaults (the
   // "change cutoff → bass becomes unrecognizable, no way back" bug).
-  if (ch.macroName != null && ch.macroParams) {
+  if ((ch.macroName !== null && ch.macroName !== undefined) && ch.macroParams) {
     let mk = Object.keys(ch.macroParams)
     let i = 0
     while (i < mk.length) {
@@ -42,13 +42,13 @@ fn trackHeader(ch) {
 }
 
 fn mixLine(ch, param, value) {
-  let gain = ch.gain != null ? ch.gain : 0.85
-  let pan = ch.pan != null ? ch.pan : 0
+  let gain = (ch.gain !== null && ch.gain !== undefined) ? ch.gain : 0.85
+  let pan = (ch.pan !== null && ch.pan !== undefined) ? ch.pan : 0
   let mute = ch.mute ? 1 : 0
   let solo = ch.solo ? 1 : 0
-  let lo = ch.eqLo != null ? ch.eqLo : 0
-  let mid = ch.eqMid != null ? ch.eqMid : 0
-  let hi = ch.eqHi != null ? ch.eqHi : 0
+  let lo = (ch.eqLo !== null && ch.eqLo !== undefined) ? ch.eqLo : 0
+  let mid = (ch.eqMid !== null && ch.eqMid !== undefined) ? ch.eqMid : 0
+  let hi = (ch.eqHi !== null && ch.eqHi !== undefined) ? ch.eqHi : 0
   if (param === "gain") { gain = Number(value) }
   else if (param === "pan") { pan = Number(value) }
   else if (param === "mute") { mute = value ? 1 : 0 }
@@ -60,12 +60,12 @@ fn mixLine(ch, param, value) {
 }
 
 fn fxLine(ch, param, value) {
-  let rev = ch.reverbSend != null ? ch.reverbSend : 0
-  let drive = ch.drive != null ? ch.drive : 0
-  let lfor = ch.lfoRate != null ? ch.lfoRate : 0
-  let lfod = ch.lfoDepth != null ? ch.lfoDepth : 0
-  let cut = ch.filterCutoff != null ? ch.filterCutoff : 8000
-  let res = ch.filterQ != null ? ch.filterQ : 1
+  let rev = (ch.reverbSend !== null && ch.reverbSend !== undefined) ? ch.reverbSend : 0
+  let drive = (ch.drive !== null && ch.drive !== undefined) ? ch.drive : 0
+  let lfor = (ch.lfoRate !== null && ch.lfoRate !== undefined) ? ch.lfoRate : 0
+  let lfod = (ch.lfoDepth !== null && ch.lfoDepth !== undefined) ? ch.lfoDepth : 0
+  let cut = (ch.filterCutoff !== null && ch.filterCutoff !== undefined) ? ch.filterCutoff : 8000
+  let res = (ch.filterQ !== null && ch.filterQ !== undefined) ? ch.filterQ : 1
   if (param === "reverb" || param === "reverb_send") { rev = Number(value) }
   else if (param === "drive") { drive = Number(value) }
   else if (param === "lfo_rate") { lfor = Number(value) }
@@ -76,12 +76,12 @@ fn fxLine(ch, param, value) {
 }
 
 fn voiceLine(ch, param, value) {
-  let oct = ch.octave != null ? Math.floor(ch.octave) : 0
-  let arp = (ch.arp != null && ch.arp !== "") ? ch.arp : "off"
-  let chord = (ch.chord != null && ch.chord !== "") ? ch.chord : "off"
-  let arpRate = (ch.arpRate != null && ch.arpRate !== "") ? ch.arpRate : "auto"
-  let inversion = (ch.inversion != null && ch.inversion !== "") ? ch.inversion : "root"
-  let strum = ch.strum != null ? ch.strum : 0
+  let oct = (ch.octave !== null && ch.octave !== undefined) ? Math.floor(ch.octave) : 0
+  let arp = ((ch.arp !== null && ch.arp !== undefined) && ch.arp !== "") ? ch.arp : "off"
+  let chord = ((ch.chord !== null && ch.chord !== undefined) && ch.chord !== "") ? ch.chord : "off"
+  let arpRate = ((ch.arpRate !== null && ch.arpRate !== undefined) && ch.arpRate !== "") ? ch.arpRate : "auto"
+  let inversion = ((ch.inversion !== null && ch.inversion !== undefined) && ch.inversion !== "") ? ch.inversion : "root"
+  let strum = (ch.strum !== null && ch.strum !== undefined) ? ch.strum : 0
   if (param === "octave") { oct = Math.floor(Number(value)) }
   else if (param === "arp") { arp = String(value) }
   else if (param === "chord") { chord = String(value) }
@@ -118,9 +118,9 @@ fn stepsLine(value) {
 
 fn masterMixLine(project, param, value) {
   let mm = project.masterMixer ? project.masterMixer : {}
-  let lo = mm.eqLo != null ? mm.eqLo : 0
-  let mid = mm.eqMid != null ? mm.eqMid : 0
-  let hi = mm.eqHi != null ? mm.eqHi : 0
+  let lo = (mm.eqLo !== null && mm.eqLo !== undefined) ? mm.eqLo : 0
+  let mid = (mm.eqMid !== null && mm.eqMid !== undefined) ? mm.eqMid : 0
+  let hi = (mm.eqHi !== null && mm.eqHi !== undefined) ? mm.eqHi : 0
   let comp = mm.compEnabled === false ? 0 : 1
   let reverb = mm.reverbEnabled === false ? 0 : 1
   if (param === "eq_lo") { lo = Number(value) }
@@ -133,10 +133,10 @@ fn masterMixLine(project, param, value) {
 
 fn actorMixLine(project, lane, param, value) {
   let am = (project.actorMixer && project.actorMixer[lane]) ? project.actorMixer[lane] : {}
-  let gain = am.gain != null ? am.gain : 1
-  let lo = am.eqLo != null ? am.eqLo : 0
-  let mid = am.eqMid != null ? am.eqMid : 0
-  let hi = am.eqHi != null ? am.eqHi : 0
+  let gain = (am.gain !== null && am.gain !== undefined) ? am.gain : 1
+  let lo = (am.eqLo !== null && am.eqLo !== undefined) ? am.eqLo : 0
+  let mid = (am.eqMid !== null && am.eqMid !== undefined) ? am.eqMid : 0
+  let hi = (am.eqHi !== null && am.eqHi !== undefined) ? am.eqHi : 0
   let mute = am.mute ? 1 : 0
   let solo = am.solo ? 1 : 0
   if (param === "gain") { gain = Number(value) }
@@ -195,7 +195,7 @@ export fn fragmentForEdit(project, address, value) {
   }
   // Scale lock: value = {root: 0..11, mode: name} to set, or "off"/null to clear.
   if (head === "scale") {
-    if (value == null || value === "off" || (value && (value.mode === "off" || value.root == null))) {
+    if ((value === null || value === undefined) || value === "off" || (value && (value.mode === "off" || (value.root === null || value.root === undefined)))) {
       return "scale off"
     }
     let rn = scaleRootNames()
@@ -213,7 +213,7 @@ export fn fragmentForEdit(project, address, value) {
       y = value.length > 1 ? Number(value[1]) : 0.5
     } else if (value) {
       x = Number(value.x)
-      y = value.y != null ? Number(value.y) : 0.5
+      y = (value.y !== null && value.y !== undefined) ? Number(value.y) : 0.5
     }
     return "xfade " + f(x) + " " + f(y)
   }
@@ -233,15 +233,15 @@ export fn fragmentForEdit(project, address, value) {
     let hdr = trackHeader(ch)
     if (section === "name") {
       let gid = ch.generatorId ? ch.generatorId : "basicOsc"
-      let genTok = (ch.macroName != null) ? ch.macroName : generatorIdToTpl(gid)
+      let genTok = (ch.macroName !== null && ch.macroName !== undefined) ? ch.macroName : generatorIdToTpl(gid)
       let s = "track " + String(value) + " id " + ch.id + " gen " + genTok
-      if (ch.patternBars != null) {
+      if (ch.patternBars !== null && ch.patternBars !== undefined) {
         let pn = Math.floor(Number(ch.patternBars))
         if (pn >= 2 && pn === pn) {
           s = s + " * " + String(pn)
         }
       }
-      if (ch.macroName != null && ch.macroParams) {
+      if ((ch.macroName !== null && ch.macroName !== undefined) && ch.macroParams) {
         let mk = Object.keys(ch.macroParams)
         let i = 0
         while (i < mk.length) {
@@ -260,7 +260,7 @@ export fn fragmentForEdit(project, address, value) {
     if (section === "voice") {
       return hdr + "\n" + voiceLine(ch, param, value)
     }
-    if (section === "gen" && param != null) {
+    if (section === "gen" && (param !== null && param !== undefined)) {
       return hdr + "\n" + "  gen " + param + " " + (typeof value === "number" ? f(value) : String(value))
     }
     // Generator TYPE change (resets params on apply): re-emit the track header with the new gen token.
@@ -269,16 +269,16 @@ export fn fragmentForEdit(project, address, value) {
     }
     // ADSR envelope as one statement (value = {a,d,s,r}).
     if (section === "adsr") {
-      let a = value && value.a != null ? value.a : 0.01
-      let d = value && value.d != null ? value.d : 0.1
-      let s = value && value.s != null ? value.s : 0.7
-      let r = value && value.r != null ? value.r : 0.2
+      let a = value && (value.a !== null && value.a !== undefined) ? value.a : 0.01
+      let d = value && (value.d !== null && value.d !== undefined) ? value.d : 0.1
+      let s = value && (value.s !== null && value.s !== undefined) ? value.s : 0.7
+      let r = value && (value.r !== null && value.r !== undefined) ? value.r : 0.2
       return hdr + "\n" + "  adsr a " + f(a) + " d " + f(d) + " s " + f(s) + " r " + f(r)
     }
     if (section === "deck") {
       let dl = value && value.deck ? value.deck : "live"
       let line = hdr + "\n" + "  deck " + String(dl)
-      if (value && value.slot != null && Math.floor(Number(value.slot)) === Math.floor(Number(value.slot))) {
+      if (value && (value.slot !== null && value.slot !== undefined) && Math.floor(Number(value.slot)) === Math.floor(Number(value.slot))) {
         line = line + " slot " + String(Math.floor(Number(value.slot)))
       }
       return line
@@ -332,24 +332,24 @@ export fn readAddr(project, address) {
   let parts = String(address).split("/")
   let head = parts[0]
   if (head === "bpm") {
-    return project.bpm != null ? project.bpm : 120
+    return (project.bpm !== null && project.bpm !== undefined) ? project.bpm : 120
   }
   if (head === "swing") {
-    return project.swing != null ? project.swing : 0
+    return (project.swing !== null && project.swing !== undefined) ? project.swing : 0
   }
   if (head === "scale") {
-    if (project.scaleRoot == null || project.scaleMode == null) {
+    if ((project.scaleRoot === null || project.scaleRoot === undefined) || (project.scaleMode === null || project.scaleMode === undefined)) {
       return "off"
     }
     return { root: project.scaleRoot, mode: project.scaleMode }
   }
   if (head === "xfade") {
-    let x = project.transportCrossfade != null ? project.transportCrossfade : 0.5
-    let y = project.transportCrossfadeY != null ? project.transportCrossfadeY : 0.5
+    let x = (project.transportCrossfade !== null && project.transportCrossfade !== undefined) ? project.transportCrossfade : 0.5
+    let y = (project.transportCrossfadeY !== null && project.transportCrossfadeY !== undefined) ? project.transportCrossfadeY : 0.5
     return [x, y]
   }
   if (head === "launch_quant") {
-    return project.launchQuant != null ? Math.floor(project.launchQuant) : undefined
+    return (project.launchQuant !== null && project.launchQuant !== undefined) ? Math.floor(project.launchQuant) : undefined
   }
   if (head === "main_deck") {
     return project.transportMainDeck === "local" ? "local" : "live"
@@ -357,9 +357,9 @@ export fn readAddr(project, address) {
   if (head === "master" && parts.length >= 2) {
     let mm = project.masterMixer ? project.masterMixer : {}
     let p = parts[1]
-    if (p === "eq_lo") { return mm.eqLo != null ? mm.eqLo : 0 }
-    if (p === "eq_mid") { return mm.eqMid != null ? mm.eqMid : 0 }
-    if (p === "eq_hi") { return mm.eqHi != null ? mm.eqHi : 0 }
+    if (p === "eq_lo") { return (mm.eqLo !== null && mm.eqLo !== undefined) ? mm.eqLo : 0 }
+    if (p === "eq_mid") { return (mm.eqMid !== null && mm.eqMid !== undefined) ? mm.eqMid : 0 }
+    if (p === "eq_hi") { return (mm.eqHi !== null && mm.eqHi !== undefined) ? mm.eqHi : 0 }
     if (p === "comp") { return mm.compEnabled !== false }
     if (p === "reverb") { return mm.reverbEnabled !== false }
     return undefined
@@ -367,10 +367,10 @@ export fn readAddr(project, address) {
   if (head === "actor" && parts.length >= 3) {
     let am = (project.actorMixer && project.actorMixer[parts[1]]) ? project.actorMixer[parts[1]] : {}
     let p = parts[2]
-    if (p === "gain") { return am.gain != null ? am.gain : 1 }
-    if (p === "eq_lo") { return am.eqLo != null ? am.eqLo : 0 }
-    if (p === "eq_mid") { return am.eqMid != null ? am.eqMid : 0 }
-    if (p === "eq_hi") { return am.eqHi != null ? am.eqHi : 0 }
+    if (p === "gain") { return (am.gain !== null && am.gain !== undefined) ? am.gain : 1 }
+    if (p === "eq_lo") { return (am.eqLo !== null && am.eqLo !== undefined) ? am.eqLo : 0 }
+    if (p === "eq_mid") { return (am.eqMid !== null && am.eqMid !== undefined) ? am.eqMid : 0 }
+    if (p === "eq_hi") { return (am.eqHi !== null && am.eqHi !== undefined) ? am.eqHi : 0 }
     if (p === "mute") { return am.mute === true }
     if (p === "solo") { return am.solo === true }
     return undefined
@@ -387,29 +387,29 @@ export fn readAddr(project, address) {
       return ch.name
     }
     if (section === "mix") {
-      if (p === "gain") { return ch.gain != null ? ch.gain : 0.85 }
-      if (p === "pan") { return ch.pan != null ? ch.pan : 0 }
+      if (p === "gain") { return (ch.gain !== null && ch.gain !== undefined) ? ch.gain : 0.85 }
+      if (p === "pan") { return (ch.pan !== null && ch.pan !== undefined) ? ch.pan : 0 }
       if (p === "mute") { return ch.mute === true }
       if (p === "solo") { return ch.solo === true }
-      if (p === "eq_lo") { return ch.eqLo != null ? ch.eqLo : 0 }
-      if (p === "eq_mid") { return ch.eqMid != null ? ch.eqMid : 0 }
-      if (p === "eq_hi") { return ch.eqHi != null ? ch.eqHi : 0 }
+      if (p === "eq_lo") { return (ch.eqLo !== null && ch.eqLo !== undefined) ? ch.eqLo : 0 }
+      if (p === "eq_mid") { return (ch.eqMid !== null && ch.eqMid !== undefined) ? ch.eqMid : 0 }
+      if (p === "eq_hi") { return (ch.eqHi !== null && ch.eqHi !== undefined) ? ch.eqHi : 0 }
     }
     if (section === "fx") {
-      if (p === "reverb" || p === "reverb_send") { return ch.reverbSend != null ? ch.reverbSend : 0 }
-      if (p === "drive") { return ch.drive != null ? ch.drive : 0 }
-      if (p === "lfo_rate") { return ch.lfoRate != null ? ch.lfoRate : 0 }
-      if (p === "lfo_depth") { return ch.lfoDepth != null ? ch.lfoDepth : 0 }
-      if (p === "cutoff") { return ch.filterCutoff != null ? ch.filterCutoff : 8000 }
-      if (p === "res") { return ch.filterQ != null ? ch.filterQ : 1 }
+      if (p === "reverb" || p === "reverb_send") { return (ch.reverbSend !== null && ch.reverbSend !== undefined) ? ch.reverbSend : 0 }
+      if (p === "drive") { return (ch.drive !== null && ch.drive !== undefined) ? ch.drive : 0 }
+      if (p === "lfo_rate") { return (ch.lfoRate !== null && ch.lfoRate !== undefined) ? ch.lfoRate : 0 }
+      if (p === "lfo_depth") { return (ch.lfoDepth !== null && ch.lfoDepth !== undefined) ? ch.lfoDepth : 0 }
+      if (p === "cutoff") { return (ch.filterCutoff !== null && ch.filterCutoff !== undefined) ? ch.filterCutoff : 8000 }
+      if (p === "res") { return (ch.filterQ !== null && ch.filterQ !== undefined) ? ch.filterQ : 1 }
     }
     if (section === "voice") {
-      if (p === "octave") { return ch.octave != null ? Math.floor(ch.octave) : 0 }
-      if (p === "arp") { return (ch.arp != null && ch.arp !== "") ? ch.arp : "off" }
-      if (p === "chord") { return (ch.chord != null && ch.chord !== "") ? ch.chord : "off" }
-      if (p === "arprate") { return (ch.arpRate != null && ch.arpRate !== "") ? ch.arpRate : "auto" }
-      if (p === "inversion") { return (ch.inversion != null && ch.inversion !== "") ? ch.inversion : "root" }
-      if (p === "strum") { return ch.strum != null ? ch.strum : 0 }
+      if (p === "octave") { return (ch.octave !== null && ch.octave !== undefined) ? Math.floor(ch.octave) : 0 }
+      if (p === "arp") { return ((ch.arp !== null && ch.arp !== undefined) && ch.arp !== "") ? ch.arp : "off" }
+      if (p === "chord") { return ((ch.chord !== null && ch.chord !== undefined) && ch.chord !== "") ? ch.chord : "off" }
+      if (p === "arprate") { return ((ch.arpRate !== null && ch.arpRate !== undefined) && ch.arpRate !== "") ? ch.arpRate : "auto" }
+      if (p === "inversion") { return ((ch.inversion !== null && ch.inversion !== undefined) && ch.inversion !== "") ? ch.inversion : "root" }
+      if (p === "strum") { return (ch.strum !== null && ch.strum !== undefined) ? ch.strum : 0 }
     }
     // Generator params (every instrument knob: waveform/ratio/cutoff/attack/decay/sustain/release/…) — the
     // current value lives in ch.generatorParams keyed CAMEL-case; the address param is TPL snake_case. Returning
@@ -444,8 +444,8 @@ export fn readAddr(project, address) {
     }
     // Deck routing ({deck, slot}).
     if (section === "deck") {
-      let dk = { deck: ch.deck != null ? ch.deck : "live" }
-      if (ch.deckSlot != null) {
+      let dk = { deck: (ch.deck !== null && ch.deck !== undefined) ? ch.deck : "live" }
+      if (ch.deckSlot !== null && ch.deckSlot !== undefined) {
         dk.slot = ch.deckSlot
       }
       return dk
@@ -491,7 +491,7 @@ export fn createEditor(store, ingest, ctxProvider) {
     // and in lattish a `return undefined` reads back as null (and a missing object key is null too), so a
     // strict `!== undefined` would wrongly record a bogus inverse for those.
     let old = readAddr(store.project, address)
-    if (old != null) {
+    if (old !== null && old !== undefined) {
       let inverse = fragmentForEdit(store.project, address, old)
       if (inverse !== "" && inverse !== frag) {
         record(address, inverse, frag)
@@ -508,10 +508,10 @@ export fn createEditor(store, ingest, ctxProvider) {
   // Used by the patch / matrix editors so module edits broadcast AND undo, just like a fader.
   fn directiveUndoable(forwardLine, inverseLine, coalesceAddr) {
     let fwd = String(forwardLine)
-    if (inverseLine != null) {
+    if (inverseLine !== null && inverseLine !== undefined) {
       let inv = String(inverseLine)
       if (inv !== "" && inv !== fwd) {
-        record(coalesceAddr != null ? coalesceAddr : "directive", inv, fwd)
+        record((coalesceAddr !== null && coalesceAddr !== undefined) ? coalesceAddr : "directive", inv, fwd)
       }
     }
     return ingest(fwd, ctxProvider ? ctxProvider() : null)

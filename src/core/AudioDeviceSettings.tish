@@ -31,7 +31,7 @@ export fn createAudioDeviceSettings(injected) {
 
   fn read() {
     let raw = be.read()
-    if (raw == null || String(raw).length === 0) {
+    if (raw === null || raw === undefined || String(raw).length === 0) {
       return defaults()
     }
     let parsed = null
@@ -44,8 +44,8 @@ export fn createAudioDeviceSettings(injected) {
       return defaults()
     }
     return {
-      speakers: parsed.speakers != null ? String(parsed.speakers) : "",
-      headphones: parsed.headphones != null ? String(parsed.headphones) : "",
+      speakers: parsed.speakers !== null && parsed.speakers !== undefined ? String(parsed.speakers) : "",
+      headphones: parsed.headphones !== null && parsed.headphones !== undefined ? String(parsed.headphones) : "",
       cueLevel: typeof parsed.cueLevel === "number" ? parsed.cueLevel : 0.9,
       cueOffsetMs: typeof parsed.cueOffsetMs === "number" ? parsed.cueOffsetMs : 0,
       autoSync: parsed.autoSync === true,
@@ -62,8 +62,8 @@ export fn createAudioDeviceSettings(injected) {
   fn save(obj) {
     let cur = read()
     let next = {
-      speakers: obj && obj.speakers != null ? String(obj.speakers) : cur.speakers,
-      headphones: obj && obj.headphones != null ? String(obj.headphones) : cur.headphones,
+      speakers: obj && (obj.speakers !== null && obj.speakers !== undefined) ? String(obj.speakers) : cur.speakers,
+      headphones: obj && (obj.headphones !== null && obj.headphones !== undefined) ? String(obj.headphones) : cur.headphones,
       cueLevel: obj && typeof obj.cueLevel === "number" ? obj.cueLevel : cur.cueLevel,
       cueOffsetMs: obj && typeof obj.cueOffsetMs === "number" ? obj.cueOffsetMs : cur.cueOffsetMs,
       autoSync: obj && typeof obj.autoSync === "boolean" ? obj.autoSync : cur.autoSync,

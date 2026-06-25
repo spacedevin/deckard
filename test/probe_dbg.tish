@@ -17,8 +17,8 @@ let mtx = "tpl 1\ntrack " + ch.name + " id " + T + " gen matrixFm\n" +
 applyCoDjTplSource(p, mtx, "me", "me", 0, [])
 let chM = findChannelById(p, T)
 console.log("after: generatorId=" + String(chM.generatorId))
-console.log("after: spec=" + String(chM.generatorSpec != null))
-if (chM.generatorSpec != null) {
+console.log("after: spec=" + String(chM.generatorSpec !== null && chM.generatorSpec !== undefined))
+if (chM.generatorSpec !== null && chM.generatorSpec !== undefined) {
   console.log("after: kind=" + String(chM.generatorSpec.kind))
 }
 // owner?

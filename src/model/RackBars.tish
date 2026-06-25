@@ -6,7 +6,7 @@ import { makeStep, clonePianoNote } from './Project.tish'
 import { syncMainClipFromChannel } from './Session.tish'
 
 fn channelBars(ch) {
-  if (ch.patternBars != null && Math.floor(ch.patternBars) >= 1) {
+  if (ch.patternBars !== null && ch.patternBars !== undefined && Math.floor(ch.patternBars) >= 1) {
     return Math.floor(ch.patternBars)
   }
   return 1
@@ -30,7 +30,7 @@ export fn resizeChannelBars(ch, newBars, copyLast) {
     let s = 0
     while (s < 16) {
       let st = ch.steps[storedBar * 16 + s]
-      newSteps.push(makeStep(st.on, st.vel != null ? st.vel : 100))
+      newSteps.push(makeStep(st.on, st.vel !== null && st.vel !== undefined ? st.vel : 100))
       s = s + 1
     }
     b = b + 1

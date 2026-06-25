@@ -25,7 +25,7 @@ while (ai < argv.length) {
   ai = ai + 1
 }
 
-if (process != null && process.env) {
+if (process !== null && process !== undefined && process.env) {
   if ("CODJ_HUB" in process.env && process.env["CODJ_HUB"]) { hub = process.env["CODJ_HUB"] }
   if ("CODJ_SESSION" in process.env && process.env["CODJ_SESSION"]) { session = process.env["CODJ_SESSION"] }
   if ("STREAM_INTERVAL_MS" in process.env) {
@@ -126,15 +126,15 @@ fn run() {
       msgObj = ws.receiveTimeout(500)
     } catch (e) {
     }
-    if (msgObj != null) {
-      raw = (msgObj.data != null) ? msgObj.data : null
-      if (raw != null) {
+    if (msgObj !== null && msgObj !== undefined) {
+      raw = (msgObj.data !== null && msgObj.data !== undefined) ? msgObj.data : null
+      if (raw !== null && raw !== undefined) {
         msg = null
         try {
           msg = JSON.parse(raw)
         } catch (e) {
         }
-        if (msg != null && msg.type === "joined" && !joinedLogged) {
+        if (msg !== null && msg !== undefined && msg.type === "joined" && !joinedLogged) {
           joinedLogged = true
           console.log("[token-demo] joined session=" + (msg.sessionId || session))
         }

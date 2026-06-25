@@ -58,11 +58,11 @@ fn haloPartialPair(ctx, dest, hz, ratio, cents, stopAt, t) {
 
 export fn playHalo(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let p = ch.generatorParams ? ch.generatorParams : {}
-  let temper = haloClamp01(p.temper != null ? p.temper : 0.4)
-  let ring = haloClamp01(p.ring != null ? p.ring : 0.55)
-  let mallet = haloClamp01(p.mallet != null ? p.mallet : 0.35)
-  let bloom = haloClamp01(p.bloom != null ? p.bloom : 0.5)
-  let lows = haloClamp01(p.lows != null ? p.lows : 0.45)
+  let temper = haloClamp01((p.temper !== null && p.temper !== undefined) ? p.temper : 0.4)
+  let ring = haloClamp01((p.ring !== null && p.ring !== undefined) ? p.ring : 0.55)
+  let mallet = haloClamp01((p.mallet !== null && p.mallet !== undefined) ? p.mallet : 0.35)
+  let bloom = haloClamp01((p.bloom !== null && p.bloom !== undefined) ? p.bloom : 0.5)
+  let lows = haloClamp01((p.lows !== null && p.lows !== undefined) ? p.lows : 0.45)
 
   let hz = midiToHz(midi + bendSemis)
   if (hz < 20) { hz = 20 }

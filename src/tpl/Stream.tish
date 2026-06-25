@@ -77,7 +77,7 @@ fn stripEol(line) {
  * Returns { applied: bool, denied: bool, opened: bool }.
  */
 export fn tplLineStreamPush(stream, rawLine, project, perfStep) {
-  if (rawLine == null) {
+  if ((rawLine === null || rawLine === undefined)) {
     return { applied: false, denied: false, opened: false }
   }
   let line = stripEol(String(rawLine))

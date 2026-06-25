@@ -102,11 +102,11 @@ export fn createTransport(audioStore, signals) {
         let item = drawQueue[i]
         if (item.when <= now) {
           lastFired = item.step
-          if (lastPlayedSec != null) {
+          if (lastPlayedSec !== null && lastPlayedSec !== undefined) {
             let dt = item.when - lastPlayedSec
             if (dt > 0.0001) {
               let inst = 60 / (dt * 4)
-              trueBpm = trueBpm != null ? (trueBpm * 0.85 + inst * 0.15) : inst
+              trueBpm = trueBpm !== null && trueBpm !== undefined ? (trueBpm * 0.85 + inst * 0.15) : inst
             }
           }
           lastPlayedSec = item.when
@@ -151,7 +151,7 @@ export fn createTransport(audioStore, signals) {
   fn start(opts) {
     cfg = opts
     let ctx = audioStore.ctx
-    globalTick = opts.startTick != null && Math.floor(Number(opts.startTick)) >= 0 ? Math.floor(Number(opts.startTick)) : 0
+    globalTick = opts.startTick !== null && opts.startTick !== undefined && Math.floor(Number(opts.startTick)) >= 0 ? Math.floor(Number(opts.startTick)) : 0
     nextStepSec = (ctx ? ctx.currentTime : 0) + 0.06
     drawQueue = []
     trueBpm = null

@@ -75,7 +75,7 @@ export fn SongBrowser(project, rt, onClose, q, setQ) {
       <div class="song-row">
         <div class="song-row-meta">
           <span class="song-row-name">{sg.kind === "set" ? ("◆ " + sg.name) : sg.name}</span>
-          <span class="song-row-sub">{sg.sub}{sg.bpm != null ? (" · " + String(sg.bpm) + " BPM") : ""}</span>
+          <span class="song-row-sub">{sg.sub}{(sg.bpm !== null && sg.bpm !== undefined) ? (" · " + String(sg.bpm) + " BPM") : ""}</span>
         </div>
         <div class="song-row-decks">
           <span class="song-row-load">{"LOAD →"}</span>

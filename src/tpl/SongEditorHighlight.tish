@@ -4,7 +4,7 @@ import { tokenize } from './Parser.tish'
 import { classifyLine, isKeyword, isInlineKeyword, isStepToken } from './Highlight.tish'
 
 fn escapeHtml(s) {
-  if (s == null) {
+  if ((s === null || s === undefined)) {
     return ""
   }
   let x = String(s).split("&").join("&amp;")
@@ -14,7 +14,7 @@ fn escapeHtml(s) {
 }
 
 fn lineIndentAndCore(line) {
-  if (line == null) {
+  if ((line === null || line === undefined)) {
     return { indent: 0, core: "", tail: "" }
   }
   let a = 0
@@ -82,7 +82,7 @@ fn highlightCoreHtml(core, indentStr, tailStr, activeStep, playing) {
       if (ti > 0 && isInlineKeyword(tok)) {
         inner = "<span class=\"tpl-hl-kw tpl-hl-inline\">" + inner + "</span>"
       } else {
-      if (cl.kind === "steps" && slotStr != null) {
+      if (cl.kind === "steps" && slotStr !== null && slotStr !== undefined) {
         let slot = slotStr
         let on = tok === "x" || tok === "X" || tok === "1"
         let off = tok === "." || tok === "0"
@@ -108,7 +108,7 @@ fn highlightCoreHtml(core, indentStr, tailStr, activeStep, playing) {
 export fn tplDocumentToHighlightHtml(source, playbackStep, playing, lastAppliedLineCount, lastAppliedAt) {
   let active = Math.floor(playbackStep) % 16
   let src = source
-  if (src == null) {
+  if ((src === null || src === undefined)) {
     src = ""
   }
   let lines = String(src).split("\n")

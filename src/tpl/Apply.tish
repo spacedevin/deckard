@@ -177,7 +177,7 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
   }
   // `* N` header = PATTERN LENGTH in bars (the loop repeats forever). The finite loop CAP (play N bars
   // then go silent) is separate and comes only from a `loops N` body line.
-  let nbars = (hl != null && hl >= 1) ? Math.floor(hl) : 1
+  let nbars = (hl !== null && hl !== undefined && hl >= 1) ? Math.floor(hl) : 1
   ch.patternBars = nbars
   ch.tplLoopBars = null
   let noteLines = []
@@ -495,10 +495,10 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
         durBeats: noteLines[ni].durBeats,
         pitch: noteLines[ni].pitch,
         vel: noteLines[ni].vel,
-        prob: noteLines[ni].prob != null ? noteLines[ni].prob : 1,
-        ratchet: noteLines[ni].ratchet != null ? noteLines[ni].ratchet : 1,
-        nudge: noteLines[ni].nudge != null ? noteLines[ni].nudge : 0,
-        lyric: noteLines[ni].lyric != null ? noteLines[ni].lyric : ""
+        prob: noteLines[ni].prob !== null && noteLines[ni].prob !== undefined ? noteLines[ni].prob : 1,
+        ratchet: noteLines[ni].ratchet !== null && noteLines[ni].ratchet !== undefined ? noteLines[ni].ratchet : 1,
+        nudge: noteLines[ni].nudge !== null && noteLines[ni].nudge !== undefined ? noteLines[ni].nudge : 0,
+        lyric: noteLines[ni].lyric !== null && noteLines[ni].lyric !== undefined ? noteLines[ni].lyric : ""
       })
       ni = ni + 1
     }
@@ -711,10 +711,10 @@ export fn applyClipPatternBody(ch, clip, body, errors) {
         durBeats: noteLines[ni].durBeats,
         pitch: noteLines[ni].pitch,
         vel: noteLines[ni].vel,
-        prob: noteLines[ni].prob != null ? noteLines[ni].prob : 1,
-        ratchet: noteLines[ni].ratchet != null ? noteLines[ni].ratchet : 1,
-        nudge: noteLines[ni].nudge != null ? noteLines[ni].nudge : 0,
-        lyric: noteLines[ni].lyric != null ? noteLines[ni].lyric : ""
+        prob: noteLines[ni].prob !== null && noteLines[ni].prob !== undefined ? noteLines[ni].prob : 1,
+        ratchet: noteLines[ni].ratchet !== null && noteLines[ni].ratchet !== undefined ? noteLines[ni].ratchet : 1,
+        nudge: noteLines[ni].nudge !== null && noteLines[ni].nudge !== undefined ? noteLines[ni].nudge : 0,
+        lyric: noteLines[ni].lyric !== null && noteLines[ni].lyric !== undefined ? noteLines[ni].lyric : ""
       })
       ni = ni + 1
     }

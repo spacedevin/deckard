@@ -54,7 +54,7 @@ export fn PresetBar(label, items, onLoad, onSave, scopeNote) {
       <button type="button" class="preset-bar-save" onclick={onSave} title={"Save current " + label + " as a preset"}>
         {saveIcon}
       </button>
-      {scopeNote != null && scopeNote.length > 0 ? <span class="preset-bar-scope">{scopeNote}</span> : null}
+      {scopeNote !== null && scopeNote !== undefined && scopeNote.length > 0 ? <span class="preset-bar-scope">{scopeNote}</span> : null}
     </div>
   )
 }

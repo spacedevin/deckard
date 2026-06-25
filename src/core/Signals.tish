@@ -19,7 +19,7 @@ export fn createSignals() {
     let i = 0
     while (i < c.subs.length) {
       let cb = c.subs[i]
-      if (cb != null) {
+      if (cb !== null && cb !== undefined) {
         cb(value)
       }
       i = i + 1

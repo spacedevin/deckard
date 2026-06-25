@@ -62,7 +62,7 @@ export fn MidiPanel(controller, project, midiGen) {
     mi = mi + 1
   }
 
-  let connected = st.connectedId != null && st.connectedId !== ""
+  let connected = st.connectedId !== null && st.connectedId !== undefined && st.connectedId !== ""
   return (
     <div class="midi-rack">
       <span class="midi-rack-title">{"MIDI"}</span>

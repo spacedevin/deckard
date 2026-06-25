@@ -17,7 +17,7 @@ fn snapshotInstrument(ch) {
   if (ch.generatorSpec) {
     snap.generatorSpec = deepCloneParams(ch.generatorSpec)
   }
-  if (ch.macroName != null) {
+  if (ch.macroName !== null && ch.macroName !== undefined) {
     snap.macroName = ch.macroName
   }
   if (ch.macroParams) {
@@ -51,19 +51,19 @@ fn applyInstrument(ch, snap) {
   } else {
     ch.generatorSpec = null
   }
-  ch.macroName = snap.macroName != null ? snap.macroName : null
+  ch.macroName = snap.macroName !== null && snap.macroName !== undefined ? snap.macroName : null
   ch.macroParams = snap.macroParams ? deepCloneParams(snap.macroParams) : null
   let fx = snap.fx ? snap.fx : {}
-  ch.reverbSend = fx.reverbSend != null ? fx.reverbSend : 0
-  ch.drive = fx.drive != null ? fx.drive : 0
-  ch.filterCutoff = fx.filterCutoff != null ? fx.filterCutoff : 20000
-  ch.filterQ = fx.filterQ != null ? fx.filterQ : 0.7
-  ch.lfoRate = fx.lfoRate != null ? fx.lfoRate : 0
-  ch.lfoDepth = fx.lfoDepth != null ? fx.lfoDepth : 0
+  ch.reverbSend = fx.reverbSend !== null && fx.reverbSend !== undefined ? fx.reverbSend : 0
+  ch.drive = fx.drive !== null && fx.drive !== undefined ? fx.drive : 0
+  ch.filterCutoff = fx.filterCutoff !== null && fx.filterCutoff !== undefined ? fx.filterCutoff : 20000
+  ch.filterQ = fx.filterQ !== null && fx.filterQ !== undefined ? fx.filterQ : 0.7
+  ch.lfoRate = fx.lfoRate !== null && fx.lfoRate !== undefined ? fx.lfoRate : 0
+  ch.lfoDepth = fx.lfoDepth !== null && fx.lfoDepth !== undefined ? fx.lfoDepth : 0
   let voice = snap.voice ? snap.voice : {}
-  ch.octave = voice.octave != null ? voice.octave : 0
-  ch.arp = voice.arp != null ? voice.arp : "off"
-  ch.chord = voice.chord != null ? voice.chord : "off"
+  ch.octave = voice.octave !== null && voice.octave !== undefined ? voice.octave : 0
+  ch.arp = voice.arp !== null && voice.arp !== undefined ? voice.arp : "off"
+  ch.chord = voice.chord !== null && voice.chord !== undefined ? voice.chord : "off"
 }
 
 // --- single-bar copy helpers (for "load/save 1 bar" into the currently-viewed bar) ---
@@ -260,13 +260,13 @@ export fn copyStepPitchByBar(arr) {
 /// Pattern length (bars) for a channel's clips — drives the loop span. Uses patternBars; falls back to
 /// tplLoopBars (legacy) then 1. NOTE: this is the loop LENGTH, not the finite play-count cap.
 export fn clipBarsForChannel(ch) {
-  if (ch.patternBars != null) {
+  if (ch.patternBars !== null && ch.patternBars !== undefined) {
     let tn = Math.floor(Number(ch.patternBars))
     if (tn >= 1 && tn === tn) {
       return tn
     }
   }
-  if (ch.tplLoopBars != null) {
+  if (ch.tplLoopBars !== null && ch.tplLoopBars !== undefined) {
     let tn2 = Math.floor(Number(ch.tplLoopBars))
     if (tn2 >= 1 && tn2 === tn2) {
       return tn2
@@ -289,7 +289,7 @@ export fn ensureChannelSessionClips(ch) {
     bars: bars,
     steps: stepsForClip(ch, bars),
     pianoNotes: copyPianoNotes(ch.pianoNotes),
-    tplLoopBars: ch.tplLoopBars != null ? ch.tplLoopBars : null
+    tplLoopBars: ch.tplLoopBars !== null && ch.tplLoopBars !== undefined ? ch.tplLoopBars : null
   })
 }
 
@@ -315,7 +315,7 @@ export fn mirrorStepToggleToMainClip(ch, stepIdx) {
     return
   }
   let on = ch.steps[stepIdx].on
-  let vel = ch.steps[stepIdx].vel != null ? ch.steps[stepIdx].vel : 100
+  let vel = ch.steps[stepIdx].vel !== null && ch.steps[stepIdx].vel !== undefined ? ch.steps[stepIdx].vel : 100
   let pos = stepIdx
   while (pos < c0.steps.length) {
     c0.steps[pos].on = on
@@ -345,7 +345,7 @@ export fn syncMainClipFromChannel(ch) {
   c0.bars = bars
   c0.steps = stepsForClip(ch, bars)
   c0.pianoNotes = copyPianoNotes(ch.pianoNotes)
-  c0.tplLoopBars = ch.tplLoopBars != null ? ch.tplLoopBars : null
+  c0.tplLoopBars = ch.tplLoopBars !== null && ch.tplLoopBars !== undefined ? ch.tplLoopBars : null
 }
 
 export fn syncAllMainClipsFromChannels(project) {
@@ -453,7 +453,7 @@ export fn ensureProjectSession(project) {
 
 /** True when the project carries an explicit (non-empty) song arrangement, vs. the derived grid order. */
 export fn hasExplicitSong(project) {
-  return project != null && project.session != null && project.session.song != null && project.session.song.length > 0
+  return (project !== null && project !== undefined) && (project.session !== null && project.session !== undefined) && (project.session.song !== null && project.session.song !== undefined) && project.session.song.length > 0
 }
 
 /** Clamp a song entry list to valid scene indices and repeat >= 1; drops entries pointing nowhere. */
@@ -468,7 +468,7 @@ export fn normalizeSongEntries(project, entries) {
   while (i < entries.length) {
     let e = entries[i]
     let scene = Math.floor(Number(e.scene))
-    let rep = e.repeat != null ? Math.floor(Number(e.repeat)) : 1
+    let rep = e.repeat !== null && e.repeat !== undefined ? Math.floor(Number(e.repeat)) : 1
     if (rep < 1 || rep !== rep) {
       rep = 1
     }
@@ -501,7 +501,7 @@ export fn detRand01(seed, n) {
 
 /** The seed driving deterministic follow-action chance rolls (project scalar; default 1). */
 export fn songSeedOf(project) {
-  if (project != null && project.songSeed != null) {
+  if ((project !== null && project !== undefined) && (project.songSeed !== null && project.songSeed !== undefined)) {
     let s = Math.floor(Number(project.songSeed))
     if (s === s) {
       return s
@@ -512,13 +512,13 @@ export fn songSeedOf(project) {
 
 /** True when ANY scene has a follow action — then follow actions own progression (song block ignored). */
 export fn hasFollowActions(project) {
-  if (project == null || project.session == null || !project.session.follow) {
+  if ((project === null || project === undefined) || (project.session === null || project.session === undefined) || !project.session.follow) {
     return false
   }
   let f = project.session.follow
   let i = 0
   while (i < f.length) {
-    if (f[i] != null) {
+    if (f[i] !== null && f[i] !== undefined) {
       return true
     }
     i = i + 1
@@ -531,13 +531,13 @@ export fn sceneFollow(project, scene) {
   ensureProjectSession(project)
   let s = Math.floor(Number(scene))
   let f = project.session.follow
-  if (s >= 0 && s < f.length && f[s] != null) {
+  if (s >= 0 && s < f.length && (f[s] !== null && f[s] !== undefined)) {
     return f[s]
   }
   return null
 }
 
-/** Set (or clear, when a == null) a scene's follow action. Weights clamp to >= 0. */
+/** Set (or clear, when (a === null || a === undefined)) a scene's follow action. Weights clamp to >= 0. */
 export fn setSceneFollow(project, scene, a, wa, b, wb) {
   ensureProjectSession(project)
   let s = Math.floor(Number(scene))
@@ -547,20 +547,20 @@ export fn setSceneFollow(project, scene, a, wa, b, wb) {
   while (project.session.follow.length <= s) {
     project.session.follow.push(null)
   }
-  if (a == null || !isFollowAction(a)) {
+  if ((a === null || a === undefined) || !isFollowAction(a)) {
     project.session.follow[s] = null
     return
   }
-  let waN = wa != null ? Number(wa) : 1
+  let waN = wa !== null && wa !== undefined ? Number(wa) : 1
   if (waN < 0 || waN !== waN) {
     waN = 0
   }
-  let bN = (b != null && isFollowAction(b)) ? b : null
-  let wbN = wb != null ? Number(wb) : 0
+  let bN = (b !== null && b !== undefined && isFollowAction(b)) ? b : null
+  let wbN = wb !== null && wb !== undefined ? Number(wb) : 0
   if (wbN < 0 || wbN !== wbN) {
     wbN = 0
   }
-  project.session.follow[s] = { a: a, wa: waN, b: bN, wb: bN != null ? wbN : 0 }
+  project.session.follow[s] = { a: a, wa: waN, b: bN, wb: bN !== null && bN !== undefined ? wbN : 0 }
 }
 
 /** Drop follow entries pointing at out-of-range scenes / invalid actions (used on TPL apply). */
@@ -574,18 +574,18 @@ export fn normalizeFollow(project, entries) {
   let i = 0
   while (i < entries.length) {
     let e = entries[i]
-    if (e != null) {
+    if (e !== null && e !== undefined) {
       let scene = Math.floor(Number(e.scene))
       if (scene >= 0 && scene < sc && scene === scene && isFollowAction(e.a)) {
         while (out.length <= scene) {
           out.push(null)
         }
-        let bN = (e.b != null && isFollowAction(e.b)) ? e.b : null
+        let bN = (e.b !== null && e.b !== undefined && isFollowAction(e.b)) ? e.b : null
         out[scene] = {
           a: e.a,
-          wa: e.wa != null && Number(e.wa) >= 0 ? Number(e.wa) : 1,
+          wa: e.wa !== null && e.wa !== undefined && Number(e.wa) >= 0 ? Number(e.wa) : 1,
           b: bN,
-          wb: bN != null && e.wb != null && Number(e.wb) >= 0 ? Number(e.wb) : 0
+          wb: (bN !== null && bN !== undefined) && (e.wb !== null && e.wb !== undefined) && Number(e.wb) >= 0 ? Number(e.wb) : 0
         }
       }
     }
@@ -642,7 +642,7 @@ fn anySongScene(project, rt, fromIdx) {
   if (saved.length === 0) {
     return Math.floor(Number(fromIdx))
   }
-  let n = rt && rt.followCount != null ? Math.floor(Number(rt.followCount)) : 0
+  let n = rt && rt.followCount !== null && rt.followCount !== undefined ? Math.floor(Number(rt.followCount)) : 0
   let r = detRand01(songSeedOf(project) + 7, n)
   let pick = Math.floor(r * saved.length)
   if (pick >= saved.length) {
@@ -658,18 +658,18 @@ export fn resolveFollowAction(project, rt, fromScene) {
   let fa = sceneFollow(project, fromScene)
   // A scene with NO follow entry loops (the default), even when OTHER scenes have follow actions set.
   // Setting "Next" on P2 must not make P1 (no entry) advance — only configured scenes follow their rule.
-  if (fa == null) {
+  if (fa === null || fa === undefined) {
     return Math.floor(Number(fromScene))
   }
-  let n = rt && rt.followCount != null ? Math.floor(Number(rt.followCount)) : 0
+  let n = rt && rt.followCount !== null && rt.followCount !== undefined ? Math.floor(Number(rt.followCount)) : 0
   if (rt) {
     rt.followCount = n + 1
   }
   let action = fa.a
-  let wa = fa.wa != null ? Number(fa.wa) : 1
-  let wb = fa.b != null && fa.wb != null ? Number(fa.wb) : 0
+  let wa = fa.wa !== null && fa.wa !== undefined ? Number(fa.wa) : 1
+  let wb = (fa.b !== null && fa.b !== undefined) && (fa.wb !== null && fa.wb !== undefined) ? Number(fa.wb) : 0
   let total = wa + wb
-  if (fa.b != null && total > 0) {
+  if ((fa.b !== null && fa.b !== undefined) && total > 0) {
     let r = detRand01(songSeedOf(project), n) * total
     if (r >= wa) {
       action = fa.b
@@ -735,7 +735,7 @@ export fn songAdvance(project, rt, fromScene) {
   }
   if (hasExplicitSong(project)) {
     let song = project.session.song
-    let pos = rt && rt.songPos != null ? rt.songPos : { idx: 0, rep: 0 }
+    let pos = rt && rt.songPos !== null && rt.songPos !== undefined ? rt.songPos : { idx: 0, rep: 0 }
     let idx = Math.floor(Number(pos.idx))
     let rep = Math.floor(Number(pos.rep))
     if (idx < 0 || idx >= song.length || idx !== idx) {
@@ -743,7 +743,7 @@ export fn songAdvance(project, rt, fromScene) {
       rep = 0
     }
     let entry = song[idx]
-    let entryRep = entry.repeat != null ? Math.floor(Number(entry.repeat)) : 1
+    let entryRep = entry.repeat !== null && entry.repeat !== undefined ? Math.floor(Number(entry.repeat)) : 1
     if (entryRep < 1) {
       entryRep = 1
     }
@@ -796,7 +796,7 @@ export fn sessionWriteRackToSceneClip(project, sceneIdx) {
         steps: baseSteps,
         pianoNotes: copyPianoNotes(ch.pianoNotes),
         stepPitchByBar: spb,
-        tplLoopBars: ch.tplLoopBars != null ? ch.tplLoopBars : null
+        tplLoopBars: ch.tplLoopBars !== null && ch.tplLoopBars !== undefined ? ch.tplLoopBars : null
       }
       if (storeInstr) {
         clip.instrument = snapshotInstrument(ch)
@@ -807,7 +807,7 @@ export fn sessionWriteRackToSceneClip(project, sceneIdx) {
       clip.steps = baseSteps
       clip.pianoNotes = copyPianoNotes(ch.pianoNotes)
       clip.stepPitchByBar = spb
-      clip.tplLoopBars = ch.tplLoopBars != null ? ch.tplLoopBars : null
+      clip.tplLoopBars = ch.tplLoopBars !== null && ch.tplLoopBars !== undefined ? ch.tplLoopBars : null
       if (storeInstr) {
         clip.instrument = snapshotInstrument(ch)
       }
@@ -836,7 +836,7 @@ export fn loadSceneIntoRack(project, sceneIdx) {
   while (ti < project.channels.length) {
     let ch = project.channels[ti]
     let clipId = ""
-    if (project.session.slots[ti] && project.session.slots[ti][s] != null) {
+    if (project.session.slots[ti] && (project.session.slots[ti][s] !== null && project.session.slots[ti][s] !== undefined)) {
       clipId = project.session.slots[ti][s]
     }
     let clip = (clipId !== "") ? findClipOnChannel(ch, clipId) : null
@@ -849,7 +849,7 @@ export fn loadSceneIntoRack(project, sceneIdx) {
       }
       ch.steps = ns
       ch.pianoNotes = copyPianoNotes(clip.pianoNotes)
-      ch.patternBars = (clip.bars != null && Math.floor(clip.bars) >= 1) ? Math.floor(clip.bars) : 1
+      ch.patternBars = (clip.bars !== null && clip.bars !== undefined && Math.floor(clip.bars) >= 1) ? Math.floor(clip.bars) : 1
       ch.stepPitchByBar = copyStepPitchByBar(clip.stepPitchByBar)
       // Restore the instrument when this track is in "store" mode and the clip has one.
       if (ch.clipInstrMode === "store" && clip.instrument) {
@@ -878,12 +878,12 @@ export fn loadSceneBarIntoRack(project, sceneIdx, barIdx) {
   while (ti < project.channels.length) {
     let ch = project.channels[ti]
     let clipId = ""
-    if (project.session.slots[ti] && project.session.slots[ti][s] != null) {
+    if (project.session.slots[ti] && (project.session.slots[ti][s] !== null && project.session.slots[ti][s] !== undefined)) {
       clipId = project.session.slots[ti][s]
     }
     let clip = clipId !== "" ? findClipOnChannel(ch, clipId) : null
     if (clip && clip.steps) {
-      let clipBars = clip.bars != null && Math.floor(clip.bars) >= 1 ? Math.floor(clip.bars) : 1
+      let clipBars = clip.bars !== null && clip.bars !== undefined && Math.floor(clip.bars) >= 1 ? Math.floor(clip.bars) : 1
       let srcBar = b % clipBars
       promoteChannelToBars(ch, b + 1)
       copyBarSteps(ch.steps, b, clip.steps, srcBar)
@@ -928,7 +928,7 @@ export fn sessionWriteRackBarToSceneClip(project, sceneIdx, barIdx) {
     let ch = project.channels[ti]
     ensureChannelSessionClips(ch)
     let clipId = String(ch.id) + "_sc" + String(s)
-    let chCur = ch.patternBars != null && Math.floor(ch.patternBars) >= 1 ? Math.floor(ch.patternBars) : 1
+    let chCur = ch.patternBars !== null && ch.patternBars !== undefined && Math.floor(ch.patternBars) >= 1 ? Math.floor(ch.patternBars) : 1
     let srcBar = b % chCur
     // 16 steps of the viewed bar — wrap the index so a tiled (e.g. 16-step over 4 bars) pattern works.
     let stepsLen = ch.steps ? ch.steps.length : 0
@@ -956,7 +956,7 @@ export fn sessionWriteRackBarToSceneClip(project, sceneIdx, barIdx) {
         steps: oneSteps,
         pianoNotes: oneNotes,
         stepPitchByBar: onePitch,
-        tplLoopBars: ch.tplLoopBars != null ? ch.tplLoopBars : null
+        tplLoopBars: ch.tplLoopBars !== null && ch.tplLoopBars !== undefined ? ch.tplLoopBars : null
       }
       if (storeInstr) {
         clip.instrument = snapshotInstrument(ch)
@@ -1063,10 +1063,10 @@ export fn sceneHasSavedClip(project, sceneIdx) {
   while (ti < project.channels.length) {
     let ch = project.channels[ti]
     let slot = ""
-    if (project.session.slots[ti] && project.session.slots[ti][s] != null) {
+    if (project.session.slots[ti] && (project.session.slots[ti][s] !== null && project.session.slots[ti][s] !== undefined)) {
       slot = project.session.slots[ti][s]
     }
-    if (slot != null && slot !== "" && slot !== defaultMainClipId(ch)) {
+    if ((slot !== null && slot !== undefined) && slot !== "" && slot !== defaultMainClipId(ch)) {
       return true
     }
     ti = ti + 1
@@ -1083,12 +1083,12 @@ export fn sceneBarLength(project, sceneIdx) {
   while (ti < project.channels.length) {
     let ch = project.channels[ti]
     let slot = ""
-    if (project.session.slots[ti] && project.session.slots[ti][s] != null) {
+    if (project.session.slots[ti] && (project.session.slots[ti][s] !== null && project.session.slots[ti][s] !== undefined)) {
       slot = project.session.slots[ti][s]
     }
-    if (slot != null && slot !== "") {
+    if ((slot !== null && slot !== undefined) && slot !== "") {
       let cl = findClipOnChannel(ch, slot)
-      if (cl && cl.bars != null) {
+      if (cl && (cl.bars !== null && cl.bars !== undefined)) {
         let b = Math.floor(Number(cl.bars))
         if (b > maxBars && b === b) {
           maxBars = b
@@ -1139,10 +1139,10 @@ export fn sceneSlotClipId(project, sceneIdx, trackIdx) {
   let s = Math.floor(Number(sceneIdx))
   let t = Math.floor(Number(trackIdx))
   let slot = ""
-  if (project.session.slots[t] && project.session.slots[t][s] != null) {
+  if (project.session.slots[t] && (project.session.slots[t][s] !== null && project.session.slots[t][s] !== undefined)) {
     slot = project.session.slots[t][s]
   }
-  if (slot == null) {
+  if (slot === null || slot === undefined) {
     slot = ""
   }
   return slot
@@ -1163,7 +1163,7 @@ export fn armSceneWithOverrides(project, rt, sceneIdx) {
   }
   let t = 0
   while (t < project.channels.length) {
-    if (rt.trackOverrides[t] != null) {
+    if (rt.trackOverrides[t] !== null && rt.trackOverrides[t] !== undefined) {
       rt.sessionArmedClipIds[t] = rt.trackOverrides[t]
     }
     t = t + 1
@@ -1481,7 +1481,7 @@ export fn effectiveTplLoopCap(project, rt, chIdx) {
       return c1
     }
   }
-  if (ch.tplLoopBars != null) {
+  if (ch.tplLoopBars !== null && ch.tplLoopBars !== undefined) {
     let n2 = Math.floor(Number(ch.tplLoopBars))
     if (n2 >= 1 && n2 === n2) {
       return n2
@@ -1494,7 +1494,7 @@ export fn syncActiveClipsInstrumentsFromChannels(project, rt) {
   if (!project || !project.channels || !rt) {
     return
   }
-  let editingScene = rt.editingScene != null ? Math.floor(Number(rt.editingScene)) : null
+  let editingScene = rt.editingScene !== null && rt.editingScene !== undefined ? Math.floor(Number(rt.editingScene)) : null
   if (editingScene === null || editingScene < 0) {
     return
   }
@@ -1508,7 +1508,7 @@ export fn syncActiveClipsInstrumentsFromChannels(project, rt) {
     let ch = project.channels[ti]
     if (ch.clipInstrMode === "store") {
       let clipId = ""
-      if (project.session.slots[ti] && project.session.slots[ti][editingScene] != null) {
+      if (project.session.slots[ti] && (project.session.slots[ti][editingScene] !== null && project.session.slots[ti][editingScene] !== undefined)) {
         clipId = project.session.slots[ti][editingScene]
       }
       if (clipId !== "") {

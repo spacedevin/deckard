@@ -6,7 +6,7 @@ import { makeStep, clonePianoNote } from './Project.tish'
 /// single-bar pattern across the new bars so it keeps sounding the same until you change a bar).
 export fn promoteChannelToBars(ch, bars) {
   let want = Math.max(1, Math.floor(Number(bars)))
-  let cur = (ch.patternBars != null && Math.floor(ch.patternBars) >= 1) ? Math.floor(ch.patternBars) : 1
+  let cur = (ch.patternBars !== null && ch.patternBars !== undefined && Math.floor(ch.patternBars) >= 1) ? Math.floor(ch.patternBars) : 1
   let target = cur > want ? cur : want
   let targetSteps = target * 16
   // Tile piano notes from the current span across the new bars (if it grows by a whole multiple).
@@ -37,7 +37,7 @@ export fn promoteChannelToBars(ch, bars) {
     let i = 0
     while (i < targetSteps) {
       let st = ch.steps[i % curLen]
-      out.push(makeStep(st.on, st.vel != null ? st.vel : 100))
+      out.push(makeStep(st.on, st.vel !== null && st.vel !== undefined ? st.vel : 100))
       i = i + 1
     }
     ch.steps = out
@@ -107,7 +107,7 @@ fn setGeneratorAdsr(ch, a, d, s, r) {
 export fn clampPianoNoteToFirstBar(n, minDur) {
   let bar = 4
   let md = minDur
-  if (md == null || md <= 0) {
+  if ((md === null || md === undefined) || md <= 0) {
     md = 0.0078125
   }
   if (n.startBeat < 0) {
@@ -147,10 +147,10 @@ export fn clampChannelPianoNotesToFirstBar(ch, minDur) {
 /// Clamp a note into the channel's full pattern (bars*4 beats), not just the first bar — so notes can
 /// live on any bar of a multi-bar pattern.
 export fn clampPianoNoteToPattern(ch, n, minDur) {
-  let bars = (ch.patternBars != null && Math.floor(ch.patternBars) >= 1) ? Math.floor(ch.patternBars) : 1
+  let bars = (ch.patternBars !== null && ch.patternBars !== undefined && Math.floor(ch.patternBars) >= 1) ? Math.floor(ch.patternBars) : 1
   let lim = bars * 4
   let md = minDur
-  if (md == null || md <= 0) {
+  if ((md === null || md === undefined) || md <= 0) {
     md = 0.0078125
   }
   if (n.startBeat < 0) {

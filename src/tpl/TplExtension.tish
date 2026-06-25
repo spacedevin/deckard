@@ -59,18 +59,18 @@ fn parseEnvSegment(toks, start) {
 fn normalizeOpDef(raw) {
   let w = raw.wave ? String(raw.wave).toLowerCase() : "sine"
   if (w === "noise") {
-    return { wave: "noise", ratio: raw.ratio != null ? raw.ratio : 1 }
+    return { wave: "noise", ratio: raw.ratio !== null && raw.ratio !== undefined ? raw.ratio : 1 }
   }
   return {
     wave: normalizeBasicOscWaveform(w),
-    ratio: raw.ratio != null && raw.ratio > 0 ? raw.ratio : 1
+    ratio: raw.ratio !== null && raw.ratio !== undefined && raw.ratio > 0 ? raw.ratio : 1
   }
 }
 
 fn normalizeFilterDef(raw) {
   let t = raw.type ? String(raw.type).toLowerCase() : "lp12"
-  let co = raw.cutoff != null ? raw.cutoff : 8000
-  let rq = raw.res != null ? raw.res : raw.q != null ? raw.q : 0.7
+  let co = raw.cutoff !== null && raw.cutoff !== undefined ? raw.cutoff : 8000
+  let rq = raw.res !== null && raw.res !== undefined ? raw.res : raw.q !== null && raw.q !== undefined ? raw.q : 0.7
   return { type: t, cutoff: co, res: rq }
 }
 

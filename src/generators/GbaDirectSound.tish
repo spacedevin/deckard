@@ -78,19 +78,19 @@ export fn playGbaDirectSound(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   
   let waveform = gp.waveform ? gp.waveform : "pulse"
   let duty = gp.duty ? String(gp.duty) : "50"
-  let vol = gp.vol != null ? Math.round(gp.vol) : 15
-  let attack = gp.attack != null ? gp.attack : 0
-  let decay = gp.decay != null ? gp.decay : 2
-  let sustain = gp.sustain != null ? gp.sustain : 15
-  let release = gp.release != null ? gp.release : 0
+  let vol = (gp.vol !== null && gp.vol !== undefined) ? Math.round(gp.vol) : 15
+  let attack = (gp.attack !== null && gp.attack !== undefined) ? gp.attack : 0
+  let decay = (gp.decay !== null && gp.decay !== undefined) ? gp.decay : 2
+  let sustain = (gp.sustain !== null && gp.sustain !== undefined) ? gp.sustain : 15
+  let release = (gp.release !== null && gp.release !== undefined) ? gp.release : 0
   
   let bitcrush = gp.bitcrush !== false && gp.bitcrush !== "16bit"
-  let pitchDrop = gp.pitchDrop != null ? Math.round(gp.pitchDrop) : 0
-  let pitchDec = gp.pitchDec != null ? gp.pitchDec : 0.05
-  let vibRate = gp.vibRate != null ? gp.vibRate : 0
-  let vibAmt = gp.vibAmt != null ? gp.vibAmt : 0
-  let arpRate = gp.arpRate != null ? gp.arpRate : 0
-  let arpSemis = gp.arpSemis != null ? Math.round(gp.arpSemis) : 0
+  let pitchDrop = (gp.pitchDrop !== null && gp.pitchDrop !== undefined) ? Math.round(gp.pitchDrop) : 0
+  let pitchDec = (gp.pitchDec !== null && gp.pitchDec !== undefined) ? gp.pitchDec : 0.05
+  let vibRate = (gp.vibRate !== null && gp.vibRate !== undefined) ? gp.vibRate : 0
+  let vibAmt = (gp.vibAmt !== null && gp.vibAmt !== undefined) ? gp.vibAmt : 0
+  let arpRate = (gp.arpRate !== null && gp.arpRate !== undefined) ? gp.arpRate : 0
+  let arpSemis = (gp.arpSemis !== null && gp.arpSemis !== undefined) ? Math.round(gp.arpSemis) : 0
 
   let f0 = 440 * Math.pow(2, (midi + bendSemis - 69) / 12)
   let v = vel / 127

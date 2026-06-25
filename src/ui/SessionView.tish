@@ -53,7 +53,7 @@ fn clipEnvelope(clip) {
     let i = 0
     while (i < notes.length) {
       let n = notes[i]
-      let vel = n.vel != null ? n.vel / 127 : 0.8
+      let vel = n.vel !== null && n.vel !== undefined ? n.vel / 127 : 0.8
       let startCol = (n.startBeat * 4 / span) * N
       let lenCol = (n.durBeats * 4 / span) * N
       if (lenCol < 1) {
@@ -88,7 +88,7 @@ fn clipEnvelope(clip) {
     while (i < steps.length) {
       let st = steps[i]
       if (st && st.on) {
-        let vel = st.vel != null ? st.vel / 127 : 0.85
+        let vel = st.vel !== null && st.vel !== undefined ? st.vel / 127 : 0.85
         let center = (i / span) * N
         let k = Math.floor(center)
         if (k < 0) {
@@ -139,7 +139,7 @@ fn clipWavePath(env) {
 }
 
 export fn SessionTrackRow(project, ch, tix, activeDeck, rt, sc, playing, bumpSessionUi, setProjectFromUI, armCell, toggleClipDisabled, queueMute, stopTrack) {
-  if (activeDeck != null && channelDeck(project, ch) !== activeDeck) {
+  if (activeDeck !== null && activeDeck !== undefined && channelDeck(project, ch) !== activeDeck) {
     return []
   }
   let muted = ch.mute === true
@@ -185,7 +185,7 @@ export fn SessionTrackRow(project, ch, tix, activeDeck, rt, sc, playing, bumpSes
         </div>
       )
     } else {
-      let bars = clip.bars != null ? Math.floor(Number(clip.bars)) : 1
+      let bars = clip.bars !== null && clip.bars !== undefined ? Math.floor(Number(clip.bars)) : 1
       if (bars < 1 || bars !== bars) { bars = 1 }
       let dsuf = deckSuffix(project, ch)
       let isDisabled = rt.sessionDisabledClips && rt.sessionDisabledClips[slotClipId] === true
@@ -240,7 +240,7 @@ export fn SessionTrackRow(project, ch, tix, activeDeck, rt, sc, playing, bumpSes
   // sequencer — they no longer push inline rows there, so the sequencer never grows and the session needs NO
   // matching spacer rows for them (a spacer here would push the clip rows DOWN and misalign them). Only the
   // always-on vocal lyric lane still expands inline in the sequencer, so it keeps its single spacer.
-  let isStepCh = (!ch.pianoNotes || ch.pianoNotes.length === 0) && singleNotePitch(ch) == null
+  let isStepCh = (!ch.pianoNotes || ch.pianoNotes.length === 0) && singleNotePitch(ch) === null
   let isVocal = ch.generatorId === "formantVocal" || ch.generatorId === "ttsVocal" || ch.generatorId === "meSpeakVocal"
   if (isVocal && isStepCh) {
     outRows.push(<div class="sg-row sg-lk-row" style={{ visibility: "hidden", pointerEvents: "none" }} key={"spacer-lyric-" + String(tix)}><div class="sg-lk-cell" /></div>)
@@ -270,7 +270,7 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
   // already-cued scene un-cues it. Routes @ cue / @ cue off through ingest → applyLaunchDirective.
   fn onCueScene(si) {
     if (rt && rt.directive) {
-      if (rt.cueScene != null && Math.floor(Number(rt.cueScene)) === si) {
+      if (rt.cueScene !== null && rt.cueScene !== undefined && Math.floor(Number(rt.cueScene)) === si) {
         rt.directive(cueDirective("off"))
       } else {
         rt.directive(cueDirective(si))
@@ -318,12 +318,12 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
     if (!rt.trackOverrides) {
       rt.trackOverrides = []
     }
-    let cur = rt.trackOverrides[trackIdx] != null ? rt.trackOverrides[trackIdx] : null
+    let cur = rt.trackOverrides[trackIdx] !== null && rt.trackOverrides[trackIdx] !== undefined ? rt.trackOverrides[trackIdx] : null
     let next = cur === clipId ? null : clipId
     rt.trackOverrides[trackIdx] = next
     // The clip this track should land on: the override, or (on release) the current song scene's clip.
-    let scene = rt.songScene != null ? rt.songScene : (rt.sessionActiveScene != null ? rt.sessionActiveScene : 0)
-    let target = next != null ? next : sceneSlotClipId(project, scene, trackIdx)
+    let scene = rt.songScene !== null && rt.songScene !== undefined ? rt.songScene : (rt.sessionActiveScene !== null && rt.sessionActiveScene !== undefined ? rt.sessionActiveScene : 0)
+    let target = next !== null && next !== undefined ? next : sceneSlotClipId(project, scene, trackIdx)
     if (rt.playing && rt.playMode === "song") {
       // Already live — land on the next bar without restarting the song chain.
       if (!rt.trackPending) {
@@ -334,9 +334,9 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
       rt.sessionArmedClipIds[trackIdx] = target
     }
     // Collaborators follow this per-track launch (owner-scoped on their side). next == null = release.
-    pushControl(rt, launchClipDirective(project.channels[trackIdx].id, next != null ? next : ""))
+    pushControl(rt, launchClipDirective(project.channels[trackIdx].id, next !== null && next !== undefined ? next : ""))
     // Launching a clip when nothing is live goes LIVE — the override is applied on start, so you hear it.
-    if (next != null && !rt.playing && rt.onPlaySong) {
+    if (next !== null && next !== undefined && !rt.playing && rt.onPlaySong) {
       rt.onPlaySong()
     }
     if (bumpSessionUi) {
@@ -384,14 +384,14 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
   fn onFollowB(si, val) {
     let f = sceneFollow(project, si)
     let a = f ? f.a : "repeat"
-    let wa = f && f.wa != null && f.b != null ? f.wa : 50
-    let wb = f && f.b != null ? f.wb : 50
+    let wa = f && f.wa !== null && f.wa !== undefined && f.b !== null && f.b !== undefined ? f.wa : 50
+    let wb = f && f.b !== null && f.b !== undefined ? f.wb : 50
     applyFollow(si, a, wa, val, wb)
   }
   // Toggle the weighted second action on/off (progressive disclosure of the chance ratio).
   fn toggleFollowB(si) {
     let f = sceneFollow(project, si)
-    if (f != null && f.b != null) {
+    if (f !== null && f !== undefined && f.b !== null && f.b !== undefined) {
       applyFollow(si, f.a, 1, null, 0)
     } else {
       applyFollow(si, f ? f.a : "repeat", 50, "next", 50)
@@ -399,7 +399,7 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
   }
   fn onFollowChance(si, pct) {
     let f = sceneFollow(project, si)
-    if (!f || f.b == null) {
+    if (!f || f.b === null || f.b === undefined) {
       return
     }
     let p = Math.floor(Number(pct))
@@ -422,7 +422,7 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
     let f = sceneFollow(project, si)
     // No entry → the scene loops (the Ableton default), shown as "Loop".
     let aVal = f ? f.a : "repeat"
-    let hasB = f != null && f.b != null
+    let hasB = f !== null && f !== undefined && f.b !== null && f.b !== undefined
     let total = f ? (Number(f.wa) + Number(f.wb)) : 1
     let pctA = hasB && total > 0 ? Math.round(Number(f.wa) / total * 100) : 100
     let bVal = hasB ? f.b : "next"
@@ -508,13 +508,13 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
     let pb = patternBank
     let headOps = null
     if (pb && pb.onLaunch) {
-      let isEditing = pb.editingScene != null && Math.floor(Number(pb.editingScene)) === si
-      let isLive = pb.liveScene != null && Math.floor(Number(pb.liveScene)) === si
+      let isEditing = pb.editingScene !== null && pb.editingScene !== undefined && Math.floor(Number(pb.editingScene)) === si
+      let isLive = pb.liveScene !== null && pb.liveScene !== undefined && Math.floor(Number(pb.liveScene)) === si
       let isQueuedLaunch =
-        pb.queuePending && pb.queuedScene != null && Math.floor(Number(pb.queuedScene)) === si
+        pb.queuePending && pb.queuedScene !== null && pb.queuedScene !== undefined && Math.floor(Number(pb.queuedScene)) === si
       let launchLabel = "LAUNCH"
       if (isQueuedLaunch) {
-        if (pb.dropSteps != null) {
+        if (pb.dropSteps !== null && pb.dropSteps !== undefined) {
           launchLabel = pb.dropSteps === 0 ? "● NOW" : "◷ " + String(pb.dropSteps)
         } else {
           launchLabel = "◷ QUEUED"
@@ -524,8 +524,8 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
       let launchCls = isLive ? "btn-scene-op btn-scene-launch btn-scene-on" : "btn-scene-op btn-scene-launch"
       let loadCls = "btn-scene-op btn-scene-load" + loadOn
       let sceneI = si
-      let barN = pb.viewBar != null ? Math.floor(Number(pb.viewBar)) + 1 : 1
-      let totalBars = pb.bars != null && Math.floor(Number(pb.bars)) >= 1 ? Math.floor(Number(pb.bars)) : 1
+      let barN = pb.viewBar !== null && pb.viewBar !== undefined ? Math.floor(Number(pb.viewBar)) + 1 : 1
+      let totalBars = pb.bars !== null && pb.bars !== undefined && Math.floor(Number(pb.bars)) >= 1 ? Math.floor(Number(pb.bars)) : 1
       headOps = (
         <div class="session-scene-ops">
           <button type="button" class={launchCls} onclick={() => pb.onLaunch(sceneI)} title={"Launch this pattern live (queues to the next bar while a song plays)"}>
@@ -557,7 +557,7 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
         </button>
       )
     }
-    let isCued = rt && rt.cueScene != null && Math.floor(Number(rt.cueScene)) === si
+    let isCued = rt && rt.cueScene !== null && rt.cueScene !== undefined && Math.floor(Number(rt.cueScene)) === si
     let cueHdrCls = isCued ? hdrCls + " session-scene-head-cued" : hdrCls
     sceneHeaders.push(
       <div class={cueHdrCls} key={"sc-h-" + String(si)}>
@@ -583,7 +583,7 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
   while (ti < project.channels.length) {
     let ch = project.channels[ti]
     let trackRows = SessionTrackRow(project, ch, ti, activeDeck, rt, sc, playing, bumpSessionUi, setProjectFromUI, armCell, toggleClipDisabled, queueMute, stopTrack)
-    if (trackRows != null) {
+    if (trackRows !== null && trackRows !== undefined) {
       let tri = 0
       while (tri < trackRows.length) {
         rows.push(trackRows[tri])

@@ -127,7 +127,7 @@ export fn emitSetArrangement(project) {
   let i = 0
   while (i < project.session.song.length) {
     let e = project.session.song[i]
-    let rep = e.repeat != null ? Math.floor(Number(e.repeat)) : 1
+    let rep = e.repeat !== null && e.repeat !== undefined ? Math.floor(Number(e.repeat)) : 1
     if (rep < 1) {
       rep = 1
     }
@@ -238,7 +238,7 @@ export fn parseSet(tpl) {
       if (t.length > 0) {
         song.push(t)
       }
-    } else if (cur != null) {
+    } else if (cur !== null && cur !== undefined) {
       cur.push(ln)
     }
     i = i + 1
@@ -320,7 +320,7 @@ export fn loadSet(project, set, targetDeck) {
     return { loaded: 0, decks: [] }
   }
   let decks = []
-  if (targetDeck != null) {
+  if (targetDeck !== null && targetDeck !== undefined) {
     graftRackOntoDeck(project, targetDeck, parsed.players[0], true)
     decks.push(targetDeck)
   } else {
@@ -344,12 +344,12 @@ export fn loadSet(project, set, targetDeck) {
 
 /** True if a Set carries a recorded played-trigger tape (vs the player/deck-graft format). */
 export fn isStreamSet(tpl) {
-  return String(tpl == null ? "" : tpl).indexOf(PLAYS_MARK) >= 0
+  return String((tpl === null || tpl === undefined) ? "" : tpl).indexOf(PLAYS_MARK) >= 0
 }
 
 // Compact number: up to 4 decimals, no trailing zeros.
 fn fmtNum(n) {
-  if (n == null) {
+  if ((n === null || n === undefined)) {
     return "0"
   }
   let v = Number(n)
@@ -366,7 +366,7 @@ fn serializeTape(tape) {
   while (i < tape.length) {
     let e = tape[i]
     out = out + "@" + String(Math.floor(Number(e.step)))
-    let trs = e.triggers != null ? e.triggers : []
+    let trs = e.triggers !== null && e.triggers !== undefined ? e.triggers : []
     let j = 0
     while (j < trs.length) {
       let t = trs[j]
@@ -376,13 +376,13 @@ fn serializeTape(tape) {
     // Performance-control snapshot for this step: !<xfX>:<xfY>:<fltA>:<fltB>:<fltC>:<fltD> (the 4-way
     // crossfader + per-deck filter). The `!` prefix keeps it distinct from a note trigger.
     let c = e.ctl
-    if (c != null) {
+    if (c !== null && c !== undefined) {
       out = out + " !" + fmtNum(c.xf) + ":" + fmtNum(c.xfy) + ":" + fmtNum(c.fA) + ":" + fmtNum(c.fB) + ":" + fmtNum(c.fC) + ":" + fmtNum(c.fD)
     }
     // Deck vinyl moves fired at this step: >deck:move:onflag (e.g. >C:cut:1, >B:spin:1). The `>` prefix keeps
     // them distinct from a trigger / control snapshot, so the ghost re-fires your cuts/brakes/reverses.
     let mv = e.moves
-    if (mv != null && mv.length > 0) {
+    if (mv !== null && mv !== undefined && mv.length > 0) {
       let mi = 0
       while (mi < mv.length) {
         let m = mv[mi]
@@ -421,7 +421,7 @@ fn parseTapeLines(lines) {
             // Deck vinyl move: >deck:move:onflag.
             let mp = tok.substring(1).split(":")
             if (mp.length >= 2) {
-              if (moves == null) {
+              if ((moves === null || moves === undefined)) {
                 moves = []
               }
               moves.push({ deck: mp[0], move: mp[1], on: mp.length >= 3 ? mp[2] === "1" : true })
@@ -460,7 +460,7 @@ export fn emitSetStream(headerTpl, tape, mode) {
 
 /** Parse a recorded Set back into { header, mode, events:[{step,triggers}] }. */
 export fn parseSetStream(tpl) {
-  let lines = String(tpl == null ? "" : tpl).split("\n")
+  let lines = String((tpl === null || tpl === undefined) ? "" : tpl).split("\n")
   let header = []
   let evLines = []
   let mode = "song"
@@ -539,7 +539,7 @@ export fn createSetLibrary(injected) {
 
   fn readLib() {
     let raw = be.read()
-    if (raw == null || String(raw).length === 0) {
+    if ((raw === null || raw === undefined) || String(raw).length === 0) {
       return { items: {}, ord: 0 }
     }
     let parsed = null
@@ -566,7 +566,7 @@ export fn createSetLibrary(injected) {
   // `players` = the player count (1–4). tpl = a player-delimited Set body (from emitSet).
   fn save(name, tpl, players) {
     lib.ord = lib.ord + 1
-    let pc = players != null ? Math.floor(Number(players)) : parseSet(tpl).players.length
+    let pc = players !== null && players !== undefined ? Math.floor(Number(players)) : parseSet(tpl).players.length
     lib.items[name] = { id: name, name: name, tpl: tpl, players: pc, ord: lib.ord, factory: false }
     persist()
     return lib.items[name]
@@ -624,18 +624,18 @@ export fn createSetLibrary(injected) {
   }
 
   fn importText(text, fallbackName) {
-    let body = String(text == null ? "" : text)
+    let body = String((text === null || text === undefined) ? "" : text)
     let name = fallbackName
     let players = null
     let nl = body.indexOf("\n")
     let first = nl >= 0 ? body.substring(0, nl) : body
     if (first.indexOf(TAG) === 0) {
       let nm = afterKey(first, "name=")
-      if (nm != null && nm.length > 0) {
+      if (nm !== null && nm !== undefined && nm.length > 0) {
         name = nm
       }
       let pvRaw = afterKey(first, "players=")
-      if (pvRaw != null) {
+      if (pvRaw !== null && pvRaw !== undefined) {
         let pv = Number(pvRaw)
         if (pv === pv && pv > 0) {
           players = pv
@@ -643,7 +643,7 @@ export fn createSetLibrary(injected) {
       }
       body = nl >= 0 ? body.substring(nl + 1) : ""
     }
-    if (name == null || name.length === 0) {
+    if ((name === null || name === undefined) || name.length === 0) {
       return null
     }
     return save(name, body, players)

@@ -55,7 +55,7 @@ export fn humanizeSteps(steps, rng, depth) {
   let i = 0
   while (i < 16) {
     if (out[i].on === true) {
-      let base = out[i].vel != null ? out[i].vel : 100
+      let base = out[i].vel !== null && out[i].vel !== undefined ? out[i].vel : 100
       let v = base + Math.round((rng() * 2 - 1) * depth)
       if (v < 1) {
         v = 1
@@ -135,7 +135,7 @@ export fn notePitchForChannel(ch) {
   if (ch && ch.pianoNotes && ch.pianoNotes.length > 0) {
     return Math.floor(ch.pianoNotes[0].pitch)
   }
-  if (ch && ch.stepPitch != null) {
+  if (ch && (ch.stepPitch !== null && ch.stepPitch !== undefined)) {
     return Math.floor(ch.stepPitch)
   }
   return 60
@@ -191,7 +191,7 @@ export fn humanizeNotes(notes, rng, depth) {
   let i = 0
   while (i < notes.length) {
     let n = clonePianoNote(notes[i])
-    let base = n.vel != null ? n.vel : 100
+    let base = n.vel !== null && n.vel !== undefined ? n.vel : 100
     let v = base + Math.round((rng() * 2 - 1) * depth)
     if (v < 1) {
       v = 1
@@ -237,7 +237,7 @@ export fn mutateNotes(notes, rng, amount, pitch) {
   while (j < notes.length) {
     let c = Math.floor(notes[j].startBeat * 4 + 0.0001)
     if (c >= 0 && c < 16) {
-      if (colNote[c] == null) {
+      if (colNote[c] === null || colNote[c] === undefined) {
         colNote[c] = clonePianoNote(notes[j])
       }
     } else {
@@ -250,7 +250,7 @@ export fn mutateNotes(notes, rng, amount, pitch) {
   while (f < flips) {
     let c = Math.floor(rng() * 16)
     if (c >= 0 && c < 16) {
-      if (colNote[c] != null) {
+      if (colNote[c] !== null && colNote[c] !== undefined) {
         colNote[c] = null
       } else {
         colNote[c] = makeGenNote(c, pitch, 70 + Math.floor(rng() * 50))
@@ -261,7 +261,7 @@ export fn mutateNotes(notes, rng, amount, pitch) {
   let out = []
   let k = 0
   while (k < 16) {
-    if (colNote[k] != null) {
+    if (colNote[k] !== null && colNote[k] !== undefined) {
       let nn = colNote[k]
       nn.startBeat = k * 0.25
       out.push(nn)

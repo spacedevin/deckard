@@ -69,7 +69,7 @@ export fn scaleModeNames() {
 
 // Parse a root token: a note name ("C", "f#", "Bb") or a raw pitch class 0..11. Returns 0..11 or null.
 export fn parseScaleRoot(tok) {
-  if (tok == null) {
+  if (tok === null || tok === undefined) {
     return null
   }
   let s = String(tok)
@@ -112,7 +112,7 @@ export fn parseScaleRoot(tok) {
 // Snap one MIDI pitch onto the scale (nearest degree; ties round down so the key's character holds). A pitch
 // already in the scale is returned unchanged; octaves are preserved.
 export fn snapToScale(pitch, root, mode) {
-  if (root == null || root === undefined) {
+  if ((root === null || root === undefined) || root === undefined) {
     return pitch
   }
   let ivs = scaleIntervals(mode)
@@ -160,7 +160,7 @@ export fn snapToScale(pitch, root, mode) {
 
 // Is a scale lock active on the project?
 export fn projectScaleActive(project) {
-  return project != null && project.scaleRoot != null && project.scaleMode != null && project.scaleMode !== "" && project.scaleMode !== "off"
+  return (project !== null && project !== undefined) && (project.scaleRoot !== null && project.scaleRoot !== undefined) && (project.scaleMode !== null && project.scaleMode !== undefined) && project.scaleMode !== "" && project.scaleMode !== "off"
 }
 
 // Snap a pitch through the project's scale lock (no-op when inactive).

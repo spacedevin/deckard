@@ -44,14 +44,14 @@ let cid = proj.channels[0].id
 // Make channel 0 a c64sid named "MOS 6581" (what picking MOS 6581 produces).
 applyTplSource(proj, "track MOS 6581 id " + cid + " gen c64sid\n  gen cutoff 2000 resonance 5")
 let ch = findChannelById(proj, cid)
-check("e2e: channel set to c64sid named 'MOS 6581'", ch != null && ch.name === "MOS 6581" && ch.generatorId === "c64sid")
-check("e2e: initial cutoff present", ch != null && ch.generatorParams != null && ch.generatorParams.cutoff === 2000)
+check("e2e: channel set to c64sid named 'MOS 6581'", ch !== null && ch !== undefined && ch.name === "MOS 6581" && ch.generatorId === "c64sid")
+check("e2e: initial cutoff present", ch !== null && ch !== undefined && ch.generatorParams !== null && ch.generatorParams !== undefined && ch.generatorParams.cutoff === 2000)
 // The knob turns: runtime builds this exact fragment and applies it.
 let frag = fragmentForEdit(proj, "track/" + cid + "/gen/cutoff", 1234)
 check("e2e: edit fragment carries the gen anchor", frag.indexOf(" gen ") >= 0)
 applyTplSource(proj, frag)
 let ch2 = findChannelById(proj, cid)
-check("e2e: KNOB EDIT lands (cutoff 2000 -> 1234)", ch2 != null && ch2.generatorParams.cutoff === 1234)
+check("e2e: KNOB EDIT lands (cutoff 2000 -> 1234)", ch2 !== null && ch2 !== undefined && ch2.generatorParams.cutoff === 1234)
 
 // --- and a single-word channel knob edit still lands (control) ---
 let cid2 = proj.channels[1].id
@@ -59,7 +59,7 @@ applyTplSource(proj, "track Bass id " + cid2 + " gen c64sid\n  gen cutoff 2000")
 let fragB = fragmentForEdit(proj, "track/" + cid2 + "/gen/cutoff", 777)
 applyTplSource(proj, fragB)
 let chB = findChannelById(proj, cid2)
-check("e2e: single-word channel knob edit still lands (777)", chB != null && chB.generatorParams.cutoff === 777)
+check("e2e: single-word channel knob edit still lands (777)", chB !== null && chB !== undefined && chB.generatorParams.cutoff === 777)
 
 console.log("")
 console.log("PASS=" + String(pass) + " FAIL=" + String(fail))
