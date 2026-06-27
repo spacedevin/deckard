@@ -278,8 +278,86 @@ fn stepPitchProg(prog) {
   return out
 }
 
-// ---- Deck sets ----------------------------------------------------------------------------------
+fn vLofiDust() {
+  return [
+    "  gen_block patch",
+    "    noise n",
+    "    filter f lowpass freq 1200 q 0",
+    "    shaper s soft amount 1",
+    "    gain a",
+    "    conn n f",
+    "    conn f s",
+    "    conn s a",
+    "    conn a out",
+    "    env a.gain set 0 0.03 lin dur 0.03",
+    "  end gen_block"
+  ]
+}
 
+fn vLofiSnare() {
+  return [
+    "  gen_block patch",
+    "    noise n",
+    "    filter f bandpass freq 1200 q 2",
+    "    gain a",
+    "    conn n f",
+    "    conn f a",
+    "    conn a out",
+    "    env a.gain set 0 0.4 exp 0.2 0.01",
+    "    dur 0.3",
+    "  end gen_block"
+  ]
+}
+
+fn vWarmDetunedLead() {
+  return [
+    "  gen_block patch",
+    "    osc o1 sawtooth note detune -8",
+    "    osc o2 square note detune 6",
+    "    filter f lowpass q 2",
+    "    gain a",
+    "    conn o1 f",
+    "    conn o2 f",
+    "    conn f a",
+    "    conn a out",
+    "    env f.freq set 0 600 exp dur*0.5 200",
+    "    env a.gain set 0 0.01 lin 0.05 0.3 lin dur 0.01",
+    "  end gen_block"
+  ]
+}
+
+fn vSubRolling() {
+  return [
+    "  gen_block patch",
+    "    osc o triangle note",
+    "    filter f lowpass freq 300",
+    "    gain a",
+    "    conn o f",
+    "    conn f a",
+    "    conn a out",
+    "    env a.gain set 0 0.01 lin 0.1 0.7 lin dur*0.8 0.7 lin dur 0.01",
+    "  end gen_block"
+  ]
+}
+
+fn vEtherealPad() {
+  return [
+    "  gen_block patch",
+    "    osc o1 sawtooth note detune -5",
+    "    osc o2 sawtooth note detune 5",
+    "    filter f lowpass q 1",
+    "    gain a",
+    "    conn o1 f",
+    "    conn o2 f",
+    "    conn f a",
+    "    conn a out",
+    "    env f.freq set 0 200 lin dur*0.5 800 lin dur 200",
+    "    env a.gain set 0 0.01 lin dur*0.3 0.25 lin dur 0.01",
+    "  end gen_block"
+  ]
+}
+
+// ---- Deck sets ----------------------------------------------------------------------------------
 fn deckSetTpls() {
   return [
     {
@@ -530,6 +608,21 @@ fn deckSetTpls() {
         stemB("Bass", "bass", 4, "bass_acid", flat([stepPitchProg([["0,1,2", 36], ["3", 39]]), "  steps . x . x . x . . . x . x . x . ."])),
         stem("Texture", "texture", 0.35, vNoiseSweep(), ["  step_pitch 50", "  steps x . . . . . . . . . . . . . . ."]),
         stem("Pluck", "pluck", 0.4, vFmPluck(), ["  note 60 1.75 0.25 v 90", "  note 63 3.75 0.25 v 90"])
+      ]))
+    },
+    {
+      id: "cozy_cartridge",
+      name: "Cozy Cartridge",
+      genre: "Lo-Fi Video Game",
+      bpm: 78,
+      tpl: L(flat([
+        "tpl 1",
+        stem("Kick", "kick", 0.05, "kick_deep", ["  step_pitch 36", "  steps x . . . . . x . . . . . . . . ."]),
+        stem("Snare", "snare", 0.15, vLofiSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
+        stemB("Dust", "dust", 4, vLofiDust(), ["  note 36 0 16 v 80"]),
+        stemB("Bass", "bass", 4, vSubRolling(), progNotes([["0", [36]], ["1", [32]], ["2", [39]], ["3", [31]]], [0, 2.5], 1.5, 100)),
+        stemB("Pad", "pad", 4, vEtherealPad(), flat([["  fx reverb_send 0.8"], progNotes([["0", [48, 51, 55]], ["1", [44, 48, 51]], ["2", [51, 55, 58]], ["3", [43, 46, 50]]], [0], 4, 85)])),
+        stemB("Lead", "lead", 4, vWarmDetunedLead(), ["  note 60 0 1 v 80 bar 0", "  note 63 1.5 0.5 v 75 bar 0", "  note 67 2.5 1.5 v 85 bar 0", "  note 63 0 1 v 80 bar 1", "  note 60 1.5 0.5 v 75 bar 1", "  note 55 2.5 1.5 v 85 bar 1", "  note 67 0 1 v 80 bar 2", "  note 70 1.5 0.5 v 75 bar 2", "  note 72 2.5 1.5 v 85 bar 2", "  note 67 0 1 v 80 bar 3", "  note 63 1.5 0.5 v 75 bar 3", "  note 62 2.5 1.5 v 85 bar 3"])
       ]))
     }
   ]
