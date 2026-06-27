@@ -6693,10 +6693,11 @@ input[type="range"]::-moz-range-thumb {
 }
 .instr-head-mixer .dk-stem-wave {
   height: 20px !important;
-  /* Narrower + punchier. The scope canvas is drawn by the shared worker (same channel id feeds the deck
-     waveform too), so intensity is dialed here in CSS — brightness/saturate/contrast make the line pop
-     without touching the worker's amplitude. */
-  width: 40px !important;
+  /* Fill the container width — a fixed 40px canvas left it sitting in a 64px box with dead space on the
+     right (the "cut off / misaligned" look). drawMiniWave sizes the bitmap to the canvas's CSS width, so
+     100% makes the trace span the whole box. Punchier via the filter below (the shared-worker scope canvas
+     keys on the channel id that also feeds the deck waveform, so intensity is dialed here in CSS). */
+  width: 100% !important;
   border: none !important;
   border-radius: 3px !important;
   background: rgba(0, 0, 0, 0.2) !important;

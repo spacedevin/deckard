@@ -194,7 +194,12 @@ export fn drawSetWaveLane(canvas, energy, deck, barPx, stepsPerBar) {
   if (dpr > 2.5) {
     dpr = 2.5
   }
-  let laneH = 42
+  // Lane height follows the CSS-sized track (height:100%), not a hardcoded value — else a taller canvas is
+  // clipped by the footer's overflow:hidden and the waveform peaks read as "cut off". Width stays imperative.
+  let laneH = canvas.offsetHeight
+  if (!(laneH > 0)) {
+    laneH = 28
+  }
   let maxStep = energy.maxStep !== null && energy.maxStep !== undefined ? energy.maxStep : 0
   // Defence-in-depth: this runs every dirty frame, so a bad maxStep (NaN, or an absurd value from a corrupt
   // loaded Set) would loop millions of times / size a giant canvas. Clamp to a sane bound.
@@ -205,7 +210,7 @@ export fn drawSetWaveLane(canvas, energy, deck, barPx, stepsPerBar) {
     maxStep = 131072
   }
   let cssW = Math.max(8, Math.ceil(((maxStep + 1) / stepsPerBar) * barPx))
-  // Own the layout size (CSS px) AND the backing bitmap (CSS px * dpr) imperatively. Setting canvas.width/height
+  // Own the layout WIDTH (CSS px) AND the backing bitmap (CSS px * dpr) imperatively. Setting canvas.width/height
   // clears the bitmap, so only touch them when they actually changed (the Scope.tish convention).
   let bw = Math.max(1, Math.floor(cssW * dpr))
   let bh = Math.max(1, Math.floor(laneH * dpr))
@@ -214,12 +219,8 @@ export fn drawSetWaveLane(canvas, energy, deck, barPx, stepsPerBar) {
     canvas.height = bh
   }
   let wantW = String(cssW) + "px"
-  let wantH = String(laneH) + "px"
   if (canvas.style.width !== wantW) {
     canvas.style.width = wantW
-  }
-  if (canvas.style.height !== wantH) {
-    canvas.style.height = wantH
   }
   let ctx2 = canvas.getContext("2d")
   if (!ctx2) {
@@ -294,7 +295,13 @@ export fn drawSetWaveOverlay(canvas, energy, activeDecks, barPx, stepsPerBar) {
   if (dpr > 2.5) {
     dpr = 2.5
   }
-  let laneH = 42
+  // Lane height follows the CSS-sized track (.pl-wave-track / .pl-wave-cv height:100%), NOT a hardcoded value:
+  // a canvas taller than its container is clipped by the footer's overflow:hidden, so the waveform peaks read
+  // as "cut off". Only the WIDTH is imperative (the full timeline can be wider than the visible track).
+  let laneH = canvas.offsetHeight
+  if (!(laneH > 0)) {
+    laneH = 28
+  }
   let maxStep = energy.maxStep !== null && energy.maxStep !== undefined ? energy.maxStep : 0
   if (!(maxStep >= 0)) {
     maxStep = 0
@@ -310,12 +317,8 @@ export fn drawSetWaveOverlay(canvas, energy, activeDecks, barPx, stepsPerBar) {
     canvas.height = bh
   }
   let wantW = String(cssW) + "px"
-  let wantH = String(laneH) + "px"
   if (canvas.style.width !== wantW) {
     canvas.style.width = wantW
-  }
-  if (canvas.style.height !== wantH) {
-    canvas.style.height = wantH
   }
   let ctx2 = canvas.getContext("2d")
   if (!ctx2) {
