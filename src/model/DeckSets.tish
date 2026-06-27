@@ -502,6 +502,35 @@ fn deckSetTpls() {
         stemB("Chord", "chord", 4, vChordPad(), progNotes([["0", [48, 51, 55]], ["1", [43, 46, 50]], ["2", [44, 48, 51]], ["3", [51, 55, 58]]], [0], 4, 90)),
         stem("Pluck", "pluck", 0.35, vPluck(), ["  note 70 0.75 0.5 v 85", "  note 60 1.5 0.5 v 85", "  note 75 2.75 0.5 v 85", "  note 67 3.5 0.5 v 85"])
       ]))
+    },
+    {
+      id: "neon_skyline",
+      name: "Neon Skyline",
+      genre: "Electro Synthwave",
+      bpm: 112,
+      tpl: L(flat([
+        "tpl 1",
+        stem("Kick", "kick", 0.05, "kick_distorted", ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
+        stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
+        stem("Hat", "hat", 0.1, vHatClosed(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
+        stemB("Bass", "bass", 4, "bass_reese_punch", flat([stepPitchProg([["0,2", 36], ["1", 32], ["3", 31]]), "  steps x x . x . x x . x x . x . x x ."])),
+        stemB("Chord", "chord", 4, vChordPad(), progNotes([["0,2", [48, 51, 55]], ["1", [44, 48, 51]], ["3", [43, 46, 50]]], [0], 4, 95)),
+        stemB("Pluck", "pluck", 2, vPluck(), ["  note 72 0.5 0.25 v 90 bar 0", "  note 67 1.25 0.25 v 90 bar 0", "  note 75 2.5 0.25 v 90 bar 0", "  note 72 3.25 0.25 v 90 bar 1", "  note 79 1.5 0.25 v 90 bar 1"])
+      ]))
+    },
+    {
+      id: "deep_abyss",
+      name: "Deep Abyss",
+      genre: "Deep Techno",
+      bpm: 126,
+      tpl: L(flat([
+        "tpl 1",
+        stem("Kick", "kick", 0.05, "kick_deep", ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
+        stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
+        stemB("Bass", "bass", 4, "bass_acid", flat([stepPitchProg([["0,1,2", 36], ["3", 39]]), "  steps . x . x . x . . . x . x . x . ."])),
+        stem("Texture", "texture", 0.35, vNoiseSweep(), ["  step_pitch 50", "  steps x . . . . . . . . . . . . . . ."]),
+        stem("Pluck", "pluck", 0.4, vFmPluck(), ["  note 60 1.75 0.25 v 90", "  note 63 3.75 0.25 v 90"])
+      ]))
     }
   ]
 }
