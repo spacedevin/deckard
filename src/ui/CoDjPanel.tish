@@ -10,6 +10,7 @@ import { createTplLineStream, tplLineStreamPush } from '../tpl/Stream.tish'
 import { emitProject } from '../tpl/Emit.tish'
 import { loadProjectFromTpl } from '../model/ProjectLoad.tish'
 import { ensureCoDjMeta, setTrackOwner } from '../codj/CoDjMeta.tish'
+import { projectEligibleToContribute, rehomeJoinerChannels } from '../codj/DeckJoin.tish'
 import { IkSelect } from './InstrumentKit.tish'
 
 // Default gateway URL. Locally that's the dev gateway on 35987; when served from a real host (the DigitalOcean
@@ -561,7 +562,35 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
     }
   }
 
-  // Follower: replace (clobber) the local project with the host's authoritative state.
+  // A joiner that arrives with its OWN content shouldn't lose it to the host's snapshot. We captured that
+  // content at connect (rt.coDjPendingSelfTpl, before any clobber). Here we re-home it INTO the adopted
+  // snapshot via rehomeJoinerChannels (prefix + own by my actorId → routes to my deck). Returns true if
+  // anything was merged, so the caller can broadcast it up to the host and fold it into the shared TPL.
+  fn mergePendingSelfInto(np) {
+    let tpl = rt ? rt.coDjPendingSelfTpl : null
+    if (rt) {
+      rt.coDjPendingSelfTpl = null
+    }
+    if (!tpl || tpl.length === 0 || !np || !Array.isArray(np.channels)) {
+      return false
+    }
+    let aid = rt && rt.coDjActorId ? String(rt.coDjActorId) : ""
+    if (aid.length === 0) {
+      return false
+    }
+    let res = loadProjectFromTpl(tpl)
+    if (!res || !res.project || !Array.isArray(res.project.channels) || res.project.channels.length === 0) {
+      return false
+    }
+    let added = rehomeJoinerChannels(np, res.project.channels, aid)
+    if (added > 0) {
+      pushLog("re-homed " + String(added) + " of my track(s) onto my deck")
+    }
+    return added > 0
+  }
+
+  // Follower: adopt the host's authoritative state, then re-home any content I joined with onto my deck so it
+  // joins the one shared TPL (instead of being silently clobbered).
   fn applyHostSnapshot(lines, owners, fromHost) {
     if (!Array.isArray(lines) || lines.length === 0) {
       return
@@ -584,15 +613,21 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
         ci = ci + 1
       }
     }
+    let merged = mergePendingSelfInto(np)
     rt.project = np
     syncPlayerRoster()
     setProject(np)
     if (rt.resyncAudio) {
       rt.resyncAudio()
     }
-    pushLog("clobbered local state from host (" + String(np.channels.length) + " tracks)")
+    pushLog("adopted host state (" + String(np.channels.length) + " tracks)")
     if (typeof console !== "undefined" && console.log) {
-      console.log("[Co-DJ UI] applied host snapshot -> " + String(res.project.channels.length) + " tracks")
+      console.log("[Co-DJ UI] applied host snapshot -> " + String(np.channels.length) + " tracks")
+    }
+    // Push my re-homed tracks up to the host (ownership-gated: the host accepts only the tracks I own, adds
+    // them as new, and re-snapshots) so EVERY member converges on the same TPL with my deck filled.
+    if (merged) {
+      broadcastSelfLines()
     }
   }
 
@@ -642,6 +677,8 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       )
       // Host seeds the gateway cache immediately so any follower already waiting gets the real project.
       if (rt && rt.coDjIsHost) {
+        // The host IS the authority — its own content is already the shared TPL, nothing to re-contribute.
+        rt.coDjPendingSelfTpl = null
         // If the host carries instruments on decks B/C/D, offer to merge them onto Deck A (or keep them).
         rt.coDjHostDeckPrompt = hostHasMultiDeckContent()
         sendStateSnapshot()
@@ -682,6 +719,17 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       }
       if (rt.coDjActorId) {
         actorId = rt.coDjActorId
+      }
+    }
+    // Snapshot my own deck content NOW, before any host snapshot can clobber it. If I built something of my
+    // own (≠ the bundled default) it gets re-homed onto my deck and folded into the shared TPL once I adopt
+    // the host's state (see mergePendingSelfInto). A host or a pristine-default joiner captures nothing.
+    if (rt) {
+      rt.coDjPendingSelfTpl = null
+      let selfP = rt.project ? rt.project : project
+      if (projectEligibleToContribute(selfP)) {
+        rt.coDjPendingSelfTpl = emitProject(selfP)
+        pushLog("captured my deck content to contribute on join")
       }
     }
     let path = base

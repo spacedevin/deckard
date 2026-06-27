@@ -464,8 +464,17 @@ export fn App() {
         id = "c" + String(n)
       }
     }
+    // In a live session each player owns ONE deck; a new track must land on MY deck by OWNERSHIP — NOT on
+    // whatever deck I happen to be viewing. activeDeck defaults to "A" and is never synced to a follower's
+    // own deck, so authoring `deck A slot 0` here pinned every guest's first instrument onto the host's
+    // Deck A (channelPlayerIndex reads deckSlot before ownership). Omitting the deck line lets ownership
+    // (the local actor stamped on ingest) route it to my own deck. Solo keeps the activeDeck placement.
+    let pl = p.coDjPlayers
+    let inSession = Array.isArray(pl) && pl.length > 1
     let slot = activeDeck === "B" ? 1 : (activeDeck === "C" ? 2 : (activeDeck === "D" ? 3 : 0))
-    let fwd = "track Track id " + id + " gen basic_osc\n  deck " + activeDeck + " slot " + String(slot)
+    let fwd = inSession
+      ? ("track Track id " + id + " gen basic_osc")
+      : ("track Track id " + id + " gen basic_osc\n  deck " + activeDeck + " slot " + String(slot))
     rt.directiveUndoable(fwd, "remove_track " + id, "track/" + id + "/add")
     setSelectedCh(rtRef.current.project.channels.length - 1)
   }

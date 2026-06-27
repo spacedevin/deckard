@@ -61,18 +61,19 @@ export fn channelPlayerIndex(project, ch) {
   if (!ch || !project) {
     return 0
   }
-  // An explicit deck slot (loadDeckSet / manual deck handoff) is the canonical, shared assignment.
-  if (ch.deckSlot !== null && ch.deckSlot !== undefined) {
-    let s = Math.floor(Number(ch.deckSlot))
-    if (s >= 0 && s <= 3 && s === s) {
-      return s
-    }
-  }
   let players = project.coDjPlayers
+  // SOLO / pre-session: no shared roster, so an explicit deck slot (loadDeckSet / manual deck handoff) is the
+  // canonical assignment; otherwise the local lane decides (Deck A = local, anything else = Deck B).
   if (!Array.isArray(players) || players.length <= 1) {
-    // Solo / single player: local lane = Deck A (P1), anything else = Deck B (P2).
+    if (ch.deckSlot !== null && ch.deckSlot !== undefined) {
+      let s = Math.floor(Number(ch.deckSlot))
+      if (s >= 0 && s <= 3 && s === s) {
+        return s
+      }
+    }
     return channelActorLane(ch, project) === "local" ? 0 : 1
   }
+  // IN A LIVE SESSION: OWNERSHIP is canonical. Resolve the owner's slot in the shared roster first.
   ensureCoDjMeta(project)
   let meta = project.coDjMeta.tracks[ch.id]
   let owner = meta && meta.ownerActorId ? String(meta.ownerActorId) : "human"
@@ -82,15 +83,35 @@ export fn channelPlayerIndex(project, ch) {
   if (owner === "human" && project.coDjHostActorId !== null && project.coDjHostActorId !== undefined && project.coDjHostActorId !== "") {
     owner = String(project.coDjHostActorId)
   }
+  let oi = -1
   let i = 0
   while (i < players.length && i < 4) {
     if (String(players[i]) === owner) {
-      return i
+      oi = i
+      i = 4
+    } else {
+      i = i + 1
     }
-    i = i + 1
   }
-  // Owner not in the roster yet (just joined / mid-sync): park unknown contributors on P2, consistently.
-  return 1
+  if (oi < 0) {
+    // Owner not in the roster yet (just joined / mid-sync): park unknown contributors on P2, consistently.
+    return 1
+  }
+  if (oi === 0) {
+    // Host / unclaimed: the host may legitimately stage content across decks B/C/D (loadDeckSet, pre-handoff,
+    // before the Merge-to-Deck-A prompt), so honour an explicit deck slot here.
+    if (ch.deckSlot !== null && ch.deckSlot !== undefined) {
+      let s = Math.floor(Number(ch.deckSlot))
+      if (s >= 0 && s <= 3 && s === s) {
+        return s
+      }
+    }
+    return 0
+  }
+  // A GUEST-owned track ALWAYS lives on that guest's own deck. A stray deck slot — e.g. a "+ TRACK" that
+  // defaulted to slot 0, or an inherited DeckSet slot — must NEVER pin a non-host's track onto the host's
+  // Deck A. Ownership is the source of truth in a live session, so deckSlot cannot override it for guests.
+  return oi
 }
 
 /** One deck per player: A (top-left), B (top-right), C (bottom-left), D (bottom-right). */

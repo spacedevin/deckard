@@ -1,0 +1,259 @@
+// DECK-JOIN TESTS — a client that connects with its OWN deck content must have that content re-homed onto
+// its player deck (A/B/C/D by multiplayer id) and folded into the ONE shared TPL every member sees — not
+// silently clobbered by the host's snapshot.
+//
+// Run: tish build --target js test/deckjoin.tish -o /tmp/deckard-dj.js && node /tmp/deckard-dj.js
+
+import { loadDefaultDeckardProject, loadProjectFromTpl } from '../src/model/ProjectLoad.tish'
+import { emitProject } from '../src/tpl/Emit.tish'
+import { findChannelById } from '../src/tpl/Apply.tish'
+import { channelPlayerIndex, channelDeck } from '../src/model/DeckRouting.tish'
+import { ensureCoDjMeta, setTrackOwner } from '../src/codj/CoDjMeta.tish'
+import { applyCoDjTplSource } from '../src/codj/Merge.tish'
+import {
+  projectEligibleToContribute,
+  projectDiffersFromDefault,
+  projectHasActorOwnedTracks,
+  rehomeJoinerChannels
+} from '../src/codj/DeckJoin.tish'
+
+let pass = 0
+let fail = 0
+fn check(name, cond) {
+  if (cond) {
+    pass = pass + 1
+    console.log("  ok   " + name)
+  } else {
+    fail = fail + 1
+    console.log("  FAIL " + name)
+  }
+}
+
+// A joiner's solo project = the bundled default PLUS a track of their own → "differs from default".
+fn makeJoinerProject() {
+  let defText = emitProject(loadDefaultDeckardProject().project)
+  let extra = "\ntrack Lead id jlead gen fm\n" +
+    "  mix gain 0.8 pan 0 eq_lo 0 eq_mid 0 eq_hi 0\n" +
+    "  step_pitch 60\n" +
+    "  fm ratio 2 mod_index 4 carrier sine mod sine\n" +
+    "  adsr a 0.01 d 0.1 s 0.4 r 0.2\n" +
+    "  steps x . . . x . . . x . . . x . . .\n"
+  return loadProjectFromTpl(defText + extra).project
+}
+
+// Own every channel of `p` by `aid` (mirrors what a host snapshot's owners map does for the host's tracks).
+fn ownAllBy(p, aid) {
+  ensureCoDjMeta(p)
+  let i = 0
+  while (i < p.channels.length) {
+    setTrackOwner(p, p.channels[i].id, aid, aid)
+    i = i + 1
+  }
+}
+
+console.log("=== Deck-join re-homing ===")
+
+// ---- 1. Eligibility: only my own fresh work gets contributed ----
+let pristine = loadDefaultDeckardProject().project
+check("[eligible] pristine default is NOT eligible (no duplicate boilerplate)", projectEligibleToContribute(pristine) === false)
+check("[eligible] pristine default does NOT differ from default", projectDiffersFromDefault(pristine) === false)
+
+let joiner = makeJoinerProject()
+check("[eligible] my customized project DOES differ from default", projectDiffersFromDefault(joiner) === true)
+check("[eligible] my customized project IS eligible to contribute", projectEligibleToContribute(joiner) === true)
+
+// ---- 2. Re-home onto the joiner's deck (2-player room: host=P1/A, joiner=P2/B) ----
+let adopted = loadDefaultDeckardProject().project   // the host's authoritative snapshot the joiner adopts
+ownAllBy(adopted, "host-aid")
+adopted.coDjHostActorId = "host-aid"
+adopted.coDjPlayers = ["host-aid", "joiner-aid"]
+
+let hostCount = adopted.channels.length
+let added = rehomeJoinerChannels(adopted, joiner.channels, "joiner-aid")
+check("[rehome] every one of my channels was added", added === 5)
+check("[rehome] adopted project = host tracks + my tracks", adopted.channels.length === hostCount + 5)
+
+// My re-homed Lead → Deck B (P2); a host default track → Deck A (P1). Same shared document on every client.
+let myLead = findChannelById(adopted, "joiner-aid_jlead")
+check("[rehome] my Lead survived (id prefixed, collision-free)", myLead !== null && myLead !== undefined)
+check("[rehome] my Lead routes to MY deck (P2 / Deck B)", channelPlayerIndex(adopted, myLead) === 1 && channelDeck(adopted, myLead) === "B")
+
+let hostKick = findChannelById(adopted, "c0")
+check("[rehome] host's Kick stays on Deck A (P1)", channelPlayerIndex(adopted, hostKick) === 0 && channelDeck(adopted, hostKick) === "A")
+
+// Id-prefixed, so the host's `c0` and my `joiner-aid_c0` are distinct tracks — no clobber, no collision.
+let myKick = findChannelById(adopted, "joiner-aid_c0")
+check("[rehome] my drum tracks are distinct from the host's (joiner-aid_c0 ≠ c0)", myKick !== null && myKick !== undefined && hostKick !== null && myKick.id !== hostKick.id)
+check("[rehome] my whole loop is on MY deck", channelDeck(adopted, myKick) === "B")
+
+// ---- 3. Re-home in a 3-player room → Deck C (P3) ----
+let adopted3 = loadDefaultDeckardProject().project
+ownAllBy(adopted3, "host-aid")
+adopted3.coDjHostActorId = "host-aid"
+adopted3.coDjPlayers = ["host-aid", "p2-aid", "joiner-aid"]
+rehomeJoinerChannels(adopted3, makeJoinerProject().channels, "joiner-aid")
+let lead3 = findChannelById(adopted3, "joiner-aid_jlead")
+check("[rehome] third player's content lands on Deck C (P3)", channelPlayerIndex(adopted3, lead3) === 2 && channelDeck(adopted3, lead3) === "C")
+
+// ---- 4. Reconnect guard: already-synced state is NOT re-contributed (would duplicate the shared loop) ----
+check("[reconnect] re-homed/owned state reports foreign ownership", projectHasActorOwnedTracks(adopted) === true)
+check("[reconnect] already-synced state is NOT eligible to contribute again", projectEligibleToContribute(adopted) === false)
+
+// ---- 5. End-to-end: my re-homed tracks broadcast up to the HOST, ownership-gated, fold into ONE shared TPL ----
+let hostFold = loadDefaultDeckardProject().project
+ownAllBy(hostFold, "host-aid")
+hostFold.coDjHostActorId = "host-aid"
+hostFold.coDjPlayers = ["host-aid", "joiner-aid"]
+// broadcastSelfLines streams emitProject(myAdoptedProject) — host + my tracks — authored by me. The host
+// rejects the tracks it owns and accepts my new ones (as the agent path already does).
+let myBroadcast = emitProject(adopted)
+applyCoDjTplSource(hostFold, myBroadcast, "joiner-aid", "joiner-aid", 0, ["add_track", "channel_mix", "adjust_instrument"])
+
+let hostSeesMyLead = findChannelById(hostFold, "joiner-aid_jlead")
+check("[converge] host now carries my Lead track", hostSeesMyLead !== null && hostSeesMyLead !== undefined)
+check("[converge] host fold = its 4 + my 5 tracks", hostFold.channels.length === hostCount + 5)
+check("[converge] my track is owned by ME on the host (→ my deck)", hostFold.coDjMeta.tracks["joiner-aid_jlead"].ownerActorId === "joiner-aid")
+check("[converge] host did NOT lose ownership of its own Kick", hostFold.coDjMeta.tracks["c0"].ownerActorId === "host-aid")
+check("[converge] my track routes to Deck B on the HOST's view too", channelDeck(hostFold, hostSeesMyLead) === "B")
+check("[converge] every member sees the SAME tpl (host fold ≡ my fold)", emitProject(hostFold) === emitProject(adopted))
+
+// ---- 6. SNAPSHOT ROUND-TRIP — the "guests merge into Deck A" regression ----
+// The host re-snapshots after a guest contributes; the gateway relays it; the guest re-adopts. If the
+// ownership side-channel (owners map) is dropped anywhere in that path, EVERY track defaults to "human" and
+// channelPlayerIndex's "human"→host remap collapses them ALL onto Deck A — including the guest's own. This
+// codifies the contract: a snapshot MUST carry owners, and when it does, every contributor keeps its deck.
+
+// Mirror CoDjPanel.sendStateSnapshot: build the owners map (host's "human" tracks attributed to the host).
+fn buildOwners(p, hostAid) {
+  let owners = {}
+  let i = 0
+  while (i < p.channels.length) {
+    let cid = p.channels[i].id
+    let m = p.coDjMeta && p.coDjMeta.tracks ? p.coDjMeta.tracks[cid] : null
+    let ow = m && m.ownerActorId ? String(m.ownerActorId) : "human"
+    owners[cid] = ow === "human" ? hostAid : ow
+    i = i + 1
+  }
+  return owners
+}
+// Mirror CoDjPanel.applyHostSnapshot ownership reconstruction (owners may be null = the dropped-side-channel bug).
+fn adoptSnapshot(lines, owners, hostAid, selfAid) {
+  let np = loadProjectFromTpl(lines.join("\n")).project
+  ensureCoDjMeta(np)
+  if (owners !== null && owners !== undefined) {
+    let i = 0
+    while (i < np.channels.length) {
+      let cid = np.channels[i].id
+      if (owners[cid] !== null && owners[cid] !== undefined) {
+        setTrackOwner(np, cid, owners[cid], owners[cid])
+      }
+      i = i + 1
+    }
+  }
+  np.coDjHostActorId = hostAid
+  np.coDjSelfActorId = selfAid
+  np.coDjIsHost = false
+  np.coDjPlayers = [hostAid, selfAid]
+  return np
+}
+
+// The host fold (hostFold) already contains host tracks (host-owned) + my Lead (joiner-owned). Re-snapshot it.
+let snapLines = emitProject(hostFold).split("\n")
+let snapOwners = buildOwners(hostFold, "host-aid")
+
+// (a) WITH owners (the FIXED gateway relay): I re-adopt and my Lead stays on MY deck, host's Kick on Deck A.
+let reA = adoptSnapshot(snapLines, snapOwners, "host-aid", "joiner-aid")
+let myLeadA = findChannelById(reA, "joiner-aid_jlead")
+let hostKickA = findChannelById(reA, "c0")
+check("[roundtrip] owners preserved → my Lead stays on Deck B after re-adopt", channelDeck(reA, myLeadA) === "B")
+check("[roundtrip] owners preserved → host's Kick stays on Deck A", channelDeck(reA, hostKickA) === "A")
+check("[roundtrip] owners preserved → NOT every track collapsed onto one deck",
+  channelDeck(reA, myLeadA) !== channelDeck(reA, hostKickA))
+
+// (b) WITHOUT owners (the BUG: gateway dropped the map): proves the collapse, so nobody removes the plumbing.
+let reB = adoptSnapshot(snapLines, null, "host-aid", "joiner-aid")
+let myLeadB = findChannelById(reB, "joiner-aid_jlead")
+check("[roundtrip] DROPPING owners DOES collapse my Lead onto Deck A (regression sentinel)",
+  channelDeck(reB, myLeadB) === "A")
+
+// ---- 7. ADD-TRACK IN SESSION — the "guest +TRACK pins to Deck A" regression ----
+// A connected guest adding an instrument must land it on the GUEST's deck, not the host's Deck A. Two layers:
+//  (a) onAddTrack omits the `deck slot` line in-session → routes by ownership;
+//  (b) the router refuses to let a stray deckSlot pin a GUEST-owned track to Deck A.
+fn sessionProject() {
+  let p = loadDefaultDeckardProject().project
+  ownAllBy(p, "host-aid")
+  p.coDjHostActorId = "host-aid"
+  p.coDjSelfActorId = "guest-aid"
+  p.coDjIsHost = false
+  p.coDjPlayers = ["host-aid", "guest-aid"]
+  return p
+}
+
+// (a) FIXED onAddTrack output for a guest in-session = a bare track line (no deck slot), ingested as the guest.
+let sa = sessionProject()
+applyCoDjTplSource(sa, "tpl 1\ntrack Track id gtrk gen basic_osc\n", "guest-aid", "guest-aid", 0, ["add_track"])
+let gtrk = findChannelById(sa, "gtrk")
+check("[addtrack] my new in-session track exists + is owned by me", gtrk !== null && gtrk !== undefined && sa.coDjMeta.tracks["gtrk"].ownerActorId === "guest-aid")
+check("[addtrack] my new track lands on MY deck (B), not the host's Deck A", channelDeck(sa, gtrk) === "B")
+
+// (b) router defense: even the OLD buggy emit (`deck A slot 0`) on a guest-owned track must NOT pin to Deck A.
+let sb = sessionProject()
+applyCoDjTplSource(sb, "tpl 1\ntrack Track id gtrk2 gen basic_osc\n  deck A slot 0\n", "guest-aid", "guest-aid", 0, ["add_track"])
+let gtrk2 = findChannelById(sb, "gtrk2")
+check("[addtrack] router neutralizes a stray `deck A slot 0` on a guest track → Deck B", channelDeck(sb, gtrk2) === "B")
+
+// (c) host multi-deck preserved: a HOST-owned track with deckSlot=2 still routes to Deck C in-session.
+let sc = sessionProject()
+applyCoDjTplSource(sc, "tpl 1\ntrack Stage id hstage gen basic_osc\n  deck C slot 2\n", "host-aid", "host-aid", 0, ["add_track", "master_mixer"])
+let hstage = findChannelById(sc, "hstage")
+check("[addtrack] host CAN still stage content on Deck C (multi-deck preserved)", hstage !== null && channelDeck(sc, hstage) === "C")
+
+// ---- 8. CACHED snapshot delivered to a NEW joiner — 3 contributors, no Deck-A collapse ----
+// The gateway caches {lines, owners} and hands it to a freshly-joining guest BEFORE the host pushes a fresh
+// snapshot. If that cached delivery omits owners (the bug), a new guest sees P2's and P3's tracks collapse
+// onto the host's Deck A until the host re-snapshots. This asserts the cached path keeps each contributor on
+// its own deck — P3's track on Deck C, P2's on Deck B, host's on Deck A.
+fn leadOf(actorId) {
+  let mk = makeJoinerProject()
+  return mk.channels[mk.channels.length - 1]
+}
+// Host fold as it exists when the gateway caches it: host (P1) + P2's lead + P3's lead, all properly owned.
+let room3 = loadDefaultDeckardProject().project
+ownAllBy(room3, "host-aid")
+room3.coDjHostActorId = "host-aid"
+room3.coDjPlayers = ["host-aid", "p2-aid", "p3-aid"]
+rehomeJoinerChannels(room3, [leadOf("p2-aid")], "p2-aid")
+rehomeJoinerChannels(room3, [leadOf("p3-aid")], "p3-aid")
+// What the gateway caches + relays for the cached delivery: lines + the owners side-channel.
+let cachedLines = emitProject(room3).split("\n")
+let cachedOwners = buildOwners(room3, "host-aid")
+
+// A NEW 4th guest adopts the cached snapshot (roster includes everyone).
+fn adoptAsNewJoiner(lines, owners) {
+  let np = adoptSnapshot(lines, owners, "host-aid", "newguest-aid")
+  np.coDjPlayers = ["host-aid", "p2-aid", "p3-aid", "newguest-aid"]
+  return np
+}
+// (a) FIXED cached delivery (owners present): every contributor keeps its own deck.
+let newView = adoptAsNewJoiner(cachedLines, cachedOwners)
+let p3lead = findChannelById(newView, "p3-aid_jlead")
+let p2lead = findChannelById(newView, "p2-aid_jlead")
+let hKick = findChannelById(newView, "c0")
+check("[cached] new joiner: P3's track routes to Deck C (its real owner), NOT A", p3lead !== null && channelDeck(newView, p3lead) === "C")
+check("[cached] new joiner: P2's track routes to Deck B", p2lead !== null && channelDeck(newView, p2lead) === "B")
+check("[cached] new joiner: host's track stays on Deck A", hKick !== null && channelDeck(newView, hKick) === "A")
+check("[cached] new joiner: the three contributors land on THREE distinct decks (no collapse)",
+  channelDeck(newView, hKick) === "A" && channelDeck(newView, p2lead) === "B" && channelDeck(newView, p3lead) === "C")
+
+// (b) Regression sentinel — owner-less cached delivery (the bug) collapses P3 onto Deck A.
+let bugView = adoptAsNewJoiner(cachedLines, null)
+let p3leadBug = findChannelById(bugView, "p3-aid_jlead")
+check("[cached] DROPPING owners on the cached delivery collapses P3 onto Deck A (sentinel)",
+  channelDeck(bugView, p3leadBug) === "A")
+
+console.log("")
+console.log("PASS=" + pass + " FAIL=" + fail)
+if (fail > 0) {
+  throw new Error("deckjoin tests failed")
+}

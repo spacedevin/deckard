@@ -1,0 +1,98 @@
+// DECK-JOIN — re-home a joiner's own deck content into the shared project on their player deck.
+//
+// When a client connects with content of its OWN (≠ the bundled default), that content must NOT be silently
+// clobbered by the host's snapshot. Instead it is re-homed: each channel is re-id-prefixed with the joiner's
+// actorId (collision-free) AND owned by the joiner — which is exactly what routes a channel to that player's
+// deck (DeckRouting.channelPlayerIndex → owner's slot in coDjPlayers → A/B/C/D). The host then accepts the
+// joiner-owned tracks (ownership-gated, as NEW tracks) and re-snapshots, so every member converges on ONE
+// shared TPL with the joiner's deck filled. Pure model logic so it's testable headlessly.
+
+import { emitProject } from '../tpl/Emit.tish'
+import { loadDefaultDeckardProject } from '../model/ProjectLoad.tish'
+import { ensureCoDjMeta, setTrackOwner } from './CoDjMeta.tish'
+
+// Already-synced state carries real actor ownership (setTrackOwner stamped it in a prior session). That is NOT
+// my fresh creation — re-contributing it on reconnect would re-prefix and duplicate the whole shared loop.
+// Only a solo/fresh project (no foreign ownership) is eligible to be contributed on join.
+export fn projectHasActorOwnedTracks(p) {
+  if (!p || !p.coDjMeta || !p.coDjMeta.tracks) {
+    return false
+  }
+  let tracks = p.coDjMeta.tracks
+  let keys = Object.keys(tracks)
+  let i = 0
+  while (i < keys.length) {
+    let o = tracks[keys[i]] ? tracks[keys[i]].ownerActorId : null
+    if (o !== null && o !== undefined && o !== "" && o !== "human") {
+      return true
+    }
+    i = i + 1
+  }
+  return false
+}
+
+// Has the joiner actually built something, or are they still on the bundled boilerplate? emitProject is
+// deterministic (no timestamps/random), so a byte-for-byte match to the default = "nothing of my own to
+// contribute" (don't dump a duplicate default loop onto the joiner's deck). Any divergence = contribute.
+export fn projectDiffersFromDefault(p) {
+  if (!p || !Array.isArray(p.channels) || p.channels.length === 0) {
+    return false
+  }
+  let def = loadDefaultDeckardProject()
+  let defP = def && def.project ? def.project : def
+  if (!defP || !Array.isArray(defP.channels)) {
+    return true
+  }
+  return emitProject(p) !== emitProject(defP)
+}
+
+// True if a project is eligible to have its content contributed on join: it's my own fresh work (differs from
+// the default) and isn't already-synced shared state.
+export fn projectEligibleToContribute(p) {
+  return projectDiffersFromDefault(p) && !projectHasActorOwnedTracks(p)
+}
+
+// Append `sourceChannels` into `np` re-homed to `actorId`: each gets an actorId id-prefix (made unique vs the
+// channels already in np), is owned by actorId, and has its explicit deckSlot cleared so ownership-routing
+// places it on the joiner's deck. Returns the number of channels added.
+export fn rehomeJoinerChannels(np, sourceChannels, actorId) {
+  if (!np || !Array.isArray(np.channels) || !Array.isArray(sourceChannels)) {
+    return 0
+  }
+  let aid = actorId !== null && actorId !== undefined ? String(actorId) : ""
+  if (aid.length === 0 || sourceChannels.length === 0) {
+    return 0
+  }
+  ensureCoDjMeta(np)
+  let have = {}
+  let k = 0
+  while (k < np.channels.length) {
+    have[np.channels[k].id] = true
+    k = k + 1
+  }
+  let added = 0
+  let i = 0
+  while (i < sourceChannels.length) {
+    let ch = sourceChannels[i]
+    let nid = aid + "_" + ch.id
+    let suffix = 0
+    while (have[nid] === true) {
+      suffix = suffix + 1
+      nid = aid + "_" + ch.id + "_" + String(suffix)
+    }
+    ch.id = nid
+    ch.deckSlot = null
+    ch.actorLane = ""
+    // Drop the channel's carried-over session clip(s): their ids were baked from the OLD channel id
+    // (`<oldId>_main`). Clearing lets the session sync regenerate the main clip as `<nid>_main` — the SAME
+    // id the host derives when it applies this track — so every member's TPL (clips included) is identical.
+    // Lossless: the main clip is a pure projection of the channel's steps/notes.
+    ch.sessionClips = null
+    have[nid] = true
+    np.channels.push(ch)
+    setTrackOwner(np, nid, aid, aid)
+    added = added + 1
+    i = i + 1
+  }
+  return added
+}

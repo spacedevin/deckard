@@ -10,6 +10,7 @@
 import { WebSocket } from "tish:ws"
 import { process } from "tish:process"
 import { fetch } from "http"
+import { readFile } from "tish:fs"
 import { deckSetCatalog, deckSetTplById } from "../../src/model/DeckSets.tish"
 
 // `undefined` is a JS global the app (JS target) relies on, but native `tish run` does NOT define it, so
@@ -21,9 +22,17 @@ let undefined = null
 let actorId = "actor-1"
 let hub = "ws://127.0.0.1:35987"
 let session = "default"
+// --role host|client. HOST joins WITH master_mixer (the gateway elects the first master-carrying joiner as
+// room host) and owns the mix/master/cohesion; CLIENT joins as a follower and owns production. Default client.
+let role = "client"
 let argv = typeof process !== "undefined" && process.argv ? process.argv : []
 let ai = 0
 while (ai < argv.length) {
+  if (ai + 1 < argv.length && argv[ai] === "--role") {
+    role = argv[ai + 1] === "host" ? "host" : "client"
+    ai = ai + 2
+    continue
+  }
   if (ai + 1 < argv.length && argv[ai] === "--actor-id") {
     actorId = argv[ai + 1]
     ai = ai + 2
@@ -104,7 +113,11 @@ let SYSTEM_PROMPT =
   "NEVER emit `remove_track` — you add complementary parts, you do not delete tracks.\n" +
   "GOAL: complement the project — add the MISSING parts (hats, perc, bass, chords, melody), match the tempo, leave space; don't double what already plays."
 
-let SKILL_IDS = ["add_track", "adjust_instrument", "pattern_steps", "pattern_piano", "channel_mix"]
+// Host carries master_mixer (→ elected room host, may emit bpm/scale/swing/master_mix/actor_mix + edit any
+// lane's mix). Client is per-track only. These gate what the receiver/gateway accepts (src/codj/Skills.tish).
+let SKILL_IDS = role === "host"
+  ? ["master_mixer", "channel_mix", "adjust_instrument", "add_track"]
+  : ["add_track", "adjust_instrument", "pattern_steps", "pattern_piano", "channel_mix"]
 
 fn buildDemoPatch(text) {
   let lower = text.toLowerCase()
@@ -393,8 +406,9 @@ fn llmLinesFrom(directive) {
 fn handleDirect(ws, msg) {
   let text = msg.text || "add hi-hat"
   let ps = (msg.perfStep !== null && msg.perfStep !== undefined && typeof msg.perfStep === "number") ? msg.perfStep : 0
-  // A fine-grained single-element request stays a single track; anything else loads a full preset.
-  if (!looksLikeSingleElement(text)) {
+  // CLIENT: a styled/multi-element request loads a full deck preset; a single element → one LLM part.
+  // HOST never drops instruments — it shapes the mix/master, so it always routes through the LLM (host prompt).
+  if (role !== "host" && !looksLikeSingleElement(text)) {
     let ds = await deckSetLinesForLane(text, true)
     if (ds !== null && ds !== undefined && ds.lines && ds.lines.length > 0 && ws && ws.send) {
       sendBlockOnly(ws, ds.lines, ps)
@@ -402,14 +416,17 @@ fn handleDirect(ws, msg) {
       return
     }
   }
-  let lines = llmLinesFrom("DJ direction: " + text + ". Output ONE complementary track on your lane as TPL.")
+  let directive = role === "host"
+    ? ("DJ direction: " + text + ". As the HOST/mixer, answer with 1-3 mix/master moves — balance levels, EQ/pan to carve space, or adapt bpm/scale/swing to the direction. Don't add instruments unless a real gap needs filling. Output TPL only.")
+    : ("DJ direction: " + text + ". Output ONE complementary part on your lane as TPL.")
+  let lines = llmLinesFrom(directive)
   if (!lines) {
-    let demo = buildDemoPatch(text)
+    let demo = role === "host" ? null : buildDemoPatch(text)
     lines = demo ? demo.split("\n") : null
   }
   if (!lines || lines.length === 0 || !ws || !ws.send) { return }
   streamChunkThenBlock(ws, lines, ps)
-  console.log("[worker] got direct:", text, "-> streamed tpl.block (" + String(lines.length) + " lines)")
+  console.log("[worker] got direct (" + role + "):", text, "-> streamed (" + String(lines.length) + " lines)")
 }
 
 fn streamChunkThenBlock(ws, lines, perfStep) {
@@ -439,28 +456,29 @@ fn streamChunkThenBlock(ws, lines, perfStep) {
 }
 
 fn handlePlayingStream(ws, perfStep) {
-  // Auto-jam: drop a full preset on the agent's lane (rotating for variety), so collaborators get a
-  // rich deck set blended on Deck B rather than a one-line demo. Falls back to LLM/demo if needed.
   let ctx = tplLineBuffer.length > 0 ? tplLineBuffer.join(" ") : ""
-  let ds = await deckSetLinesForLane(ctx, true)
-  if (ds !== null && ds !== undefined && ds.lines && ds.lines.length > 0) {
-    console.log("[worker] play response: deck preset '" + ds.id + "' (" + String(ds.lines.length) + " lines) -> " + (playingActorId || "?"))
-    sendBlockOnly(ws, ds.lines, perfStep)
-    return
+  // CLIENT auto-jam: drop a full deck preset on its lane (rich, blends on Deck B). HOST never auto-jams a
+  // preset — it listens and makes mix/master moves to fit what the clients are doing (content-only steering).
+  if (role !== "host") {
+    let ds = await deckSetLinesForLane(ctx, true)
+    if (ds !== null && ds !== undefined && ds.lines && ds.lines.length > 0) {
+      console.log("[worker] play response: deck preset '" + ds.id + "' (" + String(ds.lines.length) + " lines) -> " + (playingActorId || "?"))
+      sendBlockOnly(ws, ds.lines, perfStep)
+      return
+    }
   }
-  let lines = llmLinesFrom(
-    "Listen to the session below and add ONE complementary track on your lane (id prefix " +
-      actorId +
-      "_) as TPL — fill gaps, complement density."
-  )
+  let directive = role === "host"
+    ? "Listen to the live session below. As the HOST/mixer, make 1-3 moves to balance + shape it: level/EQ/pan corrections, and adapt the master (bpm/scale/swing) to the direction the clients imply. Output TPL only."
+    : ("Listen to the session below and add ONE complementary part on your lane (id prefix " + actorId + "_) as TPL — fill gaps, complement density.")
+  let lines = llmLinesFrom(directive)
   let src = "LLM"
   if (!lines) {
-    let demo = buildDemoPatch("euclid hi-hat")
+    let demo = role === "host" ? null : buildDemoPatch("euclid hi-hat")
     lines = demo ? demo.split("\n") : null
     src = "demo"
   }
   if (!lines || lines.length === 0) return
-  console.log("[worker] play response (" + src + "): streaming", String(lines.length), "lines ->", playingActorId || "?")
+  console.log("[worker] play response (" + role + "/" + src + "): streaming", String(lines.length), "lines ->", playingActorId || "?")
   streamChunkThenBlock(ws, lines, perfStep)
   console.log("[worker] sent tpl.stream_chunk + tpl.block")
 }
@@ -498,7 +516,211 @@ fn connectHub() {
   return ws
 }
 
+// ---- Boot composition: build SYSTEM_PROMPT from skills/*.md + docs/TPL_AGENT_GRAMMAR.md ----------------
+// role file (_role-<role>.md) + a persona-selected subset of capability skills + the TPL grammar. The LLM
+// picks the persona/skills when an inference key is set; else a deterministic seed keyed on actorId — so two
+// agents of the same role are still DISTINCT producers. Editing a skill .md changes the agent next boot.
+let CAPABILITY_FILES = ["beats", "bass", "melody", "harmony-chords", "texture-atmos", "vocal", "groove-humanize", "mixing", "arrangement", "style-genre"]
+
+fn skillsDir() {
+  let base = "skills/"
+  if (typeof process !== "undefined" && process.env && "SKILLS_DIR" in process.env) {
+    base = process.env["SKILLS_DIR"]
+    if (!base.endsWith("/")) { base = base + "/" }
+  }
+  return base
+}
+
+fn readSkillFile(rel) {
+  let txt = readFile(skillsDir() + rel)
+  if (txt === null || txt === undefined || txt.length === 0) {
+    return null
+  }
+  return txt
+}
+
+fn parseSkill(txt) {
+  let id = ""
+  let r = "any"
+  let weight = 1.0
+  let body = txt
+  if (txt.indexOf("---") === 0) {
+    let rest = txt.substring(3)
+    let endIdx = rest.indexOf("---")
+    if (endIdx >= 0) {
+      let fm = rest.substring(0, endIdx)
+      body = rest.substring(endIdx + 3)
+      let lines = fm.split("\n")
+      let i = 0
+      while (i < lines.length) {
+        let line = lines[i]
+        let ci = line.indexOf(":")
+        if (ci > 0) {
+          let key = line.substring(0, ci).trim()
+          let val = line.substring(ci + 1).trim()
+          if (key === "id") { id = val }
+          else if (key === "role") { r = val }
+          else if (key === "weight") { let w = Number(val); if (w === w && w > 0) { weight = w } }
+        }
+        i = i + 1
+      }
+    }
+  }
+  while (body.length > 0 && (body.substring(0, 1) === "\n" || body.substring(0, 1) === "\r")) {
+    body = body.substring(1)
+  }
+  return { id: id, role: r, weight: weight, body: body }
+}
+
+fn loadEligibleCapabilities() {
+  let out = []
+  let i = 0
+  while (i < CAPABILITY_FILES.length) {
+    let txt = readSkillFile(CAPABILITY_FILES[i] + ".md")
+    if (txt !== null && txt !== undefined) {
+      let s = parseSkill(txt)
+      if (s.role === "any" || s.role === role) {
+        out.push(s)
+      }
+    }
+    i = i + 1
+  }
+  return out
+}
+
+fn hashStr(s) {
+  let h = 0
+  let i = 0
+  while (i < s.length) {
+    h = (h * 31 + s.charCodeAt(i)) % 1000000007
+    i = i + 1
+  }
+  return h
+}
+
+let STYLE_TRAITS = ["dark and hypnotic", "bright and uplifting", "gritty and raw", "deep and spacious", "punchy and high-energy", "experimental and textural", "warm and soulful", "icy and minimal"]
+
+fn capById(eligible, id) {
+  let i = 0
+  while (i < eligible.length) {
+    if (eligible[i].id === id) {
+      return eligible[i]
+    }
+    i = i + 1
+  }
+  return null
+}
+
+// Deterministic persona (no LLM): rotate the eligible list by hash(actorId), take up to 4, + a style trait.
+fn seededPersona(eligible) {
+  let h = hashStr(actorId)
+  let style = STYLE_TRAITS[h % STYLE_TRAITS.length]
+  let n = eligible.length
+  let take = n < 4 ? n : 4
+  let off = n > 0 ? (h % n) : 0
+  let picked = []
+  let i = 0
+  while (i < take) {
+    picked.push(eligible[(off + i) % n])
+    i = i + 1
+  }
+  let names = []
+  let j = 0
+  while (j < picked.length) {
+    names.push(picked[j].id)
+    j = j + 1
+  }
+  return { skills: picked, text: "A " + style + " producer who reaches first for: " + names.join(", ") + "." }
+}
+
+// LLM persona: the model picks 3-5 skills + writes a one-line persona. Lenient parse; seeded fallback.
+fn llmPersona(eligible) {
+  if (!GRADIENT_MODEL_ACCESS_KEY || GRADIENT_MODEL_ACCESS_KEY === "") {
+    return seededPersona(eligible)
+  }
+  let menu = ""
+  let i = 0
+  while (i < eligible.length) {
+    menu = menu + "- " + eligible[i].id + "\n"
+    i = i + 1
+  }
+  let sys = "You assign a UNIQUE musical persona to one " + role + " AI producer in a live collaborative jam. Choose 3-5 skill ids from the menu that make a DISTINCT specialist (not a generalist), and write one vivid sentence of persona (genre/energy/character). Output EXACTLY two lines:\nSKILLS: id1, id2, id3\nPERSONA: <one sentence>"
+  let prompt = "Skill menu:\n" + menu + "\nDesign persona variant #" + String(hashStr(actorId) % 9999) + "."
+  let raw = await callLLMRaw(prompt, sys)
+  if (raw === null || raw === undefined || raw.length === 0) {
+    return seededPersona(eligible)
+  }
+  let skillsLine = ""
+  let personaLine = ""
+  let lines = raw.split("\n")
+  let li = 0
+  while (li < lines.length) {
+    let ln = lines[li].trim()
+    if (ln.indexOf("SKILLS:") === 0) {
+      skillsLine = ln.substring(7).trim()
+    } else if (ln.indexOf("PERSONA:") === 0) {
+      personaLine = ln.substring(8).trim()
+    }
+    li = li + 1
+  }
+  let picked = []
+  if (skillsLine.length > 0) {
+    let ids = skillsLine.split(",")
+    let k = 0
+    while (k < ids.length) {
+      let c = capById(eligible, ids[k].trim())
+      if (c !== null && c !== undefined) {
+        picked.push(c)
+      }
+      k = k + 1
+    }
+  }
+  if (picked.length < 2) {
+    return seededPersona(eligible)
+  }
+  let txt = personaLine.length > 0 ? personaLine : ("A " + role + " specialist.")
+  return { skills: picked, text: txt }
+}
+
+fn composeSystemPrompt() {
+  let roleTxt = readSkillFile(role === "host" ? "_role-host.md" : "_role-client.md")
+  let grammar = readFile("docs/TPL_AGENT_GRAMMAR.md")
+  if (roleTxt === null || roleTxt === undefined || grammar === null || grammar === undefined || grammar.length === 0) {
+    console.warn("[worker] skills/ or grammar not found (cwd must be the repo root) — using built-in fallback prompt")
+    return
+  }
+  let eligible = loadEligibleCapabilities()
+  if (eligible.length === 0) {
+    console.warn("[worker] no capability skills loaded — using built-in fallback prompt")
+    return
+  }
+  let persona = await llmPersona(eligible)
+  let skillsText = ""
+  let i = 0
+  while (i < persona.skills.length) {
+    skillsText = skillsText + persona.skills[i].body + "\n\n"
+    i = i + 1
+  }
+  let composed =
+    parseSkill(roleTxt).body + "\n\n" +
+    "## Your persona\n" + persona.text + "\n\n" +
+    "## Your skills (build every move from these)\n" + skillsText +
+    "## TPL — the EXACT lines you may emit\n" + grammar + "\n\n" +
+    "Prefix EVERY track id with \"" + actorId + "_\". Output ONLY valid TPL lines — no prose, no markdown, no code fences."
+  // Skill examples use the literal <me> placeholder — substitute this agent's id.
+  composed = composed.split("<me>").join(actorId)
+  SYSTEM_PROMPT = composed
+  let names = []
+  let j = 0
+  while (j < persona.skills.length) {
+    names.push(persona.skills[j].id)
+    j = j + 1
+  }
+  console.log("[worker] composed prompt: role=" + role + " skills=[" + names.join(",") + "] persona=\"" + persona.text + "\" (" + String(composed.length) + " bytes)")
+}
+
 fn run() {
+  await composeSystemPrompt()
   let ws = connectHub()
   if (ws === null) {
     process.exit(1)

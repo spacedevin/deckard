@@ -35,7 +35,7 @@ fn getRoom(sessionId) {
     if (rooms[i].id === sessionId) return rooms[i]
     i = i + 1
   }
-  let r = { id: sessionId, conns: [], seq: {}, hostActorId: null, hostSnapshot: null }
+  let r = { id: sessionId, conns: [], seq: {}, hostActorId: null, hostSnapshot: null, hostOwners: null }
   rooms.push(r)
   return r
 }
@@ -170,6 +170,7 @@ fn pruneDeadConns() {
       if (hostDiedRooms[room.id] === true) {
         room.hostActorId = null
         room.hostSnapshot = null
+        room.hostOwners = null
         let hi = 0
         while (hi < room.conns.length) {
           if (skillsHaveMaster(room.conns[hi].skillIds)) {
@@ -286,7 +287,11 @@ while (true) {
                 // now (if any) and ask the host to push a fresh one so the joiner's default is clobbered.
                 if (conn.actorId !== room.hostActorId) {
                   if (room.hostSnapshot !== null && conn.ws !== null) {
-                    let snapPayload = JSON.stringify({ type: "state.snapshot", sessionId: conn.sessionId, fromHost: room.hostActorId, lines: room.hostSnapshot })
+                    // Carry the per-track ownership map with the cached snapshot. WITHOUT it the joiner can't
+                    // tell host tracks from its own → every track defaults to "human" → channelPlayerIndex's
+                    // "human"→host remap collapses EVERYTHING (incl. the joiner's own contribution) onto
+                    // Deck A. The owners map is what keeps each contributor on its own deck.
+                    let snapPayload = JSON.stringify({ type: "state.snapshot", sessionId: conn.sessionId, fromHost: room.hostActorId, lines: room.hostSnapshot, owners: room.hostOwners })
                     console.log("[gateway] OUTPUT wsSend cached state.snapshot -> " + conn.actorId + " (" + String(room.hostSnapshot.length) + " lines)")
                     wsSend(conn.ws, snapPayload)
                   }
@@ -317,8 +322,11 @@ while (true) {
             if (mt0 === "state.snapshot" && Array.isArray(msg.lines)) {
               if (room.hostActorId === null || actorId === room.hostActorId) {
                 room.hostSnapshot = msg.lines
+                // Cache + relay the ownership map alongside the lines (missing key reads as null natively).
+                // Dropping it is the "guests merge into Deck A" bug — see the cached-send note above.
+                room.hostOwners = msg.owners
                 console.log("[gateway] cached host snapshot from " + actorId + " (" + String(msg.lines.length) + " lines)")
-                broadcast(room, { type: "state.snapshot", sessionId: conn.sessionId, fromHost: actorId, lines: msg.lines }, conn)
+                broadcast(room, { type: "state.snapshot", sessionId: conn.sessionId, fromHost: actorId, lines: msg.lines, owners: msg.owners }, conn)
               }
             }
             let mt = msg.type !== null ? String(msg.type) : ""
