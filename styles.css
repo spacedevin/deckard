@@ -438,7 +438,9 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .daw-sidebar-left {
-  flex: 0 0 280px;
+  /* Sized to the deck's content (jog on the left, channel strip on the right) with only a small separation gap
+     between them — no wasted whitespace in the middle. */
+  flex: 0 0 224px;
   display: flex;
   flex-direction: column;
   padding: 0;
@@ -450,7 +452,7 @@ input[type="range"]::-moz-range-thumb {
 .deck-nav-btn {
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
+  justify-content: center;
   align-items: stretch;
   padding: 10px 6px;
   cursor: pointer;
@@ -481,6 +483,7 @@ input[type="range"]::-moz-range-thumb {
   align-items: center;
   gap: 8px;
   width: 100%;
+  margin-bottom: 8px;
 }
 
 .deck-nav-text {
@@ -518,16 +521,29 @@ input[type="range"]::-moz-range-thumb {
 .deck-nav-indicators {
   display: flex;
   flex-direction: row;
-  gap: 2px;
+  gap: 1px;
   margin-left: auto;
 }
 
+/* The jog "unit" (jog wheel + vinyl row) sits in the controls row next to the EQ + fader. Content-width (not
+   100%) so it shrinks to the vinyl width and the jog ends up close to the EQ instead of centered in a wide column. */
 .deck-nav-controls {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  margin-top: 8px;
+  margin-top: 0;
+  width: auto;
+}
+
+/* Title row (full width) on top; below it the jog hugs the LEFT and the channel strip (EQ + fader + CUE) hugs
+   the RIGHT — no wasted padding outside the disc or the volume. */
+.deck-nav-controls-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
   width: 100%;
 }
 
@@ -537,23 +553,8 @@ input[type="range"]::-moz-range-thumb {
   letter-spacing: 0.05em;
   color: #3e3e4a;
   text-align: center;
-  margin-top: 14px;
+  margin-top: 0;
   text-transform: uppercase;
-}
-
-.deck-nav-content-row {
-  display: flex;
-  flex-direction: row;
-  align-items: stretch;
-  gap: 6px;
-  width: 100%;
-}
-
-.deck-nav-platter-card {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
 }
 
 .deck-nav-btn .dk-ch-strip {
@@ -566,7 +567,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .deck-nav-indicator-sq {
-  width: 4px;
+  width: 3px;
   height: 3px;
   background: transparent;
   transition: all 0.15s ease;
@@ -3249,6 +3250,13 @@ input[type="range"]::-moz-range-thumb {
      name is hidden side-by-side (see the wide-screen media query). */
   --sess-name-w: 100px;
   --sess-lead: calc(var(--sess-name-w) + 26px + 0.7rem);
+  /* Match the instrument-panel pattern (see .sg-panel): no card border/background, thin top accent, minimal
+     padding. The 18px bottom (from .seq-split-session .session-panel) keeps its grid aligned with the SEQ grid. */
+  background: transparent;
+  border: none;
+  border-top: 2px solid var(--accent-green);
+  border-radius: 0;
+  padding: 6px 2px 18px;
 }
 /* Match the SEQ panel's 18px bottom padding so the bottom-anchored grids (.sg-grid / .session-grid-wrap both
    use margin-top:auto) line up — that 12px padding gap was the ONLY thing making the rows sit off by 12px. */
@@ -3314,8 +3322,24 @@ input[type="range"]::-moz-range-thumb {
 .session-scene-toprow {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 6px;
+  gap: 4px;
+}
+/* P[X] · LAUNCH · CUE all on one line — LAUNCH grows to fill, P + CUE stay compact so LAUNCH owns most of it. */
+.session-scene-toprow .session-scene-label {
+  flex: 0 0 auto;
+}
+.session-scene-toprow .btn-scene-launch,
+.session-scene-toprow .btn-session-launch {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  text-align: center;
+  padding: 3px 4px;
+}
+.session-scene-toprow .btn-scene-cue {
+  flex: 0 0 auto;
+  font-size: 0.5rem;
+  padding: 2px 4px;
 }
 .btn-scene-cue {
   font-size: 0.52rem;
@@ -3907,9 +3931,14 @@ input[type="range"]::-moz-range-thumb {
 
 /* ---- Grid sequencer ---- */
 .sg-panel {
-  background: var(--panel-2);
-  border: 1px solid #1c1c22;
-  padding: 14px 16px 18px;
+  /* Follow the instrument-panel pattern: no card border/background, just a thin top accent + minimal padding.
+     Keep position:relative (the piano/lane/automation takeovers are inset:0 against this) and the 18px bottom
+     padding (it must match the session panel so both bottom-anchored grids line up). */
+  background: transparent;
+  border: none;
+  border-top: 2px solid var(--accent);
+  border-radius: 0;
+  padding: 6px 2px 18px;
   position: relative;
 }
 /* Piano-roll TAKEOVER — one open at a time, fills the whole sequencer panel (does NOT expand/extend it). */
@@ -4067,6 +4096,29 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
   box-shadow: 0 0 6px var(--row-glow);
 }
+/* The deck chip is now a tiny select (click → A/B/C/D list, jump straight to any deck). Compact chrome that
+   matches the old chip: the letter + a faint caret. The dropdown list is the shared IkSelect popover.
+   The .instr-grid-container prefix (+ !important) is needed to beat the generic `.instr-grid-container .ik-sel`
+   sizing rule, since this chip lives inside the instrument grid. */
+.instr-grid-container .sg-deck-select.ik-sel,
+.sg-deck-select.ik-sel {
+  min-width: 0 !important;
+  width: 28px !important;
+  height: 18px;
+  padding: 0 2px !important;
+  border: 1px solid;
+  border-radius: 3px;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px !important;
+  font-size: 0.58rem !important;
+  font-weight: 800;
+  cursor: pointer;
+}
+.sg-deck-select .ik-sel-label { padding: 0; }
+.sg-deck-select .ik-sel-arrow { font-size: 0.45rem; opacity: 0.65; }
 .sg-tog {
   width: 17px;
   height: 17px;
@@ -4119,13 +4171,19 @@ input[type="range"]::-moz-range-thumb {
 .sg-cell.sg-beat {
   background: #121218;
 }
+/* The BARS/SWING/SCALE controls now sit INLINE in the SEQ header (one row), not as a second indented row. */
 .sg-barpager {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: 2px 0 10px;
-  padding-left: 168px;
+  gap: 2px;
+  margin: 0;
+  padding-left: 0;
+  flex-wrap: nowrap;
 }
+.sg-barpager .sg-barbtn { min-width: 22px; }
+.sg-barpager .sg-barpager-label { margin-right: 1px; letter-spacing: 0.04em; }
+.sg-panel .panel-head { flex-wrap: nowrap; }
+.sg-panel .panel-head-l { align-items: center; flex-wrap: nowrap; min-width: 0; }
 /* VIEW overflow "···" dropdown — an IkSelect styled to match the bar buttons (.sg-barbtn). */
 .ik-sel.sg-barpager-more {
   min-width: 30px;
@@ -4213,8 +4271,7 @@ input[type="range"]::-moz-range-thumb {
   color: var(--row-accent, #00f3ff);
 }
 .sg-barpager-sep {
-  color: #3a3a42;
-  margin: 0 5px;
+  display: none;
 }
 .sg-ch-rootpitch {
   margin-left: 6px;
@@ -4444,6 +4501,12 @@ input[type="range"]::-moz-range-thumb {
   font-size: 11px;
   padding: 0 4px;
   cursor: pointer;
+}
+/* Inline in the one-row SEQ header: size the scale dropdowns to their content (C / off) instead of the wide
+   IkSelect default min-width, so the toolbar fits on one line. */
+.sg-scale-sel.ik-sel {
+  min-width: 0;
+  gap: 2px;
 }
 .sg-scale-sel:disabled {
   opacity: 0.45;
@@ -4834,8 +4897,9 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   flex-direction: row;
   align-items: stretch;
-  justify-content: space-between;
-  gap: 8px;
+  /* Pack the EQ column + volume/CUE together AND to the right edge so the volume/CUE hugs the deck's right side. */
+  justify-content: flex-end;
+  gap: 6px;
   padding: 0;
   border: none;
   background: transparent;
@@ -4865,7 +4929,10 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1px;
+  /* Each EQ knob carries its label BELOW it (tight 0.1rem inner gap). The gap BETWEEN knob groups must be
+     clearly larger than that inner gap, or each label reads as belonging to the knob below it instead of its
+     own knob above. 6px >> the ~1.6px dial→label gap, so labels visually hug their own knob. */
+  gap: 6px;
   width: 44px;
   flex-shrink: 0;
 }
@@ -5605,11 +5672,11 @@ input[type="range"]::-moz-range-thumb {
 .dk-jog-reload:hover { border-color: currentColor; }
 
 /* ---- Vinyl performance row (CUT / REV / BRK / SPIN) under the jog ---- */
-.dk-vinyl { display: flex; gap: 5px; justify-content: center; margin-top: 8px; }
+.dk-vinyl { display: flex; gap: 3px; justify-content: center; margin-top: 8px; }
 .dk-vinyl.dk-acc-a { --vacc: var(--deck-a); } .dk-vinyl.dk-acc-b { --vacc: var(--deck-b); }
 .dk-vinyl.dk-acc-c { --vacc: var(--deck-c); } .dk-vinyl.dk-acc-d { --vacc: var(--deck-d); }
-.dk-vinyl-btn { flex: 1 1 0; min-width: 0; padding: 5px 2px; border-radius: 5px; border: 1px solid #2a2a35;
-  background: #0d0d11; color: #8a8a92; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.06em;
+.dk-vinyl-btn { flex: 1 1 0; min-width: 0; padding: 4px 1px; border-radius: 5px; border: 1px solid #2a2a35;
+  background: #0d0d11; color: #8a8a92; font-size: 0.56rem; font-weight: 700; letter-spacing: 0.04em;
   cursor: pointer; touch-action: none; user-select: none; transition: color 0.08s, border-color 0.08s, background 0.08s; }
 .dk-vinyl-btn:hover { border-color: var(--vacc); color: #c8c8d0; }
 .dk-vinyl-btn:active, .dk-vinyl-btn.dk-vinyl-on { color: #0b0b0e; background: var(--vacc); border-color: var(--vacc);
@@ -5981,6 +6048,87 @@ input[type="range"]::-moz-range-thumb {
 /* The matrix/patch editor is a UI toggle confined to the instrument area, NOT a screen modal: the backdrop is
    absolute within .instr-stack-host (the instrument region) and the panel fills it exactly. */
 .instr-stack-host { position: relative; }
+/* Non-blocking prompt/alert modal (replaces window.prompt / window.alert — see PromptModal.tish). */
+.ui-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 6, 10, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 4000;
+  backdrop-filter: blur(1.5px);
+}
+.ui-modal {
+  background: var(--bg, #0e0e12);
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 8px;
+  padding: 16px 16px 14px;
+  width: min(420px, 90vw);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ui-modal-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text, #e8e8ea);
+}
+.ui-modal-msg {
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--muted, #9a9aa4);
+}
+.ui-modal-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 0.6rem;
+  background: #14141a;
+  border: 1px solid #2a2a32;
+  border-radius: 5px;
+  color: var(--text, #e8e8ea);
+  font-family: inherit;
+  font-size: 0.8rem;
+  outline: none;
+}
+.ui-modal-input:focus {
+  border-color: var(--accent, #22d3ee);
+}
+.ui-modal-textarea {
+  min-height: 9rem;
+  resize: vertical;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.72rem;
+}
+.ui-modal-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.ui-modal-btn {
+  padding: 0.4rem 0.9rem;
+  border-radius: 5px;
+  border: 1px solid #2a2a32;
+  background: #14141a;
+  color: var(--text, #e8e8ea);
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ui-modal-btn:hover {
+  background: #1c1c24;
+}
+.ui-modal-ok {
+  border-color: var(--accent, #22d3ee);
+  color: var(--accent, #22d3ee);
+}
+.ui-modal-ok:hover {
+  background: rgba(34, 211, 238, 0.14);
+}
+
 .gen-modal-backdrop { position: absolute; inset: 0; background: rgba(8, 8, 12, 0.86); display: flex; align-items: stretch; justify-content: stretch; z-index: 50; }
 .gen-modal { background: var(--bg, #0e0e12); border: 1px solid var(--border, #2a2a2a); border-radius: 6px; width: 100%; height: 100%; max-width: none; max-height: 100%; display: flex; flex-direction: column; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45); }
 /* Match the minimalist inline cards: a tight title row + tight body, not the chunky modal chrome. */
@@ -6172,6 +6320,33 @@ input[type="range"]::-moz-range-thumb {
   background: rgba(255, 255, 255, 0.05);
 }
 
+/* Option rows with a delete affordance: text on the left, a ✕ on the right. */
+.ik-sel-opt-del-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ik-sel-opt-del-row .ik-sel-opt-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ik-sel-opt-del {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: #6a6a74;
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 1px 3px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.ik-sel-opt-del:hover {
+  background: rgba(255, 80, 80, 0.18);
+  color: #ff6b6b;
+}
+
 .ik-sel-opt-header {
   padding: 0.28rem 0.6rem;
   font-size: 0.58rem;
@@ -6206,7 +6381,24 @@ input[type="range"]::-moz-range-thumb {
   grid-template-columns: repeat(3, 1fr);
   gap: 8px !important;
   width: 100%;
-  align-items: start;
+  align-items: stretch;
+}
+
+/* Each instrument panel's header row can't shrink below ~290px, so three columns need a wide main area.
+   Below that, drop to two columns so the grid never overflows into the CO-DJ sidebar. */
+@media (max-width: 1500px) {
+  .instr-grid-container {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Empty instrument slots filling out the grid — a slightly-different background marks this as a reserved
+   zone (something fun goes here later). Faint so it reads as "available", not as a broken/missing panel. */
+.instr-grid-container .instr-empty-slot {
+  min-height: 120px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.022);
+  border: 1px dashed rgba(255, 255, 255, 0.055);
 }
 
 /* Compact rules when instruments are inside the grid */
@@ -6275,25 +6467,42 @@ input[type="range"]::-moz-range-thumb {
   box-sizing: border-box !important;
 }
 
+/* SOUND and FX stack as two ROWS (each full panel width) instead of two side-by-side columns. SOUND on top,
+   FX below, divided by a faint rule. Full width per row lets FX sit as a single horizontal strip of knobs. */
 .instr-grid-container .instr-modules-row {
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   flex-wrap: nowrap;
   gap: 4px !important;
-  align-items: flex-start !important;
+  align-items: stretch !important;
 }
 
 .instr-grid-container .instr-module {
-  flex: 1 1 50%;
+  flex: 0 0 auto;
+  width: 100%;
   min-width: 0;
   max-width: none;
   background: transparent !important;
   border: none !important;
-  border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
   border-radius: 0 !important;
 }
 .instr-grid-container .instr-module:last-child {
-  border-right: none !important;
+  border-bottom: none !important;
+}
+
+/* Code (raw TPL) view takes over the whole panel: hide the sibling row, let the editor fill the width + grow. */
+.instr-grid-container .instr-modules-row:has(.instr-module-raw-active) .instr-module:not(.instr-module-raw-active) {
+  display: none !important;
+}
+.instr-grid-container .instr-module-raw-active {
+  border-bottom: none !important;
+}
+.instr-grid-container .instr-module-raw-active .instr-module-body {
+  padding: 3px 0 0 !important;
+}
+.instr-grid-container .instr-module-raw-active .rich-tpl-stack .tpl-song-input-layer {
+  min-height: 12rem !important;
 }
 
 .instr-grid-container .instr-module-head {
@@ -6411,11 +6620,15 @@ input[type="range"]::-moz-range-thumb {
 }
 .instr-head-mixer .dk-stem-wave {
   height: 20px !important;
-  width: 60px !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  /* Narrower + punchier. The scope canvas is drawn by the shared worker (same channel id feeds the deck
+     waveform too), so intensity is dialed here in CSS — brightness/saturate/contrast make the line pop
+     without touching the worker's amplitude. */
+  width: 40px !important;
+  border: none !important;
   border-radius: 3px !important;
-  background: rgba(0, 0, 0, 0.25) !important;
+  background: rgba(0, 0, 0, 0.2) !important;
   display: block !important;
+  filter: brightness(1.55) saturate(1.4) contrast(1.12) !important;
 }
 .instr-head-mixer .dk-lever {
   height: 24px !important;

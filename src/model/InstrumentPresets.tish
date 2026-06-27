@@ -12,6 +12,78 @@ export fn ensureInstrumentPresets(project) {
   }
 }
 
+// User-saved instrument presets persist in localStorage (factory presets are re-seeded at boot, so only the
+// `userSaved` ones are written). Mirrors the LevelPresets / StationPresets / SetLibrary persistence pattern —
+// without this, a saved instrument preset lived only on the in-memory project and vanished on reload.
+let INSTR_PRESET_KEY = "deckard.instrumentpresets.v1"
+
+fn instrPresetBackend() {
+  // globalThis.localStorage is a plain property read (undefined off-browser, no throw — see typeof gotcha).
+  let ls = globalThis.localStorage
+  if (ls !== null && ls !== undefined) {
+    return {
+      read: () => ls.getItem(INSTR_PRESET_KEY),
+      write: (s) => {
+        try {
+          ls.setItem(INSTR_PRESET_KEY, s)
+        } catch (e) {}
+      }
+    }
+  }
+  return { read: () => null, write: (s) => {} }
+}
+
+export fn persistUserInstrumentPresets(project) {
+  ensureInstrumentPresets(project)
+  let users = []
+  let i = 0
+  while (i < project.instrumentPresets.length) {
+    if (project.instrumentPresets[i].userSaved === true) {
+      users.push(project.instrumentPresets[i])
+    }
+    i = i + 1
+  }
+  instrPresetBackend().write(JSON.stringify(users))
+}
+
+// Merge the persisted user presets into the project's (factory-seeded) list, de-duped by presetId. Call once
+// after a project boots / loads so saved instruments survive a reload.
+export fn loadUserInstrumentPresets(project) {
+  ensureInstrumentPresets(project)
+  let raw = instrPresetBackend().read()
+  if (raw === null || raw === undefined || String(raw).length === 0) {
+    return
+  }
+  let users = null
+  try {
+    users = JSON.parse(raw)
+  } catch (e) {
+    users = null
+  }
+  if (!Array.isArray(users)) {
+    return
+  }
+  let i = 0
+  while (i < users.length) {
+    let u = users[i]
+    if (u !== null && u !== undefined) {
+      let exists = false
+      let j = 0
+      while (j < project.instrumentPresets.length) {
+        if (project.instrumentPresets[j].presetId === u.presetId) {
+          exists = true
+        }
+        j = j + 1
+      }
+      if (!exists) {
+        u.userSaved = true
+        project.instrumentPresets.push(u)
+      }
+    }
+    i = i + 1
+  }
+}
+
 export fn addInstrumentPreset(project, displayName, ch) {
   ensureInstrumentPresets(project)
   let pid = "p_" + String(project.instrumentPresets.length) + "_" + String(Math.floor(Math.random() * 99999))
@@ -20,6 +92,7 @@ export fn addInstrumentPreset(project, displayName, ch) {
   let row = {
     presetId: pid,
     name: displayName,
+    userSaved: true,
     generatorId: ch.generatorId,
     params: deepCloneParams(ch.generatorParams),
     macroName: ch.macroName !== null && ch.macroName !== undefined ? ch.macroName : null,
@@ -42,6 +115,27 @@ export fn addInstrumentPreset(project, displayName, ch) {
     row.generatorSpec = deepCloneParams(ch.generatorSpec)
   }
   project.instrumentPresets.push(row)
+  persistUserInstrumentPresets(project)
+}
+
+export fn removeInstrumentPreset(project, name) {
+  ensureInstrumentPresets(project)
+  let out = []
+  let i = 0
+  let removed = false
+  while (i < project.instrumentPresets.length) {
+    if (project.instrumentPresets[i].name === name) {
+      removed = true
+    } else {
+      out.push(project.instrumentPresets[i])
+    }
+    i = i + 1
+  }
+  project.instrumentPresets = out
+  if (removed) {
+    persistUserInstrumentPresets(project)
+  }
+  return removed
 }
 
 export fn applyInstrumentPresetToChannel(ch, preset) {

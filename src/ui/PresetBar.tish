@@ -16,7 +16,7 @@ export fn PanelHeader(left, right) {
   )
 }
 
-export fn PresetBar(label, items, onLoad, onSave, scopeNote) {
+export fn PresetBar(label, items, onLoad, onSave, scopeNote, onDelete) {
   let options = []
   let i = 0
   while (i < items.length) {
@@ -49,7 +49,12 @@ export fn PresetBar(label, items, onLoad, onSave, scopeNote) {
           if (v && v.length > 0) {
             onLoad(v)
           }
-        }
+        },
+        onDelete: (onDelete !== null && onDelete !== undefined) ? ((v) => {
+          if (v && v.length > 0) {
+            onDelete(v)
+          }
+        }) : null
       })}
       <button type="button" class="preset-bar-save" onclick={onSave} title={"Save current " + label + " as a preset"}>
         {saveIcon}

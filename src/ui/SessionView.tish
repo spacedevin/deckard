@@ -505,8 +505,10 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
       hdrCls = hdrCls + " session-scene-head-queued"
     }
     // Scene header carries the merged pattern controls: LOAD (edit) · SAVE (rack → pattern) · LAUNCH.
+    // LAUNCH sits inline in the top row (P[X] · LAUNCH · CUE); the load/save ops stay below in headOps.
     let pb = patternBank
     let headOps = null
+    let launchBtn = null
     if (pb && pb.onLaunch) {
       let isEditing = pb.editingScene !== null && pb.editingScene !== undefined && Math.floor(Number(pb.editingScene)) === si
       let isLive = pb.liveScene !== null && pb.liveScene !== undefined && Math.floor(Number(pb.liveScene)) === si
@@ -526,11 +528,13 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
       let sceneI = si
       let barN = pb.viewBar !== null && pb.viewBar !== undefined ? Math.floor(Number(pb.viewBar)) + 1 : 1
       let totalBars = pb.bars !== null && pb.bars !== undefined && Math.floor(Number(pb.bars)) >= 1 ? Math.floor(Number(pb.bars)) : 1
+      launchBtn = (
+        <button type="button" class={launchCls} onclick={() => pb.onLaunch(sceneI)} title={"Launch this pattern live (queues to the next bar while a song plays)"}>
+          {launchLabel}
+        </button>
+      )
       headOps = (
         <div class="session-scene-ops">
-          <button type="button" class={launchCls} onclick={() => pb.onLaunch(sceneI)} title={"Launch this pattern live (queues to the next bar while a song plays)"}>
-            {launchLabel}
-          </button>
           <div class="session-scene-oprow">
             <button type="button" class={loadCls + " btn-scene-op-icon"} onclick={() => pb.onLoadBar(sceneI)} title={"Load only bar " + String(barN) + " (the bar you're viewing) — other bars untouched"}>
               {LucideIcon("folder-open")}<span class="op-barnum">{"1"}</span>
@@ -551,7 +555,7 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
         </div>
       )
     } else {
-      headOps = (
+      launchBtn = (
         <button type="button" class="btn-session-launch" onclick={() => armScene(si)} title={"Queue scene for next bar (16 steps)"}>
           {"Launch"}
         </button>
@@ -563,6 +567,7 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
       <div class={cueHdrCls} key={"sc-h-" + String(si)}>
         <div class="session-scene-toprow">
           <span class="session-scene-label">{"P"}{String(si + 1)}</span>
+          {launchBtn}
           <button
             type="button"
             class={isCued ? "btn-scene-cue btn-scene-cue-on" : "btn-scene-cue"}
@@ -598,8 +603,7 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
     <section class="panel session-panel">
       <div class="session-panel-head">
         <div class={sessionLive ? "session-brand session-brand-live" : "session-brand"}>
-          <span class="session-dot" />
-          <span class="session-title">{sessionLive ? "● LIVE" : "SESSION"}</span>
+          <span class="session-title">{"session"}</span>
         </div>
         <div class="session-head-right">
           {headerRight}

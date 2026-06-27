@@ -11,9 +11,11 @@ import { defaultParamsForGeneratorId, generatorDescriptionById } from '../genera
 import {
   deepCloneParams,
   addInstrumentPreset,
+  removeInstrumentPreset,
   applyInstrumentPresetToChannel,
   ensureInstrumentPresets
 } from '../model/InstrumentPresets.tish'
+import { promptName } from './PromptModal.tish'
 import { parseGenBlock, defaultMatrixFmRawLines } from '../tpl/TplExtension.tish'
 import { PanelHeader, PresetBar } from './PresetBar.tish'
 import { defaultPatchRawLines } from '../tpl/PatchGraph.tish'
@@ -390,23 +392,41 @@ fn ModuleCard(title, tplBlock, module, ctx, children, wide, extraClass) {
   if (extraClass !== null && extraClass !== undefined && extraClass !== "") {
     cardClass = cardClass + " " + extraClass
   }
+  // When the code (raw TPL) view is active this module takes over the whole panel — the CSS hides its sibling
+  // row and lets the editor fill the width/height (see .instr-module-raw-active).
+  if (raw) {
+    cardClass = cardClass + " instr-module-raw-active"
+  }
   let body = children
   if (raw) {
     // The current gen_block for this module — shown in the editor AND used as the undo inverse (the pre-edit
     // text), since onCommit fires on blur with the new text and this closure captures the pre-edit value.
     let curTpl = emitInstrumentModuleTpl(ctx.project, ctx.ch.id, module)
+    // A fragment doesn't need the "tpl 1" document header shown in the editor — strip it for DISPLAY only, then
+    // re-add it on apply so the round-trip (and the undo inverse, which keeps the original) is unchanged.
+    let displayTpl = curTpl
+    if (displayTpl.substring(0, 4) === "tpl ") {
+      let nlPos = displayTpl.indexOf("\n")
+      if (nlPos >= 0) {
+        displayTpl = displayTpl.substring(nlPos + 1)
+      }
+      while (displayTpl.indexOf("\n") === 0) {
+        displayTpl = displayTpl.substring(1)
+      }
+    }
     body = RichTplEditor(
       ctx.rt,
       "rawed-" + ctx.ch.id + "-" + module,
-      curTpl,
+      displayTpl,
       (text) => {
         if ((ctx.rt === null || ctx.rt === undefined)) {
           return
         }
+        let full = text.substring(0, 4) === "tpl " ? text : "tpl 1\n\n" + text
         if (ctx.rt.directiveUndoable) {
-          ctx.rt.directiveUndoable(text, curTpl, "rawedit:" + ctx.ch.id + ":" + module)
+          ctx.rt.directiveUndoable(full, curTpl, "rawedit:" + ctx.ch.id + ":" + module)
         } else if (ctx.rt.directive) {
-          ctx.rt.directive(text)
+          ctx.rt.directive(full)
         }
       }
     )
@@ -493,13 +513,16 @@ fn instrumentPresetBar(project, ch, setProject, tplMirrorFlush) {
     }
   }
   fn onSave() {
-    let nm = prompt("Preset name", ch.name + " sound")
-    if (nm && nm.length > 0) {
+    promptName("Save instrument preset as", ch.name + " sound", (nm) => {
       addInstrumentPreset(project, nm, ch)
       setProject(project)
-    }
+    })
   }
-  return PresetBar("Preset", project.instrumentPresets, onLoad, onSave, "")
+  fn onDelete(name) {
+    removeInstrumentPreset(project, name)
+    setProject(project)
+  }
+  return PresetBar("Preset", project.instrumentPresets, onLoad, onSave, "", onDelete)
 }
 
 fn SoundModule(ctx, gid) {
@@ -524,7 +547,7 @@ fn PitchModule(ctx) {
   let chordDefs = [["Off", "off"], ["Major", "major"], ["Minor", "minor"], ["Dom7", "dom7"], ["Maj7", "maj7"], ["Min7", "min7"], ["Dim", "dim"], ["Aug", "aug"], ["Sus4", "sus4"], ["Add9", "add9"]]
   let invDefs = [["Root", "root"], ["1st", "1st"], ["2nd", "2nd"]]
   return ModuleCard(
-    "Pitch",
+    "FX",
     "",
     "voice",
     ctx,
@@ -612,38 +635,14 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
       badgeText = "KEYS"
     }
     
-    let g = ch.gain !== null && ch.gain !== undefined ? ch.gain : 0.85
     let acc = deckColor
     let chId = ch.id
-    let onSet = (p) => {
-      if (rt && rt.emit) {
-        rt.emit("track/" + chId + "/mix/gain", p)
-      }
-    }
 
+    // The stem waveform: narrower + visually punchier (see .instr-head-mixer .dk-stem-wave). The per-track
+    // gain knob that used to sit beside it is gone — deck/channel volume lives on the deck strip + mixer.
     let waveformEl = (
       <div class="dk-fader-wave">
-        <canvas class={"dk-stem-wave dk-wave-" + chId} width="60" height="20" />
-      </div>
-    )
-
-    let volumeEl = (
-      <div style={{ display: "flex", alignItems: "center", gap: "6px" }} title={"Volume: " + (gainToDb(g) < -60 ? "-inf" : String(Math.round(gainToDb(g))) + "dB") + " (drag to adjust)"}>
-        {Knob({
-          label: "",
-          value: g,
-          min: 0,
-          max: 1.0,
-          step: 0.01,
-          accent: acc,
-          fmt: (x) => "",
-          onInput: (x) => {
-            onSet(x)
-          }
-        })}
-        <div class={"dk-lever-meter dk-lvl-" + chId} style={{ height: "24px", width: "4px" }}>
-          <div class="dk-lever-meter-fill" style={{ background: acc }} />
-        </div>
+        <canvas class={"dk-stem-wave dk-wave-" + chId} width="40" height="20" />
       </div>
     )
 
@@ -696,41 +695,42 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
                 title="Hover or double click to edit track name"
               />
               <div class="sg-gutter-ctl" style={{ display: "flex", gap: "3px", marginRight: "4px" }}>
-                <button
-                  type="button"
-                  class={"sg-deck-chip" + ((rt !== null && rt !== undefined && rt.coDjWs && rt.coDjWs.readyState === 1) ? " sg-deck-chip-locked" : "")}
-                  style={{
-                    borderColor: deckColor,
-                    color: deckColor,
-                    boxShadow: "0 0 6px " + deckColor + "33",
-                    width: "17px",
-                    height: "17px",
-                    fontSize: "0.58rem",
-                    padding: "0",
-                    lineHeight: "15px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center"
-                  }}
-                  title={(rt !== null && rt !== undefined && rt.coDjWs && rt.coDjWs.readyState === 1) ? "Decks are locked in a co-DJ session — fixed per player (A=P1, B=P2, C=P3, D=P4)" : "Click to cycle this channel through the 4 decks (A → B → C → D)."}
-                  onclick={(e) => {
-                    e.stopPropagation()
-                    // In a co-DJ session the deck↔player mapping is fixed — block re-routing instruments between decks.
-                    if (rt !== null && rt !== undefined && rt.coDjWs && rt.coDjWs.readyState === 1) {
-                      return
-                    }
-                    let cur = channelDeck(project, ch)
-                    let curIdx = cur === "B" ? 1 : cur === "C" ? 2 : cur === "D" ? 3 : 0
-                    ch.deckSlot = (curIdx + 1) % 4
+                {(rt !== null && rt !== undefined && rt.coDjWs && rt.coDjWs.readyState === 1) ? (
+                  <button
+                    type="button"
+                    class="sg-deck-chip sg-deck-chip-locked"
+                    style={{
+                      borderColor: deckColor,
+                      color: deckColor,
+                      boxShadow: "0 0 6px " + deckColor + "33",
+                      width: "17px",
+                      height: "17px",
+                      fontSize: "0.58rem",
+                      padding: "0",
+                      lineHeight: "15px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center"
+                    }}
+                    title="Decks are locked in a co-DJ session — fixed per player (A=P1, B=P2, C=P3, D=P4)"
+                  >
+                    {channelDeck(project, ch)}
+                  </button>
+                ) : IkSelect({
+                  // A select LIST (A/B/C/D) so you can jump straight to any deck instead of cycling through them.
+                  class: "sg-deck-select",
+                  value: channelDeck(project, ch),
+                  options: [{ value: "A", label: "A" }, { value: "B", label: "B" }, { value: "C", label: "C" }, { value: "D", label: "D" }],
+                  style: { borderColor: deckColor, color: deckColor, boxShadow: "0 0 6px " + deckColor + "33" },
+                  onChange: (v) => {
+                    ch.deckSlot = v === "B" ? 1 : v === "C" ? 2 : v === "D" ? 3 : 0
                     ch.actorLane = ch.deckSlot === 0 ? "" : "client"
                     setProjectFromUI(project)
                     if (rt && rt.touchMixer) {
                       rt.touchMixer()
                     }
-                  }}
-                >
-                  {channelDeck(project, ch)}
-                </button>
+                  }
+                })}
                 <button
                   type="button"
                   class={ch.mute ? "sg-tog sg-tog-on" : "sg-tog"}
@@ -808,7 +808,6 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
           <div class="instr-head-mixer" style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
             {instrumentPresetBar(project, ch, setProjectFromUI, tplMirrorFlush)}
             {waveformEl}
-            {volumeEl}
           </div>
         )}
         <div class="instr-modules-row">
@@ -848,6 +847,17 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
     }
   }
   if (activeDeck !== null && activeDeck !== undefined && activeDeck !== "") {
+    // Fill out the last row of the 3-wide grid with EMPTY slots (slightly different background) — a reserved
+    // zone for a future "fun" element. Only when there's at least one instrument and the row isn't already full.
+    if (cards.length > 0) {
+      let rem = cards.length % 3
+      let fill = rem === 0 ? 0 : 3 - rem
+      let f = 0
+      while (f < fill) {
+        cards.push(<div class="instr-empty-slot" key={"empty-slot-" + String(f)} />)
+        f = f + 1
+      }
+    }
     return <div class="instr-stack-host"><div class="instr-grid-container">{cards}</div>{modalEl}</div>
   }
   return <div class="instr-stack-host">{cards}{modalEl}</div>

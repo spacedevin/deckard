@@ -290,15 +290,6 @@ export fn DeckJog(deck, rt) {
         <div class={"dk-jog-marker dk-marker-" + deck} style={{ transform: "translateX(-50%) rotate(" + String(currentRot) + "rad)" }} />
         <div class="dk-jog-hub" />
       </div>
-      <button
-        type="button"
-        class={"dk-jog-reload " + acc}
-        title={"Re-grab deck " + deck + "'s current loop (do this after you change its pattern)"}
-        onmousedown={(e) => e.stopPropagation()}
-        onclick={() => { if (rt && rt.scratchLoadDeckLoop) { rt.scratchLoadDeckLoop(deck) } }}
-      >
-        {"⟳"}
-      </button>
     </div>
   )
 }

@@ -19,6 +19,7 @@ import { defaultAutoParam, autoLaneValues, autoNorm, autoDenorm } from '../../mo
 import { ensureCoDjMeta, setMasterLock } from '../../codj/CoDjMeta.tish'
 import { pianoRowsForChannel } from './PianoGrid.tish'
 import { PanelHeader } from '../PresetBar.tish'
+import { promptName } from '../PromptModal.tish'
 
 fn stepHasNote(ch, i) {
   let pn = ch.pianoNotes
@@ -1087,15 +1088,16 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
             title="Double-click to rename channel"
             ondblclick={(e) => {
               e.stopPropagation()
-              let newName = prompt("Rename channel", ch.name)
-              if (newName && newName.trim().length > 0) {
-                if (rt && rt.emit) {
-                  rt.emit("track/" + ch.id + "/name", newName.trim())
-                } else {
-                  ch.name = newName.trim()
-                  setProjectFromUI(project)
+              promptName("Rename channel", ch.name, (newName) => {
+                if (newName.trim().length > 0) {
+                  if (rt && rt.emit) {
+                    rt.emit("track/" + ch.id + "/name", newName.trim())
+                  } else {
+                    ch.name = newName.trim()
+                    setProjectFromUI(project)
+                  }
                 }
-              }
+              }, { okLabel: "Rename" })
             }}
           >
             {ch.name}
@@ -1171,6 +1173,11 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
             onChange: (v) => {
               if (v && v.length > 0 && rt && rt.onLoadTrack) {
                 rt.onLoadTrack(ch.id, v)
+              }
+            },
+            onDelete: (v) => {
+              if (v && v.length > 0 && rt && rt.onDeleteTrack) {
+                rt.onDeleteTrack(ch.id, v)
               }
             }
           })}
@@ -1571,10 +1578,7 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
           >
             {"+ TRACK"}
           </button>
-        </Fragment>,
-        headerRight
-      )}
-      <div class="sg-barpager" title="Shift + scroll to page through bars" onwheel={(e) => handleBarWheel(e, rt, gridBars)}>
+          <div class="sg-barpager" title="Shift + scroll to page through bars" onwheel={(e) => handleBarWheel(e, rt, gridBars)}>
         <span class="sg-barpager-label">{"BARS"}</span>
         <button
           type="button"
@@ -1672,7 +1676,10 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
             }
           }
         })}
-      </div>
+          </div>
+        </Fragment>,
+        headerRight
+      )}
       <div class="sg-grid-anchor">
         <div class="sg-ruler">
           <div class="sg-ruler-pad" />

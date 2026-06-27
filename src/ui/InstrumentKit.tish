@@ -552,14 +552,7 @@ export fn Knob(opts) {
           <circle class="ik-knob-dot" cx={String(dot[0])} cy={String(dot[1])} r="2.6" style={{ fill: accent }} />
         )}
         {opts.valueInside && valText !== "" ? (
-          <text
-            x="24"
-            y="23.5"
-            class="ik-knob-value-inside"
-            style={{ fill: accent, pointerEvents: "none" }}
-          >
-            {valText}
-          </text>
+          <text x="24" y="23.5" class="ik-knob-value-inside" style={{ fill: accent, pointerEvents: "none" }}>{valText}</text>
         ) : null}
       </svg>
       {label !== "" ? <div class="ik-knob-label">{label}</div> : null}
@@ -867,9 +860,32 @@ export fn IkSelect(opts) {
           ev.preventDefault()
         }
       } else {
-        row.className = "ik-sel-opt"
-        row.textContent = item.label
         let itemVal = item.value
+        // When the caller supplies onDelete, each row carries a ✕ to remove that preset. The ✕ swallows the
+        // mousedown so it deletes instead of selecting; after delete we close the list (the re-render reopens fresh).
+        if (opts.onDelete && item.deletable !== false) {
+          row.className = "ik-sel-opt ik-sel-opt-del-row"
+          let txt = document.createElement("span")
+          txt.className = "ik-sel-opt-text"
+          txt.textContent = item.label
+          row.appendChild(txt)
+          let del = document.createElement("button")
+          del.type = "button"
+          del.className = "ik-sel-opt-del"
+          del.textContent = "✕"
+          del.title = "Delete \"" + String(item.label) + "\""
+          del.onmousedown = (ev) => {
+            ev.stopPropagation()
+            ev.preventDefault()
+            list.remove()
+            cleanup()
+            opts.onDelete(itemVal)
+          }
+          row.appendChild(del)
+        } else {
+          row.className = "ik-sel-opt"
+          row.textContent = item.label
+        }
         row.onmousedown = (ev) => {
           ev.stopPropagation()
           ev.preventDefault()

@@ -1630,14 +1630,14 @@ check("knob wheel: horizontal swipe is not preventDefault'd (page can scroll)", 
 let pkArpDefs = [["Off", "off"], ["Up", "up"], ["Down", "down"], ["Up-Down", "updown"], ["Random", "random"]]
 let pkEmit = []
 let pkSel = selectorKnob("Arp", { id: "t1", arp: "updown" }, "arp", pkArpDefs, { emit: (a, v) => pkEmit.push([a, v]) }, "#fff")
-check("selectorKnob: value-readout shows the current option label", pkClassText(pkSel, "ik-knob-value") === "Up-Down")
+check("selectorKnob: value-readout shows the current option label", pkClassText(pkSel, "ik-knob-value-inside") === "Up-Down")
 check("selectorKnob: one detent per option (5)", pkDetents(pkSel).length === 5)
 pkFindTag(pkSel, "svg").props.onwheel({ deltaY: 8, preventDefault: () => {} })
 check("selectorKnob: wheel-down emits the prev option value via voice/arp", pkEmit.length === 1 && pkEmit[0][0] === "track/t1/voice/arp" && pkEmit[0][1] === "down")
 
 let pkOct = []
 let pkOk = octaveKnob({ id: "t2", octave: -1 }, { emit: (a, v) => pkOct.push([a, v]) }, "#fff")
-check("octaveKnob: readout shows the signed octave", pkClassText(pkOk, "ik-knob-value") === "-1")
+check("octaveKnob: readout shows the signed octave", pkClassText(pkOk, "ik-knob-value-inside") === "-1")
 pkFindTag(pkOk, "svg").props.onwheel({ deltaY: -1, preventDefault: () => {} })
 check("octaveKnob: wheel-up emits the numeric octave via voice/octave", pkOct.length === 1 && pkOct[0][0] === "track/t2/voice/octave" && pkOct[0][1] === 0)
 

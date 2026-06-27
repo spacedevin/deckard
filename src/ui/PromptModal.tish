@@ -1,0 +1,169 @@
+// Non-blocking, in-DOM replacements for window.prompt / window.alert. The native dialogs FREEZE the event
+// loop (dropping UI/MIDI/transport events while open); these build a small overlay imperatively (same pattern
+// as the IkSelect popover) and call back asynchronously. Safe to import off-browser — the DOM is only touched
+// when a function is actually invoked (always from a click handler), guarded by globalThis.document anyway.
+
+// promptName(title, defaultValue, onConfirm, opts?)
+//   onConfirm(value) fires only on OK/Enter with a non-empty value. opts: { multiline, okLabel, placeholder }.
+export fn promptName(title, defaultValue, onConfirm, opts) {
+  let doc = globalThis.document
+  if (doc === null || doc === undefined) {
+    return
+  }
+  let o = opts !== null && opts !== undefined ? opts : {}
+  let multiline = o.multiline === true
+  let okLabel = o.okLabel !== null && o.okLabel !== undefined ? o.okLabel : "Save"
+
+  let existing = doc.getElementById("ui-prompt-modal")
+  if (existing) {
+    existing.remove()
+  }
+
+  let backdrop = doc.createElement("div")
+  backdrop.id = "ui-prompt-modal"
+  backdrop.className = "ui-modal-backdrop"
+
+  let box = doc.createElement("div")
+  box.className = "ui-modal"
+
+  let titleEl = doc.createElement("div")
+  titleEl.className = "ui-modal-title"
+  titleEl.textContent = title
+  box.appendChild(titleEl)
+
+  let input = multiline ? doc.createElement("textarea") : doc.createElement("input")
+  input.className = multiline ? "ui-modal-input ui-modal-textarea" : "ui-modal-input"
+  if (!multiline) {
+    input.type = "text"
+  }
+  if (o.placeholder !== null && o.placeholder !== undefined) {
+    input.placeholder = String(o.placeholder)
+  }
+  input.value = defaultValue !== null && defaultValue !== undefined ? String(defaultValue) : ""
+  box.appendChild(input)
+
+  let btnRow = doc.createElement("div")
+  btnRow.className = "ui-modal-btns"
+
+  let cancelBtn = doc.createElement("button")
+  cancelBtn.type = "button"
+  cancelBtn.className = "ui-modal-btn ui-modal-cancel"
+  cancelBtn.textContent = "Cancel"
+
+  let okBtn = doc.createElement("button")
+  okBtn.type = "button"
+  okBtn.className = "ui-modal-btn ui-modal-ok"
+  okBtn.textContent = okLabel
+
+  fn close() {
+    backdrop.remove()
+    doc.removeEventListener("keydown", onKey, true)
+  }
+  fn confirm() {
+    let v = input.value
+    close()
+    if (v !== null && v !== undefined && String(v).length > 0 && onConfirm !== null && onConfirm !== undefined) {
+      onConfirm(String(v))
+    }
+  }
+  fn onKey(ev) {
+    if (ev.key === "Escape") {
+      ev.preventDefault()
+      ev.stopPropagation()
+      close()
+    } else if (ev.key === "Enter") {
+      // Single-line: Enter confirms. Multiline: only Cmd/Ctrl+Enter confirms (plain Enter = newline).
+      if (!multiline || ev.metaKey || ev.ctrlKey) {
+        ev.preventDefault()
+        ev.stopPropagation()
+        confirm()
+      }
+    }
+  }
+
+  cancelBtn.onclick = () => close()
+  okBtn.onclick = () => confirm()
+  backdrop.onmousedown = (ev) => {
+    if (ev.target === backdrop) {
+      close()
+    }
+  }
+
+  btnRow.appendChild(cancelBtn)
+  btnRow.appendChild(okBtn)
+  box.appendChild(btnRow)
+  backdrop.appendChild(box)
+  doc.body.appendChild(backdrop)
+  doc.addEventListener("keydown", onKey, true)
+
+  if (globalThis.setTimeout) {
+    globalThis.setTimeout(() => {
+      input.focus()
+      if (input.select) {
+        input.select()
+      }
+    }, 0)
+  }
+}
+
+// alertModal(message, title?) — a dismissible info box (replaces window.alert).
+export fn alertModal(message, title) {
+  let doc = globalThis.document
+  if (doc === null || doc === undefined) {
+    return
+  }
+  let existing = doc.getElementById("ui-prompt-modal")
+  if (existing) {
+    existing.remove()
+  }
+
+  let backdrop = doc.createElement("div")
+  backdrop.id = "ui-prompt-modal"
+  backdrop.className = "ui-modal-backdrop"
+
+  let box = doc.createElement("div")
+  box.className = "ui-modal"
+
+  if (title !== null && title !== undefined && String(title).length > 0) {
+    let titleEl = doc.createElement("div")
+    titleEl.className = "ui-modal-title"
+    titleEl.textContent = title
+    box.appendChild(titleEl)
+  }
+
+  let msgEl = doc.createElement("div")
+  msgEl.className = "ui-modal-msg"
+  msgEl.textContent = message !== null && message !== undefined ? String(message) : ""
+  box.appendChild(msgEl)
+
+  let btnRow = doc.createElement("div")
+  btnRow.className = "ui-modal-btns"
+  let okBtn = doc.createElement("button")
+  okBtn.type = "button"
+  okBtn.className = "ui-modal-btn ui-modal-ok"
+  okBtn.textContent = "OK"
+
+  fn close() {
+    backdrop.remove()
+    doc.removeEventListener("keydown", onKey, true)
+  }
+  fn onKey(ev) {
+    if (ev.key === "Escape" || ev.key === "Enter") {
+      ev.preventDefault()
+      ev.stopPropagation()
+      close()
+    }
+  }
+  okBtn.onclick = () => close()
+  backdrop.onmousedown = (ev) => {
+    if (ev.target === backdrop) {
+      close()
+    }
+  }
+
+  btnRow.appendChild(okBtn)
+  box.appendChild(btnRow)
+  backdrop.appendChild(box)
+  doc.body.appendChild(backdrop)
+  doc.addEventListener("keydown", onKey, true)
+}

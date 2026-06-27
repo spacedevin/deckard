@@ -3,13 +3,15 @@ import { projectToJson, projectFromJson } from '../model/Project.tish'
 import { channelDeck, crossfadeValue, crossfadeValueY } from '../model/DeckRouting.tish'
 import { freshSetEnergy, freshActiveDecks, foldSetEnergyStep } from '../model/SetEnergy.tish'
 import { loadDefaultDeckardProject, loadProjectFromTpl } from '../model/ProjectLoad.tish'
+import { loadUserInstrumentPresets } from '../model/InstrumentPresets.tish'
 import { createStationPresets } from '../core/StationPresets.tish'
 import { cancelTtsVocal } from '../generators/TtsVocal.tish'
 import { emitLevel, retargetTpl } from '../core/Levels.tish'
 import { createSetLibrary, emitSet, loadSet, freeDecks, emitSetStream, parseSetStream, isStreamSet } from '../core/SetLibrary.tish'
 import { loadDeckSet, deckSetCatalog } from '../model/DeckSets.tish'
-import { levelPresetList, addLevelPreset, findLevelPreset } from '../model/LevelPresets.tish'
+import { levelPresetList, addLevelPreset, findLevelPreset, removeLevelPreset } from '../model/LevelPresets.tish'
 import { PresetBar } from './PresetBar.tish'
+import { promptName, alertModal } from './PromptModal.tish'
 import { IkSelect } from './InstrumentKit.tish'
 import { emitProject, emitLivePlayback } from '../tpl/Emit.tish'
 import { CodeDebugView } from './CodeDebugView.tish'
@@ -134,6 +136,8 @@ fn deckMixerEq(a, b) {
 let DeckMixerMemo = memo((p) => DeckMixer(p.project, p.setProjectFromUI, p.touchMixer, p.rt), deckMixerEq)
 
 let initialDeckardBoot = loadDefaultDeckardProject()
+// Restore the user's saved instrument presets from localStorage (the factory ones come from the boot project).
+loadUserInstrumentPresets(initialDeckardBoot.project)
 if (initialDeckardBoot.errors.length > 0 && typeof console !== "undefined" && console.warn) {
   let ei = 0
   while (ei < initialDeckardBoot.errors.length) {
@@ -1861,12 +1865,11 @@ export fn App() {
     if (!rt.tplTape || rt.tplTape.length === 0) {
       return
     }
-    let nm = prompt("Save this take as a Set (" + String(rt.tplTape.length) + " played steps)", "My Take")
-    if (nm && nm.length > 0) {
+    promptName("Save this take as a Set (" + String(rt.tplTape.length) + " played steps)", "My Take", (nm) => {
       let header = rt.tplStartState !== null && rt.tplStartState !== undefined ? rt.tplStartState : emitProject(project)
       setLibrary.save(nm, emitSetStream(header, rt.tplTape, rt.tplRecMode), 0)
       setSetLibGen((g) => g + 1)
-    }
+    })
   }
   // Replay a take: install its trigger map and run the transport from 0 — transportTick fires the recorded
   // triggers at each step (the ghost re-plays the exact performance), instead of recomputing from patterns.
@@ -2388,6 +2391,9 @@ export fn App() {
   // ---- Set presets: load REPLACES the whole workspace (a set has no merge target). ----
   fn loadFullProject(p) {
     migrateProjectGenerators(p)
+    // A loaded set/station replaces the workspace; re-merge the user's saved instrument presets (de-duped) so
+    // they stay available regardless of which station carried them.
+    loadUserInstrumentPresets(p)
     setProject(p)
     let r = rtRef.current
     r.rackPrSigCache = []
@@ -2407,20 +2413,18 @@ export fn App() {
   }
   // ---- Contextual level presets (sequence / rack / session): save the current level, load in-context.
   fn savePreset(level) {
-    let nm = prompt("Save " + level + " preset as", level)
-    if (!nm || nm.length === 0) {
-      return
-    }
-    let scope = level === "sequence" && project.channels[selectedCh] ? project.channels[selectedCh].id : null
-    addLevelPreset(project, level, nm, emitLevel(project, level, scope))
-    setProjectFromUI(project)
-    // The preset list now lives in localStorage (read fresh each render), but the memoized SEQ/Session headers
-    // won't re-render on this save unless we bump their gen — without this the just-saved preset never shows
-    // in the load dropdown ("doesn't load").
-    if (rt && rt.bumpGrid) {
-      rt.bumpGrid()
-    }
-    bumpSessionUi()
+    promptName("Save " + level + " preset as", level, (nm) => {
+      let scope = level === "sequence" && project.channels[selectedCh] ? project.channels[selectedCh].id : null
+      addLevelPreset(project, level, nm, emitLevel(project, level, scope))
+      setProjectFromUI(project)
+      // The preset list now lives in localStorage (read fresh each render), but the memoized SEQ/Session headers
+      // won't re-render on this save unless we bump their gen — without this the just-saved preset never shows
+      // in the load dropdown ("doesn't load").
+      if (rt && rt.bumpGrid) {
+        rt.bumpGrid()
+      }
+      bumpSessionUi()
+    })
   }
   fn loadPreset(level, nm) {
     let pr = findLevelPreset(project, level, nm)
@@ -2434,21 +2438,35 @@ export fn App() {
     }
     rt.applyTpl(tpl)
   }
+  // Delete a saved level preset (rack / session / channel). Mirrors savePreset's re-render so the load dropdown
+  // refreshes immediately.
+  fn deletePreset(level, nm) {
+    if (!nm || nm.length === 0) {
+      return
+    }
+    removeLevelPreset(project, level, nm)
+    setProjectFromUI(project)
+    if (rt && rt.bumpGrid) {
+      rt.bumpGrid()
+    }
+    bumpSessionUi()
+  }
+  rt.onDeleteTrack = (chId, nm) => {
+    deletePreset("channel", nm)
+  }
   // Per-TRACK presets — the whole channel (instrument + pattern), saved/loaded from each sequencer ROW's own
   // icons (level "channel"). Distinct from the top "Sequence" (pattern only, selected channel) / "Rack" bars.
   rt.onSaveTrack = (chId) => {
     if (!chId) {
       return
     }
-    let nm = prompt("Save track as", String(chId))
-    if (!nm || nm.length === 0) {
-      return
-    }
-    addLevelPreset(project, "channel", nm, emitLevel(project, "channel", chId))
-    setProjectFromUI(project)
-    if (rt && rt.bumpGrid) {
-      rt.bumpGrid()
-    }
+    promptName("Save track as", String(chId), (nm) => {
+      addLevelPreset(project, "channel", nm, emitLevel(project, "channel", chId))
+      setProjectFromUI(project)
+      if (rt && rt.bumpGrid) {
+        rt.bumpGrid()
+      }
+    })
   }
   rt.onLoadTrack = (chId, nm) => {
     let pr = findLevelPreset(project, "channel", nm)
@@ -2478,11 +2496,10 @@ export fn App() {
     loadFullProject(res.project)
   }
   fn onSaveSet() {
-    let nm = prompt("Save current workspace as station", "My Station")
-    if (nm && nm.length > 0) {
+    promptName("Save current workspace as station", "My Station", (nm) => {
       setPresets.save(nm, emitProject(project))
       setSetListGen((g) => g + 1)
-    }
+    })
   }
   fn onDeleteSet(nm) {
     if (setPresets.remove(nm)) {
@@ -2531,6 +2548,11 @@ export fn App() {
     }
     loadFullProject(project)
   }
+  fn onDeleteSetLib(nm) {
+    if (setLibrary.remove(nm)) {
+      setSetLibGen((g) => g + 1)
+    }
+  }
   fn onSaveSetLib() {
     // Players = the decks that currently hold channels (A→D order).
     let occupied = []
@@ -2546,16 +2568,13 @@ export fn App() {
     if (occupied.length === 0) {
       // A Set captures DECK PLAYERS (the ghost-racing bundle), not the rack. With no decks loaded there's
       // nothing to capture — say so instead of silently doing nothing (this read as "Save Set is broken").
-      if (typeof window !== "undefined" && window.alert) {
-        window.alert("Save Set captures the loaded DECKS (their racks, clips + arrangement). No decks are loaded right now — load an instrument onto a deck first, or use \"Save Station\" to save the whole workspace (instruments, sequences and all).")
-      }
+      alertModal("Save Set captures the loaded DECKS (their racks, clips + arrangement). No decks are loaded right now — load an instrument onto a deck first, or use \"Save Station\" to save the whole workspace (instruments, sequences and all).", "Nothing to save")
       return
     }
-    let nm = prompt("Save loaded decks as a Set (" + String(occupied.length) + " player" + (occupied.length === 1 ? "" : "s") + ")", "My Set")
-    if (nm && nm.length > 0) {
+    promptName("Save loaded decks as a Set (" + String(occupied.length) + " player" + (occupied.length === 1 ? "" : "s") + ")", "My Set", (nm) => {
       setLibrary.save(nm, emitSet(project, occupied), occupied.length)
       setSetLibGen((g) => g + 1)
-    }
+    })
   }
   fn onImportSetLibFile(e) {
     let f = e.target.files && e.target.files.length > 0 ? e.target.files[0] : null
@@ -2574,11 +2593,14 @@ export fn App() {
   }
 
   fn onImport() {
-    let s = prompt("Paste full project JSON", "")
-    if (s && s.length > 2) {
+    promptName("Paste full project JSON", "", (s) => {
+      if (!s || s.length <= 2) {
+        return
+      }
       try {
         let p = projectFromJson(s)
         migrateProjectGenerators(p)
+        loadUserInstrumentPresets(p)
         setProject(p)
         let r = rtRef.current
         r.prSkipRedrawSig = null
@@ -2595,9 +2617,9 @@ export fn App() {
           setTplText(e2)
         }, 0)
       } catch (e) {
-        alert("Invalid JSON")
+        alertModal("That doesn't look like valid project JSON.", "Invalid JSON")
       }
-    }
+    }, { multiline: true, okLabel: "Import" })
   }
 
   // Channel mixer edits — emit one `mix` statement through the write door (audio + render follow on
@@ -2669,9 +2691,9 @@ export fn App() {
   // Per-track (per-channel) load/save now lives on each sequencer ROW (onSaveTrack/onLoadTrack); the old top
   // "Sequence" bar was the duplicate — removed. "Rack" (the whole rack of channels) stays, it's not per-track.
   let seqHeaderRight = [
-    PresetBar("Rack", levelPresetList(project, "rack"), (n) => loadPreset("rack", n), () => savePreset("rack"), "")
+    PresetBar("Rack", levelPresetList(project, "rack"), (n) => loadPreset("rack", n), () => savePreset("rack"), "", (n) => deletePreset("rack", n))
   ]
-  let sessionHeaderRight = PresetBar("Session", levelPresetList(project, "session"), (n) => loadPreset("session", n), () => savePreset("session"), "")
+  let sessionHeaderRight = PresetBar("Session", levelPresetList(project, "session"), (n) => loadPreset("session", n), () => savePreset("session"), "", (n) => deletePreset("session", n))
   // Recordings = the stream Sets (a recorded TPL tape) — listed in the Playlist panel for replay.
   let recordingItems = []
   let allLibSets = setLibrary.list()
@@ -2689,6 +2711,7 @@ export fn App() {
     onNewTake: onNewTake,
     onSaveRecording: onSaveRecording,
     onLoadReplay: onLoadReplay,
+    onDeleteReplay: onDeleteSetLib,
     onStop: onStop,
     channelsRev: channelsRev,
     rebuildTplEnergy: rebuildTplEnergy
@@ -2707,12 +2730,13 @@ export fn App() {
   )
 
   // Set-preset picker options (built-in Default first, then saved user sets). setListGen forces refresh.
+  // IkSelect wants { value, label } objects (NOT <option> vnodes); `deletable: false` hides the ✕ on factory items.
   let setItems = setPresets.list()
-  let setOpts = [<option value="">{"— load station —"}</option>]
+  let setOpts = []
   let spi = 0
   while (spi < setItems.length) {
     let it = setItems[spi]
-    setOpts.push(<option value={it.name}>{it.name + (it.factory ? " (default)" : "")}</option>)
+    setOpts.push({ value: it.name, label: it.name + (it.factory ? " (default)" : ""), deletable: !it.factory })
     spi = spi + 1
   }
   let setListGenKey = setListGen
@@ -2720,14 +2744,14 @@ export fn App() {
   // Set library picker (TIME-aware, per-player bundles). Loading fills the FREE deck slots with the Set's
   // players + restores its arrangement. Disabled when no slot is free (all 4 decks occupied = listen-only).
   let setLibItems = setLibrary.list()
-  let setLibOpts = [<option value="">{"— load set —"}</option>]
+  let setLibOpts = []
   let sli = 0
   while (sli < setLibItems.length) {
     let li = setLibItems[sli]
     // Recorded stream Sets live in the Playlist panel (replay), not the deck-load dropdown.
     if (!isStreamSet(li.tpl)) {
       let tag = li.factory ? " (rack)" : " · " + String(li.players) + "p"
-      setLibOpts.push(<option value={li.name}>{li.name + tag}</option>)
+      setLibOpts.push({ value: li.name, label: li.name + tag, deletable: !li.factory })
     }
     sli = sli + 1
   }
@@ -2745,6 +2769,34 @@ export fn App() {
       revSends = revSends + 1
     }
     rci = rci + 1
+  }
+
+  // One deck nav block: the title row spans the full width on top; the jog (+ vinyl), EQ knobs and volume
+  // fader sit in a single centered, tightly-gapped row below it. (Replaces the old platter-card | strip split
+  // where the jog was centered in a wide flex column far from the EQ.)
+  fn renderDeckNav(letter) {
+    let lc = String(letter).toLowerCase()
+    let hasContent = deckEntries(project, letter).length > 0
+    return (
+      <div class={"deck-nav-btn deck-" + lc + (activeDeck === letter ? " deck-active" : "")} onmousedown={(e) => deckBgClick(e, letter, setActiveDeck)} key={"decknav-" + letter}>
+        <div class="deck-nav-title-row">
+          <span class="deck-nav-dot"></span>
+          <span class="deck-nav-text">{"DECK " + letter}</span>
+          {renderDeckPips(project, letter)}
+        </div>
+        <div class="deck-nav-controls-row">
+          {hasContent ? (
+            <div class="deck-nav-controls">
+              {DeckJog(letter, rt)}
+              {VinylRow(letter, rt)}
+            </div>
+          ) : (
+            <div class="deck-nav-empty">{"(empty)"}</div>
+          )}
+          {DeckChannelStrip(project, letter, setProjectFromUI, touchMixer, rt)}
+        </div>
+      </div>
+    )
   }
 
   return <div class="daw-root">
@@ -2778,10 +2830,16 @@ export fn App() {
         {IkSelect({
           class: "set-select",
           value: "",
+          placeholder: "— load station —",
           options: setOpts,
           onChange: (v) => {
             if (v && v.length > 0) {
               onLoadSet(v)
+            }
+          },
+          onDelete: (v) => {
+            if (v && v.length > 0) {
+              onDeleteSet(v)
             }
           }
         })}
@@ -2795,11 +2853,17 @@ export fn App() {
         {IkSelect({
           class: "set-select",
           value: "",
+          placeholder: "— load set —",
           title: freeSlotCount === 0 ? "All 4 decks occupied — free a deck to load a Set (or drop one onto a deck from its picker)." : "Load a Set into the " + String(freeSlotCount) + " free deck slot" + (freeSlotCount === 1 ? "" : "s"),
           options: setLibOpts,
           onChange: (v) => {
             if (v && v.length > 0) {
               onLoadSetLib(v)
+            }
+          },
+          onDelete: (v) => {
+            if (v && v.length > 0) {
+              onDeleteSetLib(v)
             }
           }
         })}
@@ -2830,86 +2894,10 @@ export fn App() {
     </header>
     <div class="daw-app-layout">
       <aside class="daw-sidebar-left">
-        <div class={"deck-nav-btn deck-a" + (activeDeck === "A" ? " deck-active" : "")} onmousedown={(e) => deckBgClick(e, "A", setActiveDeck)}>
-          <div class="deck-nav-content-row">
-            <div class="deck-nav-platter-card">
-              <div class="deck-nav-title-row">
-                <span class="deck-nav-dot"></span>
-                <span class="deck-nav-text">{"DECK A"}</span>
-                {renderDeckPips(project, "A")}
-              </div>
-              {deckEntries(project, "A").length > 0 ? (
-                <div class="deck-nav-controls">
-                  {DeckJog("A", rt)}
-                  {VinylRow("A", rt)}
-                </div>
-              ) : (
-                <div class="deck-nav-empty">{"(empty)"}</div>
-              )}
-            </div>
-            {DeckChannelStrip(project, "A", setProjectFromUI, touchMixer, rt)}
-          </div>
-        </div>
-        <div class={"deck-nav-btn deck-b" + (activeDeck === "B" ? " deck-active" : "")} onmousedown={(e) => deckBgClick(e, "B", setActiveDeck)}>
-          <div class="deck-nav-content-row">
-            <div class="deck-nav-platter-card">
-              <div class="deck-nav-title-row">
-                <span class="deck-nav-dot"></span>
-                <span class="deck-nav-text">{"DECK B"}</span>
-                {renderDeckPips(project, "B")}
-              </div>
-              {deckEntries(project, "B").length > 0 ? (
-                <div class="deck-nav-controls">
-                  {DeckJog("B", rt)}
-                  {VinylRow("B", rt)}
-                </div>
-              ) : (
-                <div class="deck-nav-empty">{"(empty)"}</div>
-              )}
-            </div>
-            {DeckChannelStrip(project, "B", setProjectFromUI, touchMixer, rt)}
-          </div>
-        </div>
-        <div class={"deck-nav-btn deck-c" + (activeDeck === "C" ? " deck-active" : "")} onmousedown={(e) => deckBgClick(e, "C", setActiveDeck)}>
-          <div class="deck-nav-content-row">
-            <div class="deck-nav-platter-card">
-              <div class="deck-nav-title-row">
-                <span class="deck-nav-dot"></span>
-                <span class="deck-nav-text">{"DECK C"}</span>
-                {renderDeckPips(project, "C")}
-              </div>
-              {deckEntries(project, "C").length > 0 ? (
-                <div class="deck-nav-controls">
-                  {DeckJog("C", rt)}
-                  {VinylRow("C", rt)}
-                </div>
-              ) : (
-                <div class="deck-nav-empty">{"(empty)"}</div>
-              )}
-            </div>
-            {DeckChannelStrip(project, "C", setProjectFromUI, touchMixer, rt)}
-          </div>
-        </div>
-        <div class={"deck-nav-btn deck-d" + (activeDeck === "D" ? " deck-active" : "")} onmousedown={(e) => deckBgClick(e, "D", setActiveDeck)}>
-          <div class="deck-nav-content-row">
-            <div class="deck-nav-platter-card">
-              <div class="deck-nav-title-row">
-                <span class="deck-nav-dot"></span>
-                <span class="deck-nav-text">{"DECK D"}</span>
-                {renderDeckPips(project, "D")}
-              </div>
-              {deckEntries(project, "D").length > 0 ? (
-                <div class="deck-nav-controls">
-                  {DeckJog("D", rt)}
-                  {VinylRow("D", rt)}
-                </div>
-              ) : (
-                <div class="deck-nav-empty">{"(empty)"}</div>
-              )}
-            </div>
-            {DeckChannelStrip(project, "D", setProjectFromUI, touchMixer, rt)}
-          </div>
-        </div>
+        {renderDeckNav("A")}
+        {renderDeckNav("B")}
+        {renderDeckNav("C")}
+        {renderDeckNav("D")}
       </aside>
       <div class="daw-main-area">
         <div class="daw-body daw-body-stack">
