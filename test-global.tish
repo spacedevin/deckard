@@ -1,0 +1,3 @@
+console.log(typeof read)
+console.log(typeof readline)
+console.log(typeof prompt)

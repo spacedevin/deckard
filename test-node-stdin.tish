@@ -1,0 +1,8 @@
+fn run() {
+  if (typeof process !== "undefined" && process.stdin) {
+    console.log("has stdin");
+  } else {
+    console.log("no stdin");
+  }
+}
+run()

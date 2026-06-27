@@ -236,15 +236,10 @@ export fn SessionTrackRow(project, ch, tix, activeDeck, rt, sc, playing, bumpSes
     </div>
   )
 
-  // The piano roll, per-step locks, per-note locks, and the automation lane are now full-panel TAKEOVERS in the
-  // sequencer — they no longer push inline rows there, so the sequencer never grows and the session needs NO
-  // matching spacer rows for them (a spacer here would push the clip rows DOWN and misalign them). Only the
-  // always-on vocal lyric lane still expands inline in the sequencer, so it keeps its single spacer.
-  let isStepCh = (!ch.pianoNotes || ch.pianoNotes.length === 0) && singleNotePitch(ch) === null
-  let isVocal = ch.generatorId === "formantVocal" || ch.generatorId === "ttsVocal" || ch.generatorId === "meSpeakVocal"
-  if (isVocal && isStepCh) {
-    outRows.push(<div class="sg-row sg-lk-row" style={{ visibility: "hidden", pointerEvents: "none" }} key={"spacer-lyric-" + String(tix)}><div class="sg-lk-cell" /></div>)
-  }
+  // The piano roll, per-step locks, per-note locks, automation lane AND lyrics are ALL full-panel TAKEOVERS in
+  // the sequencer now — none push inline rows there, so the sequencer never grows and the session needs NO
+  // matching spacer rows (a spacer here would push the clip rows DOWN and misalign them). The vocal-lyric lane
+  // used to expand inline + keep a spacer here; it's now its own LYRICS takeover, so that spacer is gone too.
 
   return outRows
 }

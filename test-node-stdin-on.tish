@@ -1,0 +1,7 @@
+let p = typeof process !== "undefined" ? process : null
+if (p !== null && p.stdin) {
+  p.stdin.on("data", (chunk) => {
+    console.log("got data", typeof chunk)
+    p.exit(0)
+  })
+}

@@ -12,6 +12,12 @@ import { process } from "tish:process"
 import { fetch } from "http"
 import { deckSetCatalog, deckSetTplById } from "../../src/model/DeckSets.tish"
 
+// `undefined` is a JS global the app (JS target) relies on, but native `tish run` does NOT define it, so
+// every `x !== undefined` here would throw "Undefined variable: undefined" the moment a received message hits
+// the (un-try/caught) processing path — the worker "stops right after connecting". Define it = null so the
+// codebase's `x === null || x === undefined` absence checks work natively, same as in the browser build.
+let undefined = null
+
 let actorId = "actor-1"
 let hub = "ws://127.0.0.1:35987"
 let session = "default"

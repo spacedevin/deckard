@@ -1,0 +1,3 @@
+import { process } from "tish:process"
+console.log(process.stdin !== null)
+console.log(typeof process.stdin)

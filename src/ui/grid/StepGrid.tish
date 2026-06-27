@@ -617,8 +617,7 @@ fn lockLanesForChannel(project, ch, chIdx, rt) {
     lockLaneRow(project, ch, chIdx, "vel", rt),
     lockLaneRow(project, ch, chIdx, "prob", rt),
     lockLaneRow(project, ch, chIdx, "ratchet", rt),
-    lockLaneRow(project, ch, chIdx, "nudge", rt),
-    lockLaneRow(project, ch, chIdx, "lyric", rt)
+    lockLaneRow(project, ch, chIdx, "nudge", rt)
   ]
 }
 
@@ -853,9 +852,67 @@ fn pianoLockLanesForChannel(project, ch, chIdx, rt, viewBar) {
     pianoLockLaneRow(project, ch, chIdx, "vel", rt, viewBar),
     pianoLockLaneRow(project, ch, chIdx, "prob", rt, viewBar),
     pianoLockLaneRow(project, ch, chIdx, "ratchet", rt, viewBar),
-    pianoLockLaneRow(project, ch, chIdx, "nudge", rt, viewBar),
-    pianoLockLaneRow(project, ch, chIdx, "lyric", rt, viewBar)
+    pianoLockLaneRow(project, ch, chIdx, "nudge", rt, viewBar)
   ]
+}
+
+// Spacious LYRICS editor — its OWN full-panel takeover (vs the cramped LYR column in the locks overlay). A
+// wide grid of one labeled syllable input per step, so lyrics get real horizontal room. Handles melodic/piano
+// channels (note lyrics via emitNoteLock) and boolean-step channels (step lyrics via emitStepLock).
+fn lyricEditorForChannel(project, ch, chIdx, rt, viewBar) {
+  let isPiano = ch.pianoNotes !== null && ch.pianoNotes !== undefined && ch.pianoNotes.length > 0
+  let cells = []
+  let i = 0
+  while (i < 16) {
+    let absStep = viewBar * 16 + i
+    let active = false
+    let txt = ""
+    if (isPiano) {
+      let idxs = pianoNotesAtStep(ch, absStep)
+      if (idxs.length > 0) {
+        active = true
+        let ly = ch.pianoNotes[idxs[0]].lyric
+        txt = (ly !== null && ly !== undefined) ? ly : ""
+      }
+    } else {
+      let st = ch.steps[i]
+      if (st !== null && st !== undefined && st.on === true) {
+        active = true
+        let ly2 = st.lyric
+        txt = (ly2 !== null && ly2 !== undefined) ? ly2 : ""
+      }
+    }
+    let abs = absStep
+    let col = i
+    let usePiano = isPiano
+    let cls = active ? "sg-lyr-cell" : "sg-lyr-cell sg-lyr-cell-off"
+    if (i % 4 === 0) {
+      cls = cls + " sg-lyr-beat"
+    }
+    cells.push(
+      <div class={cls}>
+        <span class="sg-lyr-step">{String(i + 1)}</span>
+        <input
+          type="text"
+          class="sg-lyr-input"
+          value={txt}
+          disabled={!active}
+          placeholder={active ? "syllable" : "·"}
+          onkeydown={(e) => { e.stopPropagation() }}
+          oninput={(e) => {
+            let val = e.target.value.trim().split(" ")[0]
+            if (usePiano) {
+              emitNoteLock(rt, project, chIdx, abs, "lyric", val)
+            } else {
+              emitStepLock(rt, project, chIdx, col, "lyric", val)
+            }
+          }}
+        />
+      </div>
+    )
+    i = i + 1
+  }
+  return <div class="sg-lyr-grid">{cells}</div>
 }
 
 // Velocity bar + lock markers drawn INSIDE a lit boolean step (so the pattern reads its dynamics at a glance).
@@ -1005,6 +1062,7 @@ fn closeAllGridOverlays(rt) {
   rt.gridPianoLocks = {}
   rt.gridAuto = {}
   rt.gridEuclid = {}
+  rt.gridLyrics = {}
 }
 
 // Toggle one overlay map (gridExpanded / gridLocks / gridPianoLocks / gridAuto) for a channel: close everything,
@@ -1070,6 +1128,9 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
   let autoCapable = defaultAutoParam(ch.generatorId ? ch.generatorId : "basicOsc") !== null && defaultAutoParam(ch.generatorId ? ch.generatorId : "basicOsc") !== undefined
   let autoOpen = rt !== null && rt !== undefined && rt.gridAuto !== null && rt.gridAuto !== undefined && rt.gridAuto[ch.id] === true
   let euclidOpen = rt !== null && rt !== undefined && rt.gridEuclid !== null && rt.gridEuclid !== undefined && rt.gridEuclid[ch.id] === true
+  // Lyrics overlay — offered only for vocal generators (the only ones that voice the syllables).
+  let isVocalCh = ch.generatorId === "formantVocal" || ch.generatorId === "ttsVocal" || ch.generatorId === "meSpeakVocal"
+  let lyricsOpen = rt !== null && rt !== undefined && rt.gridLyrics !== null && rt.gridLyrics !== undefined && rt.gridLyrics[ch.id] === true
   // Per-track presets (whole channel: instrument + pattern) for this row's own load/save icons.
   let trackPresetOpts = []
   let tpList = levelPresetList(project, "channel")
@@ -1152,6 +1213,19 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
               }}
             >
               {"∿"}
+            </button>
+          ) : null}
+          {isVocalCh ? (
+            <button
+              type="button"
+              class={lyricsOpen ? "sg-tog sg-tog-lyr sg-tog-lyr-on" : "sg-tog sg-tog-lyr"}
+              title="Lyrics — a roomy syllable-per-note editor (takes over the sequencer)"
+              onclick={(e) => {
+                e.stopPropagation()
+                toggleGridOverlay(rt, ch.id, "gridLyrics")
+              }}
+            >
+              {"♪"}
             </button>
           ) : null}
           <button
@@ -1322,11 +1396,8 @@ export fn StepGridTrackRows(project, ch, ci, selectedCh, setProjectFromUI, setSe
   // Piano roll, per-step locks, per-note locks, and the automation lane no longer expand inline beneath the row
   // — each TAKES OVER the whole sequencer panel as a single mutually-exclusive overlay (built once in
   // StepGridPanel). So nothing is pushed here for those states; the sequencer never grows taller when one opens.
-  let isStepCh = (!ch.pianoNotes || ch.pianoNotes.length === 0) && (singleNotePitch(ch) === null || singleNotePitch(ch) === undefined)
-  let isVocal = ch.generatorId === "formantVocal" || ch.generatorId === "ttsVocal" || ch.generatorId === "meSpeakVocal"
-  if (isVocal && isStepCh) {
-    rows.push(lockLaneRow(project, ch, ci, "lyric", rt))
-  }
+  // Lyrics now live in their OWN full-panel takeover (the ♪ toggle → LYRICS overlay), where each syllable gets
+  // real horizontal room — no longer a cramped inline lane or a thin column in the locks overlay.
   return rows
 }
 
@@ -1486,6 +1557,27 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
       )
     }
     eti = eti + 1
+  }
+
+  // Single LYRICS takeover overlay — the roomy syllable editor (opened by the per-channel ♪ toggle on vocal
+  // tracks). Mutually exclusive with the other overlays.
+  let lyricsTakeover = null
+  let yti = 0
+  while (yti < project.channels.length) {
+    let yc = project.channels[yti]
+    if (rt !== null && rt !== undefined && rt.gridLyrics !== null && rt.gridLyrics !== undefined && rt.gridLyrics[yc.id] === true && (activeDeck === null || activeDeck === undefined || channelDeck(project, yc) === activeDeck)) {
+      let yIx = yti
+      lyricsTakeover = (
+        <div class="sg-piano-takeover">
+          <div class="sg-piano-takeover-head">
+            <span class="sg-piano-takeover-title">{yc.name + " · LYRICS"}</span>
+            <button type="button" class="sg-piano-takeover-close" title="Close" onclick={(e) => { e.stopPropagation(); closeAllGridOverlays(rt); if (rt && rt.bumpGrid) { rt.bumpGrid() } }}>{"✕"}</button>
+          </div>
+          <div class="sg-piano-takeover-body sg-lyr-takeover-body">{lyricEditorForChannel(project, yc, yIx, rt, viewBar)}</div>
+        </div>
+      )
+    }
+    yti = yti + 1
   }
   // Bar pager — view one bar at a time, page through a multi-bar progression.
   let pager = []
@@ -1690,6 +1782,7 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
       {pianoTakeover}
       {laneTakeover}
       {euclidTakeover}
+      {lyricsTakeover}
     </section>
   )
 }

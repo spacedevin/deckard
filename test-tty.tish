@@ -1,0 +1,2 @@
+import { onKey } from "tish:tty"
+console.log(typeof onKey)

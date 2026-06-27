@@ -37,7 +37,7 @@ import { collectActorLanes, channelActorLane, ensureActorMixerEntries } from '..
 import { InstrumentStack } from './InstrumentStack.tish'
 import { CoDjPanel } from './CoDjPanel.tish'
 import { launchSceneDirective, transportDirective, fxDirective, cueDirective, deckMoveDirective } from '../codj/Launch.tish'
-import { coDjClockPayload, coDjShouldFollow, coDjClockAlign } from '../codj/Transport.tish'
+import { coDjClockPayload, coDjShouldFollow, coDjClockAlign, coDjIsFollower } from '../codj/Transport.tish'
 import {
   PianoRollCanvas,
   PianoRollZoomBar,
@@ -686,6 +686,41 @@ export fn App() {
       if (!r) {
         return
       }
+      // Escape closes any open overlay/modal — the patch/gen editor first, then a sequencer grid overlay
+      // (piano / locks / EUCLID), then the song browser. Handled BEFORE the typing-field guard so it works
+      // from a focused field inside a modal. An open IkSelect dropdown stops Escape from reaching here (it
+      // closes itself first), so this only fires for actual modals.
+      if (e.key === "Escape") {
+        if (r.genModal !== null && r.genModal !== undefined) {
+          r.genModal = null
+          if (r.setProjectFromUI) { r.setProjectFromUI(r.project) }
+          if (e.preventDefault) { e.preventDefault() }
+          return
+        }
+        let anyOverlay = false
+        let ovMaps = [r.gridExpanded, r.gridLocks, r.gridPianoLocks, r.gridAuto, r.gridEuclid, r.gridLyrics]
+        let omi = 0
+        while (omi < ovMaps.length) {
+          let m = ovMaps[omi]
+          if (m !== null && m !== undefined && Object.keys(m).length > 0) {
+            anyOverlay = true
+          }
+          omi = omi + 1
+        }
+        if (anyOverlay) {
+          r.gridExpanded = {}
+          r.gridLocks = {}
+          r.gridPianoLocks = {}
+          r.gridAuto = {}
+          r.gridEuclid = {}
+          r.gridLyrics = {}
+          if (r.bumpGrid) { r.bumpGrid() }
+          if (e.preventDefault) { e.preventDefault() }
+          return
+        }
+        setSongBrowserOpen(false)
+        return
+      }
       let tgt = e.target
       let tag = tgt && tgt.tagName ? String(tgt.tagName).toLowerCase() : ""
       if (tag === "input" || tag === "textarea" || tag === "select" || (tgt && tgt.isContentEditable)) {
@@ -1294,7 +1329,9 @@ export fn App() {
       rt.songScene = scn
       rt.songSceneEndTick = st + sceneBarLength(project, scn) * coDjStepsPerBar()
       coDjPushLive(project, rt, st)
-      coDjPushControl([transportDirective("song", scn)], 0)
+      if (!coDjIsFollower(rt)) {
+        coDjPushControl([transportDirective("song", scn)], 0)
+      }
     } else {
       rt.songScene = null
       rt.songSceneEndTick = null
@@ -1426,7 +1463,9 @@ export fn App() {
       }
     })
     setPlaying(true)
-    if (rt.coDjNotifyPlaying) {
+    // Only the host broadcasts the shared transport. A follower reaches onPlay via coDjFollowStart (it's
+    // mirroring the host) — it must NOT re-broadcast playing_start, or the room echoes its own follow.
+    if (rt.coDjNotifyPlaying && !coDjIsFollower(rt)) {
       rt.coDjNotifyPlaying(true)
     }
     ctx.resume()
@@ -1692,11 +1731,14 @@ export fn App() {
     rt.tplReplayControls = null
     rt.tplReplayMoves = null
     bumpTimeline()
-    if (rt.coDjNotifyPlaying) {
+    // Only the host broadcasts the shared transport (a follower reaches onStop via coDjFollowStop).
+    if (rt.coDjNotifyPlaying && !coDjIsFollower(rt)) {
       rt.coDjNotifyPlaying(false)
     }
     // A master stopping the transport stops the shared session for followers too (apply on receipt).
-    coDjPushControl([transportDirective("stop", 0)], 0)
+    if (!coDjIsFollower(rt)) {
+      coDjPushControl([transportDirective("stop", 0)], 0)
+    }
     // Tear down the Transport projection (scheduler + pump + draw loop); it publishes position -1 so the
     // playhead/grid subscribers clear themselves.
     transport.stop()
@@ -1842,6 +1884,16 @@ export fn App() {
     rt.tplViewOrigin = rt.tplTapeStartStep
   }
   // "New" clears the timeline; the next Play records a fresh take.
+  // REC arm/disarm. Recording is off by default; arming while already playing starts a fresh take from the
+  // current step (otherwise no take was begun at Play time, so the tape origin would be stale).
+  fn onToggleRec() {
+    let on = rt.tplRecording === true ? false : true
+    rt.tplRecording = on
+    if (on && playing && rt.beginTake) {
+      rt.beginTake(typeof rt.perfStep === "number" ? rt.perfStep : 0)
+    }
+    setProjectFromUI(project)
+  }
   fn onNewTake() {
     rt.tplTape = []
     rt.tplStartState = null
@@ -2055,6 +2107,11 @@ export fn App() {
   rt.selectPlayMode = selectPlayMode
   // The live Play / Stop button: start in the current mode when stopped, stop when playing.
   fn onPlayStop() {
+    // Host-only live transport: a connected FOLLOWER can't manually Play/Stop — it auto-follows the host's
+    // clock (coDjFollowStart/Stop) and can only Preview privately. So a manual press is a no-op for followers.
+    if (coDjIsFollower(rt)) {
+      return
+    }
     if (rt.playing) {
       onStop()
     } else {
@@ -2713,6 +2770,7 @@ export fn App() {
     recording: rt.tplRecording === true,
     playing: playing,
     recordings: recordingItems,
+    onToggleRec: onToggleRec,
     onNewTake: onNewTake,
     onSaveRecording: onSaveRecording,
     onLoadReplay: onLoadReplay,
@@ -2806,7 +2864,14 @@ export fn App() {
 
   return <div class="daw-root">
     <header class="daw-header">
-      <h1 class="logo">{"Deckard"}<span class="logo-beta" title="beata">{"beata"}</span></h1>
+      <div class="logo-col">
+        <h1 class="logo">{"Deckard"}<span class="logo-beta" title="beata">{"beata"}</span></h1>
+        <div class="made-by-credit">
+          <a href="https://github.com/spacedevin/deckard" target="_blank" rel="noopener noreferrer">created with 🎹</a>
+          {" by "}
+          <a href="https://space.la" target="_blank" rel="noopener noreferrer">space.la</a>
+        </div>
+      </div>
       {TransportBar(
         project.bpm,
         playing,
@@ -2826,7 +2891,8 @@ export fn App() {
         () => rt.undo(),
         () => rt.redo(),
         rt.canUndo ? rt.canUndo() : false,
-        rt.canRedo ? rt.canRedo() : false
+        rt.canRedo ? rt.canRedo() : false,
+        coDjIsFollower(rt)
       )}
       <div class="set-presets" key={"sp-" + String(setListGenKey)}>
         <button type="button" class="songs-open-btn" title="Browse the song library — load a full song (kit + patterns) onto any deck" onclick={() => setSongBrowserOpen(true)}>{"♫"}</button>
@@ -2948,10 +3014,5 @@ export fn App() {
       </div>
     </footer>
     {songBrowserOpen ? SongBrowser(project, rt, () => setSongBrowserOpen(false), songQuery, setSongQuery) : null}
-    <div class="made-by-credit">
-      <a href="https://github.com/spacedevin/deckard" target="_blank" rel="noopener noreferrer">created with 🎹</a>
-      {" by "}
-      <a href="https://space.la" target="_blank" rel="noopener noreferrer">space.la</a>
-    </div>
   </div>
 }

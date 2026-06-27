@@ -1,0 +1,3 @@
+import { readFileBytes } from "tish:fs"
+let b = readFileBytes("/dev/stdin")
+console.log(b)

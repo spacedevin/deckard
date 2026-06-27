@@ -24,10 +24,14 @@ export fn TransportBar(
   onUndo,
   onRedo,
   canUndo,
-  canRedo
+  canRedo,
+  liveLocked
 ) {
   // Preview = audition the rack on its OWN clock (separate, never live). The Sequence | Session toggle
   // + Play are the LIVE transport: both modes share one clock; flip between them live, no restart.
+  // liveLocked = this client is a co-DJ FOLLOWER → the host owns the live transport; Play + the source
+  // toggle are disabled (the follower auto-follows the host) and only Preview is available.
+  let locked = liveLocked === true
   let prevCls = previewing ? "btn-play btn-play-seq btn-play-on" : "btn-play btn-play-seq"
   let isSeq = playMode !== "song"
   let seqCls = isSeq ? "mode-seg mode-seg-on" : "mode-seg"
@@ -41,15 +45,20 @@ export fn TransportBar(
         <span class="btn-key">{"Space"}</span>
       </button>
       <span class="transport-div" />
-      <div class="mode-switch" title={"The LIVE source — Sequence (the rack as a live song) or Session (the launched clips). Both share one clock; switch between them live."}>
-        <button type="button" class={seqCls} onclick={() => onSelectMode("sequence")}>
+      <div class="mode-switch" title={locked ? "The host controls the live source while you're following." : "The LIVE source — Sequence (the rack as a live song) or Session (the launched clips). Both share one clock; switch between them live."}>
+        <button type="button" class={seqCls} disabled={locked} onclick={() => onSelectMode("sequence")}>
           {"Sequence"}
         </button>
-        <button type="button" class={sesCls} onclick={() => onSelectMode("song")}>
+        <button type="button" class={sesCls} disabled={locked} onclick={() => onSelectMode("song")}>
           {"Session"}
         </button>
       </div>
-      <button class={playCls} onclick={onPlayStop} title={"Play / stop the live transport in the selected mode (Enter)"}>
+      <button
+        class={locked ? (playCls + " btn-play-locked") : playCls}
+        disabled={locked}
+        onclick={onPlayStop}
+        title={locked ? "Host controls playback — you follow the host's transport. Use ▶ Preview to audition privately." : "Play / stop the live transport in the selected mode (Enter)"}
+      >
         {playing ? "■ Stop" : "▶ Play"}
         <span class="btn-key">{"Enter"}</span>
       </button>

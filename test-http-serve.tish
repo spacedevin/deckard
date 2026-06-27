@@ -1,0 +1,2 @@
+import { serve } from "tish:http"
+console.log(typeof serve)

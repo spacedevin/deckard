@@ -84,20 +84,6 @@ export fn MacroDesignerPanel(ch, project, setProject, tplMirrorFlush) {
           <div class="ik-knob-grid">{rows}</div>
         )}
       </section>
-      <section class="sytrus-section">
-        <button
-          type="button"
-          class="sytrus-add-btn"
-          title={"Drop the macro and edit the raw node graph"}
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={() => {
-            freezeMacroChannel(ch)
-            commit()
-          }}
-        >
-          {"Freeze to patch graph"}
-        </button>
-      </section>
     </div>
   )
 }

@@ -291,6 +291,26 @@ fn msKnob(label, ch, field, maxMs, rt, accent) {
   })
 }
 
+// Per-track VOLUME — the channel's mix gain (0..150%). Lives in the FX row; writes through the gated
+// `track/<id>/mix/gain` door (same door the deck fader uses), so the move broadcasts + round-trips.
+fn volKnob(ch, rt, accent) {
+  // Gain lives at ch.gain (the `mix gain` TPL field — Apply.tish writes there, mixLine reads it), NOT ch.mix.gain.
+  let g = (typeof ch.gain === "number") ? ch.gain : 0.85
+  return Knob({
+    label: "Vol",
+    value: g, min: 0, max: 1.5, step: 0.01,
+    fmt: (x) => String(Math.round(x * 100)) + "%",
+    accent: accent,
+    valueInside: true,
+    size: "sm",
+    onInput: (nv) => {
+      if (rt && rt.emit) {
+        rt.emit("track/" + ch.id + "/mix/gain", nv)
+      }
+    }
+  })
+}
+
 export fn octaveKnob(ch, rt, accent) {
   let cur = ch.octave !== null && ch.octave !== undefined ? ch.octave : 0
   return Knob({
@@ -552,6 +572,7 @@ fn PitchModule(ctx) {
     "voice",
     ctx,
     <div class="instr-pitch-knobs" style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+      {volKnob(ch, rt, accent)}
       {octaveKnob(ch, rt, accent)}
       {selectorKnob("Chord", ch, "chord", chordDefs, rt, accent)}
       {selectorKnob("Inv", ch, "inversion", invDefs, rt, accent)}
@@ -858,7 +879,7 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
         f = f + 1
       }
     }
-    return <div class="instr-stack-host"><div class="instr-grid-container">{cards}</div>{modalEl}</div>
+    return <Fragment><div class="instr-stack-host"><div class="instr-grid-container">{cards}</div></div>{modalEl}</Fragment>
   }
-  return <div class="instr-stack-host">{cards}{modalEl}</div>
+  return <Fragment><div class="instr-stack-host">{cards}</div>{modalEl}</Fragment>
 }

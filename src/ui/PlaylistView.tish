@@ -12,7 +12,7 @@ import { IkSelect } from './InstrumentKit.tish'
 let BAR_PX = 26
 let STEPS_PER_BAR = 16
 let LABEL_W = 0
-let MIN_BARS = 16
+let MIN_BARS = 8
 let DECK_WAVE_H = 21
 
 fn deckColorHex(deck) {
@@ -85,10 +85,10 @@ export fn PlaylistView(project, rt, props) {
   if (gridBars < MIN_BARS) {
     gridBars = MIN_BARS
   }
-  // The recorder lane only needs to be ~16 bars wide — cap it so a long take never grows the footer / forces
-  // horizontal scroll (the take still records past this; the lane just stops widening).
-  if (gridBars > 16) {
-    gridBars = 16
+  // The recorder lane is capped at ~8 bars wide — a compact footer waveform (the take still records past this;
+  // the lane just stops widening, so a long take never grows the footer / forces horizontal scroll).
+  if (gridBars > 8) {
+    gridBars = 8
   }
   let laneWidth = gridBars * BAR_PX
 
@@ -128,7 +128,7 @@ export fn PlaylistView(project, rt, props) {
   }
 
   // ---- recordings dropdown ----
-  let recOpts = [{ value: "", label: "— replay a Set —", deletable: false }]
+  let recOpts = [{ value: "", label: "— replay —", deletable: false }]
   let ri = 0
   while (ri < recordings.length) {
     recOpts.push({ value: recordings[ri].name, label: recordings[ri].name })
@@ -144,25 +144,30 @@ export fn PlaylistView(project, rt, props) {
   return (
     <div class="pl-view pl-tpl">
       <div class="pl-head">
-        <span class="pl-rec pl-rec-on" title="Always recording — hit Play and whatever the sequencer fires is captured here">
-          <span class="pl-rec-dot"></span>{"REC"}
-        </span>
         <button
           type="button"
-          class="pl-btn"
-          title="Clear the timeline — the next Play records a fresh take"
-          onclick={() => { if (p.onNewTake) { p.onNewTake() } }}
+          class={p.recording ? "pl-rec pl-rec-on" : "pl-rec"}
+          title={p.recording ? "Recording ARMED — Play captures what the sequencer fires into the timeline. Click to disarm." : "Recording OFF — click to arm, then Play to capture a take."}
+          onclick={() => { if (p.onToggleRec) { p.onToggleRec() } }}
         >
-          {"New"}
+          <span class="pl-rec-dot"></span>
         </button>
         <button
           type="button"
-          class="pl-btn"
+          class="pl-btn pl-btn-ico"
+          title="New take — clear the timeline; the next Play records a fresh take"
+          onclick={() => { if (p.onNewTake) { p.onNewTake() } }}
+        >
+          {"＋"}
+        </button>
+        <button
+          type="button"
+          class="pl-btn pl-btn-ico"
           title="Save this take as a replayable Set"
           disabled={steps === 0}
           onclick={() => { if (p.onSaveRecording) { p.onSaveRecording() } }}
         >
-          {"Save"}
+          {"⤓"}
         </button>
         {IkSelect({
           class: "pl-replay-select",

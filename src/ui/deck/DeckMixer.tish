@@ -543,7 +543,7 @@ export fn DeckMixer(project, setProjectFromUI, touchMixer, rt) {
               { value: "1", label: "1/4" },
               { value: "2", label: "1/2" }
             ],
-            onChange: (v) => { if (rt) { rt.fxBeatDiv = Number(v) } }
+            onChange: (v) => { if (rt) { rt.fxBeatDiv = Number(v); if (rt.scheduleDeckMix) { rt.scheduleDeckMix() } } }
           })}
           <button
             type="button"

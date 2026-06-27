@@ -258,6 +258,9 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
           console.log("[Co-DJ] " + s + " session=" + (msg.sessionId || ""))
         }
         rt.coDjPairingDirty = true
+        // Host (re-)election can change whether THIS client is a follower → re-render the app so the
+        // transport's host-only Play gating updates.
+        rerenderAll(rt && rt.project ? rt.project : project)
       }
       return
     }

@@ -1,0 +1,248 @@
+// Pure Tish MCP Server (Zero dependencies)
+// Compiles to JavaScript and relies natively on Node 22+ built-ins (process, WebSocket).
+// Build: tish build --target js services/mcp/main.tish -o services/mcp/mcp.js
+// Run:   node services/mcp/mcp.js
+
+let p = typeof process !== "undefined" ? process : null
+if (p === null || !p.stdin) {
+  console.error("This script must be compiled to JS and run with Node.js.")
+  if (p) p.exit(1)
+}
+
+let GATEWAY_URL = "ws://127.0.0.1:35987"
+let SESSION_ID = "default"
+let ACTOR_ID = "actor-mcp"
+
+if (p.env && p.env["CODJ_HUB_URL"]) GATEWAY_URL = p.env["CODJ_HUB_URL"]
+if (p.env && p.env["CODJ_SESSION_ID"]) SESSION_ID = p.env["CODJ_SESSION_ID"]
+if (p.env && p.env["CODJ_ACTOR_ID"]) ACTOR_ID = p.env["CODJ_ACTOR_ID"]
+
+let tplBuffer = []
+let BUFFER_MAX_LINES = 1000
+
+fn pushContextLine(line) {
+  if (typeof line !== "string") return
+  tplBuffer.push(line)
+  if (tplBuffer.length > BUFFER_MAX_LINES) {
+    let newBuf = []
+    let i = tplBuffer.length - BUFFER_MAX_LINES
+    while (i < tplBuffer.length) {
+      newBuf.push(tplBuffer[i])
+      i = i + 1
+    }
+    tplBuffer = newBuf
+  }
+}
+
+let ws = null
+let isConnected = false
+
+fn connectToGateway() {
+  if (typeof WebSocket === "undefined") {
+    console.error("Node.js built-in WebSocket is required (Node v22+).")
+    return
+  }
+  
+  ws = new WebSocket(GATEWAY_URL)
+  
+  ws.onopen = (e) => {
+    isConnected = true
+    let joinPayload = JSON.stringify({
+      type: "join",
+      sessionId: SESSION_ID,
+      actorId: ACTOR_ID,
+      channelIds: ["default"],
+      skillIds: ["add_track", "adjust_instrument", "pattern_steps", "pattern_piano", "channel_mix"]
+    })
+    ws.send(joinPayload)
+  }
+  
+  ws.onmessage = (e) => {
+    try {
+      let msg = JSON.parse(String(e.data))
+      if (msg.type === "control") {
+        if (msg.op === "playing_start") {
+          tplBuffer = []
+        }
+      } else if (msg.type === "tpl.line") {
+        if (msg.line) pushContextLine(msg.line)
+      } else if (msg.type === "tpl.block" && Array.isArray(msg.lines)) {
+        let i = 0
+        while (i < msg.lines.length) {
+          pushContextLine(msg.lines[i])
+          i = i + 1
+        }
+      }
+    } catch (err) {}
+  }
+  
+  ws.onclose = (e) => {
+    isConnected = false
+    let globalObj = typeof globalThis !== "undefined" ? globalThis : null
+    if (globalObj && globalObj.setTimeout) {
+      globalObj.setTimeout(connectToGateway, 2000)
+    }
+  }
+  
+  ws.onerror = (e) => {
+    isConnected = false
+  }
+}
+
+// Start WebSocket connection
+connectToGateway()
+
+// --- MCP JSON-RPC Server over Stdio ---
+
+fn sendRpc(msgObj) {
+  let json = JSON.stringify(msgObj) + "\n"
+  p.stdout.write(json)
+}
+
+fn handleRequest(req) {
+  let method = req.method
+  let params = req.params || {}
+  
+  if (method === "initialize") {
+    sendRpc({
+      jsonrpc: "2.0",
+      id: req.id,
+      result: {
+        protocolVersion: "2024-11-05",
+        capabilities: { tools: {} },
+        serverInfo: { name: "deckard-mcp-server", version: "1.0.0" }
+      }
+    })
+  } else if (method === "notifications/initialized") {
+    // Client initialized, no response required
+  } else if (method === "tools/list") {
+    sendRpc({
+      jsonrpc: "2.0",
+      id: req.id,
+      result: {
+        tools: [
+          {
+            name: "get_session_tpl",
+            description: "Returns the current live TPL (Tish Patch Language) state of the Deckard session. Use this to see what tracks and generators exist.",
+            inputSchema: { type: "object", properties: {}, required: [] }
+          },
+          {
+            name: "send_tpl_block",
+            description: "Send a block of TPL to the live DAW. The TPL describes a track, instruments, or patterns. Make sure to prefix track IDs with the actor ID.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                tplLines: { type: "array", items: { type: "string" }, description: "Array of valid TPL lines." }
+              },
+              required: ["tplLines"]
+            }
+          },
+          {
+            name: "send_direct",
+            description: "Send a natural language instruction to the built-in autonomous agent.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                instruction: { type: "string", description: "The natural language instruction, e.g. 'add a punchy hihat'" }
+              },
+              required: ["instruction"]
+            }
+          }
+        ]
+      }
+    })
+  } else if (method === "tools/call") {
+    let name = params.name
+    let args = params.arguments || {}
+    
+    if (!isConnected || !ws) {
+      sendRpc({
+        jsonrpc: "2.0",
+        id: req.id,
+        result: {
+          content: [{ type: "text", text: "Error: Not connected to the Deckard gateway yet." }],
+          isError: true
+        }
+      })
+      return
+    }
+
+    if (name === "get_session_tpl") {
+      let state = tplBuffer.length > 0 ? tplBuffer.join("\n") : "(empty session or playback not started)"
+      sendRpc({
+        jsonrpc: "2.0",
+        id: req.id,
+        result: { content: [{ type: "text", text: state }] }
+      })
+    } else if (name === "send_tpl_block") {
+      let lines = args.tplLines
+      if (!Array.isArray(lines)) {
+        lines = [String(lines)]
+      }
+      let blockPayload = JSON.stringify({
+        type: "tpl.block",
+        actorId: ACTOR_ID,
+        authorId: ACTOR_ID,
+        lines: lines,
+        effectivePerfStep: 0,
+        asap: true
+      })
+      ws.send(blockPayload)
+      sendRpc({
+        jsonrpc: "2.0",
+        id: req.id,
+        result: { content: [{ type: "text", text: "Successfully sent " + String(lines.length) + " TPL lines to the session." }] }
+      })
+    } else if (name === "send_direct") {
+      let text = String(args.instruction || "")
+      let directPayload = JSON.stringify({
+        type: "direct",
+        actorId: ACTOR_ID,
+        authorId: ACTOR_ID,
+        text: text
+      })
+      ws.send(directPayload)
+      sendRpc({
+        jsonrpc: "2.0",
+        id: req.id,
+        result: { content: [{ type: "text", text: "Sent directive to agent: " + text }] }
+      })
+    } else {
+      sendRpc({
+        jsonrpc: "2.0",
+        id: req.id,
+        error: { code: -32601, message: "Method not found" }
+      })
+    }
+  } else {
+    // Unhandled method
+    if (req.id) {
+      sendRpc({
+        jsonrpc: "2.0",
+        id: req.id,
+        error: { code: -32601, message: "Method not found" }
+      })
+    }
+  }
+}
+
+// Buffer to handle chunked/split JSON messages over Stdio
+let stdinBuffer = ""
+p.stdin.setEncoding("utf8")
+p.stdin.on("data", (chunk) => {
+  stdinBuffer = stdinBuffer + chunk
+  let n = stdinBuffer.indexOf("\n")
+  while (n >= 0) {
+    let line = stdinBuffer.substring(0, n)
+    stdinBuffer = stdinBuffer.substring(n + 1)
+    if (line.length > 0) {
+      try {
+        let msg = JSON.parse(line)
+        handleRequest(msg)
+      } catch (e) {
+        // Parse error, ignore line
+      }
+    }
+    n = stdinBuffer.indexOf("\n")
+  }
+})

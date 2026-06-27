@@ -9,7 +9,8 @@ export fn createDeckardRuntime() {
     // TPL-stream tape: the recorder/replay state for the Playlist ("TPL playback"). tplTape is the live
     // recording (or a loaded recording shown on the timeline); replaying re-fires it through the scheduler.
     tplTape: [],
-    tplRecording: true,
+    // Recording is OFF by default — the footer REC button arms it (then Play captures what plays).
+    tplRecording: false,
     tplReplaying: false,
     tplStartState: null,
     tplTapeStartStep: 0,

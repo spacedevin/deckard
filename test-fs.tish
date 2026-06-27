@@ -1,0 +1,2 @@
+import { fs } from "tish:fs"
+console.log(JSON.stringify(Object.keys(fs)))

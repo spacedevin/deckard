@@ -930,6 +930,7 @@ export fn IkSelect(opts) {
         return
       }
       if (ev.key === "Escape") {
+        ev.stopPropagation()
         list.remove()
         cleanup()
         return

@@ -624,6 +624,159 @@ fn deckSetTpls() {
         stemB("Pad", "pad", 4, vEtherealPad(), flat([["  fx reverb_send 0.8"], progNotes([["0", [48, 51, 55]], ["1", [44, 48, 51]], ["2", [51, 55, 58]], ["3", [43, 46, 50]]], [0], 4, 85)])),
         stemB("Lead", "lead", 4, vWarmDetunedLead(), ["  note 60 0 1 v 80 bar 0", "  note 63 1.5 0.5 v 75 bar 0", "  note 67 2.5 1.5 v 85 bar 0", "  note 63 0 1 v 80 bar 1", "  note 60 1.5 0.5 v 75 bar 1", "  note 55 2.5 1.5 v 85 bar 1", "  note 67 0 1 v 80 bar 2", "  note 70 1.5 0.5 v 75 bar 2", "  note 72 2.5 1.5 v 85 bar 2", "  note 67 0 1 v 80 bar 3", "  note 63 1.5 0.5 v 75 bar 3", "  note 62 2.5 1.5 v 85 bar 3"])
       ]))
+    },
+    {
+      id: "lofi_sync_waves",
+      name: "Lo-Fi Sync Waves",
+      genre: "Lo-Fi Chill",
+      bpm: 80,
+      tpl: L(flat([
+        "tpl 1",
+        stemB("Kick", "kick", 16, "drumSynth", [
+          "  gen tone sine pitch_env 36 pitch_decay 0.05 decay 0.35 noise 0 drive 0.1",
+          "  step_pitch 36",
+          "  steps x . . . . . x . . . . . . . . . bar 0,1,2,3",
+          "  steps x . . . . . x . . . x . . . . . bar 4,5,6,7",
+          "  steps x . . . . . x . x . . . . . x . bar 8,9,10,11",
+          "  steps x . . . . . x . . . . . . . . . bar 12,13,14,15"
+        ]),
+        stemB("Snare", "snare", 16, "drumSynth", [
+          "  gen tone sine pitch_env 50 pitch_decay 0.02 decay 0.25 noise 0.5 noise_decay 0.3 noise_hp 1500 drive 0.05",
+          "  step_pitch 40",
+          "  steps . . . . . . . . . . . . . . . . bar 0,1,2,3",
+          "  steps . . . . x . . . . . . . x . . . bar 4,5,6,7,8,9,10,12,13,14,15",
+          "  steps . . . . x . . . x . x . x . x . bar 11"
+        ]),
+        stemB("Hat", "hat", 16, "cymbal", [
+          "  gen tune 250 metallic 0.7 decay 0.2 highpass 6000",
+          "  step_pitch 44",
+          "  step_vel 100 80 110 90 100 85 110 90 100 80 110 90 100 85 110 90",
+          "  steps x . . . x . . . x . . . x . . . bar 0,1,2,3",
+          "  steps x . x . x . x . x . x . x . x . bar 4,5,6,7,12,13,14,15",
+          "  steps x x x x x x x x x x x x x x x x bar 8,9,10,11"
+        ]),
+        stemB("Bass", "bass", 16, "obSync", flat([
+          ["  gen detune 10 sweep_rate 0.1 sweep_amt 12 cutoff 350 resonance 1 filter_env 200 filter_decay 0.6 attack 0.1 decay 0.6 sustain 0.6 release 0.4"],
+          progNotes([
+            ["0,4,8,12", [36]], 
+            ["1,5,9,13", [32]], 
+            ["2,6,10,14", [39]], 
+            ["3,11", [31]],     
+            ["7,15", [34]]      
+          ], [0, 2.5], 1.5, 100)
+        ])),
+        stemB("Choir", "choir", 16, "syncChoir", flat([
+          ["  fx cutoff 8000 reverb_send 0.6"],
+          ["  gen vowel_shift 12 morph_rate 0.2 morph_amt 6 ensemble_detune 20 vib_rate 4 vib_amt 5 highpass 200 attack 1.5 decay 1 sustain 0.8 release 2"],
+          progNotes([
+            ["0,4,8,12", [48, 51, 55]], 
+            ["1,5,9,13", [44, 48, 51]], 
+            ["2,6,10,14", [51, 55, 58]], 
+            ["3,11", [43, 46, 50]],      
+            ["7,15", [46, 50, 53]]       
+          ], [0], 4, 85)
+        ])),
+        stemB("Lead", "lead", 16, "syncLead", [
+          "  fx reverb_send 0.4",
+          "  gen master_tune 0 slave_base 12 sweep_amt 12 sweep_decay 0.6 lfo_rate 0 lfo_amt 0 cutoff 800 resonance 2 filter_env_amt 800 filter_decay 0.5 attack 0.05 decay 0.4 sustain 0.6 release 0.6",
+          "  note 60 0 1 v 85 bar 0,4,8,12",
+          "  note 63 1.5 0.5 v 80 bar 0,4,8,12",
+          "  note 67 2.5 1 v 90 bar 0,4,8,12",
+          "  note 63 0 1 v 85 bar 1,5,9,13",
+          "  note 60 1.5 0.5 v 80 bar 1,5,9,13",
+          "  note 56 2.5 1 v 90 bar 1,5,9,13", 
+          "  note 67 0 1 v 85 bar 2,6,10,14",
+          "  note 70 1.5 0.5 v 80 bar 2,6,10,14", 
+          "  note 72 2.5 1 v 90 bar 2,6,10,14", 
+          "  note 67 0 1 v 85 bar 3,11",
+          "  note 62 1.5 0.5 v 80 bar 3,11", 
+          "  note 58 2.5 1 v 90 bar 3,11",   
+          "  note 70 0 1 v 85 bar 7,15",     
+          "  note 65 1.5 0.5 v 80 bar 7,15", 
+          "  note 62 2.5 1 v 90 bar 7,15"    
+        ])
+      ]))
+    },
+    {
+      id: "16bit_drift",
+      name: "16-Bit Drift",
+      genre: "Chiptune / Retrowave",
+      bpm: 135,
+      tpl: L(flat([
+        "tpl 1",
+        stemB("Kick", "kick", 8, "drumSynth", [
+          "  gen tone sine pitch_env 45 pitch_decay 0.08 decay 0.3",
+          "  step_pitch 36",
+          "  steps x . . . . . . . x . . . . . . . bar 0,1",
+          "  steps x . . . x . . . x . . . x . . . bar 2,3,4,5",
+          "  steps x . x . x . . . x . x . x . x . bar 6,7"
+        ]),
+        stemB("Snare", "snare", 8, "drumSynth", [
+          "  gen tone sine pitch_env 47 pitch_decay 0.167 decay 1.283 noise 0.8 noise_decay 0.25 noise_hp 2000 drive 0",
+          "  step_pitch 40",
+          "  steps x . . . x . . . . . . . . . . ."
+        ]),
+        stemB("Hat", "hat", 8, "noiseBurst", [
+          "  mix gain 0.4 pan 0.1",
+          "  gen attack 0.005 decay 0.06 tone 0.6 pitch_follow 0",
+          "  step_pitch 44",
+          "  step_vel 100 70 110 80 100 70 110 80 100 70 110 80 100 70 110 80",
+          "  steps . . . . . . . . x . . x x . . ."
+        ]),
+        stemB("Bass", "bass", 8, "gameBoyDmg", flat([
+          ["  mix gain 0.8"],
+          ["  gen type wave wave_shape saw env_mode const vol 15 sweep 0 attack 0 decay 0 sustain 15 release 0 pitch_drop 0 pitch_dec 0.05 vib_rate 0 vib_amt 0 arp_rate 0 arp_semis 0"],
+          progNotes([
+            ["0,4", [36]], 
+            ["1,5", [39]], 
+            ["2,6", [32]], 
+            ["3", [34]],     
+            ["7", [31]]      
+          ], [0, 0.75, 1.5, 2.5, 3.5], 0.5, 100)
+        ])),
+        stemB("Chord", "chord", 8, "c64sid", flat([
+          ["  fx reverb_send 0.4"],
+          ["  gen waveform pulse pulse_width 0.3 attack 0.1 decay 0.5 sustain 0.6 release 0.4 cutoff 1500 resonance 8"],
+          progNotes([
+            ["0,4", [48, 51, 55]], 
+            ["1,5", [51, 55, 58]], 
+            ["2,6", [44, 48, 51]], 
+            ["3", [46, 50, 53]],      
+            ["7", [43, 46, 50]]       
+          ], [0], 4, 85)
+        ])),
+        stemB("Lead", "lead", 8, "nes2a03", [
+          "  fx reverb_send 0.3",
+          "  gen duty 0.25 attack 0.01 decay 0.3 sustain 0.2 release 0.1 vibrato 0.5",
+          "  note 60 0 1 v 90 r 4 bar 0",
+          "  note 63 1 1 v 90 r 3 bar 0",
+          "  note 67 2 2 v 90 bar 0",
+          "  note 63 0 1.5 v 90 r 6 bar 1",
+          "  note 70 1.5 0.5 v 90 bar 1",
+          "  note 67 2 2 v 90 bar 1",
+          "  note 68 0 1 v 90 r 4 bar 2",
+          "  note 63 1 1 v 90 r 4 bar 2",
+          "  note 60 2 2 v 90 bar 2",
+          "  note 70 0 0.5 v 90 bar 3",
+          "  note 65 0.5 0.5 v 90 bar 3",
+          "  note 62 1 1 v 90 r 4 bar 3",
+          "  note 58 2 2 v 90 bar 3",
+          "  note 60 0 0.5 v 90 bar 4",
+          "  note 63 0.5 0.5 v 90 bar 4",
+          "  note 67 1 0.5 v 90 bar 4",
+          "  note 72 1.5 0.5 v 90 bar 4",
+          "  note 75 2 2 v 90 r 8 bar 4",
+          "  note 75 0 1 v 90 bar 5",
+          "  note 70 1 1 v 90 bar 5",
+          "  note 67 2 2 v 90 bar 5",
+          "  note 68 0 1 v 90 bar 6",
+          "  note 63 1 1 v 90 bar 6",
+          "  note 60 2 2 v 90 bar 6",
+          "  note 67 0 1.5 v 90 r 6 bar 7",
+          "  note 62 1.5 0.5 v 90 bar 7",
+          "  note 58 2 2 v 90 bar 7"
+        ])
+      ]))
     }
   ]
 }

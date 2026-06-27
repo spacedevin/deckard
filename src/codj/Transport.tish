@@ -30,6 +30,19 @@ export fn coDjShouldFollow(rt) {
   return rt.coDjFollowTransport !== false
 }
 
+/** True when this client is a CONNECTED co-DJ follower (in a live session, not the host). Followers don't
+ *  drive the shared transport — the host is the clock master; a follower auto-follows it (coDjFollowStart)
+ *  and can only Preview privately. So Play/Stop is host-only. */
+export fn coDjIsFollower(rt) {
+  if (!rt) {
+    return false
+  }
+  if (rt.coDjIsHost === true) {
+    return false
+  }
+  return rt.coDjWs !== null && rt.coDjWs !== undefined && rt.coDjWs.readyState === 1
+}
+
 /**
  * Decide the tick a follower should adopt given its own `localTick` and the host's reported `hostTick`.
  * Small drift is left alone (avoids audible micro-snapping every bar); drift beyond `threshold` snaps to

@@ -1154,6 +1154,9 @@ input[type="range"]::-moz-range-thumb {
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+  /* positioning context for the patch/gen edit modal (.gen-modal-backdrop is position:absolute) so it fills
+     exactly this center column — instruments + sequencer + session. */
+  position: relative;
 }
 
 @media (max-width: 1100px) {
@@ -1916,6 +1919,12 @@ input[type="range"]::-moz-range-thumb {
 .codj-panel {
   max-width: 28rem;
 }
+/* CO-DJ + TPL docks: drop the generic .panel card BORDER — the inner textareas / code view already have their
+   own frames, so the outer .panel border was a redundant double border around each. */
+.daw-bottom-codj > .panel,
+.daw-tpl-dock > .panel {
+  border: none;
+}
 .codj-panel h2 {
   margin-bottom: 0.3rem;
 }
@@ -2536,24 +2545,50 @@ input[type="range"]::-moz-range-thumb {
   min-height: 0;
 }
 
+/* TPL code view fills the dock height: the docked panel is a flex column and the editor wrap grows into the
+   leftover space (the STEP strip + Apply/Sync buttons stay pinned below). */
+.daw-tpl-dock > .code-debug-panel--dock {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The editor is a flex-column chain so the textarea fills the dock and scrolls internally — wrap → slot →
+   mirror-stack each flex:1, then the textarea height:100% (its `rows` attribute is overridden). Without the
+   slot + wrap being flex columns, the stack stayed at the textarea's `rows` height and the TPL was cut off
+   with empty space below. */
 .daw-tpl-dock .tpl-song-editor-wrap {
-  min-height: 160px;
-  max-height: min(42vh, 360px);
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 120px;
+  max-height: none;
+}
+
+.daw-tpl-dock .tpl-song-textarea-slot {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
 }
 
 .daw-tpl-dock .tpl-song-mirror-stack {
-  min-height: 160px;
-  max-height: min(42vh, 360px);
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: none;
 }
 
 .daw-tpl-dock .tpl-song-input-layer {
-  min-height: 160px;
-  max-height: min(42vh, 360px);
-  resize: vertical;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  resize: none;
+  overflow: auto;
 }
 
 .daw-tpl-dock .tpl-song-highlight-layer {
-  max-height: min(42vh, 360px);
+  max-height: none;
 }
 
 .code-debug-hint {
@@ -4000,6 +4035,22 @@ input[type="range"]::-moz-range-thumb {
 .sg-lane-takeover-body .sg-auto-cell { height: auto; }
 /* EUCLID & GENERATE takeover — a fill-density chip row + a generate-action grid, spread to use the panel. */
 .sg-eg-takeover-body { padding: 14px 16px; overflow-y: auto; }
+/* LYRICS takeover — a roomy syllable-per-step grid (8 wide cells × 2 rows for the 16-step bar) so each
+   lyric gets real horizontal room, vs the cramped LYR column it used to share in the locks overlay. */
+.sg-lyr-takeover-body { padding: 16px; overflow-y: auto; }
+.sg-lyr-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 10px; align-content: start; }
+.sg-lyr-cell { display: flex; flex-direction: column; gap: 5px; background: rgba(255, 255, 255, 0.025);
+  border: 1px solid #1c1c22; border-radius: 7px; padding: 9px 9px 11px; }
+.sg-lyr-cell.sg-lyr-beat { border-color: #2c2c38; }
+.sg-lyr-cell.sg-lyr-cell-off { opacity: 0.45; }
+.sg-lyr-step { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; color: var(--muted, #6a6a76); }
+/* Higher specificity + !important to beat the global input[type=text] rule (which is !important). */
+.sg-lyr-cell .sg-lyr-input { width: 100%; box-sizing: border-box; background: #0c0c12 !important;
+  border: 1px solid #2a2a32 !important; border-radius: 5px !important; color: var(--text, #e8e8ea);
+  font-size: 14px !important; text-align: center !important; padding: 8px 4px !important; font-family: inherit; }
+.sg-lyr-cell .sg-lyr-input:focus { outline: none !important; border-color: var(--accent, #22d3ee) !important; }
+.sg-lyr-cell .sg-lyr-input:disabled { background: transparent !important; border-color: transparent !important;
+  color: #3a3a44 !important; cursor: default; }
 .sg-eg-body { display: flex; flex-direction: column; gap: 18px; }
 .sg-eg-section { display: flex; flex-direction: column; gap: 9px; }
 .sg-eg-shead { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
@@ -4485,6 +4536,14 @@ input[type="range"]::-moz-range-thumb {
   border-color: #b08bf0;
   color: #120a1c;
   box-shadow: 0 0 8px rgba(176, 139, 240, 0.5);
+}
+/* Lyrics overlay toggle (vocal tracks) — cyan (vocal/text) identity. */
+.sg-tog-lyr { color: #5ec8e0; }
+.sg-tog-lyr-on {
+  background: #5ec8e0;
+  border-color: #5ec8e0;
+  color: #06141a;
+  box-shadow: 0 0 8px rgba(94, 200, 224, 0.5);
 }
 /* Per-channel delete toggle — neutral until hover, then red. */
 .sg-tog-del {
@@ -5001,7 +5060,7 @@ input[type="range"]::-moz-range-thumb {
   line-height: 1.4;
 }
 .dk-center {
-  width: 270px;
+  width: 100%;
   flex-shrink: 0;
   border: 1px solid #26262e;
   border-radius: 4px;
@@ -6180,13 +6239,30 @@ input[type="range"]::-moz-range-thumb {
   background: rgba(34, 211, 238, 0.14);
 }
 
-.gen-modal-backdrop { position: fixed; inset: 0; background: rgba(8, 8, 12, 0.86); display: flex; align-items: center; justify-content: center; padding: 3vh 3vw; z-index: 200; }
-.gen-modal { background: var(--bg, #0e0e12); border: 1px solid var(--border, #2a2a2a); border-radius: 6px; width: 100%; height: 100%; max-width: none; max-height: 100%; display: flex; flex-direction: column; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45); }
-/* Match the minimalist inline cards: a tight title row + tight body, not the chunky modal chrome. */
-.gen-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 3px 8px; border-bottom: 1px solid var(--border, #2a2a2a); }
-.gen-modal-title { font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; font-size: 0.66rem; color: var(--text, #e8e8ea); }
-.gen-modal-close { background: transparent; border: 1px solid var(--border, #2a2a2a); border-radius: 4px; color: var(--text, #e8e8ea); cursor: pointer; width: 18px; height: 18px; font-size: 0.7rem; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+/* Scoped to the center area (.daw-main-stack is position:relative) so the patch editor fills instruments +
+   sequencer + session, leaving the sidebars/header/footer visible — same full-panel takeover look as the
+   sequencer's EUCLID/piano overlays (.sg-piano-takeover). */
+.gen-modal-backdrop { position: absolute; inset: 0; background: rgba(8, 8, 12, 0.86); display: flex; align-items: stretch; justify-content: stretch; padding: 0; z-index: 200; }
+.gen-modal { background: var(--panel-2, #0a0a0c); border: none; border-radius: 0; width: 100%; height: 100%; max-width: none; max-height: 100%; display: flex; flex-direction: column; }
+/* Head + close button match .sg-piano-takeover-head / .sg-piano-takeover-close (the EUCLID & GENERATE overlay). */
+.gen-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 16px; border-bottom: 1px solid #1c1c22; flex-shrink: 0; }
+.gen-modal-title { font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; font-size: 0.78rem; color: var(--accent, #22d3ee); }
+.gen-modal-close { background: transparent; border: 1px solid #2a2a32; border-radius: 4px; color: var(--text, #e8e8ea); cursor: pointer; width: 24px; height: 24px; font-size: 0.85rem; line-height: 1; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
 .gen-modal-close:hover { background: rgba(255, 255, 255, 0.08); }
+/* Generic instrument-designer button (FORMANT vowels, lyric pads, etc.) — had NO rule, so it fell back to
+   the browser's light default. Match the app's dark pill buttons (.set-btn / .code-debug-btn): dark fill,
+   subtle border, accent on hover. Inline flex/padding/font-size from the JSX still apply. */
+.ik-btn {
+  background: var(--panel, #15151b);
+  color: var(--text, #e8e8ea);
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+}
+.ik-btn:hover { border-color: var(--accent, #22d3ee); color: var(--accent, #22d3ee); }
+.ik-btn:active { background: rgba(255, 255, 255, 0.06); }
 .gen-modal-body { padding: 5px 8px; overflow-y: auto; }
 /* The modal header already shows the instrument name — drop the panel's own duplicate "MATRIX FM" / "PATCH"
    title (keep the rest of its header, e.g. the patch View/Edit toggle). */
@@ -6218,8 +6294,9 @@ input[type="range"]::-moz-range-thumb {
 .pl-title { font-size: 10px; letter-spacing: 0.16em; color: var(--accent-green); font-weight: 600; }
 .pl-status { font-size: 10px; color: var(--muted); margin-left: auto; }
 .pl-rec { display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 9px;
-  background: #14141a; border: 1px solid #2a2a32; border-radius: 5px; color: var(--text); font-size: 10px;
-  font-weight: 600; letter-spacing: 0.08em; cursor: default; }
+  background: #14141a; border: 1px solid #2a2a32; border-radius: 5px; color: var(--muted); font-size: 10px;
+  font-weight: 600; letter-spacing: 0.08em; cursor: pointer; font-family: inherit; }
+.pl-rec:hover { border-color: #3a3a44; color: var(--text); }
 .pl-rec-dot { width: 7px; height: 7px; border-radius: 50%; background: #6a2230; box-shadow: none; }
 .pl-rec-on { border-color: #e0556e; color: #ff7a8f; }
 .pl-rec-on .pl-rec-dot { background: #ff3b57; box-shadow: 0 0 7px rgba(255,59,87,0.85);
@@ -6229,8 +6306,10 @@ input[type="range"]::-moz-range-thumb {
   color: var(--text); font-size: 10px; cursor: pointer; }
 .pl-btn:hover { border-color: #3a3a44; background: #1b1b22; }
 .pl-btn:disabled { opacity: 0.4; cursor: default; }
+.pl-btn-ico { width: 22px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; line-height: 1; }
 .pl-replay-select { height: 20px; background: #14141a; border: 1px solid #2a2a32; border-radius: 5px;
-  color: var(--text); font-size: 10px; padding: 0 6px; max-width: 220px; }
+  color: var(--text); font-size: 10px; padding: 0 6px; max-width: 140px; }
 .pl-scroll { flex: 1; min-width: 0; overflow-x: hidden; overflow-y: hidden; }
 .pl-scroll::-webkit-scrollbar { height: 9px; }
 .pl-scroll::-webkit-scrollbar-track { background: transparent; }
@@ -6995,17 +7074,14 @@ input[type="text"].instr-name-input:focus {
 }
 
 /* "created with 🎹 by space.la" credit — fixed bottom-right corner */
+/* Credit sits under the Deckard logo in the top bar (was a fixed bottom-right overlay). */
+.logo-col { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; }
 .made-by-credit {
-  position: fixed;
-  right: 9px;
-  bottom: 3px;
-  z-index: 60;
-  font-size: 10px;
+  font-size: 9px;
   line-height: 1;
   letter-spacing: 0.02em;
   color: var(--muted, #55555e);
   opacity: 0.7;
-  pointer-events: auto;
   user-select: none;
   white-space: nowrap;
 }
