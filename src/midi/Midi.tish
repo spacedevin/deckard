@@ -173,7 +173,8 @@ export fn createMidiController(deps) {
     connectedId: "",
     learn: false,
     pending: null,
-    mappings: {}
+    mappings: {},
+    panelOpen: false
   }
   // restore persisted mappings, or seed defaults on a machine that has never saved any
   let raw = backend.read()
@@ -310,6 +311,15 @@ export fn createMidiController(deps) {
       notify()
     }
   }
+  // Open/close the footer MIDI popover (input picker + LEARN + mappings live there so the footer is one button).
+  fn togglePanel() {
+    state.panelOpen = !state.panelOpen
+    if (!state.panelOpen) {
+      state.learn = false
+      state.pending = null
+    }
+    notify()
+  }
 
   return {
     state: () => state,
@@ -318,6 +328,7 @@ export fn createMidiController(deps) {
     setLearn: setLearn,
     bindPending: bindPending,
     removeMapping: removeMapping,
+    togglePanel: togglePanel,
     // Test hook: feed a raw message as if from the device.
     feed: (data) => onMessage({ data: data })
   }

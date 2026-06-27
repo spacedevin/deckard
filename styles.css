@@ -44,6 +44,8 @@ body {
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
+  /* Only vertical scrolling anywhere — the page itself never scrolls horizontally. */
+  overflow-x: hidden;
   font-size: 13px;
   /* No accidental text-selection from clicking labels / dragging knobs & sliders. */
   -webkit-user-select: none;
@@ -428,13 +430,18 @@ input[type="range"]::-moz-range-thumb {
 .daw-root {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  /* Fixed viewport shell: header + footer + the 3-column layout fill exactly 100vh and never grow the page.
+     Each region (sidebars, instrument grid) scrolls inside itself instead — see .daw-app-layout / .instr-stack-host. */
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 .daw-app-layout {
   display: flex;
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
+  overflow: hidden;
 }
 
 .daw-sidebar-left {
@@ -447,6 +454,9 @@ input[type="range"]::-moz-range-thumb {
   background: #09090d;
   border-right: 1px solid #14141c;
   align-self: stretch;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .deck-nav-btn {
@@ -454,7 +464,7 @@ input[type="range"]::-moz-range-thumb {
   flex-direction: column;
   justify-content: center;
   align-items: stretch;
-  padding: 10px 6px;
+  padding: 6px 6px;
   cursor: pointer;
   border-radius: 0;
   margin-bottom: 0;
@@ -594,6 +604,7 @@ input[type="range"]::-moz-range-thumb {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
 }
 
 .daw-sidebar-right {
@@ -625,14 +636,16 @@ input[type="range"]::-moz-range-thumb {
 .daw-header {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.6rem;
   flex-wrap: wrap;
-  padding: 0.5rem 0.85rem;
+  /* extra right padding reserves clearance for the position:absolute fullscreen button (top:7px right:8px,
+     ~26px). With the preset cluster right-aligned (margin-left:auto) this is what keeps it from butting up
+     against the fullscreen icon: 48px = 8 offset + 26 btn + ~14 breathing room. */
+  padding: 0.5rem 48px 0.5rem 0.85rem;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
-  /* Pin the transport/header to the top so it stays reachable while scrolling the rack/instruments. */
-  position: sticky;
-  top: 0;
+  /* Fixed header at the top of the shell. */
+  flex: 0 0 auto;
   z-index: 50;
 }
 
@@ -663,7 +676,7 @@ input[type="range"]::-moz-range-thumb {
 .transport-bar {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.45rem;
   flex-wrap: wrap;
 }
 
@@ -950,7 +963,7 @@ input[type="range"]::-moz-range-thumb {
   background: transparent;
   color: var(--muted, #8a8a93);
   border: none;
-  padding: 0.4rem 0.7rem;
+  padding: 0.4rem 0.5rem;
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -1903,6 +1916,14 @@ input[type="range"]::-moz-range-thumb {
 .codj-panel {
   max-width: 28rem;
 }
+.codj-panel h2 {
+  margin-bottom: 0.3rem;
+}
+.codj-pairing {
+  margin: 0.1rem 0 0.4rem;
+  font-size: 0.7rem;
+  line-height: 1.3;
+}
 
 .codj-hint {
   font-size: 0.65rem;
@@ -1915,7 +1936,7 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  margin-bottom: 0.4rem;
+  margin-bottom: 0.25rem;
   align-items: center;
 }
 
@@ -1938,7 +1959,7 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
-  margin: 0.5rem 0;
+  margin: 0.35rem 0 0.25rem;
 }
 
 .btn-codj {
@@ -1957,8 +1978,8 @@ input[type="range"]::-moz-range-thumb {
      the grid wider than the sidebar on Play). The 0 minimum lets each track shrink to the column width; the panes
      then wrap / scroll inside their own `overflow: auto` box instead of overflowing the sidebar. */
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 0.65rem;
-  margin-bottom: 0.75rem;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
 }
 @media (max-width: 720px) {
   .codj-stream-grid {
@@ -1966,7 +1987,7 @@ input[type="range"]::-moz-range-thumb {
   }
 }
 .codj-stream-wrap {
-  margin: 0.5rem 0 0.75rem;
+  margin: 0.2rem 0 0.35rem;
   /* Allow this grid item to shrink below its content width so the pane (with overflow:auto) scrolls internally
      rather than widening the grid → the sidebar. */
   min-width: 0;
@@ -1986,7 +2007,7 @@ input[type="range"]::-moz-range-thumb {
   margin: 0;
   /* Fixed height (not just max) — otherwise the pane is a 1-line placeholder when stopped and balloons to its
      max on Play (fills with the TPL snapshot), stretching the right sidebar → the whole row → the left decks. */
-  height: 6.5rem;
+  height: 4rem;
   overflow: auto;
   padding: 0.45rem 0.5rem;
   font-size: 0.68rem;
@@ -2005,7 +2026,7 @@ input[type="range"]::-moz-range-thumb {
   font-size: 0.6rem;
   /* Fixed (not max) height + scroll — the log gains a line on Play and over a session; without a fixed height
      that growth stretches the right sidebar → the row → the left decks. Scrolls internally for older lines. */
-  height: 3.5rem;
+  height: 2.5rem;
   overflow-y: auto;
   background: #0a0c10;
   border: 1px solid var(--border);
@@ -2418,28 +2439,31 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .daw-foot {
+  /* One row: the recorder strip (left, with its waveform flexing to fill) + the master/IO/MIDI bar (right). */
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 4px;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 12px;
   padding: 4px 8px;
   font-size: 0.7rem;
   color: var(--muted);
   background: var(--panel);
   border-top: 1px solid var(--border);
-  /* Pin the master bus bar to the bottom of the viewport, mirroring the sticky header. */
-  position: sticky;
-  bottom: 0;
+  /* Fixed footer at the bottom of the shell (the shell is height:100vh, so this never scrolls off). */
+  flex: 0 0 auto;
+  /* overflow MUST stay visible so the MIDI popover (which opens UPWARD, above the footer) isn't clipped —
+     daw-root (the shell) is the real bottom clip. Horizontal spill is clipped on .seq-arrange instead. */
+  overflow: visible;
   z-index: 50;
 }
 
 .daw-foot-master {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  padding-top: 0.25rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.03);
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  gap: 0.6rem;
 }
 
 .master-chip {
@@ -3922,11 +3946,26 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  overflow: hidden;
 }
 .daw-body-stack .daw-main-stack {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  flex: 1 1 0;
+  min-height: 0;
+}
+/* The instrument grid takes the remaining height and scrolls INSIDE itself — it no longer pushes the layout
+   taller. SEQ + session stay pinned at the bottom of the main area at their natural height. */
+.daw-main-stack > .instr-stack-host {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.daw-main-stack > .seq-session-wrap {
+  flex: 0 0 auto;
+  min-height: 0;
 }
 
 /* ---- Grid sequencer ---- */
@@ -5505,7 +5544,11 @@ input[type="range"]::-moz-range-thumb {
   letter-spacing: 0.02em;
 }
 .transport-spacer {
-  flex: 1;
+  /* Zero-grow on purpose: a flex:1 spacer here makes .transport-bar expand to eat ALL free header width,
+     leaving the preset clusters no slack so they wrap to a second row. Kept (not deleted) so the trailing
+     undo/redo/export/import buttons keep their position. */
+  flex: 0 0 0;
+  width: 0;
 }
 
 /* ---- Multi-note piano grid ---- */
@@ -5602,17 +5645,25 @@ input[type="range"]::-moz-range-thumb {
 
 
 /* ---- Set presets (whole-workspace named save/load, global) ---- */
-.set-presets { display: inline-flex; align-items: center; gap: 0.35rem; }
+.set-presets { display: inline-flex; align-items: center; gap: 0.28rem; }
+/* Push the library/preset clusters (♫ songs + STATION + SET) to the right edge so the header reads as a
+   balanced split — live transport controls on the left, library & presets on the right — instead of all
+   controls packed left with dead space. The auto margin collapses (and the row wraps) only well below spec. */
+.daw-header > .set-presets:not(.set-lib) { margin-left: auto; }
 .set-presets-label { color: var(--muted); font-size: 0.66rem; letter-spacing: 0.08em; }
-.set-select { padding: 0.28rem 0.5rem; background: var(--panel, #15151b); color: var(--fg, #e8e8ea);
-  border: 1px solid var(--border, #2a2a2a); border-radius: 5px; font-size: 0.74rem; max-width: 150px; }
+.set-select { padding: 0.28rem 0.4rem; background: var(--panel, #15151b); color: var(--fg, #e8e8ea);
+  border: 1px solid var(--border, #2a2a2a); border-radius: 5px; font-size: 0.74rem; max-width: 124px; }
 .set-btn { padding: 0.28rem 0.55rem; background: var(--panel, #15151b); color: var(--fg, #e8e8ea);
   border: 1px solid var(--border, #2a2a2a); border-radius: 5px; font-size: 0.72rem; cursor: pointer; }
+/* Square icon buttons: Save (⤓) sits next to Import (⤒) in each preset cluster (load ▾ · ⤓ save · ⤒ import). */
+.set-btn.set-save, .set-btn.set-import { width: 26px; padding: 0; display: inline-flex; align-items: center;
+  justify-content: center; font-size: 0.95rem; line-height: 1; }
 .set-import { display: inline-flex; align-items: center; cursor: pointer; }
 
 /* ♫ SONGS button + the dedicated song-browser overlay. */
-.songs-open-btn { padding: 0.28rem 0.7rem; background: rgba(34, 211, 238, 0.1); color: var(--deck-a, #22d3ee);
-  border: 1px solid rgba(34, 211, 238, 0.4); border-radius: 5px; font-size: 0.72rem; font-weight: 700;
+.songs-open-btn { padding: 0.28rem 0.5rem; min-width: 26px; display: inline-flex; align-items: center;
+  justify-content: center; background: rgba(34, 211, 238, 0.1); color: var(--deck-a, #22d3ee);
+  border: 1px solid rgba(34, 211, 238, 0.4); border-radius: 5px; font-size: 0.92rem; font-weight: 700;
   letter-spacing: 0.06em; cursor: pointer; }
 .songs-open-btn:hover { background: rgba(34, 211, 238, 0.2); border-color: var(--deck-a, #22d3ee); }
 .song-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(0, 0, 0, 0.6);
@@ -6129,7 +6180,7 @@ input[type="range"]::-moz-range-thumb {
   background: rgba(34, 211, 238, 0.14);
 }
 
-.gen-modal-backdrop { position: absolute; inset: 0; background: rgba(8, 8, 12, 0.86); display: flex; align-items: stretch; justify-content: stretch; z-index: 50; }
+.gen-modal-backdrop { position: fixed; inset: 0; background: rgba(8, 8, 12, 0.86); display: flex; align-items: center; justify-content: center; padding: 3vh 3vw; z-index: 200; }
 .gen-modal { background: var(--bg, #0e0e12); border: 1px solid var(--border, #2a2a2a); border-radius: 6px; width: 100%; height: 100%; max-width: none; max-height: 100%; display: flex; flex-direction: column; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45); }
 /* Match the minimalist inline cards: a tight title row + tight body, not the chunky modal chrome. */
 .gen-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 3px 8px; border-bottom: 1px solid var(--border, #2a2a2a); }
@@ -6161,8 +6212,8 @@ input[type="range"]::-moz-range-thumb {
 
 /* ---- TPL Playback / Playlist timeline (the recorded TPL stream over time) ------------------------- */
 .seq-session-wrap { display: flex; flex-direction: column; gap: 10px; }
-.seq-arrange { width: 100%; display: flex; justify-content: flex-start; }
-.pl-view { flex: 1; background: var(--panel-2, #0a0a0c); padding: 0; display: flex; align-items: center; gap: 12px; }
+.seq-arrange { flex: 1 1 auto; min-width: 0; display: flex; justify-content: flex-start; overflow: hidden; }
+.pl-view { flex: 1; min-width: 0; background: var(--panel-2, #0a0a0c); padding: 0; display: flex; align-items: center; gap: 12px; }
 .pl-head { display: flex; align-items: center; gap: 10px; min-height: 20px; flex-shrink: 0; }
 .pl-title { font-size: 10px; letter-spacing: 0.16em; color: var(--accent-green); font-weight: 600; }
 .pl-status { font-size: 10px; color: var(--muted); margin-left: auto; }
@@ -6180,7 +6231,7 @@ input[type="range"]::-moz-range-thumb {
 .pl-btn:disabled { opacity: 0.4; cursor: default; }
 .pl-replay-select { height: 20px; background: #14141a; border: 1px solid #2a2a32; border-radius: 5px;
   color: var(--text); font-size: 10px; padding: 0 6px; max-width: 220px; }
-.pl-scroll { flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: #3a4150 transparent; }
+.pl-scroll { flex: 1; min-width: 0; overflow-x: hidden; overflow-y: hidden; }
 .pl-scroll::-webkit-scrollbar { height: 9px; }
 .pl-scroll::-webkit-scrollbar-track { background: transparent; }
 .pl-scroll::-webkit-scrollbar-thumb { background: #353b47; border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
@@ -6205,14 +6256,15 @@ input[type="range"]::-moz-range-thumb {
 .pl-evt { position: absolute; top: 2px; height: 16px; width: 9px; border: 1px solid; border-radius: 3px;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.15); }
 .pl-evt-count { position: absolute; right: 4px; top: 3px; font-size: 9px; color: #44444c; }
-.pl-empty-hint { font-size: 11px; color: var(--muted); padding: 5px 2px; }
+.pl-empty-hint { font-size: 11px; color: var(--muted); padding: 2px; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; min-width: 0; }
 .pl-playhead { position: absolute; top: 0; bottom: 0; left: 0; opacity: 0; width: 2px;
   background: var(--accent-green); box-shadow: 0 0 6px rgba(124,255,124,0.7); pointer-events: none;
   z-index: 5; }
 /* Per-deck summarized waveforms — one filled mirror envelope per deck, in the deck colour, drawn imperatively
    to a <canvas> by Scope.drawSetWaveLane (sized + painted there, off the vdom). The track div keeps the 4-bar
    gridline background under the transparent canvas. */
-.pl-wave-cv { display: block; height: 42px; }
+.pl-wave-cv { display: block; height: 100%; width: 100%; }
 .pl-deck-label { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; border-left: 3px solid;
   padding-left: 7px; justify-content: flex-start; }
 
@@ -6220,9 +6272,21 @@ input[type="range"]::-moz-range-thumb {
 .io-rack { display: inline-flex; align-items: center; gap: 10px; margin-left: 14px; padding: 0 10px;
   height: 26px; }
 /* MIDI strip — mirrors the I/O Rack styling. */
-.midi-rack { display: inline-flex; align-items: center; gap: 8px; margin-left: 10px; padding: 0 10px;
-  height: 26px; }
+.midi-rack { position: relative; display: inline-flex; align-items: center; }
 .midi-rack-title { font-size: 10px; letter-spacing: 0.16em; color: var(--accent-green); font-weight: 600; }
+/* The footer MIDI control is a single button; its panel lives in a popover above it. */
+.midi-btn { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 11px;
+  background: #14141a; border: 1px solid #2a2a32; border-radius: 5px; color: var(--text); font-size: 10px;
+  font-weight: 600; letter-spacing: 0.12em; cursor: pointer; }
+.midi-btn:hover { border-color: #3a3a44; }
+.midi-btn-on { border-color: var(--accent-green); color: var(--accent-green); }
+.midi-btn-open { border-color: var(--accent, #22d3ee); color: var(--accent, #22d3ee); }
+.midi-popover { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 1000;
+  background: var(--bg, #0e0e12); border: 1px solid var(--border, #2a2a2a); border-radius: 8px; padding: 10px;
+  display: flex; flex-direction: column; gap: 8px; min-width: 280px; max-width: 360px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.55); }
+.midi-popover-top { display: flex; align-items: center; gap: 8px; }
+.midi-popover-chips { display: flex; flex-wrap: wrap; gap: 4px; max-height: 9rem; overflow-y: auto; overflow-x: hidden; }
 .midi-dot { width: 7px; height: 7px; border-radius: 50%; background: #33333c; }
 .midi-dot-on { background: var(--accent-green); box-shadow: 0 0 6px rgba(124,255,124,0.6); }
 .midi-select { height: 20px; max-width: 150px; background: #14141a; border: 1px solid #2a2a32;
@@ -6390,6 +6454,15 @@ input[type="range"]::-moz-range-thumb {
   .instr-grid-container {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+/* Header one-line floor guard — below 1620px shave the last few px so the top bar holds ONE line down to
+   ~1500px. It keeps flex-wrap:wrap, so anything narrower still degrades gracefully to two rows rather than
+   clipping. */
+@media (max-width: 1620px) {
+  .daw-header { gap: 0.5rem; }
+  .transport-bar { gap: 0.4rem; }
+  .mode-seg { padding: 0.4rem 0.45rem; }
 }
 
 /* Empty instrument slots filling out the grid — a slightly-different background marks this as a reserved

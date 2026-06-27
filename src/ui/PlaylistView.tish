@@ -85,6 +85,11 @@ export fn PlaylistView(project, rt, props) {
   if (gridBars < MIN_BARS) {
     gridBars = MIN_BARS
   }
+  // The recorder lane only needs to be ~16 bars wide — cap it so a long take never grows the footer / forces
+  // horizontal scroll (the take still records past this; the lane just stops widening).
+  if (gridBars > 16) {
+    gridBars = 16
+  }
   let laneWidth = gridBars * BAR_PX
 
   // ---- bar ruler ----
@@ -112,7 +117,7 @@ export fn PlaylistView(project, rt, props) {
     )
   } else {
     rows.push(
-      <div class="pl-empty-hint">{"hit Play (Sequence or Session) — whatever plays is captured here, then Save it as a replayable Set"}</div>
+      <div class="pl-empty-hint">{"Hit Play — what plays is captured here, Save it as a Set"}</div>
     )
   }
 
@@ -139,7 +144,6 @@ export fn PlaylistView(project, rt, props) {
   return (
     <div class="pl-view pl-tpl">
       <div class="pl-head">
-        <span class="pl-title">{"SET RECORDER"}</span>
         <span class="pl-rec pl-rec-on" title="Always recording — hit Play and whatever the sequencer fires is captured here">
           <span class="pl-rec-dot"></span>{"REC"}
         </span>

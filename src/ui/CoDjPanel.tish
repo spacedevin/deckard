@@ -782,18 +782,6 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
   if (rt && rt.coDjActors && rt.coDjActors.length > 0) {
     actorSummary = rt.coDjActors.join(", ")
   }
-  let directTargetOpts = [{ value: "", label: "(pick actor)" }]
-  if (rt && rt.coDjActors) {
-    let myId = rt.coDjActorId || ""
-    let di = 0
-    while (di < rt.coDjActors.length) {
-      if (rt.coDjActors[di] !== myId) {
-        let aid = rt.coDjActors[di]
-        directTargetOpts.push({ value: aid, label: aid })
-      }
-      di = di + 1
-    }
-  }
   return <section class="panel codj-panel">
     <h2>{"Co-DJ (WebSocket)"}</h2>
     <p class="codj-pairing"><strong>{"Session actors"}</strong>{" · "}{actorSummary}</p>
@@ -830,42 +818,6 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       </div>
     </div>
     <div class="codj-row">
-      <label>{"WS "}<input
-        type="text"
-        class="codj-input"
-        placeholder={defaultWsUrl()}
-        oninput={(e) => {
-          if (rt) {
-            rt.coDjWsUrl = e.target.value
-          }
-        }}
-      /></label>
-    </div>
-    <div class="codj-row">
-      <label>{"Direct→ "}
-        {IkSelect({
-          class: "codj-input",
-          value: rt && rt.coDjDirectTarget ? rt.coDjDirectTarget : "",
-          options: directTargetOpts,
-          onChange: (v) => {
-            if (rt) {
-              rt.coDjDirectTarget = v
-            }
-          }
-        })}
-      </label>
-      <input
-        type="text"
-        class="codj-input codj-direct-txt"
-        placeholder="euclid hi-hat"
-        oninput={(e) => {
-          if (rt) {
-            rt.coDjDirectText = e.target.value
-          }
-        }}
-      />
-    </div>
-    <div class="codj-row">
       <label>{"Room "}<input type="text" class="codj-input" placeholder="default (room id, max 4 players)" oninput={(e) => {
         if (rt) {
           rt.coDjSessionId = e.target.value
@@ -893,41 +845,6 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
     <div class="codj-actions">
       <button type="button" class="btn-codj" onclick={connectWs}>{"Connect"}</button>
       <button type="button" class="btn-codj" onclick={disconnectWs}>{"Disconnect"}</button>
-      <button
-        type="button"
-        class="btn-codj"
-        onclick={() => {
-          if (rt && rt.coDjWs && rt.coDjWs.readyState === 1) {
-            let tgt = rt.coDjDirectTarget ? rt.coDjDirectTarget : ""
-            if (!tgt && rt.coDjActors && rt.coDjActors.length > 0) {
-              let myId = rt.coDjActorId || ""
-              let i = 0
-              while (i < rt.coDjActors.length) {
-                if (rt.coDjActors[i] !== myId) {
-                  tgt = rt.coDjActors[i]
-                  break
-                }
-                i = i + 1
-              }
-            }
-            if (tgt) {
-              let tx = rt.coDjDirectText ? rt.coDjDirectText : "euclid hi-hat"
-              let ps = typeof rt.perfStep === "number" ? rt.perfStep : 0
-              let aid = rt.coDjActorId ? rt.coDjActorId : (rt.coDjClientId ? rt.coDjClientId : "actor")
-              let directPayload = JSON.stringify({ type: "direct", targetActorId: tgt, text: tx, authorId: aid, perfStep: ps })
-              if (typeof console !== "undefined" && console.log) {
-                console.log("[Co-DJ UI] OUTPUT wsSend direct:", directPayload)
-              }
-              rt.coDjWs.send(directPayload)
-              pushLog("sent direct→" + tgt)
-            } else {
-              pushLog("no target: connect + join first")
-            }
-          }
-        }}
-      >
-        {"Send test direct"}
-      </button>
       <button type="button" class="btn-codj" onclick={() => {
         coDjClearOverlays(project)
         setProject(project)

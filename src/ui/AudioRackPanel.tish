@@ -135,7 +135,6 @@ export fn AudioRackPanel(audioStore) {
   }
   return (
     <div class="io-rack">
-      <span class="io-rack-title">{"I/O RACK"}</span>
       <label class="io-slot">
         <span class="io-slot-label">{"SPEAKERS"}</span>
         {IkSelect({ class: "io-select", value: sel.speakers, options: deviceOptions(), onChange: (v) => onPick("speakers", v) })}
@@ -163,24 +162,6 @@ export fn AudioRackPanel(audioStore) {
           <input type="range" min="0" max="500" step="1" value={String(sel.cueOffsetMs)} onmousedown={(e) => e.stopPropagation()} oninput={(e) => onCueOffset(e.target.value)} />
         </label>
       )}
-      <button
-        type="button"
-        class={sel.drawOff ? "io-autosync io-draw-off" : "io-autosync"}
-        title="DRAW — turn OFF to suspend all scopes/meters/waveforms/playhead (max CPU headroom for audio). Draws are also auto-suspended for ~0.25s around any cue/output switch."
-        onmousedown={(e) => e.stopPropagation()}
-        onclick={() => onDrawToggle()}
-      >
-        {sel.drawOff ? "DRAW: OFF" : "DRAW: ON"}
-      </button>
-      <button
-        type="button"
-        class={sel.cuePauseDraws ? "io-autosync io-draw-off" : "io-autosync"}
-        title="CUE PAUSE — when ON, briefly suspends all draws around a CUE press so the audio reroute happens on a quiet thread. OFF (default) since the scopes now render off-thread, so cueing no longer freezes the visuals."
-        onmousedown={(e) => e.stopPropagation()}
-        onclick={() => onCuePause()}
-      >
-        {sel.cuePauseDraws ? "CUE PAUSE: ON" : "CUE PAUSE: OFF"}
-      </button>
       <button type="button" class="io-refresh" title="Re-scan audio devices" onclick={() => refresh(true)}>{"⟳"}</button>
     </div>
   )

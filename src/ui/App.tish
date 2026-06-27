@@ -1990,11 +1990,16 @@ export fn App() {
     let tb = trueBpm !== null && trueBpm !== undefined ? Math.round(Number(trueBpm) * 10) / 10 : null
     let mm = marginMs !== null && marginMs !== undefined ? Math.round(Number(marginMs)) : null
     let ur = underruns !== null && underruns !== undefined ? Math.floor(Number(underruns)) : 0
-    let txt = "TGT " + String(Math.round(Number(target)))
-    txt = txt + " · TRUE " + (tb !== null && tb !== undefined ? String(tb) : "—")
-    txt = txt + " · BUF " + (mm !== null && mm !== undefined ? String(mm) + "ms" : "—")
+    // Self-expanding health readout: a bare ♥ when all is well (the target BPM already shows in the stepper
+    // right beside it, so repeating it is redundant), expanding to live numbers ONLY when something needs
+    // attention. Branch priority mirrors the colour cut below: underrun (alarm) → low headroom → tempo drift.
+    let txt = "♥"
     if (ur > 0) {
-      txt = txt + " · ✕" + String(ur)
+      txt = "♥ ✕" + String(ur)
+    } else if (mm !== null && mm !== undefined && mm < 25) {
+      txt = "♥ " + String(mm) + "ms"
+    } else if (tb !== null && tb !== undefined && Number(target) - tb > 2) {
+      txt = "♥ " + String(Math.round(Number(target))) + "→" + String(tb)
     }
     el.textContent = txt
     let cls = "bpm-debug ok"
@@ -2824,13 +2829,13 @@ export fn App() {
         rt.canRedo ? rt.canRedo() : false
       )}
       <div class="set-presets" key={"sp-" + String(setListGenKey)}>
-        <button type="button" class="songs-open-btn" title="Browse the song library — load a full song (kit + patterns) onto any deck" onclick={() => setSongBrowserOpen(true)}>{"♫ SONGS"}</button>
+        <button type="button" class="songs-open-btn" title="Browse the song library — load a full song (kit + patterns) onto any deck" onclick={() => setSongBrowserOpen(true)}>{"♫"}</button>
         <span class="transport-div" />
-        <span class="set-presets-label">{"STATION"}</span>
         {IkSelect({
           class: "set-select",
           value: "",
           placeholder: "— load station —",
+          title: "Station presets — full workspace snapshots (instruments, sequences and all)",
           options: setOpts,
           onChange: (v) => {
             if (v && v.length > 0) {
@@ -2843,13 +2848,12 @@ export fn App() {
             }
           }
         })}
-        <button type="button" class="set-btn" onclick={onSaveSet} title="Save the whole workspace as a named station">{"Save Station"}</button>
+        <button type="button" class="set-btn set-save" onclick={onSaveSet} title="Save the whole workspace as a named station">{"⤓"}</button>
         <label class="set-btn set-import" title="Import a .tpl station file">{"⤒"}
           <input type="file" accept=".tpl,.txt" style={{ display: "none" }} onchange={onImportSetFile} />
         </label>
       </div>
       <div class="set-presets set-lib" key={"sl-" + String(setLibGenKey)}>
-        <span class="set-presets-label" title={"A Set = 1–4 players + a song arrangement. Loading fills the free deck slots with its players (ghosts you can play alongside)."}>{"SET"}</span>
         {IkSelect({
           class: "set-select",
           value: "",
@@ -2867,7 +2871,7 @@ export fn App() {
             }
           }
         })}
-        <button type="button" class="set-btn" onclick={onSaveSetLib} title="Capture the loaded decks (their racks, clips + arrangement) as a named Set">{"Save Set"}</button>
+        <button type="button" class="set-btn set-save" onclick={onSaveSetLib} title="Capture the loaded decks (their racks, clips + arrangement) as a named Set">{"⤓"}</button>
         <label class="set-btn set-import" title="Import a .tpl Set file">{"⤒"}
           <input type="file" accept=".tpl,.txt" style={{ display: "none" }} onchange={onImportSetLibFile} />
         </label>

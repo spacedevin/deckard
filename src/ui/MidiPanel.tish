@@ -11,22 +11,32 @@ export fn MidiPanel(controller, project, midiGen) {
     return null
   }
   let st = controller.state()
-  if (!st.supported && st.inputs.length === 0) {
-    // Not yet enabled (or unsupported): a single Enable button requests Web MIDI on a user gesture.
-    return (
-      <div class="midi-rack">
-        <span class="midi-rack-title">{"MIDI"}</span>
-        <button
-          type="button"
-          class="midi-enable"
-          title="Enable MIDI — connect a hardware keyboard / controller (Chrome / Edge). Notes play the selected instrument; learn a knob to map it."
-          onmousedown={(e) => e.stopPropagation()}
-          onclick={() => controller.requestAccess()}
-        >
-          {"Enable"}
-        </button>
-      </div>
-    )
+  let enabled = st.supported === true || st.inputs.length > 0
+  let connected = st.connectedId !== null && st.connectedId !== undefined && st.connectedId !== ""
+
+  // The footer is just a single MIDI button. Not enabled → click requests Web MIDI. Enabled → click toggles a
+  // popover (above the button) that holds the input picker + LEARN + the current mappings.
+  let midiBtn = (
+    <button
+      type="button"
+      class={connected ? "midi-btn midi-btn-on" : (st.panelOpen ? "midi-btn midi-btn-open" : "midi-btn")}
+      title={enabled ? "MIDI — pick input, learn knobs, manage mappings" : "Enable MIDI — connect a hardware controller (Chrome / Edge)"}
+      onmousedown={(e) => e.stopPropagation()}
+      onclick={() => {
+        if (!enabled) {
+          controller.requestAccess()
+        } else if (controller.togglePanel) {
+          controller.togglePanel()
+        }
+      }}
+    >
+      <span class={connected ? "midi-dot midi-dot-on" : "midi-dot"} />
+      {"MIDI"}
+    </button>
+  )
+
+  if (!enabled || !st.panelOpen) {
+    return <div class="midi-rack">{midiBtn}</div>
   }
 
   let inputOpts = [{ value: "", label: "— no input —" }]
@@ -62,26 +72,24 @@ export fn MidiPanel(controller, project, midiGen) {
     mi = mi + 1
   }
 
-  let connected = st.connectedId !== null && st.connectedId !== undefined && st.connectedId !== ""
-  return (
-    <div class="midi-rack">
-      <span class="midi-rack-title">{"MIDI"}</span>
-      <span class={connected ? "midi-dot midi-dot-on" : "midi-dot"} title={connected ? "connected" : "no input"} />
-      {IkSelect({
-        class: "midi-select",
-        value: st.connectedId,
-        options: inputOpts,
-        onChange: (v) => controller.selectInput(v)
-      })}
-      <button
-        type="button"
-        class={st.learn ? "midi-learn midi-learn-on" : "midi-learn"}
-        title="MIDI-LEARN — turn on, move a knob/fader on your controller, then pick what it should control."
-        onmousedown={(e) => e.stopPropagation()}
-        onclick={() => controller.setLearn(!st.learn)}
-      >
-        {st.learn ? "LEARN: ON" : "LEARN"}
-      </button>
+  let popover = (
+    <div class="midi-popover" onmousedown={(e) => e.stopPropagation()}>
+      <div class="midi-popover-top">
+        {IkSelect({
+          class: "midi-select",
+          value: st.connectedId,
+          options: inputOpts,
+          onChange: (v) => controller.selectInput(v)
+        })}
+        <button
+          type="button"
+          class={st.learn ? "midi-learn midi-learn-on" : "midi-learn"}
+          title="MIDI-LEARN — turn on, move a knob/fader on your controller, then pick what it should control."
+          onclick={() => controller.setLearn(!st.learn)}
+        >
+          {st.learn ? "LEARN: ON" : "LEARN"}
+        </button>
+      </div>
       {st.learn && st.pending ? IkSelect({
         class: "midi-select midi-assign",
         value: "",
@@ -89,9 +97,10 @@ export fn MidiPanel(controller, project, midiGen) {
         options: targetOpts,
         onChange: (v) => { if (v) { controller.bindPending(v) } }
       }) : null}
-      {st.learn && !st.pending ? <span class="midi-hint">{"move a knob…"}</span> : null}
-      {chips}
-      <span class="midi-kbd-hint" title="A connected keyboard plays the instrument selected in the INSTRUMENT panel">{"⌨ → selected"}</span>
+      {st.learn && !st.pending ? <span class="midi-hint">{"move a knob on your controller…"}</span> : null}
+      {chips.length > 0 ? <div class="midi-popover-chips">{chips}</div> : null}
+      <span class="midi-kbd-hint" title="A connected keyboard plays the instrument selected in the INSTRUMENT panel">{"⌨ keyboard → plays the selected instrument"}</span>
     </div>
   )
+  return <div class="midi-rack midi-rack-open">{midiBtn}{popover}</div>
 }
