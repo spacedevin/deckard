@@ -20,6 +20,7 @@ import {
 import { euclideanPattern } from './Euclidean.tish'
 import { parseGenBlock } from './TplExtension.tish'
 import { parseProgram } from './Parser.tish'
+import { applyDeckMixParsed } from '../model/DeckRouting.tish'
 import { tplLoopResetChannel } from './LoopState.tish'
 import { ensureMasterMixer, ensureActorMixerEntries } from '../model/MixerRouting.tish'
 
@@ -1083,6 +1084,9 @@ export fn applyParsed(project, parsed) {
       project.scaleMode = parsed.scaleMode
     }
   }
+  // Per-deck booth EQ + volume (the centre DJ-mixer strip). Set the deckEq data; the receiver recomputes the
+  // per-channel eq via applyDeckEq after load.
+  applyDeckMixParsed(project, parsed.deckMix)
   let userMacros = parsed.macros ? parsed.macros : {}
   let ti = 0
   while (ti < parsed.tracks.length) {

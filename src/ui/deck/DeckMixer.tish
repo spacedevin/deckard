@@ -381,13 +381,23 @@ export fn DeckChannelStrip(project, deck, setProjectFromUI, touchMixer, rt) {
   }
   fn setEq(band, v) {
     de[band] = v
-    applyDeckEq(project, deck)
-    applyDeckMix()
+    // Route through the broadcasting commit door so booth EQ travels over the websocket (deck_mix TPL). It does
+    // applyDeckEq + the rAF-coalesced local repaint + a debounced broadcast. Fallback for solo/no-rt.
+    if (rt && rt.commitDeckMix) {
+      rt.commitDeckMix(deck)
+    } else {
+      applyDeckEq(project, deck)
+      applyDeckMix()
+    }
   }
   fn setVol(p) {
     de.vol = p
     // Deck volume composes with the crossfader in deckMainOutGainMultiplier — reconciled in updateMixerFromProject.
-    applyDeckMix()
+    if (rt && rt.commitDeckMix) {
+      rt.commitDeckMix(deck)
+    } else {
+      applyDeckMix()
+    }
   }
   let vol = typeof de.vol === "number" ? de.vol : 1
   let cued = rt && rt.cuedDecks && rt.cuedDecks[deck] === true

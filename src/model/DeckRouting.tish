@@ -149,6 +149,47 @@ export fn channelDeckRow(project, ch) {
   return channelPlayerIndex(project, ch) < 2 ? "top" : "bottom"
 }
 
+// Apply a parsed `deck_mix` map (deck -> {hi,mid,lo,flt,vol}) onto project.deckEq, clamped to the UI ranges
+// (EQ bands -12..12 dB, FLT -1..1, vol 0..1). Pure data write — the receiver recomputes the per-channel eq via
+// applyDeckEq afterward. Shared by applyParsed (snapshot load) and applyCoDjTplSource (deck.put / incremental).
+export fn applyDeckMixParsed(project, deckMix) {
+  if (!project || deckMix === null || deckMix === undefined) {
+    return
+  }
+  if (!project.deckEq) {
+    project.deckEq = {}
+  }
+  let decks = ["A", "B", "C", "D"]
+  let i = 0
+  while (i < decks.length) {
+    let dk = decks[i]
+    let src = deckMix[dk]
+    if (src !== null && src !== undefined) {
+      let de = project.deckEq[dk]
+      if (!de) {
+        de = { hi: 0, mid: 0, lo: 0, flt: 0, vol: 1 }
+        project.deckEq[dk] = de
+      }
+      if (typeof src.hi === "number" && src.hi === src.hi) {
+        de.hi = src.hi < -12 ? -12 : (src.hi > 12 ? 12 : src.hi)
+      }
+      if (typeof src.mid === "number" && src.mid === src.mid) {
+        de.mid = src.mid < -12 ? -12 : (src.mid > 12 ? 12 : src.mid)
+      }
+      if (typeof src.lo === "number" && src.lo === src.lo) {
+        de.lo = src.lo < -12 ? -12 : (src.lo > 12 ? 12 : src.lo)
+      }
+      if (typeof src.flt === "number" && src.flt === src.flt) {
+        de.flt = src.flt < -1 ? -1 : (src.flt > 1 ? 1 : src.flt)
+      }
+      if (typeof src.vol === "number" && src.vol === src.vol) {
+        de.vol = src.vol < 0 ? 0 : (src.vol > 1 ? 1 : src.vol)
+      }
+    }
+    i = i + 1
+  }
+}
+
 /** Per-deck volume fader (0..1, default 1) from the centre DJ-mixer strip. Lives on project.deckEq[deck]. */
 export fn deckVolumeFor(project, ch) {
   if (!project || !project.deckEq) {

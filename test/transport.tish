@@ -1,0 +1,54 @@
+// Regression guard for co-DJ ROLE detection — the load-bearing gate behind host-only live transport.
+// The bug this locks (2026-06): coDjIsFollower failed OPEN toward "follower" whenever coDjIsHost wasn't yet
+// true (the connect window, or a stale reconnect). Combined with onPlayStop's follower→Preview early-return,
+// the REAL host got downgraded to local Preview and NEVER broadcast playing_start/stop — silently breaking
+// the whole room's transport. The fix: until the gateway resolves our role (coDjHostActorId set), an open
+// socket is NOT classified as a follower (fail SAFE toward host). See [[host-only-live-transport]].
+import { coDjIsFollower, coDjShouldFollow } from '../src/codj/Transport.tish'
+
+let pass = 0
+let fail = 0
+fn check(name, cond) {
+  if (cond) { pass = pass + 1; console.log("  ok   " + name) }
+  else { fail = fail + 1; console.log("  FAIL " + name) }
+}
+
+let OPEN = { readyState: 1 }
+let CONNECTING = { readyState: 0 }
+
+// ---- coDjIsFollower ----
+// Solo (never connected): not a follower → Play drives locally.
+check("solo (no ws) is NOT a follower", coDjIsFollower({ coDjIsHost: false, coDjHostActorId: null, coDjWs: null }) === false)
+
+// The HOST: coDjIsHost true short-circuits → never a follower (drives + broadcasts).
+check("resolved HOST is NOT a follower", coDjIsFollower({ coDjIsHost: true, coDjHostActorId: "h", coDjWs: OPEN }) === false)
+
+// THE FIX — connect window: socket OPEN but role not yet resolved (coDjHostActorId null). A true host is
+// here for a beat before its joined frame; must NOT be downgraded to follower/Preview.
+check("open socket, role UNRESOLVED is NOT a follower (fail-safe toward host)", coDjIsFollower({ coDjIsHost: false, coDjHostActorId: null, coDjWs: OPEN }) === false)
+
+// THE FIX — stale reconnect: coDjIsHost left false, coDjHostActorId not yet re-resolved.
+check("open socket, undefined host id is NOT a follower", coDjIsFollower({ coDjIsHost: false, coDjWs: OPEN }) === false)
+
+// Resolved FOLLOWER: role known (coDjHostActorId set to someone else), socket open → IS a follower.
+check("resolved follower (host id set, open socket) IS a follower", coDjIsFollower({ coDjIsHost: false, coDjHostActorId: "host-X", coDjWs: OPEN }) === true)
+
+// Resolved follower but socket still connecting → not yet a follower.
+check("resolved follower, socket CONNECTING is NOT a follower", coDjIsFollower({ coDjIsHost: false, coDjHostActorId: "host-X", coDjWs: CONNECTING }) === false)
+
+// Null rt is safe.
+check("null rt is NOT a follower", coDjIsFollower(null) === false)
+
+// ---- coDjShouldFollow (slaves transport to host clock) ----
+// Host never follows.
+check("HOST should NOT follow", coDjShouldFollow({ coDjIsHost: true }) === false)
+// A non-host with default (undefined) follow-transport DOES follow (behavior-preserving default).
+check("non-host with default follow-transport DOES follow", coDjShouldFollow({ coDjIsHost: false }) === true)
+// Explicit seeded default true also follows.
+check("non-host with coDjFollowTransport:true DOES follow", coDjShouldFollow({ coDjIsHost: false, coDjFollowTransport: true }) === true)
+// Independent mode opts out.
+check("non-host with coDjFollowTransport:false does NOT follow (independent mode)", coDjShouldFollow({ coDjIsHost: false, coDjFollowTransport: false }) === false)
+
+console.log("")
+console.log("PASS=" + String(pass) + " FAIL=" + String(fail))
+if (fail > 0) { throw new Error("transport role tests failed") }

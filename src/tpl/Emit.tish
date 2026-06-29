@@ -111,6 +111,29 @@ export fn emitProject(project) {
   return emitProjectInner(project, false)
 }
 
+// The TPL line for one deck's booth EQ + volume (project.deckEq[deck] = {hi,mid,lo,flt,vol}). Returns "" when
+// the deck is at defaults {0,0,0,0,1} so the round-trip stays minimal. Shared by emitProject (host snapshot)
+// and CoDjPanel sendDeckPut (a follower contributing its OWN deck's booth), so both produce identical lines.
+export fn deckMixLine(project, deck) {
+  if (!project || !project.deckEq) {
+    return ""
+  }
+  let de = project.deckEq[deck]
+  if (!de) {
+    return ""
+  }
+  let hi = typeof de.hi === "number" ? de.hi : 0
+  let mid = typeof de.mid === "number" ? de.mid : 0
+  let lo = typeof de.lo === "number" ? de.lo : 0
+  let flt = typeof de.flt === "number" ? de.flt : 0
+  let vol = typeof de.vol === "number" ? de.vol : 1
+  let off = Math.abs(hi) > 0.0001 || Math.abs(mid) > 0.0001 || Math.abs(lo) > 0.0001 || Math.abs(flt) > 0.0001 || Math.abs(vol - 1) > 0.0001
+  if (!off) {
+    return ""
+  }
+  return "deck_mix " + deck + " hi " + formatTplFloat(hi) + " mid " + formatTplFloat(mid) + " lo " + formatTplFloat(lo) + " flt " + formatTplFloat(flt) + " vol " + formatTplFloat(vol)
+}
+
 export fn emitProjectInner(project, skipSync) {
   if (!skipSync) {
     syncAllMainClipsFromChannels(project)
@@ -143,6 +166,16 @@ export fn emitProjectInner(project, skipSync) {
     if (pc >= 0 && pc <= 11) {
       o = o + "scale " + rn[pc] + " " + String(project.scaleMode) + "\n"
     }
+  }
+  // Per-deck booth EQ + volume (the centre DJ-mixer strip). Only off-default decks emit a line.
+  let dmDecks = ["A", "B", "C", "D"]
+  let dmi = 0
+  while (dmi < dmDecks.length) {
+    let dml = deckMixLine(project, dmDecks[dmi])
+    if (dml.length > 0) {
+      o = o + dml + "\n"
+    }
+    dmi = dmi + 1
   }
   o = o + "\n"
 

@@ -40,7 +40,56 @@ export fn coDjIsFollower(rt) {
   if (rt.coDjIsHost === true) {
     return false
   }
+  // Fail SAFE toward host: until the gateway resolves our role (a joined/presence frame sets coDjHostActorId),
+  // do NOT classify an open socket as a follower. Otherwise the real host — whose coDjIsHost is not yet true in
+  // the connect window (or went stale across a reconnect) — would be downgraded to Preview-only and would never
+  // broadcast playing_start/stop, silently breaking the WHOLE room's transport. An unresolved client has no
+  // followers to disturb, so the safe direction is "not a follower" (drive + broadcast normally). Once joined
+  // resolves coDjHostActorId, a true follower (coDjIsHost false) correctly reports as a follower below.
+  if (rt.coDjHostActorId === null || rt.coDjHostActorId === undefined) {
+    return false
+  }
   return rt.coDjWs !== null && rt.coDjWs !== undefined && rt.coDjWs.readyState === 1
+}
+
+/** True when this client is in a LIVE co-DJ session (the WS is connected). Read straight off the runtime, so
+ *  it's reliable the instant we connect — no dependence on a roster being synced onto a particular project ref. */
+export fn coDjConnected(rt) {
+  return rt !== null && rt !== undefined && rt.coDjWs !== null && rt.coDjWs !== undefined && rt.coDjWs.readyState === 1
+}
+
+/** The LOCAL player's own deck letter (A/B/C/D) while in a connected session, else null (solo = unrestricted).
+ *  Built from the LIVE runtime roster (host first, then sorted other actors — mirrors syncPlayerRoster), so it
+ *  does NOT depend on project.coDjPlayers having been synced onto the exact project ref a component received.
+ *  This is the ONLY deck a player may load a song onto in a session. */
+export fn coDjOwnDeckLetter(rt) {
+  if (!coDjConnected(rt)) {
+    return null
+  }
+  let host = rt.coDjHostActorId !== null && rt.coDjHostActorId !== undefined ? String(rt.coDjHostActorId) : ""
+  let actors = Array.isArray(rt.coDjActors) ? rt.coDjActors : []
+  let players = []
+  if (host.length > 0) {
+    players.push(host)
+  }
+  let sorted = actors.slice().sort()
+  let i = 0
+  while (i < sorted.length && players.length < 4) {
+    if (String(sorted[i]) !== host) {
+      players.push(String(sorted[i]))
+    }
+    i = i + 1
+  }
+  let self = rt.coDjActorId !== null && rt.coDjActorId !== undefined ? String(rt.coDjActorId) : ""
+  let j = 0
+  while (j < players.length && j < 4) {
+    if (players[j] === self) {
+      return j === 1 ? "B" : (j === 2 ? "C" : (j === 3 ? "D" : "A"))
+    }
+    j = j + 1
+  }
+  // Connected but not yet placed in the roster (mid-join): default to the host deck so we still restrict.
+  return "A"
 }
 
 /**

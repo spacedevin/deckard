@@ -16,6 +16,7 @@ import { tplLoopResetChannel } from '../tpl/LoopState.tish'
 import { findChannelById } from '../tpl/Apply.tish'
 import { ensureCoDjMeta, setTrackOwner, setTrackTouched } from './CoDjMeta.tish'
 import { skillIdsAllowMaster } from './Skills.tish'
+import { applyDeckMixParsed } from '../model/DeckRouting.tish'
 
 export fn actorMayEditTrack(project, channelId, actorId, isNewTrack) {
   ensureCoDjMeta(project)
@@ -98,6 +99,12 @@ export fn applyCoDjTplSource(project, source, actorId, authorId, currentPerfStep
       project.scaleRoot = Math.floor(parsed.scaleRoot)
       project.scaleMode = parsed.scaleMode
     }
+  }
+  // Per-deck booth EQ + volume — master-gated like the crossfader (a transport/booth global). A follower's
+  // deck.put deck_mix is therefore only folded on the HOST (the master); the host re-snapshots and every
+  // client adopts it. The receiver recomputes the per-channel eq via applyDeckEq (rt.reconcileDeckMix).
+  if (canMaster && parsed.deckMix !== null && parsed.deckMix !== undefined) {
+    applyDeckMixParsed(project, parsed.deckMix)
   }
   let userMacros = parsed.macros ? parsed.macros : {}
   let ti = 0

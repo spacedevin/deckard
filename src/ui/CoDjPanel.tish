@@ -2,15 +2,17 @@
 
 import { h, Fragment, useState } from '@tishlang/lattish'
 import { applyCoDjTplSource } from '../codj/Merge.tish'
+import { bumpAllRev } from '../core/Ingest.tish'
 import { coDjClearOverlays } from '../codj/Overlay.tish'
 import { coDjHandleIncomingTplBlock } from '../codj/Schedule.tish'
 import { applyLaunchLinesFromSource } from '../codj/Launch.tish'
-import { coDjShouldFollow } from '../codj/Transport.tish'
+import { coDjShouldFollow, coDjOwnDeckLetter } from '../codj/Transport.tish'
+import { channelDeck } from '../model/DeckRouting.tish'
 import { createTplLineStream, tplLineStreamPush } from '../tpl/Stream.tish'
-import { emitProject } from '../tpl/Emit.tish'
+import { emitProject, deckMixLine } from '../tpl/Emit.tish'
 import { loadProjectFromTpl } from '../model/ProjectLoad.tish'
 import { ensureCoDjMeta, setTrackOwner } from '../codj/CoDjMeta.tish'
-import { projectEligibleToContribute, rehomeJoinerChannels } from '../codj/DeckJoin.tish'
+import { projectEligibleToContribute, rehomeJoinerChannels, projectHasActorPrefixedTracks } from '../codj/DeckJoin.tish'
 import { IkSelect } from './InstrumentKit.tish'
 
 // Default gateway URL. Locally that's the dev gateway on 35987; when served from a real host (the DigitalOcean
@@ -96,9 +98,8 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       }
     }
     rt.coDjTplMirrorFlush = tplMirrorFlush
-    // Push the current project to peers OUTSIDE of playback (e.g. right after a deck load / add) so the change
-    // syncs even when stopped. Host = authority (full snapshot); a follower streams its OWN lines and the host
-    // applies the tracks it owns (ownership-gated). Fixes "follower edits a deck, host never sees it".
+    // Push the current project to peers on any local change (edit, deck load/add), even while stopped. Host =
+    // authority (full gen-versioned snapshot). Follower = ONE atomic deck.put of its own deck (peers fold it).
     rt.coDjBroadcastNow = () => {
       if (!(rt.coDjWs && rt.coDjWs.readyState === 1)) {
         return
@@ -106,7 +107,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       if (rt.coDjIsHost === true) {
         sendStateSnapshot()
       } else {
-        broadcastSelfLines()
+        sendDeckPut()
       }
     }
     rt.coDjNotifyPlaying = (playing) => {
@@ -114,10 +115,6 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       let wsOk = ws && ws.readyState === 1
       let aid = rt.coDjActorId ? rt.coDjActorId : (rt.coDjClientId ? rt.coDjClientId : "actor-unknown")
       let ps = typeof rt.perfStep === "number" ? rt.perfStep : 0
-      if (rt.coDjPlayResyncIv) {
-        clearInterval(rt.coDjPlayResyncIv)
-        rt.coDjPlayResyncIv = null
-      }
       if (!playing) {
         if (wsOk) {
           let payload = JSON.stringify({ type: "control", op: "playing_stop", actorId: aid, authorId: aid })
@@ -142,7 +139,6 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       rt.coDjLocalStreamLane = (rt.coDjActorId || "actor") + (wsOk ? "→hub" : " · offline (connect to send)")
       rt.coDjLocalStreamPreview = text.slice(0, 900)
       rt.coDjLocalStreamDirty = true
-      rt.coDjLastStreamHash = String(text.length) + "_" + text.substring(0, Math.min(200, text.length))
       if (rt.coDjBumpUi) {
         rt.coDjBumpUi()
       }
@@ -153,77 +149,9 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       if (typeof console !== "undefined" && console.log) {
         console.log("[Co-DJ UI] OUTPUT wsSend:", startPayload)
       }
+      // TRANSPORT CHANNEL ONLY — exactly one control frame. No project content rides the play trigger; the
+      // shared document travels on the deck-sync channel (deck.put / state.snapshot), position on control:clock.
       ws.send(startPayload)
-      let lines = text.split("\n")
-      let idx = 0
-      fn pumpTplLines() {
-        let w = rt.coDjWs
-        if (!w || w.readyState !== 1) {
-          return
-        }
-        let c = rt.coDjActorId ? rt.coDjActorId : (rt.coDjClientId ? rt.coDjClientId : "actor-unknown")
-        let end = idx + 6
-        if (end > lines.length) {
-          end = lines.length
-        }
-        while (idx < end) {
-          let pl = JSON.stringify({ type: "tpl.line", line: lines[idx], authorId: c })
-          if (typeof console !== "undefined" && console.log && (idx < 2 || idx % 10 === 0)) {
-            console.log("[Co-DJ UI] OUTPUT wsSend tpl.line:", pl.substring(0, 120) + (pl.length > 120 ? "..." : ""))
-          }
-          w.send(pl)
-          idx = idx + 1
-        }
-        if (idx < lines.length) {
-          setTimeout(pumpTplLines, 100)
-        }
-      }
-      pumpTplLines()
-      rt.coDjPlayResyncIv = setInterval(() => {
-        if (!rt.playing) {
-          return
-        }
-        let p2 = rt.project
-        let w2 = rt.coDjWs
-        if (!p2 || !w2 || w2.readyState !== 1) {
-          return
-        }
-        let t2 = emitProject(p2)
-        let h = String(t2.length) + "_" + t2.substring(0, Math.min(200, t2.length))
-        if (h !== rt.coDjLastStreamHash) {
-          rt.coDjLastStreamHash = h
-          let L = t2.split("\n")
-          let j = 0
-          fn pump2() {
-            let w3 = rt.coDjWs
-            if (!w3 || w3.readyState !== 1) {
-              return
-            }
-            let c2 = rt.coDjActorId ? rt.coDjActorId : (rt.coDjClientId ? rt.coDjClientId : "actor-unknown")
-            let e2 = j + 6
-            if (e2 > L.length) {
-              e2 = L.length
-            }
-            while (j < e2) {
-              let pl2 = JSON.stringify({ type: "tpl.line", line: L[j], authorId: c2 })
-              if (typeof console !== "undefined" && console.log && (j < 2 || j % 10 === 0)) {
-                console.log("[Co-DJ UI] OUTPUT wsSend tpl.line resync:", pl2.substring(0, 120) + (pl2.length > 120 ? "..." : ""))
-              }
-              w3.send(pl2)
-              j = j + 1
-            }
-            if (j < L.length) {
-              setTimeout(pump2, 100)
-            }
-          }
-          pump2()
-          rt.coDjLocalStreamPreview = t2.slice(0, 900)
-          rt.coDjLocalStreamDirty = true
-          if (rt.coDjBumpUi) {
-            rt.coDjBumpUi()
-          }
-        }
-      }, 6000)
     }
   }
   fn ingestCoDjMsg(msg) {
@@ -247,6 +175,8 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
     if (t === "presence") {
       if (rt) {
         rt.coDjActors = msg.actors ? msg.actors : []
+        // Only (re)resolve role on a CONCRETE hostActorId. A transient null (host died, gateway mid-reassign)
+        // is IGNORED — never demote the real host on a momentary null, which would drop its transport.
         if (msg.hostActorId !== null && msg.hostActorId !== undefined) {
           rt.coDjHostActorId = msg.hostActorId
           rt.coDjIsHost = rt.coDjActorId !== null && rt.coDjActorId !== undefined && msg.hostActorId === rt.coDjActorId
@@ -262,6 +192,50 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
         // Host (re-)election can change whether THIS client is a follower → re-render the app so the
         // transport's host-only Play gating updates.
         rerenderAll(rt && rt.project ? rt.project : project)
+      }
+      return
+    }
+    if (t === "deck.put") {
+      // THE deck-sync apply: a peer's WHOLE deck arrives as ONE frame and is folded in ONE atomic
+      // applyCoDjTplSource call — owner-gated, so the contributor's actorId-prefixed tracks land owned by them
+      // (→ their deck) and are idempotently replaced on a re-send. No per-line stream, no interleave, no
+      // partial deck. Every peer applies it (host included → its snapshot stays complete for late joiners);
+      // the sender is excluded by the gateway, so this never echoes. NOT tied to transport — applies whether
+      // playing or stopped, and never triggers a snapshot, so it can't disturb the bar clock.
+      let fromId = msg.actorId ? msg.actorId : (msg.laneId ? msg.laneId : "?")
+      let dlines = msg.lines
+      if (rt && Array.isArray(dlines) && dlines.length > 0 && fromId !== "?" && fromId !== rt.coDjActorId) {
+        let p = rt && rt.project ? rt.project : project
+        let ps = typeof rt.perfStep === "number" ? rt.perfStep : 0
+        // REPLACE-MY-DECK semantics: a deck.put always carries the sender's WHOLE current deck (ownTrackLines).
+        // So any track I currently hold that's OWNED BY THE SENDER but absent from this frame is stale — it was
+        // removed on their side (e.g. a song load drop-and-replaced their deck). Prepend remove_track for each so
+        // the sender's deck on every peer MATCHES theirs (add new + drop gone), not just accumulates. Without this
+        // a client loading a new song would leave its old tracks orphaned on the host.
+        let keep = deckPutKeepIds(dlines)
+        let rmLines = staleOwnedRemoveLines(p, fromId, keep)
+        let src = "tpl 1\n" + rmLines.concat(dlines).join("\n") + "\n"
+        applyCoDjTplSource(p, src, fromId, fromId, ps, msg.skillIds)
+        // Bump the per-slice rev counters so the memo'd panels re-render on a remote edit to an EXISTING track
+        // (a name/knob change keeps the channel count the same → channelsRev wouldn't move without this, and
+        // the instrument input/waveform would show stale values). New tracks already move it; this covers edits.
+        bumpAllRev(p)
+        setProject(p)
+        // A new track needs an audio bus, and a remove_track splice misaligns the index-keyed bus array — rebuild
+        // both. Skip mid-playback (a resync mid-bar glitches the graph); it reconciles on the next stop/play.
+        if (rt.resyncAudio && rt.playing !== true) {
+          rt.resyncAudio()
+        }
+        // If the deck.put carried a deck_mix (a follower's owned-deck booth EQ/volume — folded only on the host,
+        // since it's master-gated), recompute per-channel eq + repaint the booth strip.
+        if (rt.reconcileDeckMix) {
+          rt.reconcileDeckMix()
+        }
+        bumpHubInboundBlockPreview(fromId, dlines)
+        pushLog("deck.put ◂ " + fromId + " (" + String(dlines.length) + " lines)")
+        if (rt.coDjBumpUi) {
+          rt.coDjBumpUi()
+        }
       }
       return
     }
@@ -328,6 +302,8 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       }
       bumpHubInboundBlockPreview(actorId, lines)
       pushLog("apply " + actorId + " " + String(lines.length) + "L")
+      // NB: no host re-snapshot here — tpl.block is the LIVE-playback stream (coDjPushLive), not deck
+      // contribution. Deck convergence is driven from the tpl.line apply path (and gated to stopped only).
       return
     }
     if (t === "tpl.stream_chunk") {
@@ -476,43 +452,211 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
         ci = ci + 1
       }
     }
-    rt.coDjWs.send(JSON.stringify({ type: "state.snapshot", actorId: aid, authorId: aid, lines: lines, owners: owners }))
+    // Monotonic generation: every snapshot carries the next gen so receivers (and the gateway cache) can
+    // discard a stale/out-of-order one (newer-wins). This makes the connect-time cached+fresh double snapshot
+    // and any re-order harmless.
+    let g = (typeof rt.coDjSnapGen === "number" ? rt.coDjSnapGen : 0) + 1
+    rt.coDjSnapGen = g
+    rt.coDjWs.send(JSON.stringify({ type: "state.snapshot", actorId: aid, authorId: aid, lines: lines, owners: owners, gen: g }))
     if (typeof console !== "undefined" && console.log) {
-      console.log("[Co-DJ UI] OUTPUT state.snapshot (" + String(lines.length) + " lines)")
+      console.log("[Co-DJ UI] OUTPUT state.snapshot (" + String(lines.length) + " lines, gen " + String(g) + ")")
     }
-    pushLog("pushed host snapshot (" + String(p.channels.length) + " tracks)")
+    pushLog("pushed host snapshot (" + String(p.channels.length) + " tracks, gen " + String(g) + ")")
   }
 
-  // A follower streams its full project to the hub as tpl.lines; the host applies the lines for the tracks the
-  // follower owns (ownership-gated), so a follower's deck content reaches the host even while stopped.
-  fn broadcastSelfLines() {
+  // The set of track ids carried in a deck.put frame (the positional id token before " gen " in each header).
+  fn deckPutKeepIds(dlines) {
+    let keep = {}
+    let i = 0
+    while (i < dlines.length) {
+      let ln = dlines[i]
+      let isIndented = ln.length > 0 && (ln.charAt(0) === " " || ln.charAt(0) === "\t")
+      if (!isIndented && ln.trim().indexOf("track ") === 0) {
+        let genIdx = ln.indexOf(" gen ")
+        if (genIdx >= 0) {
+          let head = ln.substring(0, genIdx)
+          let lastSp = head.lastIndexOf(" ")
+          if (lastSp >= 0) {
+            keep[head.substring(lastSp + 1)] = true
+          }
+        }
+      }
+      i = i + 1
+    }
+    return keep
+  }
+
+  // remove_track lines for every channel I currently hold that is OWNED BY `fromId` but ABSENT from this deck.put.
+  // A deck.put is the sender's whole deck, so a sender-owned track not in it was dropped on their side (a song
+  // load replaces the deck) and must be dropped here too — otherwise it lingers orphaned (the host's stale-track bug).
+  fn staleOwnedRemoveLines(p, fromId, keep) {
+    let out = []
+    if (!p || !p.coDjMeta || !p.coDjMeta.tracks || !Array.isArray(p.channels)) {
+      return out
+    }
+    let ci = 0
+    while (ci < p.channels.length) {
+      let ch = p.channels[ci]
+      let cid = String(ch.id)
+      let m = p.coDjMeta.tracks[cid]
+      let owner = m && m.ownerActorId ? String(m.ownerActorId) : ""
+      if (owner === String(fromId) && keep[cid] !== true) {
+        out.push("remove_track " + cid)
+      }
+      ci = ci + 1
+    }
+    return out
+  }
+
+  // From a live project, return the track blocks (header + indented body, deck-line dropped) for the tracks
+  // routed to MY deck (channelDeck) — robust to every id shape (re-homed, deck-prefixed, +TRACK). Used to send
+  // my current deck on an edit.
+  fn ownTrackLines(p, myDeck) {
+    // The tracks I own = every channel routed to MY deck (channelDeck), regardless of its id SHAPE. This is the
+    // robust selector: it catches the initial actor-prefixed re-home (actorId_c0), a song loaded onto my deck
+    // (deck-prefixed b_kick), AND a +TRACK (actorId_c8) alike — anything earlier prefix-only matching missed,
+    // which is why a client's song loads / added instruments never reached the host. Build the id set first.
+    let mineIds = {}
+    if (myDeck !== null && myDeck !== undefined) {
+      let ci = 0
+      while (ci < p.channels.length) {
+        let ch = p.channels[ci]
+        if (channelDeck(p, ch) === myDeck) {
+          mineIds[String(ch.id)] = true
+        }
+        ci = ci + 1
+      }
+    }
+    let all = emitProject(p).split("\n")
+    let out = []
+    let inMine = false
+    let i = 0
+    while (i < all.length) {
+      let ln = all[i]
+      let isIndented = ln.length > 0 && (ln.charAt(0) === " " || ln.charAt(0) === "\t")
+      if (!isIndented) {
+        if (ln.trim().indexOf("track ") === 0) {
+          let genIdx = ln.indexOf(" gen ")
+          let mine = false
+          if (genIdx >= 0) {
+            let head = ln.substring(0, genIdx)
+            let lastSp = head.lastIndexOf(" ")
+            if (lastSp >= 0) {
+              let id = head.substring(lastSp + 1)
+              mine = mineIds[id] === true
+            }
+          }
+          inMine = mine
+          if (inMine) {
+            out.push(ln)
+          }
+        } else {
+          inMine = false
+        }
+      } else if (inMine) {
+        // Drop the per-track `deck … slot …` line — ownership routes my track to my deck on the host.
+        if (ln.trim().indexOf("deck ") !== 0) {
+          out.push(ln)
+        }
+      }
+      i = i + 1
+    }
+    return out
+  }
+
+  // THE single deck-contribution wire: send MY whole deck to the room as ONE atomic deck.put frame. Every peer
+  // folds it in one applyCoDjTplSource call (no per-line stream, no interleave, no partial). Prefers my
+  // already-re-homed live tracks (ownTrackLines); before the first adopt re-homes them they don't exist yet in
+  // the live project, so it falls back to re-homing my captured deck (rehomedSelfTrackLines of coDjPendingSelfTpl).
+  // Idempotent: same actorId-prefixed ids → peers replace, never duplicate.
+  fn sendDeckPut() {
     let ws = rt && rt.coDjWs
     if (!ws || ws.readyState !== 1) {
       return
     }
+    if (rt.coDjIsHost === true) {
+      return
+    }
+    let aid = rt.coDjActorId ? String(rt.coDjActorId) : ""
+    if (aid.length === 0) {
+      return
+    }
     let p = rt && rt.project ? rt.project : project
-    let lines = emitProject(p).split("\n")
-    let c = rt && rt.coDjActorId ? rt.coDjActorId : (rt && rt.coDjClientId ? rt.coDjClientId : "actor-unknown")
-    let idx = 0
-    fn pumpSelf() {
-      let w = rt.coDjWs
-      if (!w || w.readyState !== 1) {
-        return
-      }
-      let end = idx + 6
-      if (end > lines.length) {
-        end = lines.length
-      }
-      while (idx < end) {
-        w.send(JSON.stringify({ type: "tpl.line", line: lines[idx], authorId: c }))
-        idx = idx + 1
-      }
-      if (idx < lines.length) {
-        setTimeout(pumpSelf, 100)
+    let myDeck = coDjOwnDeckLetter(rt)
+    // Send EVERY track routed to my deck — instruments added via +TRACK and songs loaded onto my deck included,
+    // not just the initial re-homed loop. (Pre-adopt my deck doesn't exist yet → fall back to the captured deck.)
+    let lines = ownTrackLines(p, myDeck)
+    if (lines.length === 0 && rt.coDjPendingSelfTpl && rt.coDjPendingSelfTpl.length > 0) {
+      lines = rehomedSelfTrackLines(rt.coDjPendingSelfTpl, aid).lines
+    }
+    if (lines.length === 0) {
+      pushLog("deck.put: no tracks to send")
+      return
+    }
+    // Append my OWN deck's booth EQ/volume (deck_mix) so a follower's deck is fully expressed — the host folds
+    // it (master-gated) and re-snapshots, so every client sees my booth. Same serializer the host snapshot uses.
+    if (myDeck !== null) {
+      let dml = deckMixLine(p, myDeck)
+      if (dml.length > 0) {
+        lines = lines.concat([dml])
       }
     }
-    pumpSelf()
-    pushLog("broadcast self (" + String(p.channels.length) + " tracks)")
+    ws.send(JSON.stringify({ type: "deck.put", actorId: aid, lines: lines }))
+    pushLog("deck.put → room (" + String(lines.length) + " lines)")
+  }
+
+  // Re-home a `track <name> id <id> gen <gen> …` header by id-prefixing with my actorId (collision-free,
+  // and exactly what routes the track to MY deck once the host owns it to me). The id is the single token
+  // immediately before " gen " — extracted positionally so multi-word names (`MOS 6581`) are safe.
+  fn rehomeTrackHeaderLine(line, aid) {
+    let genIdx = line.indexOf(" gen ")
+    if (genIdx < 0) {
+      return line
+    }
+    let head = line.substring(0, genIdx)
+    let lastSp = head.lastIndexOf(" ")
+    if (lastSp < 0) {
+      return line
+    }
+    let id = head.substring(lastSp + 1)
+    if (id.length === 0) {
+      return line
+    }
+    let prefix = head.substring(0, lastSp + 1)
+    return prefix + aid + "_" + id + line.substring(genIdx)
+  }
+
+  // From a raw TPL string, build ONLY the re-homed `track` block lines (header + indented body), dropping
+  // globals (bpm / master_mix / session / clip) and any per-track `deck … slot …` line. PURE STRING — no
+  // loadProjectFromTpl round-trip, so it can't be defeated by patch/macro content that fails to re-parse.
+  fn rehomedSelfTrackLines(tplStr, aid) {
+    let all = tplStr.split("\n")
+    let out = []
+    let inTrack = false
+    let count = 0
+    let i = 0
+    while (i < all.length) {
+      let ln = all[i]
+      let isIndented = ln.length > 0 && (ln.charAt(0) === " " || ln.charAt(0) === "\t")
+      if (!isIndented) {
+        let trimmed = ln.trim()
+        if (trimmed.indexOf("track ") === 0) {
+          inTrack = true
+          out.push(rehomeTrackHeaderLine(ln, aid))
+          count = count + 1
+        } else {
+          inTrack = false
+        }
+      } else if (inTrack) {
+        // Drop the deck line so OWNERSHIP routes the track to my deck (a stale `deck local slot 0` would
+        // otherwise try to pin it to the host's Deck A).
+        if (ln.trim().indexOf("deck ") !== 0) {
+          out.push(ln)
+        }
+      }
+      i = i + 1
+    }
+    return { lines: out, count: count }
   }
 
   // Does the host carry instruments on decks B/C/D (deckSlot 1..3)? On connect we offer to merge them onto
@@ -566,16 +710,26 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
   // content at connect (rt.coDjPendingSelfTpl, before any clobber). Here we re-home it INTO the adopted
   // snapshot via rehomeJoinerChannels (prefix + own by my actorId → routes to my deck). Returns true if
   // anything was merged, so the caller can broadcast it up to the host and fold it into the shared TPL.
+  //
+  // The pending capture is held across snapshots (NOT consumed on the first merge) until a snapshot actually
+  // carries my contributed tracks back. This defends against the connect-time DOUBLE snapshot: the gateway
+  // hands a joiner a CACHED snapshot AND asks the host for a FRESH one (request.snapshot). The fresh one is
+  // generated before my just-broadcast tracks land on the host, so a one-shot consume would let that 2nd
+  // snapshot permanently wipe my deck. Re-homing is idempotent because each adopt rebuilds np fresh and the
+  // id prefix is deterministic; once the shared snapshot includes my prefix, we stop and clear pending.
   fn mergePendingSelfInto(np) {
     let tpl = rt ? rt.coDjPendingSelfTpl : null
-    if (rt) {
-      rt.coDjPendingSelfTpl = null
-    }
     if (!tpl || tpl.length === 0 || !np || !Array.isArray(np.channels)) {
       return false
     }
     let aid = rt && rt.coDjActorId ? String(rt.coDjActorId) : ""
     if (aid.length === 0) {
+      return false
+    }
+    // Round-trip confirmed? If the adopted snapshot already carries any track id-prefixed with my actorId,
+    // my contribution is in the shared TPL — stop re-homing and release the capture.
+    if (projectHasActorPrefixedTracks(np, aid)) {
+      rt.coDjPendingSelfTpl = null
       return false
     }
     let res = loadProjectFromTpl(tpl)
@@ -589,10 +743,33 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
     return added > 0
   }
 
+  // This client's OWN deck letter (A/B/C/D) = its slot in the shared roster. Used to land a follower's view
+  // on its own deck after it connects.
+  fn selfDeckLetter(p) {
+    let players = p && p.coDjPlayers ? p.coDjPlayers : null
+    let self = p && p.coDjSelfActorId ? String(p.coDjSelfActorId) : ""
+    if (Array.isArray(players) && self.length > 0) {
+      let i = 0
+      while (i < players.length && i < 4) {
+        if (String(players[i]) === self) {
+          return i === 1 ? "B" : (i === 2 ? "C" : (i === 3 ? "D" : "A"))
+        }
+        i = i + 1
+      }
+    }
+    return "A"
+  }
+
   // Follower: adopt the host's authoritative state, then re-home any content I joined with onto my deck so it
   // joins the one shared TPL (instead of being silently clobbered).
-  fn applyHostSnapshot(lines, owners, fromHost) {
+  fn applyHostSnapshot(lines, owners, fromHost, gen) {
     if (!Array.isArray(lines) || lines.length === 0) {
+      return
+    }
+    // Newer-wins: discard a stale/out-of-order snapshot (the connect-time cached+fresh double, any re-order).
+    let g = (typeof gen === "number") ? Math.floor(gen) : 0
+    let last = (rt && (rt.coDjLastSnapshotGen !== null && rt.coDjLastSnapshotGen !== undefined)) ? rt.coDjLastSnapshotGen : -1
+    if (g <= last) {
       return
     }
     let res = loadProjectFromTpl(lines.join("\n"))
@@ -613,22 +790,42 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
         ci = ci + 1
       }
     }
-    let merged = mergePendingSelfInto(np)
+    // Best-effort: re-home my captured deck INTO the adopted snapshot so I see my own loop immediately (the
+    // authoritative copy also arrives once the host folds my deck.put into a later snapshot, which clears the
+    // pending capture). This is DISPLAY only — the contribution to the room is the atomic deck.put, not here.
+    mergePendingSelfInto(np)
     rt.project = np
+    if (rt) {
+      rt.coDjLastSnapshotGen = g
+    }
     syncPlayerRoster()
+    // Bump every per-slice rev counter so the memo'd panels (instrument knobs, deck mixer, sequencer) actually
+    // re-render against the adopted document. Without this, a host's param edit to an EXISTING track lands in
+    // the project but the UI keeps showing stale values (the "host KICK punch/volume never appears" bug).
+    bumpAllRev(np)
     setProject(np)
-    if (rt.resyncAudio) {
+    // Recompute per-channel eq from the adopted deck_mix + repaint the booth strip (its memo keys on deckMixRev,
+    // not the bumpAllRev slice counters), so a host's deck volume/EQ change reconciles here.
+    if (rt.reconcileDeckMix) {
+      rt.reconcileDeckMix()
+    }
+    // Mid-playback: update the shared DOCUMENT but do NOT rebuild the audio graph — a resync mid-bar glitches
+    // the shared clock and is exactly how deck-sync used to break play/stop. Rebuild only while stopped.
+    if (rt.resyncAudio && rt.playing !== true) {
       rt.resyncAudio()
     }
-    pushLog("adopted host state (" + String(np.channels.length) + " tracks)")
+    // First adoption only: land a FOLLOWER's view on its OWN deck (B/C/D) so it sees its own loop rather than
+    // the host's Deck A. Once only — don't yank the view back if the player later navigates decks themselves.
+    if (rt && rt.coDjIsHost !== true && rt.coDjViewLandedDeck !== true && rt.setActiveDeck) {
+      rt.setActiveDeck(selfDeckLetter(np))
+      rt.coDjViewLandedDeck = true
+    }
+    pushLog("adopted host state (" + String(np.channels.length) + " tracks, gen " + String(g) + ")")
     if (typeof console !== "undefined" && console.log) {
-      console.log("[Co-DJ UI] applied host snapshot -> " + String(np.channels.length) + " tracks")
+      console.log("[Co-DJ UI] applied host snapshot -> " + String(np.channels.length) + " tracks gen " + String(g))
     }
-    // Push my re-homed tracks up to the host (ownership-gated: the host accepts only the tracks I own, adds
-    // them as new, and re-snapshots) so EVERY member converges on the same TPL with my deck filled.
-    if (merged) {
-      broadcastSelfLines()
-    }
+    // Do NOT re-contribute here — that would loop (adopt → send → host fold → snapshot → adopt → …). The deck
+    // is contributed ONCE on join and on each local edit (deck.put). Adoption is purely receive-side.
   }
 
   fn handleWsMessage(ev) {
@@ -682,6 +879,10 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
         // If the host carries instruments on decks B/C/D, offer to merge them onto Deck A (or keep them).
         rt.coDjHostDeckPrompt = hostHasMultiDeckContent()
         sendStateSnapshot()
+      } else if (rt && rt.coDjPendingSelfTpl) {
+        // FOLLOWER: contribute my whole deck to the room as ONE atomic deck.put, exactly once on join.
+        // (Edits afterward re-send via coDjBroadcastNow → sendDeckPut.) No timer, no pump, no dual trigger.
+        sendDeckPut()
       }
       // Re-render the whole app so the deck-routing lock reflects the now-connected state.
       rerenderAll(rt && rt.project ? rt.project : project)
@@ -696,7 +897,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
     }
     if (t === "state.snapshot") {
       // Follower: adopt the host's authoritative project, clobbering the local default.
-      applyHostSnapshot(msg.lines, msg.owners, msg.fromHost)
+      applyHostSnapshot(msg.lines, msg.owners, msg.fromHost, msg.gen)
       return
     }
     if (t === "error") {
@@ -721,9 +922,15 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
         actorId = rt.coDjActorId
       }
     }
-    // Snapshot my own deck content NOW, before any host snapshot can clobber it. If I built something of my
-    // own (≠ the bundled default) it gets re-homed onto my deck and folded into the shared TPL once I adopt
-    // the host's state (see mergePendingSelfInto). A host or a pristine-default joiner captures nothing.
+    // Resolve identity BEFORE first send: write the actorId to rt so role-resolution + deck.put use the same
+    // id (no divergent local var). Reset the adopted-snapshot generation so this fresh session re-adopts.
+    if (rt) {
+      rt.coDjActorId = actorId
+      rt.coDjLastSnapshotGen = -1
+    }
+    // Snapshot my own deck content NOW, before any host snapshot can clobber it. On join it is re-homed onto
+    // my own deck and sent to the room as ONE atomic deck.put. A host or a pristine-default joiner captures
+    // nothing. (Display copy is folded in by mergePendingSelfInto on the first snapshot adopt.)
     if (rt) {
       rt.coDjPendingSelfTpl = null
       let selfP = rt.project ? rt.project : project
@@ -793,11 +1000,29 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       clearInterval(rt.coDjPlayResyncIv)
       rt.coDjPlayResyncIv = null
     }
+    if (rt.coDjContribTimer) {
+      clearTimeout(rt.coDjContribTimer)
+      rt.coDjContribTimer = null
+    }
+    if (rt.coDjResnapTimer) {
+      clearTimeout(rt.coDjResnapTimer)
+      rt.coDjResnapTimer = null
+    }
     if (rt.coDjWs) {
       rt.coDjWs.close()
       rt.coDjWs = null
     }
     rt.coDjHostDeckPrompt = false
+    // Clear role identity so a stale host flag can't survive into the next session/reconnect. Without this a
+    // former host keeps coDjIsHost===true after disconnect, then on reconnecting to a room where it is NOT the
+    // host it would (in the pre-joined window) neither follow the real host nor be gated — driving a competing
+    // transport. Reset both the flag and the resolved host id; the next joined/presence frame re-resolves them.
+    rt.coDjIsHost = false
+    rt.coDjHostActorId = null
+    rt.coDjActors = []
+    rt.coDjViewLandedDeck = false
+    rt.coDjPendingSelfTpl = null
+    rt.coDjLastSnapshotGen = -1
     // Re-render so the deck-routing lock releases now that we're disconnected.
     rerenderAll(rt.project ? rt.project : project)
   }

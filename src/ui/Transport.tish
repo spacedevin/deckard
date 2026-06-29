@@ -57,7 +57,7 @@ export fn TransportBar(
         class={locked ? (playCls + " btn-play-locked") : playCls}
         disabled={locked}
         onclick={onPlayStop}
-        title={locked ? "Host controls playback — you follow the host's transport. Use ▶ Preview to audition privately." : "Play / stop the live transport in the selected mode (Enter)"}
+        title={locked ? "Host controls playback — you auto-follow the host's transport. Use ▶ Preview to audition privately." : "Play / stop the live transport in the selected mode (Enter)"}
       >
         {playing ? "■ Stop" : "▶ Play"}
         <span class="btn-key">{"Enter"}</span>

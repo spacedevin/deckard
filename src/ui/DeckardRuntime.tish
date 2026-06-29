@@ -54,6 +54,13 @@ export fn createDeckardRuntime() {
     setPlaybackHighlight: null,
     streamAppendLine: null,
     coDjWs: null,
+    // Role state, seeded explicitly so it is deterministic from boot (NOT undefined). coDjIsHost:false +
+    // coDjHostActorId:null means "role not yet resolved" until the gateway's joined/presence frame sets them;
+    // coDjFollowTransport:true is behavior-preserving (coDjShouldFollow treats !==false as follow). These
+    // back the fail-safe role gate in Transport.coDjIsFollower — see host-only-live-transport.
+    coDjIsHost: false,
+    coDjHostActorId: null,
+    coDjFollowTransport: true,
     coDjPushLog: null,
     coDjApplyScheduledTpl: null,
     coDjAfterScheduled: null,
@@ -61,6 +68,10 @@ export fn createDeckardRuntime() {
     coDjNotifyPlaying: null,
     coDjBumpUi: null,
     coDjPlayResyncIv: null,
+    coDjContribTimer: null,
+    coDjResnapTimer: null,
+    coDjSnapGen: 0,
+    coDjLastSnapshotGen: -1,
     coDjLastStreamHash: "",
     coDjLog: [],
     coDjLogDirty: false,

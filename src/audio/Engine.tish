@@ -140,6 +140,7 @@ export fn buildChannelBus(ctx, ch, actorSummingGain, reverbIn, cueSum) {
     revSend.connect(reverbIn)
   }
   return {
+    chId: ch && (ch.id !== null && ch.id !== undefined) ? ch.id : null,
     input: drive,
     gainNode: g,
     panNode: pan,
@@ -1068,12 +1069,18 @@ export fn suspendDrawsAround(store, doSwitch) {
   }
   store.drawBlocked = true
   setTimeout(() => {
-    if (doSwitch) {
-      doSwitch()
+    // doSwitch (audio-source swap) must NEVER leave drawBlocked stuck true: if it throws, the inner timer that
+    // clears the flag would never schedule, freezing every meter/scope for the session (drawsSuspended stays
+    // true forever). try/finally guarantees the clear timer is always armed.
+    try {
+      if (doSwitch) {
+        doSwitch()
+      }
+    } finally {
+      setTimeout(() => {
+        store.drawBlocked = false
+      }, 250)
     }
-    setTimeout(() => {
-      store.drawBlocked = false
-    }, 250)
   }, 250)
 }
 

@@ -37,7 +37,7 @@ import { collectActorLanes, channelActorLane, ensureActorMixerEntries } from '..
 import { InstrumentStack } from './InstrumentStack.tish'
 import { CoDjPanel } from './CoDjPanel.tish'
 import { launchSceneDirective, transportDirective, fxDirective, cueDirective, deckMoveDirective } from '../codj/Launch.tish'
-import { coDjClockPayload, coDjShouldFollow, coDjClockAlign, coDjIsFollower } from '../codj/Transport.tish'
+import { coDjClockPayload, coDjShouldFollow, coDjClockAlign, coDjIsFollower, coDjOwnDeckLetter } from '../codj/Transport.tish'
 import {
   PianoRollCanvas,
   PianoRollZoomBar,
@@ -325,11 +325,39 @@ export fn App() {
     deckMixPending = true
     requestAnimationFrame(() => {
       deckMixPending = false
-      if (audioStore.ctx) {
-        updateMixerFromProject(rtRef.current.project, audioStore)
-      }
+      // Isolate the audio reconcile so a transitional-graph throw can't skip the booth-strip repaint.
+      try {
+        if (audioStore.ctx) {
+          updateMixerFromProject(rtRef.current.project, audioStore)
+        }
+      } catch (eDm) {}
       setDeckMixRev((x) => x + 1)
     })
+  }
+  // The BROADCASTING deck-mix commit door: a local booth EQ/volume edit recomputes the per-channel eq, repaints
+  // the strip (rAF-coalesced via scheduleDeckMix), AND rides the websocket through the same debounced gate as
+  // every other edit (host → state.snapshot with deck_mix lines; follower → deck.put with its owned deck_mix).
+  // The per-pixel drag stays smooth (scheduleDeckMix is rAF, coDjScheduleEditBroadcast is 200ms-debounced).
+  rt.commitDeckMix = (deck) => {
+    let p = rtRef.current && rtRef.current.project ? rtRef.current.project : project
+    applyDeckEq(p, deck)
+    rt.scheduleDeckMix()
+    coDjScheduleEditBroadcast()
+  }
+  // Receiver hook: after adopting a snapshot / deck.put that carried deck_mix, recompute the per-channel eq for
+  // ALL decks and repaint the booth strip (DeckMixerMemo keys on deckMixRev, NOT the bumpAllRev slice counters).
+  rt.reconcileDeckMix = () => {
+    let p = rtRef.current && rtRef.current.project ? rtRef.current.project : project
+    let dd = ["A", "B", "C", "D"]
+    let i = 0
+    while (i < dd.length) {
+      applyDeckEq(p, dd[i])
+      i = i + 1
+    }
+    if (audioStore.ctx) {
+      updateMixerFromProject(p, audioStore)
+    }
+    setDeckMixRev((x) => x + 1)
   }
   rt.bumpGrid = () => {
     setGridGen((x) => x + 1)
@@ -406,9 +434,14 @@ export fn App() {
           advancePending = false
           let rr = rtRef.current
           if (rr.project) {
-            if (audioStore.ctx) {
-              updateMixerFromProject(rr.project, audioStore)
-            }
+            // The audio reconcile can throw on a transitional graph (analyser detached mid deck-load, a bus
+            // mid-resync). It must NOT skip setProject — otherwise that edit never repaints and the UI looks
+            // stuck. Isolate the reconcile so the re-render always lands.
+            try {
+              if (audioStore.ctx) {
+                updateMixerFromProject(rr.project, audioStore)
+              }
+            } catch (eMix) {}
             setProject(rr.project)
           }
         })
@@ -424,6 +457,10 @@ export fn App() {
           syncProjectToTplEditor(rr.project)
         }
       }, 140)
+      // Stream this LOCAL emit-path edit (knobs, steps, pattern, etc.) to peers, debounced + independent of
+      // the transport. onAdvance fires ONLY for local edits (received peer edits apply through CoDjPanel, not
+      // this ingest), so this never echoes. Without it a follower's knob/step edits never reach the host.
+      coDjScheduleEditBroadcast()
     })
   }
   let editorRef = useRef(null)
@@ -441,6 +478,14 @@ export fn App() {
   rt.redo = () => editorRef.current.redo()
   rt.canUndo = () => editorRef.current.canUndo()
   rt.canRedo = () => editorRef.current.canRedo()
+
+  // Let the co-DJ connect flow land a joining follower on its OWN deck (so it sees its own loop, not the
+  // host's Deck A). Exposed here because setActiveDeck (useState) is only in scope in the App component.
+  rt.setActiveDeck = (d) => {
+    if (d === "A" || d === "B" || d === "C" || d === "D") {
+      setActiveDeck(d)
+    }
+  }
 
   // Add a new channel: emit a bare `track` header on the ACTIVE deck (the ingest creates it via makeChannel
   // with an empty 16-step pattern), undoable (inverse = remove it), and select it.
@@ -471,6 +516,14 @@ export fn App() {
     // (the local actor stamped on ingest) route it to my own deck. Solo keeps the activeDeck placement.
     let pl = p.coDjPlayers
     let inSession = Array.isArray(pl) && pl.length > 1
+    // In a live session a FOLLOWER's new track needs a globally-unique, owned id — a bare c<N> would collide
+    // with the host's c<N> (and any other client's) and be owner-denied on the host, so the added instrument
+    // would never sync. Prefix it with my actorId. The host keeps c<N> (it owns Deck A, the canonical ids).
+    let amHostNow = rtRef.current && rtRef.current.coDjIsHost === true
+    let aidNow = rtRef.current && rtRef.current.coDjActorId ? String(rtRef.current.coDjActorId) : ""
+    if (inSession && !amHostNow && aidNow.length > 0) {
+      id = aidNow + "_" + id
+    }
     let slot = activeDeck === "B" ? 1 : (activeDeck === "C" ? 2 : (activeDeck === "D" ? 3 : 0))
     let fwd = inSession
       ? ("track Track id " + id + " gen basic_osc")
@@ -1065,6 +1118,30 @@ export fn App() {
     }
   }
 
+  // Stream a LOCAL edit to peers over the live TPL stream, debounced, INDEPENDENT of the transport. The old
+  // path only streamed during playback (coDjPushLive) — so once followers became host-only-transport they
+  // could never reach the host while stopped, and their content silently never synced. This is the fix:
+  // every local commit pushes to the hub (host → snapshot; follower → its own lines, host applies the tracks
+  // it owns). Received peer edits commit via setProject (NOT setProjectFromUI), so this never echoes them.
+  fn coDjScheduleEditBroadcast() {
+    let r = rtRef.current
+    if (!(r && r.coDjWs && r.coDjWs.readyState === 1 && r.coDjBroadcastNow)) {
+      return
+    }
+    if (r.coDjEditBroadcastTimer) {
+      clearTimeout(r.coDjEditBroadcastTimer)
+    }
+    r.coDjEditBroadcastTimer = setTimeout(() => {
+      let rr = rtRef.current
+      if (rr) {
+        rr.coDjEditBroadcastTimer = null
+      }
+      if (rr && rr.coDjWs && rr.coDjWs.readyState === 1 && rr.coDjBroadcastNow) {
+        rr.coDjBroadcastNow()
+      }
+    }, 200)
+  }
+
   fn setProjectFromUI(p) {
     syncActiveClipsInstrumentsFromChannels(p, rtRef.current)
     // Legacy direct-mutation commit: it mutated `p` in place without declaring what changed, so bump ALL
@@ -1082,6 +1159,7 @@ export fn App() {
         syncProjectToTplEditor(proj)
       }
     }, 0)
+    coDjScheduleEditBroadcast()
   }
 
   // Per-deck CUE toggle: send a deck to the headphones bus (or stop). Pure monitor state on rt.cuedDecks
@@ -1173,11 +1251,15 @@ export fn App() {
       // (un-throttled) Transport draw loop, so timing visuals stay crisp.
       scopeTick = scopeTick + 1
       // Skip drawing when the user disabled draws OR we're inside an audio-source-switch quiet window, and
-      // throttle the rest to ~30fps. The rAF keeps spinning so it resumes the instant the gate clears.
-      if (drawsSuspended(audioStore) || scopeTick % 2 !== 0) {
-        requestAnimationFrame(scopeFrame)
-        return
-      }
+      // throttle the rest to ~30fps. The UNCONDITIONAL re-arm at the very bottom keeps the loop spinning, so
+      // it resumes the instant the gate clears.
+      if (!(drawsSuspended(audioStore) || scopeTick % 2 !== 0)) {
+      // Guard the ENTIRE draw in try/catch: a transient audio-graph / canvas race (an analyser detached mid
+      // deck-load, a worker postMessage on a detached buffer, the bus array drifting during a resync) must
+      // NEVER throw out of this loop. The re-arm is the only thing keeping meters/waves alive and it used to
+      // sit AFTER the throwable body — so one bad frame froze every meter for the whole session. Now a throw
+      // is swallowed and the loop self-heals on the next frame.
+      try {
       // Worker path collects per-canvas analyser bytes into `frames` (buffers transferred in one postMessage);
       // when unavailable, `sw` is null and we draw on the main thread as before.
       let sw = ensureScopeWorker()
@@ -1216,10 +1298,28 @@ export fn App() {
       if (audioStore.buses) {
         let dpj = rt.project
         let deckLvl = { A: 0, B: 0, C: 0, D: 0 }
+        // Look the bus up by STABLE channel id, not positional index. The per-frame reconcile (syncChannelBuses)
+        // only GROWS the bus array and never reorders it, while a full resyncAllChannelBuses runs on only a few
+        // paths — so after a deck load / reorder / remote adopt, buses[wi] can point at a DIFFERENT channel's
+        // analyser than channels[wi], feeding the wrong stem's meter/waveform (or none). A chId→bus map keeps
+        // each meter on its own signal. Falls back to positional for any legacy bus without a chId.
+        let busById = {}
+        let bj = 0
+        while (bj < audioStore.buses.length) {
+          let bb = audioStore.buses[bj]
+          if (bb && (bb.chId !== null && bb.chId !== undefined)) {
+            busById[String(bb.chId)] = bb
+          }
+          bj = bj + 1
+        }
+        let chans = (dpj && dpj.channels) ? dpj.channels : []
         let wi = 0
-        while (wi < audioStore.buses.length) {
-          let bus = audioStore.buses[wi]
-          let ch = (dpj && dpj.channels && dpj.channels[wi]) ? dpj.channels[wi] : null
+        while (wi < chans.length) {
+          let ch = chans[wi]
+          let bus = ch ? busById[String(ch.id)] : null
+          if (!bus) {
+            bus = audioStore.buses[wi]
+          }
           let lvl = bus && bus.analyser ? busPeakLevel(bus.analyser) : 0
           let chDeck = ch ? channelDeck(dpj, ch) : "A"
           // Key the canvas/meter/worker-id by the CHANNEL ID (stable), not the bus index (which shifts on a deck
@@ -1291,6 +1391,8 @@ export fn App() {
           }
         }
         rt.tplWaveDirty = false
+      }
+      } catch (eFrame) {}
       }
       requestAnimationFrame(scopeFrame)
     }
@@ -1629,6 +1731,8 @@ export fn App() {
     if (!coDjShouldFollow(rt)) {
       return
     }
+    // The host's clock takes over — drop any local Preview the follower started so we don't double up.
+    onStopPreview()
     let step = Math.floor(Number(hostStep))
     if (step < 0 || step !== step) {
       step = 0
@@ -2096,6 +2200,12 @@ export fn App() {
     }
     rt.playMode = m
     setPlayMode(m)
+    // Repaint the Session panel on EVERY mode switch, even when stopped. SessionViewMemo (sessionEq) keys on
+    // sessionUiGen, not playMode, and the panel renders playMode-derived state (which deck is the live source,
+    // scene/clip highlights). Bumping here BEFORE the stopped early-return is what makes "switch Sequence↔
+    // Session" actually update the panel when not playing (previously it only repainted while playing, so the
+    // same click worked or didn't depending on transport state — the "switching doesn't always work" bug).
+    bumpSessionUi()
     if (!rt.playing) {
       return
     }
@@ -2116,9 +2226,12 @@ export fn App() {
   rt.selectPlayMode = selectPlayMode
   // The live Play / Stop button: start in the current mode when stopped, stop when playing.
   fn onPlayStop() {
-    // Host-only live transport: a connected FOLLOWER can't manually Play/Stop — it auto-follows the host's
-    // clock (coDjFollowStart/Stop) and can only Preview privately. So a manual press is a no-op for followers.
+    // Host-only SHARED transport: a connected FOLLOWER can't drive the room's Play/Stop (the host is the clock
+    // master; the follower auto-follows via coDjFollowStart). But its Play button is NOT dead — it auditions
+    // (Previews) its own deck locally, which is the follower's whole "you can only preview" affordance.
+    // Without this a follower's Play button does nothing in EITHER mode, which reads as "play not working".
     if (coDjIsFollower(rt)) {
+      onPreview()
       return
     }
     if (rt.playing) {
@@ -2259,6 +2372,15 @@ export fn App() {
   // the deck-header picker. Catalog songs carry a BPM; adopt it ONLY when nothing's playing (don't disrupt a
   // live set). Clears stale arming + reconciles audio so playback continues seamlessly through the swap.
   rt.loadSongOntoDeck = (kind, key, deck) => {
+    // MULTIPLAYER GUARD: in a live session a player may only load a song onto their OWN deck. Reject any other
+    // target (defense-in-depth behind the SongBrowser's disabled buttons). Solo (not connected) is unrestricted.
+    let mine = coDjOwnDeckLetter(rt)
+    if (mine !== null && deck !== mine) {
+      if (typeof console !== "undefined" && console.log) {
+        console.log("[loadSong] blocked: deck " + String(deck) + " is not my own (" + String(mine) + ") in a session")
+      }
+      return
+    }
     let bpm = null
     if (kind === "set") {
       let lib = createSetLibrary()

@@ -46,10 +46,44 @@ export fn projectDiffersFromDefault(p) {
   return emitProject(p) !== emitProject(defP)
 }
 
-// True if a project is eligible to have its content contributed on join: it's my own fresh work (differs from
-// the default) and isn't already-synced shared state.
+// True if a project is eligible to home its own content onto the joiner's deck on connect.
+//
+// A joining client ALWAYS homes its deck content onto its OWN deck — INCLUDING the bundled default. This is
+// the 99% case: two players each open the app on the default and join. If we only contributed NON-default
+// work, the client's loop would be clobbered by the host's snapshot and BOTH players would end up sharing the
+// host's single Deck A (the reported "only get ONE deck" bug). Contributing even the default gives host=Deck A
+// and client=Deck B, each a populated, independently-mixable deck — the whole point of the crossfader.
+//
+// The ONLY exclusion is already-synced shared state (a reconnect): it carries real actor ownership, and
+// re-prefixing it would duplicate the whole shared loop. (A pristine default has no actor ownership.)
 export fn projectEligibleToContribute(p) {
-  return projectDiffersFromDefault(p) && !projectHasActorOwnedTracks(p)
+  if (!p || !Array.isArray(p.channels) || p.channels.length === 0) {
+    return false
+  }
+  return !projectHasActorOwnedTracks(p)
+}
+
+// Does this project already carry tracks I contributed — i.e. any channel id-prefixed with my actorId? Used
+// by the joiner to detect that its re-homed deck has round-tripped back through the host snapshot, so it can
+// stop re-homing (and not duplicate). The actorId prefix is the deterministic marker rehomeJoinerChannels set.
+export fn projectHasActorPrefixedTracks(p, actorId) {
+  if (!p || !Array.isArray(p.channels)) {
+    return false
+  }
+  let aid = actorId !== null && actorId !== undefined ? String(actorId) : ""
+  if (aid.length === 0) {
+    return false
+  }
+  let pre = aid + "_"
+  let i = 0
+  while (i < p.channels.length) {
+    let cid = String(p.channels[i].id)
+    if (cid.length > pre.length && cid.substring(0, pre.length) === pre) {
+      return true
+    }
+    i = i + 1
+  }
+  return false
 }
 
 // Append `sourceChannels` into `np` re-homed to `actorId`: each gets an actorId id-prefix (made unique vs the

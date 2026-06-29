@@ -35,7 +35,7 @@ fn getRoom(sessionId) {
     if (rooms[i].id === sessionId) return rooms[i]
     i = i + 1
   }
-  let r = { id: sessionId, conns: [], seq: {}, hostActorId: null, hostSnapshot: null, hostOwners: null }
+  let r = { id: sessionId, conns: [], seq: {}, hostActorId: null, hostSnapshot: null, hostOwners: null, hostGen: 0 }
   rooms.push(r)
   return r
 }
@@ -120,11 +120,12 @@ fn clientId() {
 // Message types that get fanned out to the room. A function (fresh bool per call) rather than a reused
 // `let` so the AOT native backend doesn't trip its move-checker on a boomeranged boolean.
 fn isFanoutType(mt) {
-  if (mt === "tpl.line") return true
+  if (mt === "deck.put") return true
   if (mt === "tpl.block") return true
-  if (mt === "direct") return true
   if (mt === "tpl.stream_chunk") return true
   if (mt === "control") return true
+  if (mt === "tpl.line") return true
+  if (mt === "direct") return true
   return false
 }
 
@@ -171,6 +172,7 @@ fn pruneDeadConns() {
         room.hostActorId = null
         room.hostSnapshot = null
         room.hostOwners = null
+        room.hostGen = 0
         let hi = 0
         while (hi < room.conns.length) {
           if (skillsHaveMaster(room.conns[hi].skillIds)) {
@@ -291,7 +293,7 @@ while (true) {
                     // tell host tracks from its own → every track defaults to "human" → channelPlayerIndex's
                     // "human"→host remap collapses EVERYTHING (incl. the joiner's own contribution) onto
                     // Deck A. The owners map is what keeps each contributor on its own deck.
-                    let snapPayload = JSON.stringify({ type: "state.snapshot", sessionId: conn.sessionId, fromHost: room.hostActorId, lines: room.hostSnapshot, owners: room.hostOwners })
+                    let snapPayload = JSON.stringify({ type: "state.snapshot", sessionId: conn.sessionId, fromHost: room.hostActorId, lines: room.hostSnapshot, owners: room.hostOwners, gen: room.hostGen })
                     console.log("[gateway] OUTPUT wsSend cached state.snapshot -> " + conn.actorId + " (" + String(room.hostSnapshot.length) + " lines)")
                     wsSend(conn.ws, snapPayload)
                   }
@@ -320,13 +322,17 @@ while (true) {
             // Host pushes its authoritative project as state.snapshot: cache it (so future joiners get
             // it) and fan it out to current followers so they clobber their local state.
             if (mt0 === "state.snapshot" && Array.isArray(msg.lines)) {
-              if (room.hostActorId === null || actorId === room.hostActorId) {
+              // Monotonic generation: only accept a snapshot at or beyond the cached gen, so an out-of-order
+              // stale push can never clobber a newer one. Followers also discard by gen (newer-wins).
+              let sg = (typeof msg.gen === "number") ? Math.floor(msg.gen) : 0
+              if ((room.hostActorId === null || actorId === room.hostActorId) && sg >= room.hostGen) {
                 room.hostSnapshot = msg.lines
                 // Cache + relay the ownership map alongside the lines (missing key reads as null natively).
                 // Dropping it is the "guests merge into Deck A" bug — see the cached-send note above.
                 room.hostOwners = msg.owners
-                console.log("[gateway] cached host snapshot from " + actorId + " (" + String(msg.lines.length) + " lines)")
-                broadcast(room, { type: "state.snapshot", sessionId: conn.sessionId, fromHost: actorId, lines: msg.lines, owners: msg.owners }, conn)
+                room.hostGen = sg
+                console.log("[gateway] cached host snapshot from " + actorId + " (" + String(msg.lines.length) + " lines, gen " + String(sg) + ")")
+                broadcast(room, { type: "state.snapshot", sessionId: conn.sessionId, fromHost: actorId, lines: msg.lines, owners: msg.owners, gen: sg }, conn)
               }
             }
             let mt = msg.type !== null ? String(msg.type) : ""

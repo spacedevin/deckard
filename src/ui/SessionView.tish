@@ -15,6 +15,7 @@ import {
 } from '../model/Session.tish'
 import { IkSelect, LucideIcon } from './InstrumentKit.tish'
 import { channelDeck, channelDeckColor } from '../model/DeckRouting.tish'
+import { coDjOwnDeckLetter } from '../codj/Transport.tish'
 import { launchClipDirective, launchClipStopDirective, cueDirective } from '../codj/Launch.tish'
 import { singleNotePitch } from './grid/StepGrid.tish'
 import { pitchWindow } from './grid/PianoGrid.tish'
@@ -138,10 +139,14 @@ fn clipWavePath(env) {
   return d + " Z"
 }
 
-export fn SessionTrackRow(project, ch, tix, activeDeck, rt, sc, playing, bumpSessionUi, setProjectFromUI, armCell, toggleClipDisabled, queueMute, stopTrack) {
+export fn SessionTrackRow(project, ch, tix, activeDeck, rt, sc, playing, bumpSessionUi, setProjectFromUI, armCell, toggleClipDisabled, queueMute, stopTrack, canLaunchDeck, canEditDeck) {
   if (activeDeck !== null && activeDeck !== undefined && channelDeck(project, ch) !== activeDeck) {
     return []
   }
+  // Multiplayer per-deck control: clip launch/stop needs launch rights (own deck or host); only the deck owner
+  // may edit. Default true (solo) when the flags aren't supplied.
+  let mayLaunch = canLaunchDeck === null || canLaunchDeck === undefined || canLaunchDeck === true
+  let mayEdit = canEditDeck === null || canEditDeck === undefined || canEditDeck === true
   let muted = ch.mute === true
   let stopped = sessionTrackStopped(rt, tix)
   let cells = []
@@ -193,15 +198,21 @@ export fn SessionTrackRow(project, ch, tix, activeDeck, rt, sc, playing, bumpSes
       if (isPlaying) { cellCls = cellCls + " session-cell-playing" }
       if (isQueued) { cellCls = cellCls + " session-cell-queued" }
       if (isDisabled) { cellCls = cellCls + " session-cell-disabled" }
+      if (!mayLaunch) { cellCls = cellCls + " session-cell-locked" }
       let wavePath = clipWavePath(clipEnvelope(clip))
+      let cellTitle = isDisabled ? "SKIPPED — this clip won't play. Left-click (or right-click again) to re-enable." : "Launch this clip — drops on the next launch-quantize boundary (Q in the transport). Right-click to skip just this clip."
+      if (!mayLaunch) {
+        cellTitle = "This deck belongs to another player — you can't launch their clips."
+      }
       cells.push(
         <button
           type="button"
           class={cellCls}
           key={"c-" + String(tix) + "-" + String(sj)}
+          disabled={!mayLaunch}
           onclick={() => armCell(tix, clipIdCopy)}
-          oncontextmenu={(e) => { e.preventDefault(); toggleClipDisabled(clipIdCopy) }}
-          title={isDisabled ? "SKIPPED — this clip won't play. Left-click (or right-click again) to re-enable." : "Launch this clip — drops on the next launch-quantize boundary (Q in the transport). Right-click to skip just this clip."}
+          oncontextmenu={(e) => { e.preventDefault(); if (mayEdit) { toggleClipDisabled(clipIdCopy) } }}
+          title={cellTitle}
         >
           <svg class="session-wave" viewBox="0 0 120 24" preserveAspectRatio="none">
             <path class={"session-wave-fill session-wave-" + dsuf} d={wavePath} />
@@ -227,7 +238,8 @@ export fn SessionTrackRow(project, ch, tix, activeDeck, rt, sc, playing, bumpSes
       <button
         type="button"
         class={stopCls}
-        title={ch.name + ": stop this track's clip (instant) — silent until you launch a clip"}
+        disabled={!mayLaunch}
+        title={mayLaunch ? (ch.name + ": stop this track's clip (instant) — silent until you launch a clip") : "Another player's deck — you can't control their clips."}
         onclick={() => stopTrack(tix)}
       >
         {"■"}
@@ -255,6 +267,16 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
     activeScene = 0
   }
 
+  // ---- Per-deck session control (multiplayer). The grid is deck-filtered to `activeDeck`, so we gate by the
+  // deck currently in view. myDeck = my own deck letter (null when solo / not connected → unrestricted).
+  //   EDIT (add/remove program, save clip, skip clip, mute, follow rules) → only on MY OWN deck.
+  //   PLAY/LAUNCH (launch clip/scene, stop, cue)                          → my own deck, OR the HOST on ANY deck.
+  // "Each player controls their deck; the host can only PLAY the clients' sessions."
+  let myDeck = coDjOwnDeckLetter(rt)
+  let amHost = rt && rt.coDjIsHost === true
+  let canEditDeck = myDeck === null || activeDeck === null || activeDeck === undefined || activeDeck === myDeck
+  let canLaunchDeck = canEditDeck || amHost
+
   fn bumpSeqIfPlaying() {
     if (playing && rt.bumpSeqPromoteUi) {
       rt.bumpSeqPromoteUi()
@@ -264,6 +286,9 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
   // CUE this scene to the private preview (audition; peers hear nothing until a THROW). Toggles: clicking the
   // already-cued scene un-cues it. Routes @ cue / @ cue off through ingest → applyLaunchDirective.
   fn onCueScene(si) {
+    if (!canLaunchDeck) {
+      return
+    }
     if (rt && rt.directive) {
       if (rt.cueScene !== null && rt.cueScene !== undefined && Math.floor(Number(rt.cueScene)) === si) {
         rt.directive(cueDirective("off"))
@@ -274,6 +299,9 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
   }
 
   fn armScene(si) {
+    if (!canLaunchDeck) {
+      return
+    }
     sessionQueueScene(project, rt, si)
     if (bumpSessionUi) {
       bumpSessionUi()
@@ -287,6 +315,9 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
   // Right-click a session cell to SKIP just that clip item (reddish border): it won't play when its scene/
   // clip is launched, until it's re-enabled. Per ITEM (clip id), not per track. Toggle.
   fn toggleClipDisabled(clipId) {
+    if (!canEditDeck) {
+      return
+    }
     if (!clipId || clipId.length === 0) {
       return
     }
@@ -306,6 +337,9 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
   }
 
   fn armCell(trackIdx, clipId) {
+    if (!canLaunchDeck) {
+      return
+    }
     // Launching a clip re-enables it ("won't play unless clicked again").
     if (clipId && clipId.length > 0 && rt.sessionDisabledClips && rt.sessionDisabledClips[clipId] === true) {
       rt.sessionDisabledClips[clipId] = false
@@ -343,6 +377,9 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
 
   // Tapping a track name toggles its mute — instantly, whether playing or stopped (no queued state).
   fn queueMute(trackIdx) {
+    if (!canEditDeck) {
+      return
+    }
     let ch = project.channels[trackIdx]
     ch.mute = !(ch.mute === true)
     if (bumpSessionUi) {
@@ -354,6 +391,9 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
 
   // The ■ button stops just this track's clip — silent until a clip / scene is launched again. Instant.
   fn stopTrack(trackIdx) {
+    if (!canLaunchDeck) {
+      return
+    }
     sessionStopTrack(project, rt, trackIdx)
     pushControl(rt, launchClipStopDirective(project.channels[trackIdx].id))
     if (bumpSessionUi) {
@@ -366,6 +406,9 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
   // ---- Follow actions: per-scene "then →" rule with a deterministic A/B chance ratio. Writing it is
   // master/project state, so it streams to collaborators via the normal project sync.
   fn applyFollow(si, a, wa, b, wb) {
+    if (!canEditDeck) {
+      return
+    }
     setSceneFollow(project, si, a, wa, b, wb)
     if (bumpSessionUi) {
       bumpSessionUi()
@@ -457,6 +500,9 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
   }
 
   fn stopAll() {
+    if (!canLaunchDeck) {
+      return
+    }
     sessionStopAllTracks(project, rt)
     rt.trackOverrides = []
     rt.trackPending = []
@@ -469,6 +515,9 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
 
   // Add / remove a PROGRAM (a scene = a P-column). Mirrors the rack's BARS stepper.
   fn addProgram() {
+    if (!canEditDeck) {
+      return
+    }
     addSessionProgram(project)
     if (bumpSessionUi) {
       bumpSessionUi()
@@ -476,6 +525,9 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
     setProjectFromUI(project)
   }
   fn removeProgram() {
+    if (!canEditDeck) {
+      return
+    }
     removeSessionProgram(project)
     if (bumpSessionUi) {
       bumpSessionUi()
@@ -524,7 +576,7 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
       let barN = pb.viewBar !== null && pb.viewBar !== undefined ? Math.floor(Number(pb.viewBar)) + 1 : 1
       let totalBars = pb.bars !== null && pb.bars !== undefined && Math.floor(Number(pb.bars)) >= 1 ? Math.floor(Number(pb.bars)) : 1
       launchBtn = (
-        <button type="button" class={launchCls} onclick={() => pb.onLaunch(sceneI)} title={"Launch this pattern live (queues to the next bar while a song plays)"}>
+        <button type="button" class={launchCls} disabled={!canLaunchDeck} onclick={() => { if (canLaunchDeck) { pb.onLaunch(sceneI) } }} title={canLaunchDeck ? "Launch this pattern live (queues to the next bar while a song plays)" : "Another player's deck — only its owner (or the host) can play it."}>
           {launchLabel}
         </button>
       )
@@ -539,10 +591,10 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
             </button>
           </div>
           <div class="session-scene-oprow">
-            <button type="button" class="btn-scene-op btn-scene-save btn-scene-op-icon" onclick={() => pb.onSaveBar(sceneI)} title={"Save only bar " + String(barN) + " (the bar you're viewing) into this pattern"}>
+            <button type="button" class="btn-scene-op btn-scene-save btn-scene-op-icon" disabled={!canEditDeck} onclick={() => { if (canEditDeck) { pb.onSaveBar(sceneI) } }} title={canEditDeck ? ("Save only bar " + String(barN) + " (the bar you're viewing) into this pattern") : "Another player's deck — only its owner can save clips to it."}>
               {LucideIcon("save")}<span class="op-barnum">{"1"}</span>
             </button>
-            <button type="button" class="btn-scene-op btn-scene-save btn-scene-op-icon" onclick={() => pb.onSave(sceneI)} title={"Save the whole rack (all " + String(totalBars) + " bars) into this pattern"}>
+            <button type="button" class="btn-scene-op btn-scene-save btn-scene-op-icon" disabled={!canEditDeck} onclick={() => { if (canEditDeck) { pb.onSave(sceneI) } }} title={canEditDeck ? ("Save the whole rack (all " + String(totalBars) + " bars) into this pattern") : "Another player's deck — only its owner can save clips to it."}>
               {LucideIcon("save")}<span class="op-barnum">{String(totalBars)}</span>
             </button>
           </div>
@@ -551,7 +603,7 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
       )
     } else {
       launchBtn = (
-        <button type="button" class="btn-session-launch" onclick={() => armScene(si)} title={"Queue scene for next bar (16 steps)"}>
+        <button type="button" class="btn-session-launch" disabled={!canLaunchDeck} onclick={() => armScene(si)} title={canLaunchDeck ? "Queue scene for next bar (16 steps)" : "Another player's deck — only its owner (or the host) can play it."}>
           {"Launch"}
         </button>
       )
@@ -566,8 +618,9 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
           <button
             type="button"
             class={isCued ? "btn-scene-cue btn-scene-cue-on" : "btn-scene-cue"}
+            disabled={!canLaunchDeck}
             onclick={() => onCueScene(si)}
-            title={isCued ? "CUED — click to un-cue. Auditions in sync with the main beat; THROW to go live." : "CUE — audition this scene privately, in time with the main beat (peers hear nothing). Click again to un-cue; THROW to go live."}
+            title={!canLaunchDeck ? "Another player's deck — only its owner (or the host) can play it." : (isCued ? "CUED — click to un-cue. Auditions in sync with the main beat; THROW to go live." : "CUE — audition this scene privately, in time with the main beat (peers hear nothing). Click again to un-cue; THROW to go live.")}
           >
             {isCued ? "♪ CUE" : "CUE"}
           </button>
@@ -582,7 +635,7 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
   let ti = 0
   while (ti < project.channels.length) {
     let ch = project.channels[ti]
-    let trackRows = SessionTrackRow(project, ch, ti, activeDeck, rt, sc, playing, bumpSessionUi, setProjectFromUI, armCell, toggleClipDisabled, queueMute, stopTrack)
+    let trackRows = SessionTrackRow(project, ch, ti, activeDeck, rt, sc, playing, bumpSessionUi, setProjectFromUI, armCell, toggleClipDisabled, queueMute, stopTrack, canLaunchDeck, canEditDeck)
     if (trackRows !== null && trackRows !== undefined) {
       let tri = 0
       while (tri < trackRows.length) {
@@ -603,15 +656,15 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
         <div class="session-head-right">
           {headerRight}
           <div class="sg-barpager session-prog-pager" title="Programs — the P columns (scenes). Add or remove a program slot, like BARS on the rack.">
-            <button type="button" class="sg-barbtn sg-barbtn-mod" title="Remove the last program" disabled={sc <= 1} onclick={() => removeProgram()}>
+            <button type="button" class="sg-barbtn sg-barbtn-mod" title={canEditDeck ? "Remove the last program" : "Another player's deck — only its owner can edit its session."} disabled={sc <= 1 || !canEditDeck} onclick={() => removeProgram()}>
               {"−"}
             </button>
             <span class="sg-barpager-count">{String(sc)}</span>
-            <button type="button" class="sg-barbtn sg-barbtn-mod" title="Add a program (a new P column / scene)" onclick={() => addProgram()}>
+            <button type="button" class="sg-barbtn sg-barbtn-mod" title={canEditDeck ? "Add a program (a new P column / scene)" : "Another player's deck — only its owner can edit its session."} disabled={!canEditDeck} onclick={() => addProgram()}>
               {"+"}
             </button>
           </div>
-          <button type="button" class="btn-session-stop-all" title="Stop all clips" onclick={stopAll}>
+          <button type="button" class="btn-session-stop-all" disabled={!canLaunchDeck} title={canLaunchDeck ? "Stop all clips" : "Another player's deck — only its owner (or the host) can play it."} onclick={stopAll}>
             {"■"}
           </button>
         </div>

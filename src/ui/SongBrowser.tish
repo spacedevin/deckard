@@ -6,6 +6,7 @@
 import { h, Fragment } from '@tishlang/lattish'
 import { deckSetCatalog } from '../model/DeckSets.tish'
 import { createSetLibrary, freeDecks } from '../core/SetLibrary.tish'
+import { coDjOwnDeckLetter } from '../codj/Transport.tish'
 
 // `q` / `setQ` are owned by App (so this stays a pure prop-driven component — safe to mount/unmount).
 export fn SongBrowser(project, rt, onClose, q, setQ) {
@@ -48,6 +49,10 @@ export fn SongBrowser(project, rt, onClose, q, setQ) {
     fk = fk + 1
   }
   let decks = ["A", "B", "C", "D"]
+  // In a live multiplayer session a player may ONLY load a song onto their OWN deck — the others are locked.
+  // Read off the live runtime (rt), so it engages the instant we're connected regardless of project-ref sync.
+  // Solo / not connected: ownDeck is null → every deck is loadable.
+  let ownDeck = coDjOwnDeckLetter(rt)
 
   let rows = []
   let ri = 0
@@ -59,12 +64,23 @@ export fn SongBrowser(project, rt, onClose, q, setQ) {
       let d = decks[di]
       let occ = freeSet[d] !== true
       let dl = d === "B" ? "b" : (d === "C" ? "c" : (d === "D" ? "d" : "a"))
+      // Locked: in a session, only my own deck loads — the rest are disabled.
+      let locked = ownDeck !== null && d !== ownDeck
+      let cls = "song-deck-btn dk-acc-" + dl
+      if (occ) {
+        cls = cls + " song-deck-occ"
+      }
+      if (locked) {
+        cls = cls + " song-deck-locked"
+      }
+      let ttl = locked ? ("Multiplayer — you can only load onto your own deck (" + String(ownDeck) + ")") : ((occ ? "Replace deck " + d + " with " : "Load onto deck " + d + ": ") + sg.name)
       deckBtns.push(
         <button
           type="button"
-          class={occ ? "song-deck-btn song-deck-occ dk-acc-" + dl : "song-deck-btn dk-acc-" + dl}
-          title={(occ ? "Replace deck " + d + " with " : "Load onto deck " + d + ": ") + sg.name}
-          onclick={() => { if (rt && rt.loadSongOntoDeck) { rt.loadSongOntoDeck(sg.kind, sg.key, d) } }}
+          class={cls}
+          disabled={locked}
+          title={ttl}
+          onclick={() => { if (!locked && rt && rt.loadSongOntoDeck) { rt.loadSongOntoDeck(sg.kind, sg.key, d) } }}
         >
           {d}
         </button>
@@ -105,7 +121,7 @@ export fn SongBrowser(project, rt, onClose, q, setQ) {
           <button type="button" class="song-close" title="Close" onclick={() => { if (onClose) { onClose() } }}>{"✕"}</button>
         </div>
         <div class="song-list">{rows}</div>
-        <div class="song-hint">{"Pick a deck (A–D) to load a song's full kit + patterns onto it — occupied decks are replaced. The tempo follows the song only when nothing is playing."}</div>
+        <div class="song-hint">{ownDeck !== null ? ("Multiplayer — you can only load a song onto your own deck (" + String(ownDeck) + "). The tempo follows the song only when nothing is playing.") : "Pick a deck (A–D) to load a song's full kit + patterns onto it — occupied decks are replaced. The tempo follows the song only when nothing is playing."}</div>
       </div>
     </div>
   )

@@ -51,6 +51,7 @@ export fn parseProgram(source) {
   let swing = null
   let scaleRoot = null
   let scaleMode = null
+  let deckMix = null
   let songEntries = null
   let followEntries = null
   let currentClip = null
@@ -285,6 +286,30 @@ export fn parseProgram(source) {
       }
       continue
     }
+    // Per-deck booth EQ + volume: `deck_mix <A|B|C|D> hi <n> mid <n> lo <n> flt <n> vol <n>` (any subset of
+    // the band/vol tokens tolerated). Parsed into deckMix[deck] = {hi,mid,lo,flt,vol}; applied master-gated.
+    if (head === "deck_mix") {
+      if (toks.length >= 2) {
+        let dk = String(toks[1])
+        if (dk === "A" || dk === "B" || dk === "C" || dk === "D") {
+          if (deckMix === null) {
+            deckMix = {}
+          }
+          let entry = {}
+          let ti = 2
+          while (ti + 1 < toks.length) {
+            let k = toks[ti]
+            let v = Number(toks[ti + 1])
+            if (v === v && (k === "hi" || k === "mid" || k === "lo" || k === "flt" || k === "vol")) {
+              entry[k] = v
+            }
+            ti = ti + 2
+          }
+          deckMix[dk] = entry
+        }
+      }
+      continue
+    }
     // `remove_track <id>` — delete a channel (incremental edit fragment; never appears in a full snapshot,
     // since emitChannelTpl only emits surviving channels). Applied + ownership-gated in applyCoDjTplSource.
     if (head === "remove_track") {
@@ -489,6 +514,7 @@ export fn parseProgram(source) {
     swing: swing,
     scaleRoot: scaleRoot,
     scaleMode: scaleMode,
+    deckMix: deckMix,
     errors: errors
   }
 }
