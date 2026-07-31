@@ -272,7 +272,7 @@ A CSS-`nth`-style predicate for **which loop repetition (bar)** a `note` or `ste
 
 ### Macros
 
-A **macro** is a named, parameterized **patch template**. Built-ins port the deck.tsx voices; you can define your own. A `gen <name> [overrides]` reference expands to a `gen_block patch` at load (so there's one synth engine), and round-trips back as the concise `gen <name>` line (not the expanded graph). Registry + expander: [`src/tpl/Macros.tish`](../src/tpl/Macros.tish).
+A **macro** is a named, parameterized **patch template**. Built-ins port the deck.tsx voices; you can define your own. A `gen <name> [overrides]` reference expands to a `gen_block patch` at load (so there's one synth engine), and round-trips back as the concise `gen <name>` line (not the expanded graph). Registry + expander: [`src/deckfile/Macros.tish`](../src/deckfile/Macros.tish).
 
 **Define** (top-level; `key=default` params; `$name` substituted in the body):
 
@@ -449,7 +449,7 @@ Serializer + parser: [`src/core/SetLibrary.tish`](../src/core/SetLibrary.tish).
 
 ### Streaming apply (line-by-line)
 
-`deck.line` is decoded **incrementally**, one completed line at a time (`src/tpl/Stream.tish`), as the streaming counterpart to the atomic `deck.block` path — both coexist. A non-indented block opener (`track`, `clip`, `auto`) opens a block and re-applies as indented body lines stream in, so a track sounds the moment its `track …` line arrives and the pattern fills as `steps …` follows. Standalone top-level lines (`bpm`, `master_mix`, `actor_mix`, `session_scenes`, `session_slot`) apply on arrival. Every streamed line is skill-gated via `coDjLineAllowedForSkills`.
+`deck.line` is decoded **incrementally**, one completed line at a time (`src/deckfile/Stream.tish`), as the streaming counterpart to the atomic `deck.block` path — both coexist. A non-indented block opener (`track`, `clip`, `auto`) opens a block and re-applies as indented body lines stream in, so a track sounds the moment its `track …` line arrives and the pattern fills as `steps …` follows. Standalone top-level lines (`bpm`, `master_mix`, `actor_mix`, `session_scenes`, `session_slot`) apply on arrival. Every streamed line is skill-gated via `coDjLineAllowedForSkills`.
 
 ## FL Studio mapping (mental model)
 

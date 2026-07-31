@@ -13,9 +13,9 @@
 // Implemented by slicing the canonical emitProject() output into blocks (a top-level line + its indented
 // body), so this is purely additive — no change to the emitter. Apply goes back through the gated ingest.
 
-import { emitProject } from '../tpl/Emit.tish'
-import { tokenize } from '../tpl/Parser.tish'
-import { findChannelById } from '../tpl/Apply.tish'
+import { emitProject } from '../deckfile/Emit.tish'
+import { tokenize } from '../deckfile/Parser.tish'
+import { findChannelById } from '../deckfile/Apply.tish'
 
 // Body keywords that describe the SOUND (instrument) vs the PATTERN (sequence). gen_block children
 // (osc/noise/string/filter/shaper/gain/pan/conn/env/dur/end) ride with the sound. `deck` routing belongs

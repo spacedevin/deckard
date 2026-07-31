@@ -15,8 +15,8 @@ import {
   removeMatrixFmRouteAt,
   ensureMatrixFmOpEnv,
   ensureMatrixFmFilterEnv
-} from '../tpl/MatrixFmGraph.tish'
-import { parseGenBlock, defaultMatrixFmRawLines } from '../tpl/TplExtension.tish'
+} from '../deckfile/MatrixFmGraph.tish'
+import { parseGenBlock, defaultMatrixFmRawLines } from '../deckfile/TplExtension.tish'
 import { Knob, WaveIconPicker, IkSelect, accentForGenerator, matrixFmSvgDataUrl, matrixFmLucideIconSvg, isKnobDragging } from './InstrumentKit.tish'
 import { emitInstrumentModuleTpl } from '../core/Levels.tish'
 import { cablePathD } from './PatchGraphPanel.tish'

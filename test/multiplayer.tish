@@ -12,8 +12,8 @@
 // Run: tish build --target js test/multiplayer.tish -o /tmp/mp.js && node /tmp/mp.js
 
 import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
-import { emitProject } from '../src/tpl/Emit.tish'
-import { findChannelById } from '../src/tpl/Apply.tish'
+import { emitProject } from '../src/deckfile/Emit.tish'
+import { findChannelById } from '../src/deckfile/Apply.tish'
 import { collectActorLanes } from '../src/model/MixerRouting.tish'
 import { createIngest } from '../src/core/Ingest.tish'
 import { createEditor } from '../src/core/Edit.tish'
@@ -21,7 +21,7 @@ import { isPrivateDirective, launchSceneDirective, transportPlayDirective, trans
 import { setTrackOwner } from '../src/codj/CoDjMeta.tish'
 import { ensureProjectSession } from '../src/model/Session.tish'
 import { stepTriggers } from '../src/audio/Playback.tish'
-import { findChannelById as findCh2 } from '../src/tpl/Apply.tish'
+import { findChannelById as findCh2 } from '../src/deckfile/Apply.tish'
 import { channelDeckColor, channelPlayerIndex } from '../src/model/DeckRouting.tish'
 
 let pass = 0

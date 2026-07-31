@@ -86,7 +86,7 @@ Target: the [`deck.tsx`](../inspiritaion/deck.tsx) layout, rebuilt in Lattish/ti
 ### Model / audio changes
 - **Stem grouping.** Add `channel.stem ∈ {kick, perc, bass, chord, arpfx}` (default inferred from
   generator/role). TPL: a `stem <name>` track-body line (round-tripped in
-  [`Apply.tish`](../../src/tpl/Apply.tish)/[`Emit.tish`](../../src/tpl/Emit.tish)). Stem faders sum the
+  [`Apply.tish`](../../src/deckfile/Apply.tish)/[`Emit.tish`](../../src/deckfile/Emit.tish)). Stem faders sum the
   gains of all channels tagged with that stem on that deck.
 - **Deck buses.** [`Engine.tish`](../../src/audio/Engine.tish) already builds `channel → actor bus →
   master`. Rename/extend the two relevant buses to **deck buses A/B** (EQ + filter + trim already

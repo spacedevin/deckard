@@ -28,7 +28,7 @@ receiver. The **full, current palette** the agent should use lives in **[DECK_AG
 (kept in lockstep with the agent `SYSTEM_PROMPT`); in brief:
 
 - **33 fixed generators** by role — perc (`drumSynth`/`clap`/`cymbal`/`noise_burst`), bass (`acid303`/`sub808`/`reeseBass`), lead (`basic_osc`/`fm`/`aether`/`syncLead`/`obSync`/`laserSync`), keys (`tine`/`halo`/`bell`), pad (`pad`), strings (`guitar`/`arco`), chip (`chiptune`/`nes2a03`/`gameBoyDmg`/`c64sid`/`ym2612`/`sn76489`/`spc700`/`gbaDirectSound`), vocal (`formantVocal`/`ttsVocal`/`meSpeakVocal`/`syncChoir`), modular (`matrixFm`/`patch`).
-- **8 macro voices** — kick (`kick_edm`/`kick_deep`/`kick_distorted`), bass (`bass_reese_punch`/`bass_reese_sc`/`bass_wobble`; `bass_acid`/`bass_reese` are legacy, superseded in the picker by the `acid303`/`reeseBass` generators — see project memory *macro-generator-boundary-policy*). Catalog: [`src/model/MacroVoice.tish`](../src/model/MacroVoice.tish) / [`src/tpl/Macros.tish`](../src/tpl/Macros.tish).
+- **8 macro voices** — kick (`kick_edm`/`kick_deep`/`kick_distorted`), bass (`bass_reese_punch`/`bass_reese_sc`/`bass_wobble`; `bass_acid`/`bass_reese` are legacy, superseded in the picker by the `acid303`/`reeseBass` generators — see project memory *macro-generator-boundary-policy*). Catalog: [`src/model/MacroVoice.tish`](../src/model/MacroVoice.tish) / [`src/deckfile/Macros.tish`](../src/deckfile/Macros.tish).
 - **Modular voices**: `gen_block patch` (`osc`/`noise`/`string`/`filter`/`shaper`/`gain`/`conn`/`env`/`dur`) and `gen_block matrix_fm`.
 - **Per-track**: `steps`/`steps euclid`/`step_pitch` (`bar <sel>`), `note` (with `p`/`r`/`n` locks), `step_vel|prob|ratchet|nudge` lock lanes, `mix … eq_*`, `fx cutoff|res|drive|reverb_send|lfo_rate|lfo_depth|filter_type`, `voice octave|chord|arp|arprate|inversion|strum`, `adsr`, `* <bars>`, `loops`.
 
@@ -69,7 +69,7 @@ Skill-gating **is now enforced**, on the **receiver** side:
 - The gateway stamps the sender's declared `skillIds` onto every fanned-out message (`out.skillIds = conn.skillIds` in [`services/gateway/main.tish`](../services/gateway/main.tish)).
 - The browser ([`src/ui/CoDjPanel.tish`](../src/ui/CoDjPanel.tish)) threads `msg.skillIds` into [`applyCoDjTplSource`](../src/codj/Merge.tish) and `coDjHandleIncomingTplBlock`.
 - [`applyCoDjTplSource`](../src/codj/Merge.tish) gates master-scope lines (`bpm`, top-level `auto`, session clips, scenes) via [`skillIdsAllowMaster`](../src/codj/Skills.tish), falling back to the legacy `actorId.indexOf("human")` check **only** when `skillIds` are absent.
-- The incremental line decoder ([`src/tpl/Stream.tish`](../src/tpl/Stream.tish)) gates **every** streamed line via [`coDjLineAllowedForSkills`](../src/codj/Skills.tish).
+- The incremental line decoder ([`src/deckfile/Stream.tish`](../src/deckfile/Stream.tish)) gates **every** streamed line via [`coDjLineAllowedForSkills`](../src/codj/Skills.tish).
 
 Enforcement = the **receiver silently skips disallowed lines** (master-scope lines without `master_mixer`). There is **no `SKILL_DENIED` error code** yet — see [WS_AND_AGENTS.md §1.3](./WS_AND_AGENTS.md) for the error codes actually emitted.
 
@@ -82,5 +82,5 @@ Enforcement = the **receiver silently skips disallowed lines** (master-scope lin
 
 - `src/codj/Skills.tish` — `coDjLineAllowedForSkills`, `skillIdsAllowMaster`, `hasSkill`, `actorHasSkill`, `skillAllowsLine`.
 - `src/codj/Merge.tish` — `applyCoDjTplSource` gates master-scope lines; `actorMayEditTrack` enforces per-track ownership / master-lock.
-- `src/tpl/Stream.tish` — incremental line decoder gates every streamed line.
+- `src/deckfile/Stream.tish` — incremental line decoder gates every streamed line.
 - Hub duplicate check optional.

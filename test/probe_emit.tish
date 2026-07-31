@@ -1,8 +1,8 @@
 import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
-import { findChannelById } from '../src/tpl/Apply.tish'
+import { findChannelById } from '../src/deckfile/Apply.tish'
 import { applyCoDjTplSource } from '../src/codj/Merge.tish'
 import { matrixFmFactoryInstrumentPresets } from '../src/model/MatrixFmPresets.tish'
-import { emitProject } from '../src/tpl/Emit.tish'
+import { emitProject } from '../src/deckfile/Emit.tish'
 import { emitInstrumentModuleTpl } from '../src/core/Levels.tish'
 
 let p = loadDefaultDeckardProject().project

@@ -1,5 +1,5 @@
 import { emptyProjectShell } from './Project.tish'
-import { applyTplSource } from '../tpl/Apply.tish'
+import { applyTplSource } from '../deckfile/Apply.tish'
 import { migrateProjectGenerators } from './Migrate.tish'
 import { defaultDeckardTplText } from './DefaultDeckardTpl.tish'
 

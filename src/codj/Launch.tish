@@ -12,7 +12,7 @@
 //   @ cue <scene|clipId>                   load into your PRIVATE cue/preview (local only, never broadcast) [step 6]
 //   @ throw [scene0]                       commit your cue to the SHARED main (master/owner gated)         [step 6]
 
-import { tokenize } from '../tpl/Parser.tish'
+import { tokenize } from '../deckfile/Parser.tish'
 import { laneCanMaster, actorMayEditTrack } from './Merge.tish'
 import {
   ensureProjectSession,

@@ -3,7 +3,7 @@
 // `matrixFmPatches()` is the raw {id,name,category,lines} list the MatrixFmPanel patch-picker loads;
 // `matrixFmFactoryInstrumentPresets()` wraps the same data as instrument presets seeded into a project.
 
-import { parseGenBlock } from '../tpl/TplExtension.tish'
+import { parseGenBlock } from '../deckfile/TplExtension.tish'
 
 export fn matrixFmPatches() {
   return [

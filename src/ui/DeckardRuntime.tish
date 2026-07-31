@@ -85,7 +85,7 @@ export fn createDeckardRuntime() {
     coDjLocalStreamLane: "",
     coDjRemoteTplStream: "",
     coDjRemoteTplStreamLane: "",
-    /** Per-actor incremental deck line decoders (keyed by actorId) — see tpl/Stream.tish. */
+    /** Per-actor incremental deck line decoders (keyed by actorId) — see deckfile/Stream.tish. */
     coDjLineStreams: {},
     coDjActors: [],
     coDjActorId: "",

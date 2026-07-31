@@ -4,11 +4,11 @@
 // current values for the untouched fields. The result is one minimal deck fragment fed to ingest — the
 // same door peers and the agent use. This is how "the UI is just a deck client" becomes literal.
 
-import { formatTplFloat } from '../tpl/Format.tish'
-import { generatorIdToTpl, stepLaneLine, noteLine } from '../tpl/Emit.tish'
-import { findChannelById } from '../tpl/Apply.tish'
+import { formatTplFloat } from '../deckfile/Format.tish'
+import { generatorIdToTpl, stepLaneLine, noteLine } from '../deckfile/Emit.tish'
+import { findChannelById } from '../deckfile/Apply.tish'
 import { scaleRootNames } from '../model/Scale.tish'
-import { camelToSnake, paramKeyToCamel } from '../tpl/RegistryMap.tish'
+import { camelToSnake, paramKeyToCamel } from '../deckfile/RegistryMap.tish'
 
 fn f(v) {
   return formatTplFloat(Number(v))

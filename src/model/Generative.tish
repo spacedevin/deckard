@@ -3,7 +3,7 @@
 // the CONCRETE result through the deck pattern door — so generation runs once on the actor's machine and peers
 // receive the realized steps (no per-client divergence). Euclid distribution keeps the output musical, not noise.
 
-import { euclideanPattern } from '../tpl/Euclidean.tish'
+import { euclideanPattern } from '../deckfile/Euclidean.tish'
 import { cloneStep, makeStep, clonePianoNote } from './Project.tish'
 
 // Rotate a boolean pattern by `rot` steps (positive = shift later in time).

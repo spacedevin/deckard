@@ -17,7 +17,7 @@
 
 import { h } from '@tishlang/lattish'
 import { normalizeBasicOscWaveform } from '../generators/Registry.tish'
-import { parseGenBlock } from '../tpl/TplExtension.tish'
+import { parseGenBlock } from '../deckfile/TplExtension.tish'
 import { emitInstrumentModuleTpl } from '../core/Levels.tish'
 import { Knob, accentForGenerator, WaveIconPicker, isKnobDragging, selOpt } from './InstrumentKit.tish'
 import {
@@ -33,7 +33,7 @@ import {
   addPatchEnvSeg,
   removePatchEnvSegAt,
   patchSignalStages
-} from '../tpl/PatchGraph.tish'
+} from '../deckfile/PatchGraph.tish'
 
 fn numOr(x, def) {
   if (typeof x === "number" && x === x) {

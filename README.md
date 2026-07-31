@@ -46,7 +46,7 @@ Click **Play** once to unlock audio.
 | Transport, rack, mixer | DOM + CSS |
 | Piano roll, scope | `<canvas>` |
 
-**Reachability:** `src/main.tish` → `ui/App.tish` pulls in model, audio, schedule, generators, tpl/ (deck emit/apply/highlight), and Lattish. **Removed unused:** `hooks.tish` (dead shim), `tpl/Lexer.tish` (Parser inlines the same concerns).
+**Reachability:** `src/main.tish` → `ui/App.tish` pulls in model, audio, schedule, generators, tpl/ (deck emit/apply/highlight), and Lattish. **Removed unused:** `hooks.tish` (dead shim), `deckfile/Lexer.tish` (Parser inlines the same concerns).
 
 ## Co-DJ (WebSocket + actors)
 

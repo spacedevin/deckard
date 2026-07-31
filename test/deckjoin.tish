@@ -5,8 +5,8 @@
 // Run: tish build --target js test/deckjoin.tish -o /tmp/deckard-dj.js && node /tmp/deckard-dj.js
 
 import { loadDefaultDeckardProject, loadProjectFromTpl } from '../src/model/ProjectLoad.tish'
-import { emitProject } from '../src/tpl/Emit.tish'
-import { findChannelById } from '../src/tpl/Apply.tish'
+import { emitProject } from '../src/deckfile/Emit.tish'
+import { findChannelById } from '../src/deckfile/Apply.tish'
 import { channelPlayerIndex, channelDeck } from '../src/model/DeckRouting.tish'
 import { ensureCoDjMeta, setTrackOwner } from '../src/codj/CoDjMeta.tish'
 import { applyCoDjTplSource } from '../src/codj/Merge.tish'

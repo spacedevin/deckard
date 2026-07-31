@@ -5,7 +5,7 @@
 // `vel`. Anything deck.tsx hand-coded (EDM kick, acid/reese bass, FM pluck, pad, stab) is now data.
 
 import { midiToHz } from '../schedule/Engine.tish'
-import { parsePatchGraph } from '../tpl/TplExtension.tish'
+import { parsePatchGraph } from '../deckfile/TplExtension.tish'
 import { normalizeBasicOscWaveform } from './Registry.tish'
 import { playBasicOsc } from './BasicOsc.tish'
 

@@ -49,7 +49,7 @@ the Tish interpreter with the `ws` / `http` / `process` features.
 
 | Concern | Where |
 |---------|-------|
-| Streaming language (parse / apply / emit / stream) | `src/tpl/` |
+| Streaming language (parse / apply / emit / stream) | `src/deckfile/` |
 | Data model (project = single source of truth) | `src/model/` |
 | Synthesis & scheduling (the "stems") | `src/audio/`, `src/schedule/`, `src/generators/` |
 | Co-DJ collaboration (lanes, merge, skills, scheduling) | `src/codj/` |
@@ -126,8 +126,8 @@ blocks) and heavy generators (`gen_block matrix_fm … end gen_block`, see
 
 | Path | Unit | Module | Use |
 |------|------|--------|-----|
-| **Atomic** | whole program / block | `src/tpl/Parser.tish` → `Apply.tish` (`applyTplSource`) | Editor *Apply*, JSON import, `deck.block` over the wire |
-| **Incremental** | one line at a time | `src/tpl/Stream.tish` (`tplLineStreamPush`) | `deck.line` over the wire — progressive decode |
+| **Atomic** | whole program / block | `src/deckfile/Parser.tish` → `Apply.tish` (`applyTplSource`) | Editor *Apply*, JSON import, `deck.block` over the wire |
+| **Incremental** | one line at a time | `src/deckfile/Stream.tish` (`tplLineStreamPush`) | `deck.line` over the wire — progressive decode |
 
 The atomic path (`parseProgram` → `applyParsed`) merges a complete program into the project by
 channel id. The **incremental path** is what makes "stream a song into live stems" literal: a
@@ -136,7 +136,7 @@ growing block is re-applied (idempotently) on every line — so a remote actor's
 instant its `track …` header arrives**, then the pattern fills in as `steps …` streams. Both paths
 share the same ownership/skill enforcement via `applyCoDjTplSource`.
 
-`src/tpl/Emit.tish` does the reverse — `project → deck` — for the editor mirror, JSON↔deck, and the
+`src/deckfile/Emit.tish` does the reverse — `project → deck` — for the editor mirror, JSON↔deck, and the
 "what you send on Play" preview. Parser/apply/emit are a verified round-trip (see `test/smoke.tish`).
 
 ---
@@ -268,9 +268,9 @@ See the [README](../README.md) quick-start.
 - **Model:** [Project.tish](../src/model/Project.tish), [Session.tish](../src/model/Session.tish),
   [Edits.tish](../src/model/Edits.tish), [Migrate.tish](../src/model/Migrate.tish),
   [MixerRouting.tish](../src/model/MixerRouting.tish), [DeckRouting.tish](../src/model/DeckRouting.tish)
-- **deck:** [Parser.tish](../src/tpl/Parser.tish), [Apply.tish](../src/tpl/Apply.tish),
-  [Emit.tish](../src/tpl/Emit.tish), [Stream.tish](../src/tpl/Stream.tish) (incremental),
-  [TplExtension.tish](../src/tpl/TplExtension.tish)
+- **deck:** [Parser.tish](../src/deckfile/Parser.tish), [Apply.tish](../src/deckfile/Apply.tish),
+  [Emit.tish](../src/deckfile/Emit.tish), [Stream.tish](../src/deckfile/Stream.tish) (incremental),
+  [TplExtension.tish](../src/deckfile/TplExtension.tish)
 - **Audio:** [Engine.tish](../src/audio/Engine.tish), [Playback.tish](../src/audio/Playback.tish),
   [schedule/Engine.tish](../src/schedule/Engine.tish), [generators/](../src/generators/)
 - **Co-DJ:** [Merge.tish](../src/codj/Merge.tish), [Skills.tish](../src/codj/Skills.tish),

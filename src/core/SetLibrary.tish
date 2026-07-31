@@ -20,9 +20,9 @@
 // localStorage-backed (deckard.sets.v1) + .deck file export/import, mirroring StationPresets' API. Seeded
 // from the existing deck-set catalog (each deck set becomes a 1-player Set) so the library is never empty.
 
-import { emitProject } from '../tpl/Emit.tish'
+import { emitProject } from '../deckfile/Emit.tish'
 import { splitTplBlocks } from './Levels.tish'
-import { findChannelById } from '../tpl/Apply.tish'
+import { findChannelById } from '../deckfile/Apply.tish'
 import { channelDeck } from '../model/DeckRouting.tish'
 import { deckSetCatalog, deckSetTplById, graftRackOntoDeck } from '../model/DeckSets.tish'
 import { normalizeSongEntries } from '../model/Session.tish'

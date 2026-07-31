@@ -7,9 +7,9 @@
 // the output `conn` vol × that. So a compiled output `conn ... <100/127>` reproduces the same level.
 // FM depth + drum pitch-drop are note-relative, expressed with the `note*<k>` resolver tokens.
 
-import { formatTplFloat } from '../tpl/Format.tish'
+import { formatTplFloat } from '../deckfile/Format.tish'
 import { normalizeBasicOscWaveform } from '../generators/Registry.tish'
-import { sortedStringKeys } from '../tpl/MatrixFmGraph.tish'
+import { sortedStringKeys } from '../deckfile/MatrixFmGraph.tish'
 
 let VOL_COMP = 100 / 127
 

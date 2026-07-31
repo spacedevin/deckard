@@ -3,7 +3,7 @@
 // it never resets an absent one. Omitting inversion=root / arprate=auto / strum=0 locked those knobs off-default
 // (the reported "Inv knob starts at root, then locks at 1st/2nd, can't return to root" bug).
 import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
-import { applyTplSource, findChannelById } from '../src/tpl/Apply.tish'
+import { applyTplSource, findChannelById } from '../src/deckfile/Apply.tish'
 import { fragmentForEdit } from '../src/core/Edit.tish'
 
 let pass = 0

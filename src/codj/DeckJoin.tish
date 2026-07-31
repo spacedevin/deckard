@@ -7,7 +7,7 @@
 // joiner-owned tracks (ownership-gated, as NEW tracks) and re-snapshots, so every member converges on ONE
 // shared deck with the joiner's deck filled. Pure model logic so it's testable headlessly.
 
-import { emitProject } from '../tpl/Emit.tish'
+import { emitProject } from '../deckfile/Emit.tish'
 import { loadDefaultDeckardProject } from '../model/ProjectLoad.tish'
 import { ensureCoDjMeta, setTrackOwner } from './CoDjMeta.tish'
 
