@@ -1,8 +1,8 @@
-// Bundled default — keep in sync with projects/default.deckard.tpl
+// Bundled default — keep in sync with projects/default.deckard.deck
 
 export fn defaultDeckardTplText() {
   return (
-    "tpl 1\n" +
+    "deck 1\n" +
     "bpm 118\n" +
     "\n" +
     "track Kick id c0 gen noise_burst\n" +

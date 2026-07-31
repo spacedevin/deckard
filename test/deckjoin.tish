@@ -1,5 +1,5 @@
 // DECK-JOIN TESTS — a client that connects with its OWN deck content must have that content re-homed onto
-// its player deck (A/B/C/D by multiplayer id) and folded into the ONE shared TPL every member sees — not
+// its player deck (A/B/C/D by multiplayer id) and folded into the ONE shared deck every member sees — not
 // silently clobbered by the host's snapshot.
 //
 // Run: tish build --target js test/deckjoin.tish -o /tmp/deckard-dj.js && node /tmp/deckard-dj.js
@@ -101,7 +101,7 @@ check("[rehome] third player's content lands on Deck C (P3)", channelPlayerIndex
 check("[reconnect] re-homed/owned state reports foreign ownership", projectHasActorOwnedTracks(adopted) === true)
 check("[reconnect] already-synced state is NOT eligible to contribute again", projectEligibleToContribute(adopted) === false)
 
-// ---- 5. End-to-end: my re-homed tracks broadcast up to the HOST, ownership-gated, fold into ONE shared TPL ----
+// ---- 5. End-to-end: my re-homed tracks broadcast up to the HOST, ownership-gated, fold into ONE shared deck ----
 let hostFold = loadDefaultDeckardProject().project
 ownAllBy(hostFold, "host-aid")
 hostFold.coDjHostActorId = "host-aid"
@@ -194,20 +194,20 @@ fn sessionProject() {
 
 // (a) FIXED onAddTrack output for a guest in-session = a bare track line (no deck slot), ingested as the guest.
 let sa = sessionProject()
-applyCoDjTplSource(sa, "tpl 1\ntrack Track id gtrk gen basic_osc\n", "guest-aid", "guest-aid", 0, ["add_track"])
+applyCoDjTplSource(sa, "deck 1\ntrack Track id gtrk gen basic_osc\n", "guest-aid", "guest-aid", 0, ["add_track"])
 let gtrk = findChannelById(sa, "gtrk")
 check("[addtrack] my new in-session track exists + is owned by me", gtrk !== null && gtrk !== undefined && sa.coDjMeta.tracks["gtrk"].ownerActorId === "guest-aid")
 check("[addtrack] my new track lands on MY deck (B), not the host's Deck A", channelDeck(sa, gtrk) === "B")
 
 // (b) router defense: even the OLD buggy emit (`deck A slot 0`) on a guest-owned track must NOT pin to Deck A.
 let sb = sessionProject()
-applyCoDjTplSource(sb, "tpl 1\ntrack Track id gtrk2 gen basic_osc\n  deck A slot 0\n", "guest-aid", "guest-aid", 0, ["add_track"])
+applyCoDjTplSource(sb, "deck 1\ntrack Track id gtrk2 gen basic_osc\n  deck A slot 0\n", "guest-aid", "guest-aid", 0, ["add_track"])
 let gtrk2 = findChannelById(sb, "gtrk2")
 check("[addtrack] router neutralizes a stray `deck A slot 0` on a guest track → Deck B", channelDeck(sb, gtrk2) === "B")
 
 // (c) host multi-deck preserved: a HOST-owned track with deckSlot=2 still routes to Deck C in-session.
 let sc = sessionProject()
-applyCoDjTplSource(sc, "tpl 1\ntrack Stage id hstage gen basic_osc\n  deck C slot 2\n", "host-aid", "host-aid", 0, ["add_track", "master_mixer"])
+applyCoDjTplSource(sc, "deck 1\ntrack Stage id hstage gen basic_osc\n  deck C slot 2\n", "host-aid", "host-aid", 0, ["add_track", "master_mixer"])
 let hstage = findChannelById(sc, "hstage")
 check("[addtrack] host CAN still stage content on Deck C (multi-deck preserved)", hstage !== null && channelDeck(sc, hstage) === "C")
 
@@ -353,7 +353,7 @@ check("[race] adopt #3: NO duplication (didn't re-home on top of my own tracks)"
 
 // (a) A loaded song lands deck-prefixed with deckSlot set but unowned (graftRackOntoDeck stays "human"). On any
 // viewer it routes to the target deck via the host-owned-honours-deckSlot branch → so ownTrackLines(B) picks it.
-let songProj = loadProjectFromTpl("tpl 1\ntrack Kick id b_kick gen kick_deep\n  deck B slot 1\n  steps x . . . x . . . x . . . x . . .\n").project
+let songProj = loadProjectFromTpl("deck 1\ntrack Kick id b_kick gen kick_deep\n  deck B slot 1\n  steps x . . . x . . . x . . . x . . .\n").project
 songProj.coDjHostActorId = "host-aid"
 songProj.coDjPlayers = ["host-aid", "guest-aid"]
 let bkick = findChannelById(songProj, "b_kick")
@@ -362,7 +362,7 @@ check("[clientadd] a deck-B-prefixed loaded song (deckSlot=1, unowned) routes to
 // (b) REPLACE-MY-DECK on the receiver: the host holds the guest's PRIOR loop (g_old*) owned by the guest. The
 // guest loads a new song → its deck.put carries only the new tracks, and the apply prepends remove_track for the
 // guest-owned tracks not in the new set. Result: stale dropped, new added+owned, host's own tracks untouched.
-let hp = loadProjectFromTpl("tpl 1\ntrack K id c0 gen basic_osc\ntrack Old0 id g_old0 gen basic_osc\ntrack Old1 id g_old1 gen basic_osc\n").project
+let hp = loadProjectFromTpl("deck 1\ntrack K id c0 gen basic_osc\ntrack Old0 id g_old0 gen basic_osc\ntrack Old1 id g_old1 gen basic_osc\n").project
 ensureCoDjMeta(hp)
 setTrackOwner(hp, "c0", "host-aid", "host-aid")
 setTrackOwner(hp, "g_old0", "guest-aid", "guest-aid")
@@ -370,7 +370,7 @@ setTrackOwner(hp, "g_old1", "guest-aid", "guest-aid")
 hp.coDjHostActorId = "host-aid"
 hp.coDjPlayers = ["host-aid", "guest-aid"]
 // what the deck.put apply builds: remove_track for stale (computed by staleOwnedRemoveLines) + the new song lines.
-let replaceSrc = "tpl 1\nremove_track g_old0\nremove_track g_old1\ntrack New0 id g_new0 gen kick_deep\ntrack New1 id g_new1 gen bass_reese\n"
+let replaceSrc = "deck 1\nremove_track g_old0\nremove_track g_old1\ntrack New0 id g_new0 gen kick_deep\ntrack New1 id g_new1 gen bass_reese\n"
 applyCoDjTplSource(hp, replaceSrc, "guest-aid", "guest-aid", 0, ["add_track"])
 check("[replace] stale guest tracks removed (no orphan accumulation on the host)", findChannelById(hp, "g_old0") === null && findChannelById(hp, "g_old1") === null)
 check("[replace] new song tracks added", findChannelById(hp, "g_new0") !== null && findChannelById(hp, "g_new1") !== null)
@@ -378,14 +378,14 @@ check("[replace] new tracks owned by the guest → route to guest Deck B", chann
 check("[replace] the host's OWN track is untouched by a guest deck.put", findChannelById(hp, "c0") !== null && channelDeck(hp, findChannelById(hp, "c0")) === "A")
 
 // (c) ADDITIVE +TRACK: a guest adds one track on top of its existing loop (no removals) → host gains exactly it.
-let hp2 = loadProjectFromTpl("tpl 1\ntrack K id c0 gen basic_osc\ntrack L id g_c0 gen basic_osc\n").project
+let hp2 = loadProjectFromTpl("deck 1\ntrack K id c0 gen basic_osc\ntrack L id g_c0 gen basic_osc\n").project
 ensureCoDjMeta(hp2)
 setTrackOwner(hp2, "c0", "host-aid", "host-aid")
 setTrackOwner(hp2, "g_c0", "guest-aid", "guest-aid")
 hp2.coDjHostActorId = "host-aid"
 hp2.coDjPlayers = ["host-aid", "guest-aid"]
 let beforeN = hp2.channels.length
-applyCoDjTplSource(hp2, "tpl 1\ntrack L id g_c0 gen basic_osc\ntrack Track id g_c8 gen basic_osc\n", "guest-aid", "guest-aid", 0, ["add_track"])
+applyCoDjTplSource(hp2, "deck 1\ntrack L id g_c0 gen basic_osc\ntrack Track id g_c8 gen basic_osc\n", "guest-aid", "guest-aid", 0, ["add_track"])
 check("[addtrack-sync] guest's +TRACK is added on the host (the 'instrument never reached the host' bug)", findChannelById(hp2, "g_c8") !== null && hp2.channels.length === beforeN + 1)
 check("[addtrack-sync] the added +TRACK routes to the guest's Deck B", channelDeck(hp2, findChannelById(hp2, "g_c8")) === "B")
 

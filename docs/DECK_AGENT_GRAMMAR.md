@@ -1,9 +1,9 @@
-# TPL grammar (co-DJ agent reference)
+# deck grammar (co-DJ agent reference)
 
 The lines a **co-DJ lane** may emit. Human/host stream lines are **read-only context**; you add **new tracks +
 patterns on your own lane only** (ids prefixed with your `actorId`, e.g. `ai-a_hat`). This is the agent subset
 of the full language — for the complete grammar (master-scope headers, clips, `gen_block` graphs, automation,
-control directives) see **[TPL_GRAMMAR.md](TPL_GRAMMAR.md)** (canonical). Keep this in lockstep with the agent
+control directives) see **[DECK_GRAMMAR.md](DECK_GRAMMAR.md)** (canonical). Keep this in lockstep with the agent
 `SYSTEM_PROMPT` in [`services/agent-worker/main.tish`](../services/agent-worker/main.tish) and the master-scope
 denylist in [`src/codj/Skills.tish`](../src/codj/Skills.tish).
 
@@ -62,7 +62,7 @@ Generators vs. macros never share a label (see project memory *macro-generator-b
 | `fm` | `fm ratio <n> mod_index <n> carrier <sine\|square> mod <sine\|square>` (+ `adsr`) |
 | `basic_osc` | `osc waveform <sine\|square\|saw\|triangle>` (+ `adsr`) |
 | every other named generator | `gen <param> <value> …` — 0–1 designer knobs (e.g. `gen tone 0.5 swell 0.45`) |
-| `matrix_fm` / `patch` | `gen_block <patch\|matrix_fm> … end gen_block` graph — see [TPL_GRAMMAR.md](TPL_GRAMMAR.md) / [TPL_EXTENSION.md](TPL_EXTENSION.md) |
+| `matrix_fm` / `patch` | `gen_block <patch\|matrix_fm> … end gen_block` graph — see [DECK_GRAMMAR.md](DECK_GRAMMAR.md) / [DECK_EXTENSION.md](DECK_EXTENSION.md) |
 
 ## What you may NOT emit (master-scope)
 
@@ -79,11 +79,11 @@ agent does. You add complementary parts.
 
 So **global key (`scale`) and groove (`swing`) are master-only** — you cannot re-key or re-shuffle the mix.
 Live control directives (`@ launch`/`transport`/`cue`/`throw`/`fx`/`deck`) are a separate master/owner surface —
-see [TPL_GRAMMAR.md § Control directives](TPL_GRAMMAR.md#control-directives--).
+see [DECK_GRAMMAR.md § Control directives](DECK_GRAMMAR.md#control-directives--).
 
 ## Streaming
 
-You may stream `tpl.line` incrementally — each line decodes progressively (a track sounds the moment its
+You may stream `deck.line` incrementally — each line decodes progressively (a track sounds the moment its
 `track …` arrives; the pattern fills as `steps …`/`note …` stream). Lane-unique ids are required.
 
 **Goal:** complement the project — add the parts that are missing (hats, perc, bass, chords, melody), match the

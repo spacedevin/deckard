@@ -563,7 +563,7 @@ export fn setSceneFollow(project, scene, a, wa, b, wb) {
   project.session.follow[s] = { a: a, wa: waN, b: bN, wb: bN !== null && bN !== undefined ? wbN : 0 }
 }
 
-/** Drop follow entries pointing at out-of-range scenes / invalid actions (used on TPL apply). */
+/** Drop follow entries pointing at out-of-range scenes / invalid actions (used on deck apply). */
 export fn normalizeFollow(project, entries) {
   ensureProjectSession(project)
   let sc = Math.floor(Number(project.session.sceneCount))

@@ -1,5 +1,5 @@
 // I/O Rack device selection — the chosen "speakers" (main) and "headphones" (cue) output devices, plus the
-// headphone cue level. A small persisted user preference (NOT document/TPL content), mirroring the
+// headphone cue level. A small persisted user preference (NOT document/deck content), mirroring the
 // localStorage backend pattern used by StationPresets/SetLibrary so it survives reloads.
 
 let KEY = "deckard.audio.devices.v1"

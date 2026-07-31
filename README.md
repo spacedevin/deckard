@@ -1,14 +1,14 @@
 # Deckard
 
 A **token-streamed, live-coding DAW** in **[Tish](https://github.com/tishlang/tish)** (JS target + JSX).
-Humans and LLM agents **co-DJ** by streaming a small line-oriented language (**TPL**) that the app
+Humans and LLM agents **co-DJ** by streaming a small line-oriented language (**deck**) that the app
 **decodes into live-synthesised stems** — never WAV/audio files. *MIDI × live-coding, designed for LLM
 token streams, with a traditional DAW on top.*
 
 FL-style surfaces sit on top of the language: step sequencer, piano roll (canvas), per-channel
 **generator instruments** (basic osc / noise burst / FM / matrix FM) with per-generator ADSR, a
 track → actor → master mixer (gain / pan / 3-band EQ / mute / solo), Ableton-style session/scene
-launcher, master scope, and JSON + TPL import/export.
+launcher, master scope, and JSON + deck import/export.
 
 **New here?** Read **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — the full overview, vision, and
 end-to-end signal path. Run the tests with `npm test`.
@@ -33,7 +33,7 @@ Requires the `tish` CLI (from the Tish repo).
 ```bash
 npm run build    # tish build --target js src/main.tish -o dist/bundle.js
 npm run serve    # static-serve the built folder (npx serve .)
-npm test         # headless smoke test (TPL round-trip, streaming, skills, permissions)
+npm test         # headless smoke test (deck round-trip, streaming, skills, permissions)
 ```
 
 JSX is built into `tish build --target js` and lowers to Lattish runtime calls — no separate JSX flag.
@@ -46,7 +46,7 @@ Click **Play** once to unlock audio.
 | Transport, rack, mixer | DOM + CSS |
 | Piano roll, scope | `<canvas>` |
 
-**Reachability:** `src/main.tish` → `ui/App.tish` pulls in model, audio, schedule, generators, tpl (emit/apply/highlight), and Lattish. **Removed unused:** `hooks.tish` (dead shim), `tpl/Lexer.tish` (Parser inlines the same concerns).
+**Reachability:** `src/main.tish` → `ui/App.tish` pulls in model, audio, schedule, generators, tpl/ (deck emit/apply/highlight), and Lattish. **Removed unused:** `hooks.tish` (dead shim), `tpl/Lexer.tish` (Parser inlines the same concerns).
 
 ## Co-DJ (WebSocket + actors)
 
@@ -61,11 +61,11 @@ Click **Play** once to unlock audio.
 3. **Terminal B — worker:**  
    `npm run agent`  
    (or `npm run agent -- --actor-id actor-1 --session default`)  
-   - The worker buffers the host's streamed TPL and, on debounce, **snapshots it into one prompt, calls the LLM, and streams the real reply back** as `tpl.stream_chunk` → `tpl.block`. Set **`GRADIENT_MODEL_ACCESS_KEY`** (DO inference; `DO_MODEL` / `DO_INFERENCE_BASE` optional) to enable it. Without a key it falls back to a built-in demo patch (euclid hat / fm bass) so the loop still runs offline. Direct messages are answered the same way.
+   - The worker buffers the host's streamed deck and, on debounce, **snapshots it into one prompt, calls the LLM, and streams the real reply back** as `deck.stream_chunk` → `deck.block`. Set **`GRADIENT_MODEL_ACCESS_KEY`** (DO inference; `DO_MODEL` / `DO_INFERENCE_BASE` optional) to enable it. Without a key it falls back to a built-in demo patch (euclid hat / fm bass) so the loop still runs offline. Direct messages are answered the same way.
 4. **Terminal C (or browser):** run the app (`npm run serve`, open **http://localhost:3456**).
 5. In the app: **Co-DJ** panel → **Connect**. Session should be `default` (same as the worker). You should see other actors when the worker is running.
-6. **Press Play.** The app sends **playing_start** and streams the current project as **tpl.line** to the gateway. The worker waits ~1.3s, then sends back **tpl.block** (and **tpl.stream_chunk**). The gateway forwards that to the browser; the app applies the block and you hear the new pattern.
-7. **Direct test:** set **Direct→** to the worker's actor, type e.g. `euclid hi-hat`, click **Send test direct**. The worker replies with a **tpl.block**.
+6. **Press Play.** The app sends **playing_start** and streams the current project as **deck.line** to the gateway. The worker waits ~1.3s, then sends back **deck.block** (and **deck.stream_chunk**). The gateway forwards that to the browser; the app applies the block and you hear the new pattern.
+7. **Direct test:** set **Direct→** to the worker's actor, type e.g. `euclid hi-hat`, click **Send test direct**. The worker replies with a **deck.block**.
 
 So: **gateway + worker + Connect + Play** (or **Send test direct**) is what makes the worker “work”.
 
@@ -73,7 +73,7 @@ So: **gateway + worker + Connect + Play** (or **Send test direct**) is what make
 
 Specs: [docs/WS_AND_AGENTS.md](docs/WS_AND_AGENTS.md), [docs/STREAM_PROTOCOL.md](docs/STREAM_PROTOCOL.md), [docs/AUTHOR_TAGGING.md](docs/AUTHOR_TAGGING.md), [docs/DJ_SKILLS.md](docs/DJ_SKILLS.md), [docs/CONTROLLER_PROFILES.md](docs/CONTROLLER_PROFILES.md).
 
-**Web MIDI**: note-on on MIDI channels maps note % 8 → channel index for **temporary gain overlay** (hear without committing TPL).
+**Web MIDI**: note-on on MIDI channels maps note % 8 → channel index for **temporary gain overlay** (hear without committing deck).
 
 ## Docs
 

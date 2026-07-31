@@ -88,7 +88,7 @@ export fn makeChannel(id, name, stepPitch, generatorId) {
   }
 }
 
-// Empty shell merged with TPL via loadProjectFromTpl (channels come from the song text).
+// Empty shell merged with deck via loadProjectFromTpl (channels come from the song text).
 export fn emptyProjectShell() {
   let instrumentPresets = [
     {

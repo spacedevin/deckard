@@ -1,8 +1,8 @@
-# DJ skills → TPL / UI mapping
+# DJ skills → deck / UI mapping
 
 Skills limit what a **lane** (especially AI) may emit. Hub or browser validates.
 
-| skill id | Allowed TPL / ops |
+| skill id | Allowed deck / ops |
 |----------|-------------------|
 | `add_track` | New `track ... id <id> gen <generator|macro>` (id allocation may be server-assisted) |
 | `remove_track` | `remove_track <id>` — delete a channel. NOT master-scope (not in the denylist); per-track **ownership-gated** by `actorMayEditTrack` (a lane removes its own; a master removes any). Round-trips as absence (a deleted channel is simply not emitted). |
@@ -18,13 +18,13 @@ Skills limit what a **lane** (especially AI) may emit. Hub or browser validates.
 
 The agent's **primary contribution is a deck preset** on its own lane, not a single hand-written track. Implemented in [`services/agent-worker/main.tish`](../services/agent-worker/main.tish):
 
-- On a styled/preset direct (`"play nebula pulse"`, `"give me something dark"`) or on **auto-jam** (when a peer presses Play), the agent picks one of the 15 deck sets in [`src/model/DeckSets.tish`](../src/model/DeckSets.tish) and streams it as one `tpl.block`.
+- On a styled/preset direct (`"play nebula pulse"`, `"give me something dark"`) or on **auto-jam** (when a peer presses Play), the agent picks one of the 15 deck sets in [`src/model/DeckSets.tish`](../src/model/DeckSets.tish) and streams it as one `deck.block`.
 - **Selection order:** `matchDeckSetId` (keyword/name match on the directive) → `llmPickDeckSetId` (LLM chooses an id from the catalog, only when `GRADIENT_MODEL_ACCESS_KEY` is set) → `rotateDeckSetId` (round-robin, for variety).
 - `prefixTrackIds` rewrites every `track … id <id>` → `<actorId>_<id>`, so the whole preset is **owned by this lane** and lands on **Deck B** (the human stays on Deck A; the crossfader blends them).
 - A **fine single-element** direct (`"add a hihat"`) still produces one LLM/demo track instead of a full preset (`looksLikeSingleElement`).
 
 **Synthesis vocabulary a preset (or the LLM) may emit** — all of these are non-master, so they apply on the
-receiver. The **full, current palette** the agent should use lives in **[TPL_AGENT_GRAMMAR.md](TPL_AGENT_GRAMMAR.md)**
+receiver. The **full, current palette** the agent should use lives in **[DECK_AGENT_GRAMMAR.md](DECK_AGENT_GRAMMAR.md)**
 (kept in lockstep with the agent `SYSTEM_PROMPT`); in brief:
 
 - **33 fixed generators** by role — perc (`drumSynth`/`clap`/`cymbal`/`noise_burst`), bass (`acid303`/`sub808`/`reeseBass`), lead (`basic_osc`/`fm`/`aether`/`syncLead`/`obSync`/`laserSync`), keys (`tine`/`halo`/`bell`), pad (`pad`), strings (`guitar`/`arco`), chip (`chiptune`/`nes2a03`/`gameBoyDmg`/`c64sid`/`ym2612`/`sn76489`/`spc700`/`gbaDirectSound`), vocal (`formantVocal`/`ttsVocal`/`meSpeakVocal`/`syncChoir`), modular (`matrixFm`/`patch`).

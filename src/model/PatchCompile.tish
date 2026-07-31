@@ -379,7 +379,7 @@ fn matrixFmLines(graph) {
   return lines
 }
 
-// Guitar = the EXACT live Karplus-Strong plucked string, now expressible in TPL via the `string` primitive
+// Guitar = the EXACT live Karplus-Strong plucked string, now expressible in deck via the `string` primitive
 // (the old subtractive saw approximation could never match the comb-rich plucked spectrum — it was the
 // furthest-off patch voice). The `string` node renders the same KS buffer playGuitar does; the rest of the
 // live chain (drive → body lowpass → flat-top amp) is plain patch nodes. The ring/decay lives INSIDE the

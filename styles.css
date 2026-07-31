@@ -616,7 +616,7 @@ input[type="range"]::-moz-range-thumb {
   background: var(--bg);
   border-left: 1px solid var(--border);
   /* Clip the horizontal axis explicitly. With only `overflow-y: auto`, CSS computes `overflow-x` as `auto` too,
-     so any child wider than the column (the CO-DJ TPL-snapshot panes on Play) spawns an 11px-tall horizontal
+     so any child wider than the column (the CO-DJ deck-snapshot panes on Play) spawns an 11px-tall horizontal
      scrollbar — which inflates this sidebar's border-box by 11px and stretches the whole row (incl. the left
      decks) on playback. Vertical scroll only; horizontal content scrolls inside its own pane. */
   overflow-x: hidden;
@@ -1919,7 +1919,7 @@ input[type="range"]::-moz-range-thumb {
 .codj-panel {
   max-width: 28rem;
 }
-/* CO-DJ + TPL docks: drop the generic .panel card BORDER — the inner textareas / code view already have their
+/* CO-DJ + deck docks: drop the generic .panel card BORDER — the inner textareas / code view already have their
    own frames, so the outer .panel border was a redundant double border around each. */
 .daw-bottom-codj > .panel,
 .daw-tpl-dock > .panel {
@@ -2015,7 +2015,7 @@ input[type="range"]::-moz-range-thumb {
 .codj-stream-preview {
   margin: 0;
   /* Fixed height (not just max) — otherwise the pane is a 1-line placeholder when stopped and balloons to its
-     max on Play (fills with the TPL snapshot), stretching the right sidebar → the whole row → the left decks. */
+     max on Play (fills with the deck snapshot), stretching the right sidebar → the whole row → the left decks. */
   height: 4rem;
   overflow: auto;
   padding: 0.45rem 0.5rem;
@@ -2545,7 +2545,7 @@ input[type="range"]::-moz-range-thumb {
   min-height: 0;
 }
 
-/* TPL code view fills the dock height: the docked panel is a flex column and the editor wrap grows into the
+/* deck code view fills the dock height: the docked panel is a flex column and the editor wrap grows into the
    leftover space (the STEP strip + Apply/Sync buttons stay pinned below). */
 .daw-tpl-dock > .code-debug-panel--dock {
   display: flex;
@@ -2556,7 +2556,7 @@ input[type="range"]::-moz-range-thumb {
 
 /* The editor is a flex-column chain so the textarea fills the dock and scrolls internally — wrap → slot →
    mirror-stack each flex:1, then the textarea height:100% (its `rows` attribute is overridden). Without the
-   slot + wrap being flex columns, the stack stayed at the textarea's `rows` height and the TPL was cut off
+   slot + wrap being flex columns, the stack stayed at the textarea's `rows` height and the deck was cut off
    with empty space below. */
 .daw-tpl-dock .tpl-song-editor-wrap {
   display: flex;
@@ -2847,7 +2847,7 @@ input[type="range"]::-moz-range-thumb {
   box-shadow: inset 0 0 0 1px rgba(255, 107, 53, 0.45);
 }
 
-/* Dark, slim scrollbars for the TPL editor + code panels — replaces the default white OS scrollbar so
+/* Dark, slim scrollbars for the deck editor + code panels — replaces the default white OS scrollbar so
    the editor reads as part of the dark theme (track blends into the editor bg, thumb is a subtle slug). */
 .tpl-song-input-layer,
 .tpl-song-highlight-layer,
@@ -5432,7 +5432,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 
-/* co-DJ + TPL, side by side at the bottom */
+/* co-DJ + deck, side by side at the bottom */
 .daw-bottom-split {
   display: flex;
   gap: 14px;
@@ -6041,7 +6041,7 @@ input[type="range"]::-moz-range-thumb {
 .imt-btn { font-family: inherit; font-size: 0.56rem; font-weight: 600; padding: 0.12rem 0.4rem; border: none;
   background: transparent; color: var(--muted); cursor: pointer; }
 .imt-btn.imt-on { background: rgba(232, 148, 92, 0.18); color: var(--accent-warm, #e8945c); }
-/* Reusable rich TPL editor (RichTplEditor) — the SAME highlight stack as the main TPL editor, sized for the
+/* Reusable rich deck editor (RichTplEditor) — the SAME highlight stack as the main deck editor, sized for the
    inline module "Raw" views: border/background on the stack, the transparent textarea over the highlighted <pre>.
    Only min-height is overridden so font metrics stay identical (alignment of the two layers must match). */
 .rich-tpl-slot { display: block; width: 100%; }
@@ -6294,7 +6294,7 @@ input[type="range"]::-moz-range-thumb {
    & Generate became a takeover overlay. */
 .sg-gen-label { color: #c08bf0; }
 
-/* ---- TPL Playback / Playlist timeline (the recorded TPL stream over time) ------------------------- */
+/* ---- deck Playback / Playlist timeline (the recorded deck stream over time) ------------------------- */
 .seq-session-wrap { display: flex; flex-direction: column; gap: 10px; }
 .seq-arrange { flex: 1 1 auto; min-width: 0; display: flex; justify-content: flex-start; overflow: hidden; }
 .pl-view { flex: 1; min-width: 0; background: var(--panel-2, #0a0a0c); padding: 0; display: flex; align-items: center; gap: 12px; }
@@ -6651,7 +6651,7 @@ input[type="range"]::-moz-range-thumb {
   border-bottom: none !important;
 }
 
-/* Code (raw TPL) view takes over the whole panel: hide the sibling row, let the editor fill the width + grow. */
+/* Code (raw deck) view takes over the whole panel: hide the sibling row, let the editor fill the width + grow. */
 .instr-grid-container .instr-modules-row:has(.instr-module-raw-active) .instr-module:not(.instr-module-raw-active) {
   display: none !important;
 }

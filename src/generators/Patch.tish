@@ -43,7 +43,7 @@ fn makeDistortionCurve(amount, curveType) {
 // damping lowpass. The full decay rings out INSIDE the buffer (length = ringSec), so the caller plays it as a
 // one-shot (loop=false) and must size voiceDur ≥ ringSec. Per-trigger Math.random is a LOCAL synthesis detail
 // (same precedent as the `noise` node / `rand` token), not streamed — peers differing in micro-timbre is fine,
-// the TPL transmits the `string` node + params. A real feedback DelayNode can't do this: a node inside a Web
+// the deck transmits the `string` node + params. A real feedback DelayNode can't do this: a node inside a Web
 // Audio cycle is forced to ≥1 render quantum (128 samp) of latency → max fundamental ≈ sr/128 ≈ 344 Hz, far
 // below guitar pitch; the buffer render has no such ceiling (pN = round(sr/hz), only Nyquist-limited).
 fn makeStringBuffer(ctx, hz, tone, damping, decayP, mute) {

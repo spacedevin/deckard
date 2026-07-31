@@ -1,13 +1,13 @@
 # Deckard — Architecture & Overview
 
 > A token-streamed, live-coding DAW. Agents and humans **co-DJ** by streaming a small
-> line-oriented language (**TPL**) that the app **decodes into live-synthesised stems** —
+> line-oriented language (**deck**) that the app **decodes into live-synthesised stems** —
 > never WAV/audio files. Think *MIDI × live-coding, designed for LLM token streams, with a
 > traditional DAW built on top.*
 
 This document is the map of the whole project: where it came from, the core idea, the
 end-to-end signal path, and how the subsystems fit together. For the language reference see
-[TPL_GRAMMAR.md](TPL_GRAMMAR.md); for the wire protocol see [WS_AND_AGENTS.md](WS_AND_AGENTS.md)
+[DECK_GRAMMAR.md](DECK_GRAMMAR.md); for the wire protocol see [WS_AND_AGENTS.md](WS_AND_AGENTS.md)
 and [STREAM_PROTOCOL.md](STREAM_PROTOCOL.md).
 
 ---
@@ -17,16 +17,16 @@ and [STREAM_PROTOCOL.md](STREAM_PROTOCOL.md).
 A normal collaborative DAW moves **audio** between participants (stems, WAVs, OT on a timeline).
 That is heavy, hard for an LLM to author, and impossible to "improvise" token by token.
 
-Deckard inverts it. The shared artifact is **text** — a compact patch language (**TPL**, the
-*Tish Patch Language*) that describes instruments, patterns, mixing and automation. Every
-participant — human or AI agent — **streams TPL lines** as the music evolves. The app holds the
+Deckard inverts it. The shared artifact is **text** — a compact patch language (**deck**, the
+*deck*) that describes instruments, patterns, mixing and automation. Every
+participant — human or AI agent — **streams deck lines** as the music evolves. The app holds the
 synthesiser, so a streamed line like `steps euclid 5 16` *becomes sound* in the browser the moment
 it arrives. Nothing is pre-rendered; **all audio is generated in-app from the token stream.**
 
 That makes three things possible at once:
 
-1. **LLMs are first-class performers.** A model emits TPL the same way a human edits a pattern.
-   "Decode a song into live stems and DJ from there" is literally: stream TPL → synth graph → sound.
+1. **LLMs are first-class performers.** A model emits deck the same way a human edits a pattern.
+   "Decode a song into live stems and DJ from there" is literally: stream deck → synth graph → sound.
 2. **Live coding meets a DAW.** The familiar surfaces (channel rack, piano roll, mixer, session/scene
    launcher) sit *on top of* the language; the language is the source of truth, the UI is a view.
 3. **Many performers, one groove.** Multiple agents and humans share a session, each owning lanes
@@ -90,13 +90,13 @@ through those `Edits.tish` setters, so UI edits and programmatic/agent edits sha
 
 ---
 
-## 4. TPL — the streaming token language (the centerpiece)
+## 4. deck — the streaming token language (the centerpiece)
 
-TPL is line-oriented and streamable. A full reference is in [TPL_GRAMMAR.md](TPL_GRAMMAR.md); the
+deck is line-oriented and streamable. A full reference is in [DECK_GRAMMAR.md](DECK_GRAMMAR.md); the
 shape:
 
 ```
-tpl 1
+deck 1
 bpm 118
 
 track Kick id c0 gen noise_burst        # one channel = one generator
@@ -119,15 +119,15 @@ auto master_gain                        # automation curves
 
 It also round-trips the **Session view** (`session_scenes`, `session_slot`, and `clip … bars …`
 blocks) and heavy generators (`gen_block matrix_fm … end gen_block`, see
-[TPL_EXTENSION.md](TPL_EXTENSION.md)). Deck routing (LIVE/CUE) is JSON/UI state and is intentionally
-**not** part of TPL.
+[DECK_EXTENSION.md](DECK_EXTENSION.md)). Deck routing (LIVE/CUE) is JSON/UI state and is intentionally
+**not** part of deck.
 
 ### Two decode paths — block and stream
 
 | Path | Unit | Module | Use |
 |------|------|--------|-----|
-| **Atomic** | whole program / block | `src/tpl/Parser.tish` → `Apply.tish` (`applyTplSource`) | Editor *Apply*, JSON import, `tpl.block` over the wire |
-| **Incremental** | one line at a time | `src/tpl/Stream.tish` (`tplLineStreamPush`) | `tpl.line` over the wire — progressive decode |
+| **Atomic** | whole program / block | `src/tpl/Parser.tish` → `Apply.tish` (`applyTplSource`) | Editor *Apply*, JSON import, `deck.block` over the wire |
+| **Incremental** | one line at a time | `src/tpl/Stream.tish` (`tplLineStreamPush`) | `deck.line` over the wire — progressive decode |
 
 The atomic path (`parseProgram` → `applyParsed`) merges a complete program into the project by
 channel id. The **incremental path** is what makes "stream a song into live stems" literal: a
@@ -136,7 +136,7 @@ growing block is re-applied (idempotently) on every line — so a remote actor's
 instant its `track …` header arrives**, then the pattern fills in as `steps …` streams. Both paths
 share the same ownership/skill enforcement via `applyCoDjTplSource`.
 
-`src/tpl/Emit.tish` does the reverse — `project → TPL` — for the editor mirror, JSON↔TPL, and the
+`src/tpl/Emit.tish` does the reverse — `project → deck` — for the editor mirror, JSON↔deck, and the
 "what you send on Play" preview. Parser/apply/emit are a verified round-trip (see `test/smoke.tish`).
 
 ---
@@ -159,7 +159,7 @@ beat, and fire the due step/notes. The loop is **self-scheduling** and reads `pr
 so tempo changes take effect live. Generators are modular plugins
 ([GENERATORS.md](GENERATORS.md)) dispatched by `generatorId`:
 
-| `generatorId` | TPL `gen` | sound |
+| `generatorId` | deck `gen` | sound |
 |---------------|-----------|-------|
 | `noiseBurst` | `noise_burst` | filtered-noise percussion (kick/snare/hat) |
 | `fmTone` | `fm` | 2-operator FM + ADSR |
@@ -198,16 +198,16 @@ The collaboration layer (`src/codj/`) is the differentiator. A **session** is a 
 agent worker                      gateway                         browser (host)
 ─────────────                     ───────                         ──────────────
 join (skillIds)  ───────────────▶  room/presence  ◀─────────────  join (Connect)
-                                                                   Play → stream project as tpl.line
-buffer peer tpl.line  ◀────────── fanout (+skillIds) ◀──────────── tpl.line per line (throttled)
+                                                                   Play → stream project as deck.line
+buffer peer deck.line  ◀────────── fanout (+skillIds) ◀──────────── deck.line per line (throttled)
 debounce → snapshot buffer
-  → callLLM → TPL lines
-tpl.stream_chunk (live tokens) ──▶ fanout ──────────────────────▶ "Hub → you" preview
-tpl.block @ effectivePerfStep ───▶ fanout ──────────────────────▶ schedule → apply on that step
+  → callLLM → deck lines
+deck.stream_chunk (live tokens) ──▶ fanout ──────────────────────▶ "Hub → you" preview
+deck.block @ effectivePerfStep ───▶ fanout ──────────────────────▶ schedule → apply on that step
                                                                    merge (ownership/skills) → synth → sound
 ```
 
-Humans stream **`tpl.line`** (decoded incrementally); agents commit **`tpl.block`** scheduled to a
+Humans stream **`deck.line`** (decoded incrementally); agents commit **`deck.block`** scheduled to a
 future bar. The worker only collapses the rolling stream into a single prompt **at the LLM boundary**
 — everything on the wire stays a stream. With no `GRADIENT_MODEL_ACCESS_KEY`, the worker falls back to
 a built-in demo patch so the loop is exercisable offline.
@@ -225,7 +225,7 @@ a built-in demo patch so the loop is exercisable offline.
 - **Session** — Ableton-style scene launcher (`SessionView.tish`, model in `Session.tish`).
 - **Patch** / **Instrument** — per-track generator editor (`InstrumentPanel.tish`,
   `GeneratorParams.tish`, `MatrixFmPanel.tish` for the matrix-FM graph).
-- Always-docked **TPL editor** (`CodeDebugView.tish`) — Apply/Sync, step highlight, the
+- Always-docked **deck editor** (`CodeDebugView.tish`) — Apply/Sync, step highlight, the
   emit-mirror of the project.
 
 The mixer (`Mixer.tish`) renders the track → actor → master tiers; a master **scope** (`Scope.tish`)
@@ -239,7 +239,7 @@ model/schedule/audio; UI files are layout + wiring.**
 | Service | File | Role |
 |---------|------|------|
 | **Gateway** | `services/gateway/main.tish` | One room per `sessionId`; JSON fan-out; per-actor `seq`; presence; stamps each sender's `skillIds` onto fan-out. `ws://127.0.0.1:35987` (or `CODJ_HUB_PORT`). |
-| **Agent worker** | `services/agent-worker/main.tish` | Joins as an actor; buffers the peer stream; on debounce snapshots it into one prompt, calls the LLM, and streams real TPL out (`tpl.stream_chunk` → `tpl.block`); demo fallback without a key. |
+| **Agent worker** | `services/agent-worker/main.tish` | Joins as an actor; buffers the peer stream; on debounce snapshots it into one prompt, calls the LLM, and streams real deck out (`deck.stream_chunk` → `deck.block`); demo fallback without a key. |
 | **Token-stream demo** | `services/token-stream-demo/main.tish` | A bot that streams rotating patches (kick / hats / bass) to prove the wire path end-to-end. |
 
 Run order: **gateway → worker → browser** (`npm run gateway`, `npm run agent`, `npm run serve`).
@@ -252,11 +252,11 @@ See the [README](../README.md) quick-start.
 | Area | State |
 |------|-------|
 | Project model, schema, v1→v2 migration | **Solid** |
-| TPL parse / apply / emit round-trip (incl. step_pitch, mixer lines, sessions, gen_block) | **Solid** |
+| deck parse / apply / emit round-trip (incl. step_pitch, mixer lines, sessions, gen_block) | **Solid** |
 | Web Audio synthesis, 3-tier mixer, automation, deck routing | **Solid** |
 | Session / scene launcher (arm / queue / commit) | **Solid** |
 | Co-DJ gateway, ownership/merge, perf-step scheduling, overlays, pruning | **Solid** |
-| Incremental `tpl.line` decode; skill-gating enforcement | **Wired** |
+| Incremental `deck.line` decode; skill-gating enforcement | **Wired** |
 | Agent worker LLM call + real outbound streaming | **Wired** (needs `GRADIENT_MODEL_ACCESS_KEY`) |
 | matrix_fm generator + graph editor | **Working** |
 | **Planned / not yet built** | SQLite + vector/RAG agent memory; provider-side SSE token streaming (currently the finished reply is streamed char-by-char); control ops `take_track`/`release_track`/`set_master`/`master_overwrite`; named MIDI controller profiles (only note%8 → gain overlay exists); inline `@lane` author tags; Session-view scene authoring (add/remove/duplicate/clear). |
@@ -268,7 +268,7 @@ See the [README](../README.md) quick-start.
 - **Model:** [Project.tish](../src/model/Project.tish), [Session.tish](../src/model/Session.tish),
   [Edits.tish](../src/model/Edits.tish), [Migrate.tish](../src/model/Migrate.tish),
   [MixerRouting.tish](../src/model/MixerRouting.tish), [DeckRouting.tish](../src/model/DeckRouting.tish)
-- **TPL:** [Parser.tish](../src/tpl/Parser.tish), [Apply.tish](../src/tpl/Apply.tish),
+- **deck:** [Parser.tish](../src/tpl/Parser.tish), [Apply.tish](../src/tpl/Apply.tish),
   [Emit.tish](../src/tpl/Emit.tish), [Stream.tish](../src/tpl/Stream.tish) (incremental),
   [TplExtension.tish](../src/tpl/TplExtension.tish)
 - **Audio:** [Engine.tish](../src/audio/Engine.tish), [Playback.tish](../src/audio/Playback.tish),

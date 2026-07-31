@@ -1,5 +1,5 @@
 // Macros — named, parameterized patch templates. Built-ins port the deck.tsx kick/bass voices; users
-// define their own in TPL:
+// define their own in deck:
 //
 //   macro my_kick pitch=150 decay=0.5
 //     osc o sine

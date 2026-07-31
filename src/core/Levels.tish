@@ -1,5 +1,5 @@
-// Level snapshots (expand-the-concept): the project is a tree of nested TPL-serializable LEVELS, and any
-// node can be emitted/applied on its own. A snapshot is just a named TPL fragment — so it's streamable,
+// Level snapshots (expand-the-concept): the project is a tree of nested deck-serializable LEVELS, and any
+// node can be emitted/applied on its own. A snapshot is just a named deck fragment — so it's streamable,
 // diffable, file-able, and doubles as a test fixture. Levels (sound/pattern split):
 //
 //   set        — the whole project (emitProject)
@@ -69,7 +69,7 @@ fn trackIdOf(headerLine) {
   return null
 }
 
-// Split a TPL document into blocks: { head, header, body[], trackId }. A block = one top-level line plus
+// Split a deck document into blocks: { head, header, body[], trackId }. A block = one top-level line plus
 // the indented lines beneath it.
 export fn splitTplBlocks(tpl) {
   let lines = String(tpl).split("\n")
@@ -98,7 +98,7 @@ fn blockText(b) {
 }
 
 fn wrap(body) {
-  return "tpl 1\n\n" + body
+  return "deck 1\n\n" + body
 }
 
 fn filterBody(body, keep) {
@@ -127,8 +127,8 @@ fn trackBlock(project, channelId) {
 }
 
 /**
- * Emit one level's TPL slice. `scope` is the channel id (instrument/sequence/channel) or deck letter
- * (deck); ignored for set/rack/session. Always wrapped with a `tpl 1` header so it applies standalone.
+ * Emit one level's deck slice. `scope` is the channel id (instrument/sequence/channel) or deck letter
+ * (deck); ignored for set/rack/session. Always wrapped with a `deck 1` header so it applies standalone.
  */
 export fn emitLevel(project, level, scope) {
   if (level === "set") {
@@ -238,8 +238,8 @@ export fn levelList() {
   return ["set", "session", "rack", "deck", "channel", "instrument", "sequence"]
 }
 
-// Per-module slices of one channel's instrument — the "break it down to standard patch/TPL" view behind
-// each module's Designer⇄Raw toggle. Each is a strict subset of the instrument slice, by TPL keyword:
+// Per-module slices of one channel's instrument — the "break it down to standard patch/deck" view behind
+// each module's Designer⇄Raw toggle. Each is a strict subset of the instrument slice, by deck keyword:
 //   gen  → the generator: gen/adsr/osc/fm/noise + the whole gen_block
 //          (osc/noise/string/filter/shaper/gain/pan/conn/env/dur)
 //   voice→ the `voice` line (octave/arp/chord)        fx → the `fx` line (cutoff/res/drive/lfo/reverb)

@@ -1,4 +1,4 @@
-// Human-readable numbers in emitted TPL.
+// Human-readable numbers in emitted deck.
 
 // Snap to 1/96 beat (sixteenths + triplet-eighths line up), trim trailing zeros.
 export fn formatTplBeat(x) {

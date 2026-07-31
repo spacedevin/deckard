@@ -1,10 +1,10 @@
-// Reusable syntax-highlighted TPL editor — the SAME transparent-textarea-over-highlighted-<pre> mechanism the
-// main TPL editor (CodeDebugView) uses, extracted so every "Raw" TPL surface gets syntax highlighting.
+// Reusable syntax-highlighted deck editor — the SAME transparent-textarea-over-highlighted-<pre> mechanism the
+// main deck editor (CodeDebugView) uses, extracted so every "Raw" deck surface gets syntax highlighting.
 //
 // A vdom element can't host a contentEditable/highlight stack cleanly, so (like the main editor) we render a
 // slot <div> and imperatively mount the pre+textarea into it AFTER paint, persisting the pair on rt._richEd[slotId]
 // so a re-render doesn't recreate it (keeping focus/cursor) and re-appending it if the vdom cleared the slot.
-// onCommit(text) fires on blur (matching the old <textarea onchange> commit semantics — partial TPL while typing
+// onCommit(text) fires on blur (matching the old <textarea onchange> commit semantics — partial deck while typing
 // would error, so we commit on settle, not per keystroke). The <pre> re-highlights live on every keystroke.
 
 import { h } from '@tishlang/lattish'
@@ -30,7 +30,7 @@ fn attachRichEditor(rt, slotId, value, onCommit) {
   let st = rt._richEd[slotId]
   if (st !== null && st !== undefined) {
     // Already mounted — re-append if the vdom diff cleared the slot, and refresh the value when not focused
-    // (so an external change to the underlying TPL is reflected; while focused we leave the user's edit alone).
+    // (so an external change to the underlying deck is reflected; while focused we leave the user's edit alone).
     if (!slot.contains(st.wrap)) {
       slot.innerHTML = ""
       slot.appendChild(st.wrap)

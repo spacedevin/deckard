@@ -107,7 +107,7 @@ fn broadcast(room, msg, except) {
   if (msg !== null && typeof msg === "object") {
     if (msg.type === "presence") {
       console.log("[gateway] broadcast presence -> " + String(n) + " recipients (room has " + String(room.conns.length) + " conns)")
-    } else if (msg.type === "tpl.block" || msg.type === "tpl.line") {
+    } else if (msg.type === "deck.block" || msg.type === "deck.line") {
       console.log("[gateway] broadcast " + msg.type + " -> " + String(n) + " recipients")
     }
   }
@@ -121,10 +121,10 @@ fn clientId() {
 // `let` so the AOT native backend doesn't trip its move-checker on a boomeranged boolean.
 fn isFanoutType(mt) {
   if (mt === "deck.put") return true
-  if (mt === "tpl.block") return true
-  if (mt === "tpl.stream_chunk") return true
+  if (mt === "deck.block") return true
+  if (mt === "deck.stream_chunk") return true
   if (mt === "control") return true
-  if (mt === "tpl.line") return true
+  if (mt === "deck.line") return true
   if (mt === "direct") return true
   return false
 }
@@ -356,7 +356,7 @@ while (true) {
                 " conn(s), broadcast=" +
                 String(isFanoutType(mt))
             )
-            if (isFanoutType(mt) && n === 0 && (mt === "tpl.block" || mt === "tpl.line")) {
+            if (isFanoutType(mt) && n === 0 && (mt === "deck.block" || mt === "deck.line")) {
               console.log("[gateway] note: 0 peers — only sender in room; open another client on same sessionId to receive")
             }
             let seq = nextSeq(room, actorId)

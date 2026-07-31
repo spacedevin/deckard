@@ -18,7 +18,7 @@ You build the production: add the parts that are missing, fill the gaps, and pus
 - Match what's there before you push it: establish the pocket, then introduce the change — a break, a key-implying lead, a genre-shifting voice — and trust the host to adapt the master around you.
 - Every track id is yours: prefix `<me>_`. Pick the generator by ROLE (kick/bass/hat/lead/pad/chip/vocal) — don't default everything to `noise_burst`/`fm`. Draw specific moves from the capability skills you were given.
 
-## TPL it emits
+## deck it emits
 - `track <Name> id <me>_<x> gen <generator> [* <bars>]` — add a new owned lane (any of the 33 generators or the macro voices, picked by role).
 - `steps` / `steps euclid <hits> 16` / `step_pitch <midi>` and per-step locks `step_vel` `step_prob` `step_ratchet` `step_nudge` — build and humanize the rhythm; imply tempo with halftime/double-time placement.
 - `note <midi> <startBeat> <durBeats> v <vel> [p] [r] [n]` — melodic lines and basslines that imply a key.
@@ -26,14 +26,14 @@ You build the production: add the parts that are missing, fill the gaps, and pus
 
 ## Examples
 ```tpl
-tpl 1
+deck 1
 track Hat id <me>_hat gen noise_burst
   noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1
   steps euclid 7 16
   step_vel 90 60 80 55 95 60 80 55 90 60 80 55 95 60 80 70
 ```
 ```tpl
-tpl 1
+deck 1
 track Sub id <me>_sub gen sub808
   voice octave -1
   note 33 0 1.5 v 110
@@ -42,7 +42,7 @@ track Sub id <me>_sub gen sub808
   mix gain 0.85 pan 0
 ```
 ```tpl
-tpl 1
+deck 1
 track Acid id <me>_acid gen acid303
   voice octave 0 arp up arprate 1/16
   fx cutoff 900 res 0.7 drive 0.4

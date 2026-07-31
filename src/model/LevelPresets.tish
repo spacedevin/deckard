@@ -1,7 +1,7 @@
 // Contextual presets for the in-project levels: sequence (a channel's pattern), rack (all channels),
-// session (scenes/song/follow). Each preset is a named TPL fragment (from emitLevel); loading routes its TPL
+// session (scenes/song/follow). Each preset is a named deck fragment (from emitLevel); loading routes its deck
 // through the gated ingest, retargeted onto wherever you're editing. These are a personal LIBRARY of patterns
-// — NOT document/TPL content — so they live in localStorage (key below) and survive reloads, mirroring the
+// — NOT document/deck content — so they live in localStorage (key below) and survive reloads, mirroring the
 // StationPresets / SetLibrary / AudioDeviceSettings backend pattern. (They used to live on project.levelPresets,
 // which was never serialized → silently lost on every reload.) Station presets remain separate (whole-workspace).
 // The `project` arg is kept on every signature for call-site compatibility but is no longer the storage.

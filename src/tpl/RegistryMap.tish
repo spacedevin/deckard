@@ -1,4 +1,4 @@
-// TPL generator ids and param aliases → project camelCase.
+// deck generator ids and param aliases → project camelCase.
 
 export fn normalizeGeneratorId(tplId) {
   let s = tplId

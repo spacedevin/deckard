@@ -18,7 +18,7 @@ Lay the harmonic bed — chord stabs and pads that imply the key and mood the pr
 - Voicing matters: `inversion 1st`/`2nd` keeps motion smooth between changes; `strum 20..60` humanizes (essential on `guitar`); octave the pad down (`voice octave -1`) to stay out of the melody's register.
 - As HOST, mostly SHAPE existing harmony — balance the pad's gain, EQ it out of the kick's way — rather than piling on more chords. As CLIENT, ADD the missing harmonic layer and keep it spacious.
 
-## TPL it emits
+## deck it emits
 - `track <Name> id <me>_<x> gen <pad|tine|halo|bell|basic_osc|guitar>`
 - `note <midi> <startBeat> <durBeats> v <vel>` lines (the chord root; one per change)
 - `voice chord <major|minor|min7|maj7|dom7|sus4|add9|dim|aug> [inversion <root|1st|2nd>] [strum <0..150>] [octave <-2..2>]`
@@ -27,7 +27,7 @@ Lay the harmonic bed — chord stabs and pads that imply the key and mood the pr
 
 ## Examples
 ```tpl
-tpl 1
+deck 1
 track Min7 Pad id <me>_pad gen pad
   voice chord min7 inversion root octave -1
   adsr a 0.6 d 0.4 s 0.8 r 1.2
@@ -36,7 +36,7 @@ track Min7 Pad id <me>_pad gen pad
   note 57 0 4 v 70
 ```
 ```tpl
-tpl 1
+deck 1
 track Strum id <me>_gtr gen guitar
   voice chord maj7 strum 40 inversion 1st
   mix gain 0.5 pan 0.25
@@ -45,7 +45,7 @@ track Strum id <me>_gtr gen guitar
   note 50 2 2 v 84
 ```
 ```tpl
-tpl 1
+deck 1
 track Stab id <me>_stab gen tine
   voice chord dom7 inversion 2nd octave 0
   adsr a 0.005 d 0.18 s 0.0 r 0.2

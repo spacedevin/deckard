@@ -1,4 +1,4 @@
-// Live session-control directives, expressed as TPL `@` lines so they travel in the same stream as
+// Live session-control directives, expressed as deck `@` lines so they travel in the same stream as
 // everything else — a player receiving the stream applies the host's launches to its OWN shared arming
 // and sees/hears the same thing. These mutate runtime (rt.*) state, so they're applied OUTSIDE the
 // project-only merge in Merge.tish (which has no rt). Format:
@@ -324,7 +324,7 @@ export fn applyLaunchDirective(project, rt, line, actorId, skillIds) {
 }
 
 /**
- * Split a streamed TPL source into control directives (applied here against rt) and the remaining
+ * Split a streamed deck source into control directives (applied here against rt) and the remaining
  * project lines (returned for the normal master-gated project merge). Returns the leftover source.
  */
 export fn applyLaunchLinesFromSource(project, rt, source, actorId, skillIds) {

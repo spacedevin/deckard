@@ -18,7 +18,7 @@ Write the hook — the singable lead line, riff, or arpeggio that sits on top an
 - Choose the timbre for the job: `basic_osc`/`fm` for clean leads, `syncLead`/`obSync`/`laserSync` for biting/aggressive hooks, `aether` for airy, `tine`/`halo`/`bell` for mallet/keys toplines.
 - Motif + variation: state a short idea, then vary it (transpose a phrase up, change one note, thin it) using `bar <sel>` so the loop evolves instead of repeating dead.
 
-## TPL it emits
+## deck it emits
 - `track <Name> id <me>_<x> gen <basic_osc|fm|aether|syncLead|obSync|laserSync|tine|halo|bell>`
 - `note <midi> <startBeat> <durBeats> v <vel> [p <prob>] [r <ratchet>] [n <nudge>] [bar <sel>]` — the melodic line
 - `voice arp <up|down|updown|random> arprate <auto|1/8|1/16|1/32> octave <-2..2> chord <off|min7|sus4|add9|…>` — for arpeggiated/chorded leads
@@ -27,7 +27,7 @@ Write the hook — the singable lead line, riff, or arpeggio that sits on top an
 
 ## Examples
 ```tpl
-tpl 1
+deck 1
 track Hook id <me>_lead gen syncLead
   adsr a 0.005 d 0.12 s 0.4 r 0.18
   mix gain 0.62 pan 0.1 eq_hi 2
@@ -38,7 +38,7 @@ track Hook id <me>_lead gen syncLead
   note 67 3 0.75 v 88 n -0.04
 ```
 ```tpl
-tpl 1
+deck 1
 track Arp id <me>_arp gen aether * 2
   voice arp up arprate 1/16 octave 1 chord min7
   mix gain 0.5 pan -0.2
@@ -48,7 +48,7 @@ track Arp id <me>_arp gen aether * 2
   note 62 0 4 v 96 bar odd
 ```
 ```tpl
-tpl 1
+deck 1
 track Answer id <me>_ans gen tine
   adsr a 0.002 d 0.2 s 0.5 r 0.3
   mix gain 0.55 pan 0.25

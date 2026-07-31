@@ -381,7 +381,7 @@ export fn DeckChannelStrip(project, deck, setProjectFromUI, touchMixer, rt) {
   }
   fn setEq(band, v) {
     de[band] = v
-    // Route through the broadcasting commit door so booth EQ travels over the websocket (deck_mix TPL). It does
+    // Route through the broadcasting commit door so booth EQ travels over the websocket (deck_mix deck). It does
     // applyDeckEq + the rAF-coalesced local repaint + a debounced broadcast. Fallback for solo/no-rt.
     if (rt && rt.commitDeckMix) {
       rt.commitDeckMix(deck)

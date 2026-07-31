@@ -3,7 +3,7 @@ import { applyTplSource } from '../tpl/Apply.tish'
 import { migrateProjectGenerators } from './Migrate.tish'
 import { defaultDeckardTplText } from './DefaultDeckardTpl.tish'
 
-// Parse TPL into a fresh project (empty channels + shell presets/automation, then tracks from text).
+// Parse deck into a fresh project (empty channels + shell presets/automation, then tracks from text).
 export fn loadProjectFromTpl(source) {
   let p = emptyProjectShell()
   migrateProjectGenerators(p)

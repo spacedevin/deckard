@@ -1,4 +1,4 @@
-// Apply TPL from an actor with ownership / master-lock rules.
+// Apply deck from an actor with ownership / master-lock rules.
 
 import { makeChannel, defaultParamsForGeneratorId } from '../model/Project.tish'
 import { parseProgram } from '../tpl/Parser.tish'

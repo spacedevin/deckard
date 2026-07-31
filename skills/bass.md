@@ -18,7 +18,7 @@ Lay the low end that locks to the kick and sets the tune's genre, weight, and en
 - Acid is movement: a static acid303 is dead. Sweep `fx cutoff` across bars and keep `res` high (0.6–0.85) for the squelch; add `step_prob`/`step_nudge` to make it breathe.
 - Keep it mono and centered: `mix pan 0`, carve room with `eq_lo`, and don't reverb the sub. Set `voice octave -1` to drop it into sub range when a generator sits too high.
 
-## TPL it emits
+## deck it emits
 - `track <Name> id <me>_bass gen acid303|sub808|reeseBass|bass_reese_punch|bass_reese_sc|bass_wobble`
 - `steps` / `steps euclid <n> 16` + `step_pitch <midi>` (`bar <sel>` for per-bar root moves) — stepped groove
 - `note <midi> <start> <dur> v <vel> [p r n]` — moving melodic bassline
@@ -29,7 +29,7 @@ Lay the low end that locks to the kick and sets the tune's genre, weight, and en
 
 ## Examples
 ```tpl
-tpl 1
+deck 1
 track Sub id <me>_bass gen sub808
   voice octave -1
   step_pitch 33
@@ -38,7 +38,7 @@ track Sub id <me>_bass gen sub808
   mix gain 0.85 pan 0 eq_lo 2
 ```
 ```tpl
-tpl 1
+deck 1
 track Acid id <me>_acid gen acid303 * 2
   step_pitch 28
   steps x . x x . x . x x . x . x x . x
@@ -48,7 +48,7 @@ track Acid id <me>_acid gen acid303 * 2
   mix gain 0.7 pan 0
 ```
 ```tpl
-tpl 1
+deck 1
 track Reese id <me>_reese gen reeseBass
   note 31 0 1.5 v 100
   note 31 2 1 v 95 n 0.02

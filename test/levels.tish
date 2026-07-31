@@ -1,6 +1,6 @@
 // Level-snapshot tests — store/restore at every level (instrument, sequence, rack, deck, session, set).
 // Proves the "debug without clicking 9000 times" promise: snapshot a level → mutate → restore from the
-// snapshot → exact state returns. Each snapshot is plain TPL, so it also doubles as a test fixture.
+// snapshot → exact state returns. Each snapshot is plain deck, so it also doubles as a test fixture.
 // Run: tish build --target js test/levels.tish -o /tmp/lv.js && node /tmp/lv.js
 
 import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
@@ -51,7 +51,7 @@ let T2 = p.channels[1].id
 let nameT2 = findChannelById(p, T2).name
 
 // Give T a distinctive sound + pattern so we can see the slices.
-applyTplSource(p, "tpl 1\ntrack " + ch0.name + " id " + T + " gen basic_osc\n  fx cutoff 1234 drive 0.6\n  mix gain 0.33 pan 0 mute 0 solo 0 eq_lo 0 eq_mid 0 eq_hi 0\n  steps x . . . x . . . x . . . x . . .\n")
+applyTplSource(p, "deck 1\ntrack " + ch0.name + " id " + T + " gen basic_osc\n  fx cutoff 1234 drive 0.6\n  mix gain 0.33 pan 0 mute 0 solo 0 eq_lo 0 eq_mid 0 eq_hi 0\n  steps x . . . x . . . x . . . x . . .\n")
 
 // ---- sound vs pattern split ----
 let inst = emitLevel(p, "instrument", T)
@@ -61,17 +61,17 @@ check("instrument slice has the mix", inst.indexOf("mix gain 0.33") >= 0)
 check("instrument slice has NO pattern (steps)", inst.indexOf("steps") < 0 && inst.indexOf("note ") < 0)
 check("sequence slice has the PATTERN (steps)", seq.indexOf("steps x") >= 0)
 check("sequence slice has NO sound (cutoff/mix/fx)", seq.indexOf("cutoff") < 0 && seq.indexOf("mix ") < 0 && seq.indexOf("fx ") < 0)
-check("instrument + sequence both standalone-applicable (tpl header)", inst.indexOf("tpl 1") === 0 && seq.indexOf("tpl 1") === 0)
+check("instrument + sequence both standalone-applicable (tpl header)", inst.indexOf("deck 1") === 0 && seq.indexOf("deck 1") === 0)
 
 // ---- the debug-restore invariant: snapshot → mutate → restore ----
 let instSnap = emitLevel(p, "instrument", T)
-applyTplSource(p, "tpl 1\ntrack " + ch0.name + " id " + T + " gen basic_osc\n  fx cutoff 8000\n")
+applyTplSource(p, "deck 1\ntrack " + ch0.name + " id " + T + " gen basic_osc\n  fx cutoff 8000\n")
 check("sound mutated away", Math.abs(findChannelById(p, T).filterCutoff - 8000) < 1e-6)
 applyTplSource(p, instSnap)
 check("instrument RESTORE brings the sound back", Math.abs(findChannelById(p, T).filterCutoff - 1234) < 1e-6)
 
 let seqSnap = emitLevel(p, "sequence", T)
-applyTplSource(p, "tpl 1\ntrack " + ch0.name + " id " + T + " gen basic_osc\n  steps . . . . . . . . . . . . . . . .\n")
+applyTplSource(p, "deck 1\ntrack " + ch0.name + " id " + T + " gen basic_osc\n  steps . . . . . . . . . . . . . . . .\n")
 check("pattern mutated away (step 0 off)", findChannelById(p, T).steps[0].on === false)
 applyTplSource(p, seqSnap)
 check("sequence RESTORE brings the pattern back (step 0 on)", findChannelById(p, T).steps[0].on === true)
@@ -91,7 +91,7 @@ check("rack snapshot recreates every channel", freshRack.channels.length === p.c
 check("rack snapshot carries sound (cutoff) for T", (findChannelById(freshRack, T) !== null && findChannelById(freshRack, T) !== undefined) && Math.abs(findChannelById(freshRack, T).filterCutoff - 1234) < 1e-6)
 
 // ---- deck: only the channels routed to that deck ----
-applyTplSource(p, "tpl 1\ntrack " + nameT2 + " id " + T2 + " gen basic_osc\n  deck B slot 0\n")
+applyTplSource(p, "deck 1\ntrack " + nameT2 + " id " + T2 + " gen basic_osc\n  deck B slot 0\n")
 let deckB = emitLevel(p, "deck", "B")
 check("deck B snapshot includes the B-routed channel", deckB.indexOf("id " + T2) >= 0)
 check("deck B snapshot excludes a non-B channel", deckB.indexOf("id " + T) < 0)
@@ -121,13 +121,13 @@ let setBe = { read: () => setMem.v, write: (s) => { setMem.v = s } }
 let sets = createStationPresets(setBe)
 check("[station] built-in Default present", (sets.get("Default") !== null && sets.get("Default") !== undefined) && sets.get("Default").factory === true)
 check("[station] list starts with just Default", sets.list().length === 1)
-sets.save("MySet", "tpl 1\nbpm 142\n")
+sets.save("MySet", "deck 1\nbpm 142\n")
 check("[station] save adds a user station", sets.list().length === 2 && (sets.get("MySet") !== null && sets.get("MySet") !== undefined))
 check("[station] saved station tpl intact", sets.get("MySet").tpl.indexOf("bpm 142") >= 0)
 check("[station] cannot remove the factory Default", sets.remove("Default") === false)
 check("[station] can remove a user station", sets.remove("MySet") === true && sets.list().length === 1)
 // persistence + export/import
-sets.save("Keep", "tpl 1\nbpm 99\n")
+sets.save("Keep", "deck 1\nbpm 99\n")
 let sets2 = createStationPresets(setBe)
 check("[station] persists across instances", sets2.get("Keep") !== null && sets2.get("Keep") !== undefined)
 let setExp = sets.exportText("Keep")
@@ -139,11 +139,11 @@ check("[station] import recovers the station", (setImp !== null && setImp !== un
 console.log("=== Contextual level presets (sequence/rack/session, in-project) ===")
 let lp = loadDefaultDeckardProject().project
 check("[lp] starts empty", levelPresetList(lp, "rack").length === 0)
-addLevelPreset(lp, "rack", "r1", "tpl 1\nbpm 100\n")
-addLevelPreset(lp, "rack", "r2", "tpl 1\nbpm 101\n")
+addLevelPreset(lp, "rack", "r1", "deck 1\nbpm 100\n")
+addLevelPreset(lp, "rack", "r2", "deck 1\nbpm 101\n")
 check("[lp] add appends", levelPresetList(lp, "rack").length === 2)
 check("[lp] find by name", (findLevelPreset(lp, "rack", "r2") !== null && findLevelPreset(lp, "rack", "r2") !== undefined) && findLevelPreset(lp, "rack", "r2").tpl.indexOf("bpm 101") >= 0)
-addLevelPreset(lp, "rack", "r1", "tpl 1\nbpm 999\n")
+addLevelPreset(lp, "rack", "r1", "deck 1\nbpm 999\n")
 check("[lp] save with same name upserts (no dupe)", levelPresetList(lp, "rack").length === 2 && findLevelPreset(lp, "rack", "r1").tpl.indexOf("bpm 999") >= 0)
 check("[lp] levels are independent", levelPresetList(lp, "sequence").length === 0 && levelPresetList(lp, "session").length === 0)
 check("[lp] remove drops it", removeLevelPreset(lp, "rack", "r1") === true && levelPresetList(lp, "rack").length === 1)
@@ -167,7 +167,7 @@ let parsed = parseSet(setTpl)
 check("[setlib] capture emits 2 players", parsed.players.length === 2)
 check("[setlib] player 0 has tracks", parsed.players[0].indexOf("track ") >= 0)
 check("[setlib] player 1 has tracks", parsed.players[1].indexOf("track ") >= 0)
-check("[setlib] players are deck-agnostic (no deck line)", parsed.players[0].indexOf("deck ") < 0)
+check("[setlib] players are deck-agnostic (no deck route line)", parsed.players[0].indexOf("  deck ") < 0)
 check("[setlib] arrangement (song) survives", parsed.song.length === 2 && parsed.song[0] === "P1" && parsed.song[1] === "P2 x2")
 
 // save → reload → re-parse keeps players + arrangement
@@ -246,7 +246,7 @@ let streamTpl = emitSetStream(headerTpl, tape, "song")
 check("[rec] isStreamSet true for a recorded Set", isStreamSet(streamTpl))
 check("[rec] isStreamSet false for a player Set", !isStreamSet(setTpl))
 let ps = parseSetStream(streamTpl)
-check("[rec] header round-trips (tpl + a track, no plays marker)", ps.header.indexOf("tpl 1") >= 0 && ps.header.indexOf("track ") >= 0 && ps.header.indexOf("# plays") < 0)
+check("[rec] header round-trips (tpl + a track, no plays marker)", ps.header.indexOf("deck 1") >= 0 && ps.header.indexOf("track ") >= 0 && ps.header.indexOf("# plays") < 0)
 check("[rec] play mode parsed", ps.mode === "song")
 check("[rec] all 3 played steps parsed", ps.events.length === 3 && ps.events[0].step === 0 && ps.events[1].step === 4 && ps.events[2].step === 8)
 check("[rec] chord step keeps both triggers", ps.events[1].triggers.length === 2)
@@ -591,7 +591,7 @@ check("[plock] emit includes step_prob lane", plTpl.indexOf("step_prob ") >= 0)
 check("[plock] emit includes step_ratchet lane", plTpl.indexOf("step_ratchet ") >= 0)
 check("[plock] emit includes step_nudge lane", plTpl.indexOf("step_nudge ") >= 0)
 
-// A round-trip: re-apply the emitted TPL onto a fresh project → the locks reappear exactly.
+// A round-trip: re-apply the emitted deck onto a fresh project → the locks reappear exactly.
 let pl2 = loadDefaultDeckardProject().project
 applyTplSource(pl2, plTpl)
 let c2 = findChannelById(pl2, plId)
@@ -618,7 +618,7 @@ let seqRt = { playMode: "sequence" }
 let pp = emptyProjectShell()
 pp.bpm = 120
 pp.songSeed = 7
-applyTplSource(pp, "tpl 1\ntrack Coin id plk_coin gen basic_osc\n  step_pitch 60\n  steps x . . . . . . . . . . . . . . .\n  step_prob 0.5 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1\n")
+applyTplSource(pp, "deck 1\ntrack Coin id plk_coin gen basic_osc\n  step_pitch 60\n  steps x . . . . . . . . . . . . . . .\n  step_prob 0.5 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1\n")
 fn firesAt(proj, g) {
   let tg = stepTriggers(proj, seqRt, g)
   let any = false
@@ -660,7 +660,7 @@ check("[plock] a 0.5 step both fires and skips across bars (not stuck)", mixed)
 // prob 0 → never; prob 1 → always (over the same sweep).
 let ppNever = emptyProjectShell()
 ppNever.bpm = 120
-applyTplSource(ppNever, "tpl 1\ntrack N id plk_never gen basic_osc\n  step_pitch 60\n  steps x . . . . . . . . . . . . . . .\n  step_prob 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1\n")
+applyTplSource(ppNever, "deck 1\ntrack N id plk_never gen basic_osc\n  step_pitch 60\n  steps x . . . . . . . . . . . . . . .\n  step_prob 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1\n")
 let neverFired = false
 let b2 = 0
 while (b2 < 16) {
@@ -674,7 +674,7 @@ check("[plock] prob 0 never fires", !neverFired)
 // ---- player: ratchet expands to R evenly-spaced sub-hits within the step ----
 let ppr = emptyProjectShell()
 ppr.bpm = 120
-applyTplSource(ppr, "tpl 1\ntrack R id plk_rat gen basic_osc\n  step_pitch 60\n  steps x . . . . . . . . . . . . . . .\n  step_ratchet 4 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1\n")
+applyTplSource(ppr, "deck 1\ntrack R id plk_rat gen basic_osc\n  step_pitch 60\n  steps x . . . . . . . . . . . . . . .\n  step_ratchet 4 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1\n")
 let rtg = stepTriggers(ppr, seqRt, 0)
 check("[plock] ratchet 4 → 4 sub-hits at step 0", rtg.length === 4)
 // They are evenly spaced by stepSec/4 (= 60/120/4/4 = 0.03125s) starting at offset 0.
@@ -693,7 +693,7 @@ check("[plock] ratchet sub-hits are evenly spaced (stepSec/4 apart)", okSpacing)
 // ---- player: nudge offsets the hit time by a fraction of a step ----
 let ppn = emptyProjectShell()
 ppn.bpm = 120
-applyTplSource(ppn, "tpl 1\ntrack Nu id plk_nudge gen basic_osc\n  step_pitch 60\n  steps x . . . . . . . . . . . . . . .\n  step_nudge 0.25 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n")
+applyTplSource(ppn, "deck 1\ntrack Nu id plk_nudge gen basic_osc\n  step_pitch 60\n  steps x . . . . . . . . . . . . . . .\n  step_nudge 0.25 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n")
 let ntg = stepTriggers(ppn, seqRt, 0)
 check("[plock] nudge 0.25 shifts the hit by stepSec/4", ntg.length === 1 && Math.abs(ntg[0].noteOffset - stepSec * 0.25) < 1e-6)
 
@@ -718,7 +718,7 @@ check("[plock] pattern fragment carries step_vel", frag.indexOf("step_vel ") >= 
 check("[plock] pattern fragment carries step_prob", frag.indexOf("step_prob ") >= 0)
 // Apply it onto a different project → the locks land on the channel.
 let pe2 = loadDefaultDeckardProject().project
-applyTplSource(pe2, "tpl 1\n" + frag + "\n")
+applyTplSource(pe2, "deck 1\n" + frag + "\n")
 let pe2c = findChannelById(pe2, peC.id)
 check("[plock] pattern emit applies velocity (step 0 = 64)", pe2c.steps[0].vel === 64)
 check("[plock] pattern emit applies probability (step 2 = 0.25)", Math.abs(pe2c.steps[2].prob - 0.25) < 1e-6)
@@ -730,11 +730,11 @@ let pe3c = pe3.channels[0]
 pe3c.patternBars = 2
 let frag3 = fragmentForEdit(pe3, "track/" + pe3c.id + "/pattern", arr)
 check("[plock] pattern fragment preserves the `* N` loop for multi-bar channels", frag3.indexOf(" * 2") >= 0)
-applyTplSource(pe3, "tpl 1\n" + frag3 + "\n")
+applyTplSource(pe3, "deck 1\n" + frag3 + "\n")
 check("[plock] multi-bar channel stays 2 bars after a pattern edit", findChannelById(pe3, pe3c.id).patternBars === 2)
 
 // ===================================================================================================
-// SCALE LOCK — root parsing, snap math, TPL round-trip, the player snap, and the edit address.
+// SCALE LOCK — root parsing, snap math, deck round-trip, the player snap, and the edit address.
 // ===================================================================================================
 console.log("")
 console.log("=== Scale lock ===")
@@ -774,7 +774,7 @@ while (scP12 < 72) {
 }
 check("[scale] all 12 pitches land in C major", scAll12)
 
-// TPL round-trip: emit → re-apply keeps the scale; `scale off` clears it.
+// deck round-trip: emit → re-apply keeps the scale; `scale off` clears it.
 let sc = loadDefaultDeckardProject().project
 sc.scaleRoot = 9
 sc.scaleMode = "dorian"
@@ -783,7 +783,7 @@ check("[scale] emit writes `scale A dorian`", scTpl.indexOf("scale A dorian") >=
 let sc2 = loadDefaultDeckardProject().project
 applyTplSource(sc2, scTpl)
 check("[scale] round-trips root + mode", sc2.scaleRoot === 9 && sc2.scaleMode === "dorian")
-applyTplSource(sc2, "tpl 1\nscale off\n")
+applyTplSource(sc2, "deck 1\nscale off\n")
 check("[scale] `scale off` clears the lock", (sc2.scaleRoot === null || sc2.scaleRoot === undefined) && (sc2.scaleMode === null || sc2.scaleMode === undefined))
 let scClean = emitProject(loadDefaultDeckardProject().project)
 check("[scale] no scale line when inactive", scClean.indexOf("scale ") < 0)
@@ -800,7 +800,7 @@ let scPlay = emptyProjectShell()
 scPlay.bpm = 120
 scPlay.scaleRoot = 0
 scPlay.scaleMode = "major"
-applyTplSource(scPlay, "tpl 1\ntrack Lead id sc_lead gen basic_osc\n  step_pitch 61\n  steps x . . . . . . . . . . . . . . .\n")
+applyTplSource(scPlay, "deck 1\ntrack Lead id sc_lead gen basic_osc\n  step_pitch 61\n  steps x . . . . . . . . . . . . . . .\n")
 let scSeqRt = { playMode: "sequence" }
 let scTrig = stepTriggers(scPlay, scSeqRt, 0)
 check("[scale] player snaps the step pitch (61 → in C major)", scTrig.length >= 1 && pitchInScale(scTrig[0].pitch, 0, "major"))
@@ -922,7 +922,7 @@ let genCh = genProj.channels[0]
 let genArr = sprinkleProbability(euclidSteps(5, 2, null), genRng, 1)
 let genFrag = fragmentForEdit(genProj, "track/" + genCh.id + "/pattern", genArr)
 let genProj2 = loadDefaultDeckardProject().project
-applyTplSource(genProj2, "tpl 1\n" + genFrag + "\n")
+applyTplSource(genProj2, "deck 1\n" + genFrag + "\n")
 let genCh2 = findChannelById(genProj2, genCh.id)
 check("[gen] generated pattern round-trips hit count", countOn(genCh2.steps) === countOn(genArr))
 
@@ -994,12 +994,12 @@ let gnLater = notesAfterFirstBar(gnMulti)
 check("[gennote] notesAfterFirstBar keeps only startBeat>=4", gnLater.length === 1 && Math.abs(gnLater[0].startBeat - 4) < 1e-6)
 // the generated notes round-trip through the notes door
 let gnP = emptyProjectShell()
-applyTplSource(gnP, "tpl 1\ntrack Lead id gn_lead gen basic_osc\n  note 60 0 0.25 v 100\n")
+applyTplSource(gnP, "deck 1\ntrack Lead id gn_lead gen basic_osc\n  note 60 0 0.25 v 100\n")
 let gnCh = gnP.channels[0]
 let gnNotes = euclidNotes(5, 0, 52)
 let gnFrag = fragmentForEdit(gnP, "track/" + gnCh.id + "/notes", gnNotes)
 let gnP2 = emptyProjectShell()
-applyTplSource(gnP2, "tpl 1\n" + gnFrag + "\n")
+applyTplSource(gnP2, "deck 1\n" + gnFrag + "\n")
 check("[gennote] generated notes round-trip through the notes door", findChannelById(gnP2, gnCh.id).pianoNotes.length === 5 && findChannelById(gnP2, gnCh.id).pianoNotes[0].pitch === 52)
 
 // ===================================================================================================
@@ -1035,7 +1035,7 @@ let auFrag = fragmentForEdit(auP, "auto/" + auCh.id + "/cutoff", curve)
 check("[auto] fragment is an `auto … gen cutoff` block", auFrag.indexOf("auto " + auCh.id + " gen cutoff") === 0)
 check("[auto] fragment has a point at beat 0.25", auFrag.indexOf("\n  0.25 700") >= 0)
 let auP2 = loadDefaultDeckardProject().project
-applyTplSource(auP2, "tpl 1\n" + auFrag + "\n")
+applyTplSource(auP2, "deck 1\n" + auFrag + "\n")
 let auPts = channelAutoPoints(auP2, auCh.id, "cutoff")
 check("[auto] applied as a paramAutomation (16 points)", (auPts !== null && auPts !== undefined) && auPts.length === 16)
 let auCh2 = findChannelById(auP2, auCh.id)
@@ -1070,7 +1070,7 @@ while (fcix < 16) {
 let fcFrag = fragmentForEdit(fcP, "auto/" + fcCh.id + "/filterCutoff", fcCurve)
 check("[autofilt] door emits `auto … gen filter_cutoff`", fcFrag.indexOf("auto " + fcCh.id + " gen filter_cutoff") === 0)
 let fcP2 = loadDefaultDeckardProject().project
-applyTplSource(fcP2, "tpl 1\n" + fcFrag + "\n")
+applyTplSource(fcP2, "deck 1\n" + fcFrag + "\n")
 let fcPts = channelAutoPoints(fcP2, fcCh.id, "filterCutoff")
 check("[autofilt] applies as a paramAutomation (param=filterCutoff, 16 pts)", (fcPts !== null && fcPts !== undefined) && fcPts.length === 16)
 // the scheduler apply writes the channel filter node at the given beat (when=null → immediate .value)
@@ -1118,7 +1118,7 @@ tgC0.steps[0].on = true
 tgC0.steps[0].vel = 111
 tgC0.steps[2].on = true
 tgC0.steps[2].prob = 0.5
-applyTplSource(tgP2, "tpl 1\n" + tgFrag + "\n")
+applyTplSource(tgP2, "deck 1\n" + tgFrag + "\n")
 let tgAfter = findChannelById(tgP2, tgCh.id)
 check("[toggle] clicked step flips on (step 5)", tgAfter.steps[5].on === true)
 check("[toggle] other steps unchanged (step 0 still on)", tgAfter.steps[0].on === true)
@@ -1127,13 +1127,13 @@ check("[toggle] probability lock preserved (step 2 = 0.5)", Math.abs(tgAfter.ste
 // Right-click clear forces off even if already off (idempotent).
 let tgClr = fragmentForEdit(tgP, "track/" + tgCh.id + "/pattern", buildToggleArr(tgCh, 0, true))
 let tgP3 = loadDefaultDeckardProject().project
-applyTplSource(tgP3, "tpl 1\n" + tgClr + "\n")
+applyTplSource(tgP3, "deck 1\n" + tgClr + "\n")
 check("[toggle] clear forces a step off", findChannelById(tgP3, tgCh.id).steps[0].on === false)
 
 // MULTI-BAR: a bar-1 pattern edit (what the paint-drag emits after a deck load bumps gridBars) must preserve
 // bars 2+. This is why the paint-drag is gated on absStep<16, NOT on nbars<=1 (which broke paint after a deck load).
 let mbP = emptyProjectShell()
-applyTplSource(mbP, "tpl 1\ntrack D id mb_d gen basic_osc * 2\n  steps x . . . . . . . . . . . . . . .\n")
+applyTplSource(mbP, "deck 1\ntrack D id mb_d gen basic_osc * 2\n  steps x . . . . . . . . . . . . . . .\n")
 let mbCh = findChannelById(mbP, "mb_d")
 while (mbCh.steps.length < 32) {
   mbCh.steps.push({ on: false, vel: 100, prob: 1, ratchet: 1, nudge: 0 })
@@ -1148,7 +1148,7 @@ while (mbi < mbCh.steps.length) {
   mbi = mbi + 1
 }
 mbArr[4].on = true
-applyTplSource(mbP, "tpl 1\n" + fragmentForEdit(mbP, "track/mb_d/pattern", mbArr) + "\n")
+applyTplSource(mbP, "deck 1\n" + fragmentForEdit(mbP, "track/mb_d/pattern", mbArr) + "\n")
 let mbAfter = findChannelById(mbP, "mb_d")
 check("[toggle] multi-bar: bar-1 edit applies (step 4 on)", mbAfter.steps[4].on === true)
 check("[toggle] multi-bar: bar-1 edit PRESERVES bar 2 (step 16 still on, 32 steps)", mbAfter.steps.length === 32 && mbAfter.steps[16].on === true && mbAfter.patternBars === 2)
@@ -1169,7 +1169,7 @@ check("[pnote] clonePianoNote defaults legacy notes (1/1/0)", pnLegacy.prob === 
 // Grammar: parse the inline p/r/n tokens.
 let pnP = emptyProjectShell()
 pnP.bpm = 120
-applyTplSource(pnP, "tpl 1\ntrack Lead id pn_lead gen basic_osc\n  note 60 0 0.5 v 90 p 0.5 r 3 n 0.25\n  note 64 1 0.5 v 100\n")
+applyTplSource(pnP, "deck 1\ntrack Lead id pn_lead gen basic_osc\n  note 60 0 0.5 v 90 p 0.5 r 3 n 0.25\n  note 64 1 0.5 v 100\n")
 let pnCh = pnP.channels[0]
 check("[pnote] parse: note 0 carries prob/ratchet/nudge", pnCh.pianoNotes[0].prob === 0.5 && pnCh.pianoNotes[0].ratchet === 3 && Math.abs(pnCh.pianoNotes[0].nudge - 0.25) < 1e-6)
 check("[pnote] parse: plain note defaults (1/1/0)", pnCh.pianoNotes[1].prob === 1 && pnCh.pianoNotes[1].ratchet === 1 && pnCh.pianoNotes[1].nudge === 0)
@@ -1191,7 +1191,7 @@ let pnStepSec = 60 / 120 / 4
 // ratchet 4 at step 0 → 4 sub-hits, evenly spaced by sec/4 (note dur 0.5 beat = 0.25s; /4 = 0.0625s).
 let pnRat = emptyProjectShell()
 pnRat.bpm = 120
-applyTplSource(pnRat, "tpl 1\ntrack R id pn_rat gen basic_osc\n  note 60 0 0.5 v 100 r 4\n")
+applyTplSource(pnRat, "deck 1\ntrack R id pn_rat gen basic_osc\n  note 60 0 0.5 v 100 r 4\n")
 let pnRatTrig = stepTriggers(pnRat, pnSeqRt, 0)
 check("[pnote] player: ratchet 4 → 4 sub-hits", pnRatTrig.length === 4)
 let pnNoteSec = (0.5 * 60) / 120
@@ -1207,13 +1207,13 @@ check("[pnote] player: ratchet sub-hits evenly spaced over the note", pnRatOk)
 // nudge 0.25 → offset shifts by stepSec/4.
 let pnNud = emptyProjectShell()
 pnNud.bpm = 120
-applyTplSource(pnNud, "tpl 1\ntrack N id pn_nud gen basic_osc\n  note 60 0 0.5 v 100 n 0.25\n")
+applyTplSource(pnNud, "deck 1\ntrack N id pn_nud gen basic_osc\n  note 60 0 0.5 v 100 n 0.25\n")
 let pnNudTrig = stepTriggers(pnNud, pnSeqRt, 0)
 check("[pnote] player: nudge shifts by stepSec/4", pnNudTrig.length === 1 && Math.abs(pnNudTrig[0].noteOffset - pnStepSec * 0.25) < 1e-6)
 // prob 0 → never fires (seeded gate); prob 1 → always.
 let pnPrb = emptyProjectShell()
 pnPrb.bpm = 120
-applyTplSource(pnPrb, "tpl 1\ntrack P id pn_prb gen basic_osc\n  note 60 0 0.5 v 100 p 0\n")
+applyTplSource(pnPrb, "deck 1\ntrack P id pn_prb gen basic_osc\n  note 60 0 0.5 v 100 p 0\n")
 let pnNeverFired = false
 let pnb = 0
 while (pnb < 16) {
@@ -1226,7 +1226,7 @@ check("[pnote] player: prob 0 note never fires", !pnNeverFired)
 
 // Edit door: track/<id>/notes re-emits the whole note array (broadcasts + round-trips).
 let pnEdP = emptyProjectShell()
-applyTplSource(pnEdP, "tpl 1\ntrack L id pn_ed gen basic_osc\n  note 60 0 0.25 v 100\n  note 62 1 0.25 v 100\n")
+applyTplSource(pnEdP, "deck 1\ntrack L id pn_ed gen basic_osc\n  note 60 0 0.25 v 100\n  note 62 1 0.25 v 100\n")
 let pnEdCh = pnEdP.channels[0]
 // build the cloned array with note 0's prob set (what emitNoteLock does)
 let pnArr = []
@@ -1239,24 +1239,24 @@ while (pae < pnEdCh.pianoNotes.length) {
 let pnFrag = fragmentForEdit(pnEdP, "track/" + pnEdCh.id + "/notes", pnArr)
 check("[pnote] notes fragment has both note lines", pnFrag.indexOf("note 60 0 0.25 v 100 p 0.25") >= 0 && pnFrag.indexOf("note 62 1 0.25 v 100") >= 0)
 let pnEdP2 = emptyProjectShell()
-applyTplSource(pnEdP2, "tpl 1\n" + pnFrag + "\n")
+applyTplSource(pnEdP2, "deck 1\n" + pnFrag + "\n")
 let pnEdCh2 = findChannelById(pnEdP2, pnEdCh.id)
 check("[pnote] notes door round-trips (note 0 prob 0.25, both notes kept)", pnEdCh2.pianoNotes.length === 2 && Math.abs(pnEdCh2.pianoNotes[0].prob - 0.25) < 1e-6)
 
 // DELETE the LAST note: the notes door emits an EMPTY array → `notes_clear` → apply must clear pianoNotes
 // (an empty note set otherwise reads as a mix-only edit that leaves notes intact). Critical bug from review.
 let pnDelP = emptyProjectShell()
-applyTplSource(pnDelP, "tpl 1\ntrack One id pn_del gen basic_osc\n  note 60 0 0.25 v 100\n")
+applyTplSource(pnDelP, "deck 1\ntrack One id pn_del gen basic_osc\n  note 60 0 0.25 v 100\n")
 let pnDelCh = pnDelP.channels[0]
 check("[pnote] setup: one note present", pnDelCh.pianoNotes.length === 1)
 let pnDelFrag = fragmentForEdit(pnDelP, "track/" + pnDelCh.id + "/notes", [])
 check("[pnote] empty notes fragment emits notes_clear", pnDelFrag.indexOf("notes_clear") >= 0)
-applyTplSource(pnDelP, "tpl 1\n" + pnDelFrag + "\n")
+applyTplSource(pnDelP, "deck 1\n" + pnDelFrag + "\n")
 check("[pnote] delete last note actually clears pianoNotes", findChannelById(pnDelP, pnDelCh.id).pianoNotes.length === 0)
 // A mix-only edit (no note lines, NO notes_clear) must NOT wipe existing notes.
 let pnKeepP = emptyProjectShell()
-applyTplSource(pnKeepP, "tpl 1\ntrack Two id pn_keep gen basic_osc\n  note 60 0 0.25 v 100\n")
-applyTplSource(pnKeepP, "tpl 1\ntrack Two id pn_keep gen basic_osc\n  mix gain 0.5\n")
+applyTplSource(pnKeepP, "deck 1\ntrack Two id pn_keep gen basic_osc\n  note 60 0 0.25 v 100\n")
+applyTplSource(pnKeepP, "deck 1\ntrack Two id pn_keep gen basic_osc\n  mix gain 0.5\n")
 check("[pnote] a mix-only edit leaves notes intact (no accidental wipe)", findChannelById(pnKeepP, "pn_keep").pianoNotes.length === 1)
 
 console.log("")

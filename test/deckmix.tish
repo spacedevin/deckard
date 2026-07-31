@@ -1,4 +1,4 @@
-// Round-trip guard for the deck_mix TPL directive (per-deck booth EQ + volume). Proves the centre DJ-mixer
+// Round-trip guard for the deck_mix deck directive (per-deck booth EQ + volume). Proves the centre DJ-mixer
 // strip — which had NO wire representation before — now serializes, parses, and re-applies identically, so it
 // can ride the host state.snapshot and a follower deck.put. Run: tish build --target js test/deckmix.tish ...
 import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'

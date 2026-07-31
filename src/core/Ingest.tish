@@ -1,5 +1,5 @@
-// Ingest — the ONE writer (Plan: "nothing mutates state except applying a TPL edit to the document").
-// Every speaker — local UI, remote peers, the agent — calls ingest() with a TPL fragment + a ctx
+// Ingest — the ONE writer (Plan: "nothing mutates state except applying a deck edit to the document").
+// Every speaker — local UI, remote peers, the agent — calls ingest() with a deck fragment + a ctx
 // {actorId, skillIds, ...}. Ingest splits control directives (`@ …`) from document statements, gates
 // once (ownership/host via Merge/Skills), folds the document incrementally, echoes the fragment to the
 // out-stream (which Collab broadcasts — minus PRIVATE cue/preview), and signals "stream advanced" so
@@ -12,7 +12,7 @@ import { syncActiveClipsInstrumentsFromChannels } from '../model/Session.tish'
 
 // ---- Render-scoping via per-slice REVISION COUNTERS (kept ON the project, bumped IN PLACE — the project
 // ref stays stable, so the codebase's pervasive closed-over project refs + in-place fold keep working).
-// Each edit bumps `project.rev.<slice>` only for the top-level slices it touched (detected from the TPL
+// Each edit bumps `project.rev.<slice>` only for the top-level slices it touched (detected from the deck
 // line heads). memo'd panels take the relevant rev number as a prop and compare it as a scalar: a crossfade
 // ("xfade", a scalar — touches no slice) bumps no slice rev, so the channel rack / session / instrument
 // panels memo-skip; a "track …" edit bumps rev.channels so the rack re-renders. Central + automatic — no
@@ -155,7 +155,7 @@ export fn createIngest(store) {
     let docSrc = docKept.join("\n")
     if (docSrc.trim().length > 0) {
       // The single gated fold — same path for local, remote, and agent statements.
-      applyCoDjTplSource(p, "tpl 1\n" + docSrc + "\n", actorId, authorId, perfStep, skillIds)
+      applyCoDjTplSource(p, "deck 1\n" + docSrc + "\n", actorId, authorId, perfStep, skillIds)
       syncActiveClipsInstrumentsFromChannels(p, store.runtime)
       echo(docSrc, "doc", c)
     }

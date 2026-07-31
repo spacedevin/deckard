@@ -12,7 +12,7 @@ let SESSION = "default"
 let SKILLS = ["add_track", "adjust_instrument", "pattern_steps", "pattern_piano", "channel_mix", "master_mixer"]
 let ME = "actor-hostdriver"
 
-let SNAP_LINES = ["tpl 1", "bpm 120", "", "track Kick id c0 gen noise_burst", "  steps x . . . x . . . x . . . x . . ."]
+let SNAP_LINES = ["deck 1", "bpm 120", "", "track Kick id c0 gen noise_burst", "  steps x . . . x . . . x . . . x . . ."]
 
 let ws = null
 let tries = 0

@@ -1,9 +1,9 @@
 // MULTIPLAYER CONVERGENCE TESTS — the architecture's central invariant.
 //
-// "Anything changed in the UI of a host or guest must be viewable AND playable by every client via TPL,
+// "Anything changed in the UI of a host or guest must be viewable AND playable by every client via deck,
 //  so all peers see and hear EXACTLY the same thing."
 //
-// Why this is fully testable headlessly: the UI is a pure TPL client. Every edit becomes a TPL fragment
+// Why this is fully testable headlessly: the UI is a pure deck client. Every edit becomes a deck fragment
 // that flows through ONE gated ingest into the fold (project). Audio + visuals are pure projections of
 // that fold. So if two peers' folds are byte-identical (emitProject equal), they necessarily render the
 // same screen and schedule the same notes. We assert fold-identity after replaying each peer's broadcast
@@ -72,7 +72,7 @@ fn deliver(net, author) {
   }
 }
 
-// All peers' folds byte-identical?  (emitProject is the canonical serialization → same TPL = same render
+// All peers' folds byte-identical?  (emitProject is the canonical serialization → same deck = same render
 // = same audio.)
 fn allConverged(net) {
   let base = emitProject(net[0].project)
@@ -234,7 +234,7 @@ if (sc >= 1) {
   check("[ctrl] (skipped — no scenes in default project)", true)
 }
 
-// Full round-trip integrity: a heavily-edited host re-serializes to TPL that a fresh peer can replay back
+// Full round-trip integrity: a heavily-edited host re-serializes to deck that a fresh peer can replay back
 // to the identical fold (viewable + playable from scratch — the "join mid-session" path).
 let joinSrc = emitProject(host.project)
 let joiner = loadDefaultDeckardProject().project
@@ -242,7 +242,7 @@ ensureProjectSession(joiner)
 let jStore = { project: joiner, runtime: {} }
 let jIng = createIngest(jStore)
 jIng.ingest(joinSrc, { actorId: "human", skillIds: ["master_mixer"], perfStep: 0 })
-check("[join] a fresh peer replaying the host's TPL reaches the identical fold", emitProject(joiner) === emitProject(host.project))
+check("[join] a fresh peer replaying the host's deck reaches the identical fold", emitProject(joiner) === emitProject(host.project))
 
 console.log("=== REALISTIC live session: host plays, guest contributes, both hear 100% identical ===")
 // The acceptance test. host (master) is playing; guest OWNS one track and contributes to it mid-flight.

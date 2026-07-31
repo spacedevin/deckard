@@ -64,9 +64,9 @@ fn connectToGateway() {
         if (msg.op === "playing_start") {
           tplBuffer = []
         }
-      } else if (msg.type === "tpl.line") {
+      } else if (msg.type === "deck.line") {
         if (msg.line) pushContextLine(msg.line)
-      } else if (msg.type === "tpl.block" && Array.isArray(msg.lines)) {
+      } else if (msg.type === "deck.block" && Array.isArray(msg.lines)) {
         let i = 0
         while (i < msg.lines.length) {
           pushContextLine(msg.lines[i])
@@ -122,19 +122,19 @@ fn handleRequest(req) {
       result: {
         tools: [
           {
-            name: "get_session_tpl",
-            description: "Returns the current live TPL (Tish Patch Language) state of the Deckard session. Use this to see what tracks and generators exist.",
+            name: "get_session_deck",
+            description: "Returns the current live deck (deck) state of the Deckard session. Use this to see what tracks and generators exist.",
             inputSchema: { type: "object", properties: {}, required: [] }
           },
           {
-            name: "send_tpl_block",
-            description: "Send a block of TPL to the live DAW. The TPL describes a track, instruments, or patterns. Make sure to prefix track IDs with the actor ID.",
+            name: "send_deck_block",
+            description: "Send a block of deck to the live DAW. The deck describes a track, instruments, or patterns. Make sure to prefix track IDs with the actor ID.",
             inputSchema: {
               type: "object",
               properties: {
-                tplLines: { type: "array", items: { type: "string" }, description: "Array of valid TPL lines." }
+                deckLines: { type: "array", items: { type: "string" }, description: "Array of valid deck lines." }
               },
-              required: ["tplLines"]
+              required: ["deckLines"]
             }
           },
           {
@@ -167,20 +167,20 @@ fn handleRequest(req) {
       return
     }
 
-    if (name === "get_session_tpl") {
+    if (name === "get_session_deck") {
       let state = tplBuffer.length > 0 ? tplBuffer.join("\n") : "(empty session or playback not started)"
       sendRpc({
         jsonrpc: "2.0",
         id: req.id,
         result: { content: [{ type: "text", text: state }] }
       })
-    } else if (name === "send_tpl_block") {
-      let lines = args.tplLines
+    } else if (name === "send_deck_block") {
+      let lines = args.deckLines
       if (!Array.isArray(lines)) {
         lines = [String(lines)]
       }
       let blockPayload = JSON.stringify({
-        type: "tpl.block",
+        type: "deck.block",
         actorId: ACTOR_ID,
         authorId: ACTOR_ID,
         lines: lines,
@@ -191,7 +191,7 @@ fn handleRequest(req) {
       sendRpc({
         jsonrpc: "2.0",
         id: req.id,
-        result: { content: [{ type: "text", text: "Successfully sent " + String(lines.length) + " TPL lines to the session." }] }
+        result: { content: [{ type: "text", text: "Successfully sent " + String(lines.length) + " deck lines to the session." }] }
       })
     } else if (name === "send_direct") {
       let text = String(args.instruction || "")

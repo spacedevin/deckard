@@ -24,7 +24,7 @@
     },
     "paramAutomations": {
       "type": "array",
-      "description": "Per-channel generator param lanes (TPL auto … gen …)",
+      "description": "Per-channel generator param lanes (deck auto … gen …)",
       "items": {
         "type": "object",
         "required": ["channelId", "param", "points"],
@@ -37,7 +37,7 @@
     },
     "mixerAutomations": {
       "type": "array",
-      "description": "Mixer lanes: track gain/pan/EQ, actor trim/EQ, master EQ (TPL auto … mix …)",
+      "description": "Mixer lanes: track gain/pan/EQ, actor trim/EQ, master EQ (deck auto … mix …)",
       "items": {
         "oneOf": [
           {
@@ -257,12 +257,12 @@
         "eqHi": { "type": "number", "description": "Track EQ highshelf gain dB" },
         "sessionClips": {
           "type": "array",
-          "description": "Named patterns for Session view / TPL clip blocks; main clip id is {channelId}_main",
+          "description": "Named patterns for Session view / deck clip blocks; main clip id is {channelId}_main",
           "items": { "$ref": "#/$defs/sessionClip" }
         },
         "tplLoopBars": {
           "type": ["integer", "null"],
-          "description": "Finite bar repeat cap from TPL (* N / loops N); null = infinite"
+          "description": "Finite bar repeat cap from deck (* N / loops N); null = infinite"
         },
         "pan": { "type": "number" },
         "mute": { "type": "boolean" },
@@ -273,7 +273,7 @@
         "steps": { "type": "array", "minItems": 16, "maxItems": 16 },
         "pianoNotes": { "type": "array" },
         "generatorSpec": {
-          "description": "Heavy generator graph/raw (TPL gen_block); optional",
+          "description": "Heavy generator graph/raw (deck gen_block); optional",
           "oneOf": [
             { "type": "null" },
             {

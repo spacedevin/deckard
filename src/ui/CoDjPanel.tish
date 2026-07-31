@@ -1,4 +1,4 @@
-// Co-DJ WebSocket client: actor receives tpl.block from other actors.
+// Co-DJ WebSocket client: actor receives deck.block from other actors.
 
 import { h, Fragment, useState } from '@tishlang/lattish'
 import { applyCoDjTplSource } from '../codj/Merge.tish'
@@ -85,7 +85,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       // here (we have rt) and merge only the remaining project lines through the master-gated path.
       let s = applyLaunchLinesFromSource(p, rt, tpl, actorId, skillIds)
       if (s.indexOf("tpl ") !== 0) {
-        s = "tpl 1\n" + s
+        s = "deck 1\n" + s
       }
       applyCoDjTplSource(p, s, actorId, authorId, step, skillIds)
     }
@@ -164,8 +164,8 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       if (body.length > 900) {
         body = body.substring(0, 900) + "\n…"
       }
-      rt.coDjStreamPreview = (rt.coDjStreamPreview + "[tpl.block " + from + "]\n" + body + "\n\n").slice(-14000)
-      rt.coDjStreamLane = from + " tpl.block"
+      rt.coDjStreamPreview = (rt.coDjStreamPreview + "[deck.block " + from + "]\n" + body + "\n\n").slice(-14000)
+      rt.coDjStreamLane = from + " deck.block"
       rt.coDjStreamDirty = true
       if (rt.coDjBumpUi) {
         rt.coDjBumpUi()
@@ -214,7 +214,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
         // a client loading a new song would leave its old tracks orphaned on the host.
         let keep = deckPutKeepIds(dlines)
         let rmLines = staleOwnedRemoveLines(p, fromId, keep)
-        let src = "tpl 1\n" + rmLines.concat(dlines).join("\n") + "\n"
+        let src = "deck 1\n" + rmLines.concat(dlines).join("\n") + "\n"
         applyCoDjTplSource(p, src, fromId, fromId, ps, msg.skillIds)
         // Bump the per-slice rev counters so the memo'd panels re-render on a remote edit to an EXISTING track
         // (a name/knob change keeps the channel count the same → channelsRev wouldn't move without this, and
@@ -239,7 +239,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       }
       return
     }
-    if (t === "tpl.block") {
+    if (t === "deck.block") {
       let actorId = msg.actorId ? msg.actorId : (msg.laneId ? msg.laneId : "actor-1")
       let authorId = msg.authorId ? msg.authorId : actorId
       let lines = msg.lines
@@ -248,7 +248,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       }
       let src = lines.join("\n")
       if (src.indexOf("tpl ") !== 0) {
-        src = "tpl 1\n" + src
+        src = "deck 1\n" + src
       }
       let r = coDjHandleIncomingTplBlock(
         src,
@@ -288,7 +288,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       // Apply session-control directives to shared arming, merge the rest through the gated path.
       let applySrc = applyLaunchLinesFromSource(p, rt, r.tpl, actorId, msg.skillIds)
       if (applySrc.indexOf("tpl ") !== 0) {
-        applySrc = "tpl 1\n" + applySrc
+        applySrc = "deck 1\n" + applySrc
       }
       applyCoDjTplSource(p, applySrc, actorId, authorId, effStep, msg.skillIds)
       setProject(p)
@@ -302,11 +302,11 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       }
       bumpHubInboundBlockPreview(actorId, lines)
       pushLog("apply " + actorId + " " + String(lines.length) + "L")
-      // NB: no host re-snapshot here — tpl.block is the LIVE-playback stream (coDjPushLive), not deck
-      // contribution. Deck convergence is driven from the tpl.line apply path (and gated to stopped only).
+      // NB: no host re-snapshot here — deck.block is the LIVE-playback stream (coDjPushLive), not deck
+      // contribution. Deck convergence is driven from the deck.line apply path (and gated to stopped only).
       return
     }
-    if (t === "tpl.stream_chunk") {
+    if (t === "deck.stream_chunk") {
       let ch = msg.chunk ? String(msg.chunk) : ""
       let from = msg.actorId ? msg.actorId : (msg.laneId ? msg.laneId : "?")
       if (rt) {
@@ -319,7 +319,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       }
       return
     }
-    if (t === "tpl.line") {
+    if (t === "deck.line") {
       let ln = msg.line !== null && msg.line !== undefined ? String(msg.line) : ""
       let fromId = msg.actorId ? msg.actorId : (msg.laneId ? msg.laneId : "?")
       let authorId = msg.authorId ? msg.authorId : fromId
@@ -374,7 +374,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       setProject(project)
     }
     // Shared transport: the host is the clock master. A follower slaves its playhead to the host so the
-    // whole room is on the same bar/step — the point of the TPL session. (Skipped when this client IS
+    // whole room is on the same bar/step — the point of the deck session. (Skipped when this client IS
     // the host, or the user switched to independent mode.)
     if (t === "control" && msg.op === "playing_start" && rt && coDjShouldFollow(rt)) {
       rt.coDjHostPlaying = true
@@ -626,7 +626,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
     return prefix + aid + "_" + id + line.substring(genIdx)
   }
 
-  // From a raw TPL string, build ONLY the re-homed `track` block lines (header + indented body), dropping
+  // From a raw deck string, build ONLY the re-homed `track` block lines (header + indented body), dropping
   // globals (bpm / master_mix / session / clip) and any per-track `deck … slot …` line. PURE STRING — no
   // loadProjectFromTpl round-trip, so it can't be defeated by patch/macro content that fails to re-parse.
   fn rehomedSelfTrackLines(tplStr, aid) {
@@ -709,7 +709,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
   // A joiner that arrives with its OWN content shouldn't lose it to the host's snapshot. We captured that
   // content at connect (rt.coDjPendingSelfTpl, before any clobber). Here we re-home it INTO the adopted
   // snapshot via rehomeJoinerChannels (prefix + own by my actorId → routes to my deck). Returns true if
-  // anything was merged, so the caller can broadcast it up to the host and fold it into the shared TPL.
+  // anything was merged, so the caller can broadcast it up to the host and fold it into the shared deck.
   //
   // The pending capture is held across snapshots (NOT consumed on the first merge) until a snapshot actually
   // carries my contributed tracks back. This defends against the connect-time DOUBLE snapshot: the gateway
@@ -727,7 +727,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       return false
     }
     // Round-trip confirmed? If the adopted snapshot already carries any track id-prefixed with my actorId,
-    // my contribution is in the shared TPL — stop re-homing and release the capture.
+    // my contribution is in the shared deck — stop re-homing and release the capture.
     if (projectHasActorPrefixedTracks(np, aid)) {
       rt.coDjPendingSelfTpl = null
       return false
@@ -761,7 +761,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
   }
 
   // Follower: adopt the host's authoritative state, then re-home any content I joined with onto my deck so it
-  // joins the one shared TPL (instead of being silently clobbered).
+  // joins the one shared deck (instead of being silently clobbered).
   fn applyHostSnapshot(lines, owners, fromHost, gen) {
     if (!Array.isArray(lines) || lines.length === 0) {
       return
@@ -874,7 +874,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       )
       // Host seeds the gateway cache immediately so any follower already waiting gets the real project.
       if (rt && rt.coDjIsHost) {
-        // The host IS the authority — its own content is already the shared TPL, nothing to re-contribute.
+        // The host IS the authority — its own content is already the shared deck, nothing to re-contribute.
         rt.coDjPendingSelfTpl = null
         // If the host carries instruments on decks B/C/D, offer to merge them onto Deck A (or keep them).
         rt.coDjHostDeckPrompt = hostHasMultiDeckContent()
@@ -1034,7 +1034,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
   if (rt && rt.coDjWs && rt.coDjWs.readyState === 1) {
     wsConnected = true
   }
-  let localStreamBody = "— press Play to show the TPL snapshot you send (works offline)"
+  let localStreamBody = "— press Play to show the deck snapshot you send (works offline)"
   if (localStreamPreview.length > 0) {
     localStreamBody = localStreamPreview
   }
@@ -1043,7 +1043,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
     remoteStreamBody = streamPreview
   } else {
     if (wsConnected) {
-      remoteStreamBody = "— connected; inbound tpl.block / chunks / tpl.line (tplStream) appear here"
+      remoteStreamBody = "— connected; inbound deck.block / chunks / deck.line (tplStream) appear here"
     }
   }
   let logEls = []

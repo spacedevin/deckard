@@ -1,5 +1,5 @@
 # Default Deckard demo — edit or swap this file and load via loadProjectFromTpl(text) in the shell.
-tpl 1
+deck 1
 bpm 118
 
 track Kick id c0 gen noise_burst

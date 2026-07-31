@@ -1,6 +1,6 @@
-// Headless co-DJ HOST that LOGS every TPL frame it receives. Used to verify, against the REAL browser client,
+// Headless co-DJ HOST that LOGS every deck frame it receives. Used to verify, against the REAL browser client,
 // whether a connecting client's INITIAL DECK actually reaches the host. Joins "default" first (wins host),
-// answers snapshot requests with a tiny project, then prints every tpl.line / tpl.block it receives and from
+// answers snapshot requests with a tiny project, then prints every deck.line / deck.block it receives and from
 // whom. Run: tish run test/hostlog.tish   (gateway must be on 35987; then connect a browser as the client).
 import { WebSocket } from "tish:ws"
 import { process } from "tish:process"
@@ -11,7 +11,7 @@ let URL = "ws://127.0.0.1:35987"
 let SESSION = "default"
 let SKILLS = ["add_track", "adjust_instrument", "pattern_steps", "pattern_piano", "channel_mix", "master_mixer"]
 let ME = "actor-hostlog"
-let SNAP = ["tpl 1", "bpm 120", "", "track HostKick id h0 gen noise_burst", "  steps x . . . x . . . x . . . x . . ."]
+let SNAP = ["deck 1", "bpm 120", "", "track HostKick id h0 gen noise_burst", "  steps x . . . x . . . x . . . x . . ."]
 
 let ws = null
 let tries = 0
@@ -24,7 +24,7 @@ ws.send(JSON.stringify({ type: "join", sessionId: SESSION, actorId: ME, channelI
 
 fn snap() { ws.send(JSON.stringify({ type: "state.snapshot", sessionId: SESSION, lines: SNAP, owners: {} })) }
 
-let tplLines = 0
+let deckLines = 0
 let tplBlocks = 0
 let trackLines = 0
 let polls = 0
@@ -46,17 +46,17 @@ while (polls < 300) {
           snap()
         } else if (t === "presence") {
           console.log("HOSTLOG presence actors=" + (msg.actors ? msg.actors.join(",") : "?"))
-        } else if (t === "tpl.line") {
-          tplLines = tplLines + 1
+        } else if (t === "deck.line") {
+          deckLines = deckLines + 1
           let from = msg.actorId !== null && msg.actorId !== undefined ? msg.actorId : (msg.authorId || "?")
           let ln = msg.line !== null && msg.line !== undefined ? String(msg.line) : ""
           if (ln.indexOf("track ") === 0) { trackLines = trackLines + 1 }
-          console.log("HOSTLOG <- tpl.line from=" + from + " : " + ln)
-        } else if (t === "tpl.block") {
+          console.log("HOSTLOG <- deck.line from=" + from + " : " + ln)
+        } else if (t === "deck.block") {
           tplBlocks = tplBlocks + 1
           let from = msg.actorId !== null && msg.actorId !== undefined ? msg.actorId : (msg.authorId || "?")
           let n = msg.lines ? msg.lines.length : 0
-          console.log("HOSTLOG <- tpl.block from=" + from + " (" + String(n) + " lines)")
+          console.log("HOSTLOG <- deck.block from=" + from + " (" + String(n) + " lines)")
           let j = 0
           while (j < n) { console.log("HOSTLOG    | " + String(msg.lines[j])); j = j + 1 }
         }
@@ -65,5 +65,5 @@ while (polls < 300) {
   }
   polls = polls + 1
 }
-console.log("HOSTLOG-DONE tpl.line=" + String(tplLines) + " (track lines=" + String(trackLines) + ") tpl.block=" + String(tplBlocks))
+console.log("HOSTLOG-DONE deck.line=" + String(deckLines) + " (track lines=" + String(trackLines) + ") deck.block=" + String(tplBlocks))
 process.exit(0)

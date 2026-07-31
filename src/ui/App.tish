@@ -141,7 +141,7 @@ loadUserInstrumentPresets(initialDeckardBoot.project)
 if (initialDeckardBoot.errors.length > 0 && typeof console !== "undefined" && console.warn) {
   let ei = 0
   while (ei < initialDeckardBoot.errors.length) {
-    console.warn("default TPL L" + String(initialDeckardBoot.errors[ei].line) + ": " + initialDeckardBoot.errors[ei].msg)
+    console.warn("default deck L" + String(initialDeckardBoot.errors[ei].line) + ": " + initialDeckardBoot.errors[ei].msg)
     ei = ei + 1
   }
 }
@@ -386,14 +386,14 @@ export fn App() {
   rt.setSelectedCh = setSelectedCh
   rt.playing = playing
   rt.playMode = playMode
-  // Launch quantize lives on the project (source of truth) so it round-trips in TPL and syncs to every
+  // Launch quantize lives on the project (source of truth) so it round-trips in deck and syncs to every
   // player via the host snapshot / stream — same value, same UI everywhere. 16 steps = 1 bar default.
   let launchQuant = (project.launchQuant !== null && project.launchQuant !== undefined) && Math.floor(Number(project.launchQuant)) >= 1
     ? Math.floor(Number(project.launchQuant))
     : 16
   rt.launchQuantSteps = launchQuant
 
-  // ---- The ONE write door (rearch): ingest + editor. Every UI edit emits a TPL fragment through here
+  // ---- The ONE write door (rearch): ingest + editor. Every UI edit emits a deck fragment through here
   // instead of mutating `project` directly. Local, co-DJ, and agent all share this gated path. ----
   let storeRef = useRef(null)
   if (!storeRef.current) {
@@ -413,12 +413,12 @@ export fn App() {
   let ingestRef = useRef(null)
   if (!ingestRef.current) {
     ingestRef.current = createIngest(storeRef.current)
-    // On stream-advance: reconcile audio (LIVE), re-render, mirror to the TPL editor. A continuous control
+    // On stream-advance: reconcile audio (LIVE), re-render, mirror to the deck editor. A continuous control
     // (crossfader / faders) fires an emit on every mousemove pixel, so the re-render and the heavy
-    // emitProject TPL-serialize MUST be coalesced — otherwise each pixel re-renders the whole tree + rebuilds
-    // the full project TPL, which scales with channel count and lags hard once decks have content. The audio
+    // emitProject deck-serialize MUST be coalesced — otherwise each pixel re-renders the whole tree + rebuilds
+    // the full project deck, which scales with channel count and lags hard once decks have content. The audio
     // reconcile stays per-emit (you must hear the move now); the render coalesces to one per frame, and the
-    // TPL mirror trails on a debounce (it's a reflection, not needed at interaction rate).
+    // deck mirror trails on a debounce (it's a reflection, not needed at interaction rate).
     let advancePending = false
     let tplMirrorTimer = null
     ingestRef.current.onAdvance((v) => {
@@ -446,7 +446,7 @@ export fn App() {
           }
         })
       }
-      // The TPL-editor mirror (heavy emitProject serialize) trails on a debounce — a reflection, not needed
+      // The deck-editor mirror (heavy emitProject serialize) trails on a debounce — a reflection, not needed
       // at interaction rate.
       if (tplMirrorTimer) {
         clearTimeout(tplMirrorTimer)
@@ -470,9 +470,9 @@ export fn App() {
   rt.emit = (addr, val) => editorRef.current.emit(addr, val)
   rt.directive = (line) => editorRef.current.directive(line)
   rt.directiveUndoable = (fwd, inv, addr) => editorRef.current.directiveUndoable(fwd, inv, addr)
-  // Apply an arbitrary TPL fragment (e.g. a preset's TPL) through the one gated write door.
+  // Apply an arbitrary deck fragment (e.g. a preset's deck) through the one gated write door.
   rt.applyTpl = (tpl) => editorRef.current.directive(tpl)
-  // Undo / redo: re-ingest the inverse / forward TPL through the same gated door (ownership-checked,
+  // Undo / redo: re-ingest the inverse / forward deck through the same gated door (ownership-checked,
   // broadcast, round-trip-safe). ingest re-renders via onAdvance, so the toolbar buttons refresh.
   rt.undo = () => editorRef.current.undo()
   rt.redo = () => editorRef.current.redo()
@@ -531,7 +531,7 @@ export fn App() {
     rt.directiveUndoable(fwd, "remove_track " + id, "track/" + id + "/add")
     setSelectedCh(rtRef.current.project.channels.length - 1)
   }
-  // Delete a channel: capture its full TPL as the undo inverse BEFORE removing (so undo recreates exactly it,
+  // Delete a channel: capture its full deck as the undo inverse BEFORE removing (so undo recreates exactly it,
   // not a project snapshot), emit `remove_track`, then rebuild the index-keyed audio buses (a splice misaligns
   // them) and clamp the selection if it ran off the end.
   rt.onDeleteTrack = (chId) => {
@@ -549,7 +549,7 @@ export fn App() {
   }
 
   // ---- MIDI: keyboard notes audition the SELECTED instrument; a learned CC drives a control via emit (the
-  // same gated/broadcast/round-tripping TPL a UI drag emits → multiplayer-native).
+  // same gated/broadcast/round-tripping deck a UI drag emits → multiplayer-native).
   // A MIDI note-on plays the selected channel's voice live (a monitor).
   fn midiNote(note, vel) {
     ensureAudio(project, audioStore)
@@ -859,7 +859,7 @@ export fn App() {
     }
     // Suppress the browser's native right-click menu everywhere EXCEPT text fields (right-click is a real
     // editing gesture here — clear a step, delete a note — so the OS menu just gets in the way). Text
-    // inputs/textarea/contenteditable keep their native menu so the TPL editor still has copy/paste.
+    // inputs/textarea/contenteditable keep their native menu so the deck editor still has copy/paste.
     fn onCtx(e) {
       let tgt = e.target
       let tag = tgt && tgt.tagName ? String(tgt.tagName).toLowerCase() : ""
@@ -1118,7 +1118,7 @@ export fn App() {
     }
   }
 
-  // Stream a LOCAL edit to peers over the live TPL stream, debounced, INDEPENDENT of the transport. The old
+  // Stream a LOCAL edit to peers over the live deck stream, debounced, INDEPENDENT of the transport. The old
   // path only streamed during playback (coDjPushLive) — so once followers became host-only-transport they
   // could never reach the host while stopped, and their content silently never synced. This is the fix:
   // every local commit pushes to the hub (host → snapshot; follower → its own lines, host applies the tracks
@@ -1597,7 +1597,7 @@ export fn App() {
     let text = emitLivePlayback(proj, rtObj)
     let lines = text.split("\n")
     let payload = JSON.stringify({
-      type: "tpl.block",
+      type: "deck.block",
       lines: lines,
       effectivePerfStep: effStep,
       actorId: aid,
@@ -1628,7 +1628,7 @@ export fn App() {
     }
     let aid = rt.coDjActorId ? rt.coDjActorId : (rt.coDjClientId ? rt.coDjClientId : "actor")
     rt.coDjWs.send(JSON.stringify({
-      type: "tpl.block",
+      type: "deck.block",
       lines: directiveLines,
       effectivePerfStep: effStep,
       actorId: aid,
@@ -1864,12 +1864,12 @@ export fn App() {
   rt.onPlaySequence = () => onPlay("sequence")
   rt.onPlaySong = () => onPlay("song")
 
-  // ---- TPL-stream playback (the Playlist tape): record the live TPL stream, save it as a Set, replay it.
+  // ---- deck-stream playback (the Playlist tape): record the live deck stream, save it as a Set, replay it.
   let [timelineGen, setTimelineGen] = useState(0)
   fn bumpTimeline() {
     setTimelineGen((g) => g + 1)
   }
-  // Tape one TPL fragment with its step (relative to record-start). The single recorder entry point: the
+  // Tape one deck fragment with its step (relative to record-start). The single recorder entry point: the
   // ingest out-stream tap routes here, and so do the not-yet-migrated handlers (step toggles, notes,
   // launches) that still bypass ingest — so REC captures a real performance, not just the mixer moves.
   // Record WHAT PLAYED: transportTick hands us the note triggers it fired this step (the performance), and
@@ -2297,7 +2297,7 @@ export fn App() {
 
   // ---- Cue → Throw (Pioneer deck model): CUE auditions a scene PRIVATELY on the preview transport (never
   // broadcast — peers hear nothing); THROW commits the cued scene to the SHARED main. Driven by the
-  // @ cue / @ throw directives so the whole flow is multiplayer-native TPL.
+  // @ cue / @ throw directives so the whole flow is multiplayer-native deck.
   rt.onCueScene = (scene) => {
     onStopPreview()
     ensureAudio(project, audioStore)
@@ -2553,7 +2553,7 @@ export fn App() {
   fn onBpmInput(e) {
     let v = Number(e.target.value)
     if (v >= 40 && v <= 240) {
-      // UI-as-TPL-client: emit `bpm <v>` through the one write door (no direct project mutation).
+      // UI-as-deck-client: emit `bpm <v>` through the one write door (no direct project mutation).
       editorRef.current.emit("bpm", v)
     }
   }
@@ -2708,7 +2708,7 @@ export fn App() {
     let url = URL.createObjectURL(blob)
     let a = document.createElement("a")
     a.href = url
-    a.download = "deckard-station-" + nm + ".tpl"
+    a.download = "deckard-station-" + nm + ".deck"
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -2887,7 +2887,7 @@ export fn App() {
     PresetBar("Rack", levelPresetList(project, "rack"), (n) => loadPreset("rack", n), () => savePreset("rack"), "", (n) => deletePreset("rack", n))
   ]
   let sessionHeaderRight = PresetBar("Session", levelPresetList(project, "session"), (n) => loadPreset("session", n), () => savePreset("session"), "", (n) => deletePreset("session", n))
-  // Recordings = the stream Sets (a recorded TPL tape) — listed in the Playlist panel for replay.
+  // Recordings = the stream Sets (a recorded deck tape) — listed in the Playlist panel for replay.
   let recordingItems = []
   let allLibSets = setLibrary.list()
   let rli = 0
@@ -3046,8 +3046,8 @@ export fn App() {
           }
         })}
         <button type="button" class="set-btn set-save" onclick={onSaveSet} title="Save the whole workspace as a named station">{"⤓"}</button>
-        <label class="set-btn set-import" title="Import a .tpl station file">{"⤒"}
-          <input type="file" accept=".tpl,.txt" style={{ display: "none" }} onchange={onImportSetFile} />
+        <label class="set-btn set-import" title="Import a .deck station file">{"⤒"}
+          <input type="file" accept=".deck,.tpl,.txt" style={{ display: "none" }} onchange={onImportSetFile} />
         </label>
       </div>
       <div class="set-presets set-lib" key={"sl-" + String(setLibGenKey)}>
@@ -3069,8 +3069,8 @@ export fn App() {
           }
         })}
         <button type="button" class="set-btn set-save" onclick={onSaveSetLib} title="Capture the loaded decks (their racks, clips + arrangement) as a named Set">{"⤓"}</button>
-        <label class="set-btn set-import" title="Import a .tpl Set file">{"⤒"}
-          <input type="file" accept=".tpl,.txt" style={{ display: "none" }} onchange={onImportSetLibFile} />
+        <label class="set-btn set-import" title="Import a .deck Set file">{"⤒"}
+          <input type="file" accept=".deck,.tpl,.txt" style={{ display: "none" }} onchange={onImportSetLibFile} />
         </label>
       </div>
       <button

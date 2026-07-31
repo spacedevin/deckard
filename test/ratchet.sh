@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Anti-spaghetti ratchet (Plan step 7, run early as a guard).
 #
-# THE LAW: the UI layer (src/ui) is a pure TPL client — it may READ the project to render, but it must
+# THE LAW: the UI layer (src/ui) is a pure deck client — it may READ the project to render, but it must
 # NEVER mutate document/model state or audio nodes directly. Every edit goes through ingest/emit.
 #
 # This script counts the UI's remaining direct-write sites. The number must only ever DECREASE toward 0.

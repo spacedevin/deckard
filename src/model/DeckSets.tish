@@ -1,8 +1,8 @@
 // Stem deck sets — a deck loads a whole rack (5-6 stems: kick / perc / bass / chord / arp-fx), each a
-// full instrument + 16-step sequence, defined entirely in TPL. You load a set onto a deck and DJ
+// full instrument + 16-step sequence, defined entirely in deck. You load a set onto a deck and DJ
 // between two of them. Converted from the deck.tsx procedural TRACKS.
 //
-// The instrument timbres are NOT special-cased generators — every voice below is written in TPL as a
+// The instrument timbres are NOT special-cased generators — every voice below is written in deck as a
 // `gen_block patch` (modular: osc/noise/filter/shaper/gain + breakpoint envelopes). The voice library
 // (vKickEdm, vBassAcid, vChordPad, …) is a faithful port of the deck.tsx AudioEngine synth routines,
 // so e.g. the acid bass really is a sawtooth through a Q15 lowpass swept 3000→100Hz, etc.
@@ -37,7 +37,7 @@ fn flat(parts) {
   return out
 }
 
-// ---- Voice library (deck.tsx AudioEngine ports, as TPL patch blocks) -----------------------------
+// ---- Voice library (deck.tsx AudioEngine ports, as deck patch blocks) -----------------------------
 
 // Kicks + basses now live as built-in macros (src/tpl/Macros.tish); referenced by name from the sets.
 
@@ -366,7 +366,7 @@ fn deckSetTpls() {
       genre: "Ambient Space",
       bpm: 110,
       tpl: L(flat([
-        "tpl 1",
+        "deck 1",
         stem("Kick", "kick", 0.05, "kick_deep", ["  step_pitch 36", "  steps x . . . . . . . . . . . . . . ."]),
         stem("Hat", "hat", 0.1, vHatClosed(), ["  step_pitch 44", "  steps . . . . x . . . . . . . x . . ."]),
         stemB("Bass", "bass", 16, "bass_reese", progNotes([["0,8", [36]], ["4", [32]], ["12", [31]]], [0], 7, 100)),
@@ -380,7 +380,7 @@ fn deckSetTpls() {
       genre: "Cyberpunk",
       bpm: 125,
       tpl: L(flat([
-        "tpl 1",
+        "deck 1",
         stem("Kick", "kick", 0.05, "kick_edm", ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
         stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
@@ -395,7 +395,7 @@ fn deckSetTpls() {
       genre: "Deep Techno",
       bpm: 130,
       tpl: L(flat([
-        "tpl 1",
+        "deck 1",
         stem("Kick", "kick", 0.05, "kick_deep", ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
         stem("Bass", "bass", 0.1, "bass_reese_sc", ["  step_pitch 36", "  steps . . x . . . x . . . x . . . x ."]),
@@ -409,7 +409,7 @@ fn deckSetTpls() {
       genre: "Trance",
       bpm: 138,
       tpl: L(flat([
-        "tpl 1",
+        "deck 1",
         stem("Kick", "kick", 0.05, "kick_edm", ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Hat", "hat", 0.2, vHatOpen(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
         stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
@@ -424,7 +424,7 @@ fn deckSetTpls() {
       genre: "Downtempo",
       bpm: 90,
       tpl: L(flat([
-        "tpl 1",
+        "deck 1",
         stem("Kick", "kick", 0.05, "kick_deep", ["  step_pitch 36", "  steps x . . . . . . . . . . x . . . ."]),
         stem("Snare", "snare", 0.25, vSnare(), ["  step_pitch 40", "  steps . . . . . . . . x . . . . . . ."]),
         stem("Hat", "hat", 0.1, vHatClosed(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
@@ -439,7 +439,7 @@ fn deckSetTpls() {
       genre: "Midtempo Bass",
       bpm: 105,
       tpl: L(flat([
-        "tpl 1",
+        "deck 1",
         stem("Kick", "kick", 0.05, "kick_distorted", ["  step_pitch 36", "  steps x . . . . . . . x . . . . . . ."]),
         stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . . . . . x . . . . . . ."]),
         stem("Hat", "hat", 0.2, vHatOpen(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
@@ -454,7 +454,7 @@ fn deckSetTpls() {
       genre: "Psytrance",
       bpm: 145,
       tpl: L(flat([
-        "tpl 1",
+        "deck 1",
         stem("Kick", "kick", 0.05, "kick_edm", ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Hat", "hat", 0.2, vHatOpen(), ["  step_pitch 44", "  steps . . . . x . . . . . . . x . . ."]),
         stem("Bass", "bass", 0.05, "bass_reese_punch", ["  step_pitch 36", "  steps . x x x . x x x . x x x . x x x"]),
@@ -468,7 +468,7 @@ fn deckSetTpls() {
       genre: "Dub / Halftime",
       bpm: 140,
       tpl: L(flat([
-        "tpl 1",
+        "deck 1",
         stem("Kick", "kick", 0.05, "kick_deep", ["  step_pitch 34", "  steps x . . . . . . . . . x . . . . ."]),
         stem("Snare", "snare", 0.25, vSnare(), ["  step_pitch 40", "  steps . . . . . . . . x . . . . . . ."]),
         stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
@@ -483,7 +483,7 @@ fn deckSetTpls() {
       genre: "Synthwave",
       bpm: 115,
       tpl: L(flat([
-        "tpl 1",
+        "deck 1",
         stem("Kick", "kick", 0.05, "kick_edm", ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
         stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
@@ -498,7 +498,7 @@ fn deckSetTpls() {
       genre: "Liquid DnB",
       bpm: 170,
       tpl: L(flat([
-        "tpl 1",
+        "deck 1",
         stem("Kick", "kick", 0.05, "kick_deep", ["  step_pitch 36", "  steps x . . . . . . . . . x . . . . ."]),
         stem("Snare", "snare", 0.25, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
         stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps x x x x x x x x x x x x x x x x"]),
@@ -513,7 +513,7 @@ fn deckSetTpls() {
       genre: "Industrial EBM",
       bpm: 105,
       tpl: L(flat([
-        "tpl 1",
+        "deck 1",
         stem("Kick", "kick", 0.05, "kick_distorted", ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . . . . . x . . . . . . ."]),
         stem("Hat", "hat", 0.08, vHatOpen(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
@@ -528,7 +528,7 @@ fn deckSetTpls() {
       genre: "Lo-Fi House",
       bpm: 118,
       tpl: L(flat([
-        "tpl 1",
+        "deck 1",
         stem("Kick", "kick", 0.05, "kick_deep", ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Snare", "snare", 0.25, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
         stem("Hat", "hat", 0.1, vHatOpen(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
@@ -543,7 +543,7 @@ fn deckSetTpls() {
       genre: "Psybient",
       bpm: 90,
       tpl: L(flat([
-        "tpl 1",
+        "deck 1",
         stem("Kick", "kick", 0.05, "kick_deep", ["  step_pitch 36", "  steps x . . . . . . . . . . . . . . ."]),
         stem("Hat", "hat", 0.1, vHatClosed(), ["  step_pitch 44", "  steps x . . . x . . . x . . . x . x ."]),
         stemB("Bass", "bass", 2, "bass_wobble lfo 0.5", ["  note 36 0 6 v 95"]),
@@ -557,7 +557,7 @@ fn deckSetTpls() {
       genre: "Hardwave",
       bpm: 130,
       tpl: L(flat([
-        "tpl 1",
+        "deck 1",
         stem("Kick", "kick", 0.05, "kick_distorted", ["  step_pitch 36", "  steps x . . . . . . . x . . x . . . ."]),
         stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . . . . . x . . . . . . ."]),
         stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
@@ -572,7 +572,7 @@ fn deckSetTpls() {
       genre: "Prog House",
       bpm: 124,
       tpl: L(flat([
-        "tpl 1",
+        "deck 1",
         stem("Kick", "kick", 0.05, "kick_edm", ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
         stem("Hat", "hat", 0.2, vHatOpen(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
@@ -587,7 +587,7 @@ fn deckSetTpls() {
       genre: "Electro Synthwave",
       bpm: 112,
       tpl: L(flat([
-        "tpl 1",
+        "deck 1",
         stem("Kick", "kick", 0.05, "kick_distorted", ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Snare", "snare", 0.2, vSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
         stem("Hat", "hat", 0.1, vHatClosed(), ["  step_pitch 44", "  steps x . x . x . x . x . x . x . x ."]),
@@ -602,7 +602,7 @@ fn deckSetTpls() {
       genre: "Deep Techno",
       bpm: 126,
       tpl: L(flat([
-        "tpl 1",
+        "deck 1",
         stem("Kick", "kick", 0.05, "kick_deep", ["  step_pitch 36", "  steps x . . . x . . . x . . . x . . ."]),
         stem("Hat", "hat", 0.08, vHatClosed(), ["  step_pitch 44", "  steps . . x . . . x . . . x . . . x ."]),
         stemB("Bass", "bass", 4, "bass_acid", flat([stepPitchProg([["0,1,2", 36], ["3", 39]]), "  steps . x . x . x . . . x . x . x . ."])),
@@ -616,7 +616,7 @@ fn deckSetTpls() {
       genre: "Lo-Fi Video Game",
       bpm: 78,
       tpl: L(flat([
-        "tpl 1",
+        "deck 1",
         stem("Kick", "kick", 0.05, "kick_deep", ["  step_pitch 36", "  steps x . . . . . x . . . . . . . . ."]),
         stem("Snare", "snare", 0.15, vLofiSnare(), ["  step_pitch 40", "  steps . . . . x . . . . . . . x . . ."]),
         stemB("Dust", "dust", 4, vLofiDust(), ["  note 36 0 16 v 80"]),
@@ -631,7 +631,7 @@ fn deckSetTpls() {
       genre: "Lo-Fi Chill",
       bpm: 80,
       tpl: L(flat([
-        "tpl 1",
+        "deck 1",
         stemB("Kick", "kick", 16, "drumSynth", [
           "  gen tone sine pitch_env 36 pitch_decay 0.05 decay 0.35 noise 0 drive 0.1",
           "  step_pitch 36",
@@ -703,7 +703,7 @@ fn deckSetTpls() {
       genre: "Chiptune / Retrowave",
       bpm: 135,
       tpl: L(flat([
-        "tpl 1",
+        "deck 1",
         stemB("Kick", "kick", 8, "drumSynth", [
           "  gen tone sine pitch_env 45 pitch_decay 0.08 decay 0.3",
           "  step_pitch 36",
@@ -807,7 +807,7 @@ export fn deckSetTplById(setId) {
 }
 
 /**
- * Graft a plain rack TPL onto one deck, replacing whatever was there. The shared core behind both
+ * Graft a plain rack deck onto one deck, replacing whatever was there. The shared core behind both
  * loadDeckSet (catalog rack) and loadSet (a captured Set player). deckId "A"=host (local), B/C/D=others.
  * `keepClips` retains the rack's session clips (re-prefixed) — Set players carry clips, catalog racks don't.
  */

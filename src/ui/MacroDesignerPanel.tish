@@ -1,5 +1,5 @@
 // Kick / Bass designer: thin labeled-slider editors for the high-frequency macro voices. Each control
-// edits one `macroParams` override and re-expands the patch (setMacroParam), so a move is plain TPL —
+// edits one `macroParams` override and re-expands the patch (setMacroParam), so a move is plain deck —
 // the channel emits `gen <macro> <k> <v> ...`. "Freeze" drops the macro identity and hands the expanded
 // graph to the generic Patch editor for deep edits.
 

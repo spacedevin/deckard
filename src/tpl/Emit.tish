@@ -7,7 +7,7 @@ import { scaleRootNames } from '../model/Scale.tish'
 
 // Emit a per-step LANE (step_vel/step_prob/step_ratchet/step_nudge) only when SOME step deviates from the
 // default — a plain pattern stays terse. Ints emit floored; floats via formatTplFloat (trimmed, signed).
-// One `note` TPL line with the per-note p-locks appended ONLY when non-default (so plain melodies round-trip
+// One `note` deck line with the per-note p-locks appended ONLY when non-default (so plain melodies round-trip
 // byte-identical). Shared by the track-note emit, the clip-note emit, and the track/<id>/notes edit door so
 // the format can't drift. Caller adds any trailing `bar <sel>` (that lives only in the live channel emit).
 export fn noteLine(n) {
@@ -111,7 +111,7 @@ export fn emitProject(project) {
   return emitProjectInner(project, false)
 }
 
-// The TPL line for one deck's booth EQ + volume (project.deckEq[deck] = {hi,mid,lo,flt,vol}). Returns "" when
+// The deck line for one deck's booth EQ + volume (project.deckEq[deck] = {hi,mid,lo,flt,vol}). Returns "" when
 // the deck is at defaults {0,0,0,0,1} so the round-trip stays minimal. Shared by emitProject (host snapshot)
 // and CoDjPanel sendDeckPut (a follower contributing its OWN deck's booth), so both produce identical lines.
 export fn deckMixLine(project, deck) {
@@ -139,7 +139,7 @@ export fn emitProjectInner(project, skipSync) {
     syncAllMainClipsFromChannels(project)
   }
   ensureProjectSession(project)
-  let o = "tpl 1\n"
+  let o = "deck 1\n"
   o = o + "bpm " + formatTplFloat(project.bpm) + "\n"
   if (project.launchQuant !== null && project.launchQuant !== undefined && Math.floor(Number(project.launchQuant)) >= 1) {
     o = o + "launch_quant " + String(Math.floor(Number(project.launchQuant))) + "\n"
@@ -653,7 +653,7 @@ export fn emitProjectInner(project, skipSync) {
 }
 
 /**
- * Emit the project as TPL reflecting what is ACTUALLY PLAYING right now, not the rack you are editing.
+ * Emit the project as deck reflecting what is ACTUALLY PLAYING right now, not the rack you are editing.
  * In song mode each channel's body becomes its currently-armed session clip (honouring per-track
  * overrides); a track armed to silence emits an empty bar; in sequence mode it falls back to the rack.
  * This is what a co-DJ streams so collaborators hear your launches, not your edit buffer. The channel

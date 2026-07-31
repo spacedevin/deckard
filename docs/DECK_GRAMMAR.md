@@ -1,25 +1,26 @@
-# TPL — Tish Patch Language
+# deck — streamable patch language
 
 Streamable, line-oriented patch text for **Deckard** projects. Optimized for incremental parse (one completed line at a time) and LLM token streams.
 
 ## UI: local song vs hub stream
 
-There is a **single** TPL editor (Apply / Sync, step highlight). **Stream vs local** is tied to **Co-DJ**:
+There is a **single** deck editor (Apply / Sync, step highlight). **Stream vs local** is tied to **Co-DJ**:
 
-| State | TPL panel |
+| State | deck panel |
 |-------|-----------|
 | **Not connected** | Banner: *Local — not on hub.* Edit the song locally. |
-| **Co-DJ connected** | Banner: **Hub** + **Local → hub** preview (what you send on Play) and **Remote** (agent `tpl.stream_chunk` tail). |
+| **Co-DJ connected** | Banner: **Hub** + **Local → hub** preview (what you send on Play) and **Remote** (agent `deck.stream_chunk` tail). |
 
-**Append a line from JS** (e.g. LLM tooling wired to the app): call `streamAppendLine` on the `DeckardRuntime` object held in `App`’s `useRef` (`src/ui/DeckardRuntime.tish`). The TPL panel assigns it when the mirror textarea mounts — e.g. `runtime.streamAppendLine("track kick id c0 gen noise_burst")` appends a newline-terminated line to the live editor state.
+**Append a line from JS** (e.g. LLM tooling wired to the app): call `streamAppendLine` on the `DeckardRuntime` object held in `App`’s `useRef` (`src/ui/DeckardRuntime.tish`). The deck panel assigns it when the mirror textarea mounts — e.g. `runtime.streamAppendLine("track kick id c0 gen noise_burst")` appends a newline-terminated line to the live editor state.
 
 ## Version header
 
 ```
-tpl 1
+deck 1
 ```
 
-Must appear before track-specific lines (recommended first non-comment line).
+Must appear before track-specific lines (recommended first non-comment line). Legacy `tpl 1` is still accepted.
+Emit always writes `deck 1`. This is distinct from track-body DJ routing (`deck A|B|C|D`).
 
 ## Comments
 
@@ -32,7 +33,7 @@ Must appear before track-specific lines (recommended first non-comment line).
 | `bpm <number>` | Project tempo (40–300). |
 | `swing <0..1>` | Global shuffle on the off-beat 16ths (0 = straight). |
 | `scale <root> <mode>` | **Scale lock** — constrain every triggered melodic pitch to a key/scale, live. `root` = note name (`C`, `F#`, `Bb`) or pitch-class `0..11`; `mode` ∈ `major minor dorian phrygian lydian mixolydian locrian harmonic_minor melodic_minor pentatonic_major pentatonic_minor blues`. `scale off` (or `none`/`chromatic`) clears it. Master-gated global (like `bpm`); snaps deterministically so co-DJ peers + offline renders agree. Off by default. |
-| `@ perf_step <n>` | **Stream / Co-DJ only**: schedule this patch for host perf step `n` (16th-note index). Ignored by Song parser except as no-op. JSON `effectivePerfStep` on `tpl.block` overrides this line. |
+| `@ perf_step <n>` | **Stream / Co-DJ only**: schedule this patch for host perf step `n` (16th-note index). Ignored by Song parser except as no-op. JSON `effectivePerfStep` on `deck.block` overrides this line. |
 
 ## Track block
 
@@ -41,10 +42,10 @@ track <displayName> id <channelId> gen <generatorId|macro> [ * <N> ] [ <param> <
   ...
 ```
 
-- **generatorId** (TPL): `noise_burst`, `fm`, `basic_osc`, `fm_tone`, `matrix_fm`, `patch` → internal `noiseBurst`, `fmTone`, `basicOsc`, `matrixFm`, `patch`. The id may instead be a **macro** name (built-in or user-defined) — see [Macros](#macros).
+- **generatorId** (deck): `noise_burst`, `fm`, `basic_osc`, `fm_tone`, `matrix_fm`, `patch` → internal `noiseBurst`, `fmTone`, `basicOsc`, `matrixFm`, `patch`. The id may instead be a **macro** name (built-in or user-defined) — see [Macros](#macros).
 - Trailing `key value` pairs after the gen id (and the optional `* N`) are **macro parameter overrides** (ignored for plain generators).
 - Indented lines (2+ spaces or tab) belong to this track until the next top-level statement (`track`, `macro`, `auto`, `bpm`, `tpl`).
-- **Delete a channel:** `remove_track <channelId>` (top-level, no body). An incremental edit fragment only — it never appears in a full snapshot (a deleted channel is simply not emitted), so loading is unaffected. NOT master-scope; **ownership-gated** by `actorMayEditTrack` (a lane removes its own track; a master removes any). The UI's per-row × emits it (undoable: the inverse re-creates the channel from its captured TPL).
+- **Delete a channel:** `remove_track <channelId>` (top-level, no body). An incremental edit fragment only — it never appears in a full snapshot (a deleted channel is simply not emitted), so loading is unaffected. NOT master-scope; **ownership-gated** by `actorMayEditTrack` (a lane removes its own track; a master removes any). The UI's per-row × emits it (undoable: the inverse re-creates the channel from its captured deck).
 
 ### Pattern length (`* N`) vs loop cap (`loops N`)
 
@@ -185,7 +186,7 @@ osc waveform sine
 adsr a 0.005 d 0.08 s 0.4 r 0.12
 ```
 
-Snake_case in TPL maps to camelCase in `generatorParams` (`pitch_follow` → `pitchFollow`, `mod_index` → `modIndex`).
+Snake_case in deck maps to camelCase in `generatorParams` (`pitch_follow` → `pitchFollow`, `mod_index` → `modIndex`).
 
 ### Heavy generators (`gen_block`)
 
@@ -212,7 +213,7 @@ gen_block matrix_fm
 end gen_block
 ```
 
-See [`docs/TPL_EXTENSION.md`](TPL_EXTENSION.md) and [`docs/GENERATORS.md`](GENERATORS.md).
+See [`docs/DECK_EXTENSION.md`](DECK_EXTENSION.md) and [`docs/GENERATORS.md`](GENERATORS.md).
 
 ### Patch (`gen_block patch`) — the modular synth voice
 
@@ -352,7 +353,7 @@ auto master mix <eq_lo|eq_mid|eq_hi>
   ...
 ```
 
-Stored in `project.mixerAutomations[]`. Applying TPL merges lanes by target + id + param (same pattern as `gen` automations: lanes present in the patch replace previous ones for that key).
+Stored in `project.mixerAutomations[]`. Applying deck merges lanes by target + id + param (same pattern as `gen` automations: lanes present in the patch replace previous ones for that key).
 
 ## Static mixer lines
 
@@ -448,11 +449,11 @@ Serializer + parser: [`src/core/SetLibrary.tish`](../src/core/SetLibrary.tish).
 
 ### Streaming apply (line-by-line)
 
-`tpl.line` is decoded **incrementally**, one completed line at a time (`src/tpl/Stream.tish`), as the streaming counterpart to the atomic `tpl.block` path — both coexist. A non-indented block opener (`track`, `clip`, `auto`) opens a block and re-applies as indented body lines stream in, so a track sounds the moment its `track …` line arrives and the pattern fills as `steps …` follows. Standalone top-level lines (`bpm`, `master_mix`, `actor_mix`, `session_scenes`, `session_slot`) apply on arrival. Every streamed line is skill-gated via `coDjLineAllowedForSkills`.
+`deck.line` is decoded **incrementally**, one completed line at a time (`src/tpl/Stream.tish`), as the streaming counterpart to the atomic `deck.block` path — both coexist. A non-indented block opener (`track`, `clip`, `auto`) opens a block and re-applies as indented body lines stream in, so a track sounds the moment its `track …` line arrives and the pattern fills as `steps …` follows. Standalone top-level lines (`bpm`, `master_mix`, `actor_mix`, `session_scenes`, `session_slot`) apply on arrival. Every streamed line is skill-gated via `coDjLineAllowedForSkills`.
 
 ## FL Studio mapping (mental model)
 
-| TPL | FL-ish concept |
+| deck | FL-ish concept |
 |-----|------------------|
 | `track` … `gen` | Channel rack instrument |
 | `steps` | Step sequencer pattern |
@@ -466,7 +467,7 @@ Serializer + parser: [`src/core/SetLibrary.tish`](../src/core/SetLibrary.tish).
 
 Documented for future grammar; not all are implemented in Apply v1.
 
-| Feature | Planned TPL shape |
+| Feature | Planned deck shape |
 |---------|-------------------|
 | Euclidean steps | `steps euclid k n` (implemented when n=16) |
 | Named patterns | `pattern <id>` / `steps @id` |
@@ -479,17 +480,17 @@ Documented for future grammar; not all are implemented in Apply v1.
 | Sync / launch | `sync_bar` |
 | MIDI / OSC | `midi_out …`, `osc …` |
 
-## Not in core TPL
+## Not in core deck
 
 - Sleep-based timeline as primary model (project stays beat-indexed).
 - Mandatory full Strudel mini-notation.
 - Embedded scripting (Ruby/JS) inside patch text.
-- **Deck routing** (per-channel `channel.deck` = `live` / `local` and `project.transportMainDeck`) is JSON/UI-only state — it is **not** parsed or emitted by TPL (`src/model/DeckRouting.tish`, `src/model/Project.tish`).
+- **Deck routing** (per-channel `channel.deck` = `live` / `local` and `project.transportMainDeck`) is JSON/UI-only state — it is **not** parsed or emitted by deck (`src/model/DeckRouting.tish`, `src/model/Project.tish`).
 
 ## Golden example
 
 ```
-tpl 1
+deck 1
 bpm 118
 
 track Kick id c0 gen noise_burst

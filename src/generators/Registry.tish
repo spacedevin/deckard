@@ -20,7 +20,7 @@ export fn generatorCatalog() {
     {
       id: "matrixFm",
       label: "Matrix FM",
-      description: "Multi-operator FM/RM graph via TPL gen_block (Sytrus-style)."
+      description: "Multi-operator FM/RM graph via deck gen_block (Sytrus-style)."
     },
     {
       id: "pad",
@@ -165,7 +165,7 @@ export fn generatorCatalog() {
     {
       id: "patch",
       label: "Patch",
-      description: "Modular synth patch (gen_block patch): osc/noise/filter/shaper/gain + breakpoint envelopes — any voice, written in TPL."
+      description: "Modular synth patch (gen_block patch): osc/noise/filter/shaper/gain + breakpoint envelopes — any voice, written in deck."
     }
   ]
 }
@@ -194,7 +194,7 @@ export fn generatorDescriptionById(id) {
   return ""
 }
 
-/// Maps TPL / shorthand names to valid OscillatorType (sine|square|sawtooth|triangle).
+/// Maps deck / shorthand names to valid OscillatorType (sine|square|sawtooth|triangle).
 export fn normalizeBasicOscWaveform(raw) {
   if (!raw) {
     return "sine"

@@ -224,7 +224,7 @@ export fn parseProgram(source) {
     }
 
     let head = toks[0]
-    if (head === "tpl") {
+    if (head === "deck" || head === "tpl") {
       if (toks.length >= 2) {
         tplVersion = Math.floor(Number(toks[1]))
       }

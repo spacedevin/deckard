@@ -51,7 +51,7 @@ check("[gen-slice] keeps route", slice.indexOf("route ") >= 0)
 check("[gen-slice] keeps steps OUT (gen-only)", slice.indexOf("steps ") < 0)
 
 // Add steps so we can confirm the gen broadcast MERGES (preserves steps).
-ed.directive("tpl 1\ntrack " + ch.name + " id " + T + "\n  steps x . . . x . . . x . . . x . . .\n")
+ed.directive("deck 1\ntrack " + ch.name + " id " + T + "\n  steps x . . . x . . . x . . . x . . .\n")
 
 // ---- directiveUndoable: edit the gen_block via the REAL panel path, then undo/redo ----
 // Panel: capture inverse (current gen slice), mutate the graph op ratio, sync spec, re-emit, broadcast undoable.
@@ -118,7 +118,7 @@ let ed3 = createEditor(ed3store, ingest3, ctx)
 let c3 = ed3store.project.channels[0]
 let T3 = c3.id
 // ensure mute currently false, gain set
-applyCoDjTplSource(ed3store.project, "tpl 1\ntrack " + c3.name + " id " + T3 + "\n  mix gain 0.85 pan 0 mute 0 solo 0\n", "me", "me", 0, [])
+applyCoDjTplSource(ed3store.project, "deck 1\ntrack " + c3.name + " id " + T3 + "\n  mix gain 0.85 pan 0 mute 0 solo 0\n", "me", "me", 0, [])
 // Toggle mute on -> inverse must encode mute 0 (current false), so it's recorded.
 ed3.emit("track/" + T3 + "/mix/mute", true)
 check("[guard] toggling mute from false records an undo step", ed3.canUndo() === true)

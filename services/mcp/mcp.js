@@ -65,13 +65,13 @@ function connectToGateway () {
                   }
               }
             else
-              if ((msg.type === "tpl.line"))
+              if ((msg.type === "deck.line"))
                 {
                   if (msg.line)
                     (pushContextLine(msg.line) ?? null);
                 }
               else
-                if (((msg.type === "tpl.block") && (Array.isArray(msg.lines) ?? null)))
+                if (((msg.type === "deck.block") && (Array.isArray(msg.lines) ?? null)))
                   {
                     let i = 0;
                     while ((i < msg.lines.length))
@@ -126,7 +126,7 @@ function handleRequest (req) {
       else
         if ((method === "tools/list"))
           {
-            (sendRpc({ jsonrpc: "2.0", id: req.id, result: { tools: [{ name: "get_session_tpl", description: "Returns the current live TPL (Tish Patch Language) state of the Deckard session. Use this to see what tracks and generators exist.", inputSchema: { type: "object", properties: {  }, required: [] } }, { name: "send_tpl_block", description: "Send a block of TPL to the live DAW. The TPL describes a track, instruments, or patterns. Make sure to prefix track IDs with the actor ID.", inputSchema: { type: "object", properties: { tplLines: { type: "array", items: { type: "string" }, description: "Array of valid TPL lines." } }, required: ["tplLines"] } }, { name: "send_direct", description: "Send a natural language instruction to the built-in autonomous agent.", inputSchema: { type: "object", properties: { instruction: { type: "string", description: "The natural language instruction, e.g. 'add a punchy hihat'" } }, required: ["instruction"] } }] } }) ?? null);
+            (sendRpc({ jsonrpc: "2.0", id: req.id, result: { tools: [{ name: "get_session_deck", description: "Returns the current live deck (deck) state of the Deckard session. Use this to see what tracks and generators exist.", inputSchema: { type: "object", properties: {  }, required: [] } }, { name: "send_deck_block", description: "Send a block of deck to the live DAW. The deck describes a track, instruments, or patterns. Make sure to prefix track IDs with the actor ID.", inputSchema: { type: "object", properties: { deckLines: { type: "array", items: { type: "string" }, description: "Array of valid deck lines." } }, required: ["deckLines"] } }, { name: "send_direct", description: "Send a natural language instruction to the built-in autonomous agent.", inputSchema: { type: "object", properties: { instruction: { type: "string", description: "The natural language instruction, e.g. 'add a punchy hihat'" } }, required: ["instruction"] } }] } }) ?? null);
           }
         else
           if ((method === "tools/call"))
@@ -138,22 +138,22 @@ function handleRequest (req) {
                   (sendRpc({ jsonrpc: "2.0", id: req.id, result: { content: [{ type: "text", text: "Error: Not connected to the Deckard gateway yet." }], isError: true } }) ?? null);
                   return;
                 }
-              if ((name === "get_session_tpl"))
+              if ((name === "get_session_deck"))
                 {
                   let state = ((tplBuffer.length > 0) ? (tplBuffer.join("\n") ?? null) : "(empty session or playback not started)");
                   (sendRpc({ jsonrpc: "2.0", id: req.id, result: { content: [{ type: "text", text: state }] } }) ?? null);
                 }
               else
-                if ((name === "send_tpl_block"))
+                if ((name === "send_deck_block"))
                   {
-                    let lines = args.tplLines;
+                    let lines = args.deckLines;
                     if (!(Array.isArray(lines) ?? null))
                       {
                         (lines = [(String(lines) ?? null)]);
                       }
-                    let blockPayload = (JSON.stringify({ type: "tpl.block", actorId: ACTOR_ID, authorId: ACTOR_ID, lines: lines, effectivePerfStep: 0, asap: true }) ?? null);
+                    let blockPayload = (JSON.stringify({ type: "deck.block", actorId: ACTOR_ID, authorId: ACTOR_ID, lines: lines, effectivePerfStep: 0, asap: true }) ?? null);
                     (ws.send(blockPayload) ?? null);
-                    (sendRpc({ jsonrpc: "2.0", id: req.id, result: { content: [{ type: "text", text: (("Successfully sent " + (String(lines.length) ?? null)) + " TPL lines to the session.") }] } }) ?? null);
+                    (sendRpc({ jsonrpc: "2.0", id: req.id, result: { content: [{ type: "text", text: (("Successfully sent " + (String(lines.length) ?? null)) + " deck lines to the session.") }] } }) ?? null);
                   }
                 else
                   if ((name === "send_direct"))

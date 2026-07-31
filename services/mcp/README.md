@@ -45,6 +45,6 @@ Add this to your `claude_desktop_config.json`:
 
 ## Exposed Tools
 
-- `get_session_tpl`: Reads the current live TPL buffer. Your LLM can use this to understand what tracks, synths, and patterns are currently playing in the session.
-- `send_tpl_block`: Emits a block of TPL to the gateway. This will instantly change the synth parameters, sequence, or mix in the live DAW.
+- `get_session_deck`: Reads the current live deck buffer. Your LLM can use this to understand what tracks, synths, and patterns are currently playing in the session.
+- `send_deck_block`: Emits a block of deck to the gateway. This will instantly change the synth parameters, sequence, or mix in the live DAW.
 - `send_direct`: Sends a natural language string (e.g., "add a heavy kick drum") to Deckard's internal `agent-worker`.

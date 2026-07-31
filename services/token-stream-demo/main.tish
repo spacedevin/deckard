@@ -1,6 +1,6 @@
-// Token stream demo (Tish): connect to gateway, stream TPL every 5s.
+// Token stream demo (Tish): connect to gateway, stream deck every 5s.
 // Run: npm run token-demo (from repo root)
-// Demonstrates tpl.stream_chunk (typing) + tpl.block (apply) without LLM.
+// Demonstrates deck.stream_chunk (typing) + deck.block (apply) without LLM.
 import { WebSocket } from "tish:ws"
 import { process } from "tish:process"
 
@@ -40,27 +40,27 @@ if (process !== null && process !== undefined && process.env) {
 
 fn getVariation(index) {
   if ((index % 7) === 0) {
-    return ["tpl 1", "track WsKick id wsdemo_k1 gen noise_burst", "  noise attack 0.002 decay 0.12 tone 0.15 pitch_follow 0.35", "  steps x . . . x . . . x . . . x . . ."]
+    return ["deck 1", "track WsKick id wsdemo_k1 gen noise_burst", "  noise attack 0.002 decay 0.12 tone 0.15 pitch_follow 0.35", "  steps x . . . x . . . x . . . x . . ."]
   }
   if ((index % 7) === 1) {
-    return ["tpl 1", "track WsHat id wsdemo_h1 gen noise_burst", "  noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1", "  steps euclid 5 16"]
+    return ["deck 1", "track WsHat id wsdemo_h1 gen noise_burst", "  noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1", "  steps euclid 5 16"]
   }
   if ((index % 7) === 2) {
-    return ["tpl 1", "track WsBass id wsdemo_b1 gen fm", "  fm ratio 2 mod_index 5 carrier sine mod square", "  adsr a 0.01 d 0.1 s 0.3 r 0.15", "  steps x . x . x . x . x . x . x . x ."]
+    return ["deck 1", "track WsBass id wsdemo_b1 gen fm", "  fm ratio 2 mod_index 5 carrier sine mod square", "  adsr a 0.01 d 0.1 s 0.3 r 0.15", "  steps x . x . x . x . x . x . x . x ."]
   }
   if ((index % 7) === 3) {
-    return ["tpl 1", "track WsHat id wsdemo_h1 gen noise_burst", "  noise attack 0.001 decay 0.04 tone 0.5 pitch_follow 0.1", "  steps euclid 5 16"]
+    return ["deck 1", "track WsHat id wsdemo_h1 gen noise_burst", "  noise attack 0.001 decay 0.04 tone 0.5 pitch_follow 0.1", "  steps euclid 5 16"]
   }
   if ((index % 7) === 4) {
-    return ["tpl 1", "track WsHat id wsdemo_h1 gen noise_burst", "  noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1", "  steps euclid 7 16"]
+    return ["deck 1", "track WsHat id wsdemo_h1 gen noise_burst", "  noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1", "  steps euclid 7 16"]
   }
   if ((index % 7) === 5) {
-    return ["tpl 1", "bpm " + String((Math.floor(index / 7) % 2 === 0) ? 100 : 130)]
+    return ["deck 1", "bpm " + String((Math.floor(index / 7) % 2 === 0) ? 100 : 130)]
   }
   if ((index % 7) === 6) {
-    return ["tpl 1", "track WsHat id wsdemo_h1 gen noise_burst", "  mix gain 0.7 pan 0.2", "  noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1", "  steps euclid 5 16"]
+    return ["deck 1", "track WsHat id wsdemo_h1 gen noise_burst", "  mix gain 0.7 pan 0.2", "  noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1", "  steps euclid 5 16"]
   }
-  return ["tpl 1", "bpm 118"]
+  return ["deck 1", "bpm 118"]
 }
 
 fn streamChunkThenBlock(ws, lines) {
@@ -71,12 +71,12 @@ fn streamChunkThenBlock(ws, lines) {
   if (delayLoops < 10000) { delayLoops = 10000 }
   while (i < s.length) {
     let ch = s.substring(i, i + 1)
-    ws.send(JSON.stringify({ type: "tpl.stream_chunk", actorId: actorId, authorId: actorId, chunk: ch }))
+    ws.send(JSON.stringify({ type: "deck.stream_chunk", actorId: actorId, authorId: actorId, chunk: ch }))
     i = i + 1
     let d = 0
     while (d < delayLoops) { d = d + 1 }
   }
-  ws.send(JSON.stringify({ type: "tpl.block", actorId: actorId, authorId: actorId, lines: lines, asap: true }))
+  ws.send(JSON.stringify({ type: "deck.block", actorId: actorId, authorId: actorId, lines: lines, asap: true }))
 }
 
 fn connectHub() {

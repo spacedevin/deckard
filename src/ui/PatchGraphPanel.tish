@@ -977,7 +977,7 @@ fn envCard(g, en, eidx, ids, edit) {
   )
 }
 
-// Conns whose src is NOT a live node (e.g. hand-written TPL, or a node deleted in the Raw view). Per-card
+// Conns whose src is NOT a live node (e.g. hand-written deck, or a node deleted in the Raw view). Per-card
 // routing can't show them, so surface them here so they stay visible + removable (they still emit/play-as-noop).
 fn orphanConnRows(g, edit) {
   let rows = []

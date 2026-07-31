@@ -2,7 +2,7 @@
   "name": "deckard",
   "version": "0.1.0",
   "private": true,
-  "description": "Token-streamed live-coding DAW in Tish — LLM + human co-DJ over TPL",
+  "description": "Token-streamed live-coding DAW in Tish — LLM + human co-DJ over deck",
   "scripts": {
     "dev": "vite",
     "build": "tish build --target js src/main.tish -o dist/bundle.js && tish build --target js src/ScopeWorker.tish -o scope-worker.js",

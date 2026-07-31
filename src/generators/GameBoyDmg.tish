@@ -17,7 +17,16 @@ export fn defaultParamsForGameBoyDmg() {
     vibRate: 0,
     vibAmt: 0,
     arpRate: 0,
-    arpSemis: 0
+    arpSemis: 0,
+    // Hardware surface (round-trips to GBA tplpack)
+    len: 0,
+    envStep: 0,
+    envUp: false,
+    sweepShift: 0,
+    sweepPeriod: 0,
+    sweepDown: false,
+    noiseShift: null,
+    noiseRatio: 0
   }
 }
 
@@ -102,17 +111,30 @@ export fn playGameBoyDmg(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let vibAmt = gp.vibAmt !== null && gp.vibAmt !== undefined ? gp.vibAmt : 0
   let arpRate = gp.arpRate !== null && gp.arpRate !== undefined ? gp.arpRate : 0
   let arpSemis = gp.arpSemis !== null && gp.arpSemis !== undefined ? Math.round(gp.arpSemis) : 0
-
-  let f0 = 440 * Math.pow(2, (midi + bendSemis - 69) / 12)
-  let f1 = f0 * Math.pow(2, sweep / 12)
-  
-  let v = vel / 127
-  if (v < 0) v = 0
-  if (v > 1) v = 1
+  let len = gp.len !== null && gp.len !== undefined ? Math.round(gp.len) : 0
+  let envStep = gp.envStep !== null && gp.envStep !== undefined ? Math.round(gp.envStep) : 0
+  let envUp = gp.envUp === true
+  let sweepShift = gp.sweepShift !== null && gp.sweepShift !== undefined ? Math.round(gp.sweepShift) : 0
+  let sweepPeriod = gp.sweepPeriod !== null && gp.sweepPeriod !== undefined ? Math.round(gp.sweepPeriod) : 0
+  let sweepDown = gp.sweepDown === true || sweep < 0
+  let noiseShift = gp.noiseShift !== null && gp.noiseShift !== undefined ? Math.round(gp.noiseShift) : null
+  let noiseRatio = gp.noiseRatio !== null && gp.noiseRatio !== undefined ? Math.round(gp.noiseRatio) : 0
 
   let isNoise = (type === "noise")
   let isWave = (type === "wave")
   let isPulse = (type === "pulse")
+
+  let f0 = 440 * Math.pow(2, (midi + bendSemis - 69) / 12)
+  // Soft sweep (±semis) or HW-ish NR10 approximation via sweepShift/Period.
+  let sweepSemis = sweep
+  if (sweepShift > 0 && sweepPeriod > 0 && isPulse) {
+    sweepSemis = sweepDown ? -(sweepShift) : sweepShift
+  }
+  let f1 = f0 * Math.pow(2, sweepSemis / 12)
+  
+  let v = vel / 127
+  if (v < 0) v = 0
+  if (v > 1) v = 1
 
   // GB bounds clamping
   if (isWave) {
@@ -139,20 +161,29 @@ export fn playGameBoyDmg(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   if (isNoise) {
     // GB Noise is typically treated continuously in modern trackers since it lacks
     // a rigid 16-period table like the NES, instead using an expanding divider tree.
-    // We scale it naturally to MIDI.
-    rate0 = (f0 * 100) / ctx.sampleRate
-    rate1 = (f1 * 100) / ctx.sampleRate
+    // We scale it naturally to MIDI; noise_shift/ratio nudge the divider.
+    let shift = noiseShift !== null ? noiseShift : Math.floor(midi / 8)
+    let ratioMul = 1 + (noiseRatio / 14)
+    let pitchScale = Math.pow(2, -(shift - 7) / 4) / ratioMul
+    rate0 = (f0 * 100 * pitchScale) / ctx.sampleRate
+    rate1 = (f1 * 100 * pitchScale) / ctx.sampleRate
   } else {
     rate0 = (f0 * src.buffer.length) / ctx.sampleRate
     rate1 = (f1 * src.buffer.length) / ctx.sampleRate
   }
 
   let safeDur = Math.max(durSec, 0.01)
+  // Hardware length counter approx: (64-len)/256 s for pulse/noise.
+  if (len > 0 && !isWave) {
+    let hwDur = (64 - Math.min(len, 63)) / 256
+    if (hwDur < safeDur) safeDur = Math.max(hwDur, 0.01)
+  }
   
   // Game Boy step envelope decays 15 steps. Max time per step is 7/64s.
-  // 15 * 7 / 64 = 1.64s max. We map the vol param (0-15) to step lengths.
-  // We'll use (vol+1) * 0.1 for a nice playable range up to 1.6s.
-  let decTime = (vol + 1) * 0.1
+  // Prefer authored env_step when set; else map vol (0-15) to a playable range.
+  let stepLen = envStep > 0 ? envStep : Math.max(1, Math.floor(vol / 2))
+  let decTime = (stepLen / 7) * 1.64
+  if (decTime < 0.05) decTime = 0.05
 
   let totalTime = safeDur + 0.1
   if (envMode === "adsr") {
@@ -221,18 +252,31 @@ export fn playGameBoyDmg(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
     finalGain.gain.linearRampToValueAtTime(0, tOff + r)
   } else {
     let tOff = t + safeDur
-    finalGain.gain.setValueAtTime(0, t)
-    finalGain.gain.linearRampToValueAtTime(maxAmp, t + 0.005)
-    if (envMode === "step") {
+    if (envMode === "step" && envUp) {
+      // Amplify envelope: start low, climb toward maxAmp over decTime.
+      finalGain.gain.setValueAtTime(0.001, t)
       let tDec = t + 0.005 + decTime
       if (tOff < tDec) {
-        finalGain.gain.linearRampToValueAtTime(0, tOff)
+        finalGain.gain.linearRampToValueAtTime(maxAmp, tOff)
       } else {
-        finalGain.gain.linearRampToValueAtTime(0, tDec)
+        finalGain.gain.linearRampToValueAtTime(maxAmp, tDec)
+        finalGain.gain.setValueAtTime(maxAmp, tOff)
       }
-    } else {
-      finalGain.gain.setValueAtTime(maxAmp, tOff)
       finalGain.gain.linearRampToValueAtTime(0, tOff + 0.01)
+    } else {
+      finalGain.gain.setValueAtTime(0, t)
+      finalGain.gain.linearRampToValueAtTime(maxAmp, t + 0.005)
+      if (envMode === "step") {
+        let tDec = t + 0.005 + decTime
+        if (tOff < tDec) {
+          finalGain.gain.linearRampToValueAtTime(0, tOff)
+        } else {
+          finalGain.gain.linearRampToValueAtTime(0, tDec)
+        }
+      } else {
+        finalGain.gain.setValueAtTime(maxAmp, tOff)
+        finalGain.gain.linearRampToValueAtTime(0, tOff + 0.01)
+      }
     }
   }
 

@@ -1,5 +1,5 @@
-// Incremental, per-actor TPL line decode → progressive apply (the streaming counterpart to
-// the atomic tpl.block path). A non-indented known statement opens a block; indented lines
+// Incremental, per-actor deck line decode → progressive apply (the streaming counterpart to
+// the atomic deck.block path). A non-indented known statement opens a block; indented lines
 // extend it. Each line that extends the open block re-applies the growing block, which is
 // idempotent per channel/target via applyCoDjTplSource — so you HEAR a remote actor's track
 // appear the instant `track …` arrives, then the pattern fills in as `steps …` streams in.
@@ -73,7 +73,7 @@ fn stripEol(line) {
 }
 
 /**
- * Feed one streamed TPL line into the actor's stream and apply progressively.
+ * Feed one streamed deck line into the actor's stream and apply progressively.
  * Returns { applied: bool, denied: bool, opened: bool }.
  */
 export fn tplLineStreamPush(stream, rawLine, project, perfStep) {
@@ -85,7 +85,7 @@ export fn tplLineStreamPush(stream, rawLine, project, perfStep) {
   if (trimmed.length === 0 || trimmed.charAt(0) === "#") {
     return { applied: false, denied: false, opened: false }
   }
-  if (topLevelHead(trimmed) === "tpl") {
+  if (topLevelHead(trimmed) === "deck" || topLevelHead(trimmed) === "tpl") {
     return { applied: false, denied: false, opened: false }
   }
   if (!coDjLineAllowedForSkills(trimmed, stream.skillIds)) {
@@ -106,7 +106,7 @@ export fn tplLineStreamPush(stream, rawLine, project, perfStep) {
       stream.hasOpen = true
       opened = true
     } else if (isStandaloneTopLevel(head)) {
-      let frag1 = "tpl 1\n" + line + "\n"
+      let frag1 = "deck 1\n" + line + "\n"
       applyCoDjTplSource(project, frag1, stream.actorId, stream.authorId, perfStep, stream.skillIds)
       stream.openLines = []
       stream.hasOpen = false
@@ -117,7 +117,7 @@ export fn tplLineStreamPush(stream, rawLine, project, perfStep) {
     }
   }
 
-  let frag = "tpl 1\n" + stream.openLines.join("\n") + "\n"
+  let frag = "deck 1\n" + stream.openLines.join("\n") + "\n"
   applyCoDjTplSource(project, frag, stream.actorId, stream.authorId, perfStep, stream.skillIds)
   return { applied: true, denied: false, opened: opened }
 }

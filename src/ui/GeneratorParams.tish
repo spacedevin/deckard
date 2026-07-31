@@ -5,7 +5,7 @@ import { defaultPatchRawLines } from '../tpl/PatchGraph.tish'
 import { Knob, InfiniteKnob, WaveIconPicker, EnvDisplay, accentForGenerator, Switch } from './InstrumentKit.tish'
 
 // Every instrument edit routes one param through the single gated write door (rt.emit → `gen <snake> <v>`,
-// merged into generatorParams). The TPL key is snake_case so apply's snakeToCamel lands the right field;
+// merged into generatorParams). The deck key is snake_case so apply's snakeToCamel lands the right field;
 // the dedicated osc/fm/noise emit branches read the same camelCase keys, so the round-trip is preserved.
 fn genEmit(rt, ch, tplKey, value) {
   if (rt && rt.emit) {
@@ -1199,6 +1199,16 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     
     let pitchDrop = p.pitchDrop !== null && p.pitchDrop !== undefined ? Math.round(p.pitchDrop) : 0
     let pitchDec = p.pitchDec !== null && p.pitchDec !== undefined ? p.pitchDec : 0.05
+
+    let len = p.len !== null && p.len !== undefined ? Math.round(p.len) : 0
+    let envStep = p.envStep !== null && p.envStep !== undefined ? Math.round(p.envStep) : 0
+    let envUp = p.envUp === true
+    let sweepShift = p.sweepShift !== null && p.sweepShift !== undefined ? Math.round(p.sweepShift) : 0
+    let sweepPeriod = p.sweepPeriod !== null && p.sweepPeriod !== undefined ? Math.round(p.sweepPeriod) : 0
+    let sweepDown = p.sweepDown === true
+    let noiseShift = p.noiseShift !== null && p.noiseShift !== undefined ? Math.round(p.noiseShift) : 0
+    let noiseRatio = p.noiseRatio !== null && p.noiseRatio !== undefined ? Math.round(p.noiseRatio) : 0
+    let hasNoiseShift = p.noiseShift !== null && p.noiseShift !== undefined
     
     let isPulse = type === "pulse"
     let isNoise = type === "noise"
@@ -1221,6 +1231,24 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
             {genSelectorKnob("Env", envMode, [["step", "Step"], ["constant", "Const"], ["adsr", "ADSR"]], rt, ch, "envMode", accent)}
             {numKnob(envMode === "step" ? "Step Length" : "Master", vol, 0, 15, 1, "", rt, ch, "vol", accent, envMode === "adsr")}
             {numKnob("Sweep", sweep, -7, 7, 1, "", rt, ch, "sweep", accent, !isPulse)}
+            {numKnob("Len", len, 0, 63, 1, "", rt, ch, "len", accent, isWave)}
+            {numKnob("Env Step", envStep, 0, 7, 1, "", rt, ch, "envStep", accent, envMode === "adsr")}
+            {Switch({ label: "Env Up", value: envUp, accent: accent, disabled: envMode === "adsr", onInput: (v) => genEmit(rt, ch, "envUp", v) })}
+          </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"NR10 Sweep (ch1)"}</div>
+          <div class="ik-knob-grid">
+            {numKnob("Shift", sweepShift, 0, 7, 1, "", rt, ch, "sweepShift", accent, !isPulse)}
+            {numKnob("Period", sweepPeriod, 0, 7, 1, "", rt, ch, "sweepPeriod", accent, !isPulse)}
+            {Switch({ label: "Sweep Down", value: sweepDown, accent: accent, disabled: !isPulse, onInput: (v) => genEmit(rt, ch, "sweepDown", v) })}
+          </div>
+        </div>
+        <div class="ik-card">
+          <div class="ik-card-h">{"Noise clock"}</div>
+          <div class="ik-knob-grid">
+            {numKnob("Shift", hasNoiseShift ? noiseShift : 0, 0, 13, 1, "", rt, ch, "noiseShift", accent, !isNoise)}
+            {numKnob("Ratio", noiseRatio, 0, 7, 1, "", rt, ch, "noiseRatio", accent, !isNoise)}
           </div>
         </div>
         <div class="ik-card">

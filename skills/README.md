@@ -2,8 +2,8 @@
 
 This directory is the **knowledge library the co-DJ agents read at boot** (`services/agent-worker/main.tish`,
 via `readFile` from `tish:fs`). Each `.md` is one *musical skill* — the agent composes its system prompt from
-a **role file** + a **persona-selected subset of capability skills** + the shared TPL grammar
-(`docs/TPL_AGENT_GRAMMAR.md`). Editing a skill changes the agent on its next boot — no rebuild.
+a **role file** + a **persona-selected subset of capability skills** + the shared deck grammar
+(`docs/DECK_AGENT_GRAMMAR.md`). Editing a skill changes the agent on its next boot — no rebuild.
 
 ## Roles
 - **`_role-host.md`** — the host agent (`--role host`, joins with `master_mixer`). Owns the **mix + master +
@@ -38,8 +38,8 @@ weight: 1.0           # default persona-selection weight (higher = more likely c
 ## How to think
 - <bullets: when to reach for it, how it fits the whole, what to avoid>
 
-## TPL it emits
-- <the specific TPL lines this skill uses — a SUBSET of docs/TPL_AGENT_GRAMMAR.md>
+## deck it emits
+- <the specific deck lines this skill uses — a SUBSET of docs/DECK_AGENT_GRAMMAR.md>
 
 ## Examples
 \`\`\`tpl
@@ -49,6 +49,6 @@ track Hat id <me>_hat gen drumSynth
 ```
 
 Rules: every track id is prefixed `<me>_` (the worker substitutes the actorId). Examples must be **valid
-co-DJ-lane TPL** (non-master-scope unless the file's `role: host`). The body is injected verbatim into the
+co-DJ-lane deck** (non-master-scope unless the file's `role: host`). The body is injected verbatim into the
 prompt, so keep it tight and imperative.
 ```

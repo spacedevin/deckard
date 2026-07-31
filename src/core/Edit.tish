@@ -1,8 +1,8 @@
 // emit/edit — the UI convenience over ingest (Plan: "emit reads the owning statement's current values
-// from the fold and re-emits it with the single changed field"). TPL statements are coarse (one `mix`
+// from the fold and re-emits it with the single changed field"). deck statements are coarse (one `mix`
 // line carries gain+pan+eq+mute+solo), so a single-field UI change re-emits that whole statement with
-// current values for the untouched fields. The result is one minimal TPL fragment fed to ingest — the
-// same door peers and the agent use. This is how "the UI is just a TPL client" becomes literal.
+// current values for the untouched fields. The result is one minimal deck fragment fed to ingest — the
+// same door peers and the agent use. This is how "the UI is just a deck client" becomes literal.
 
 import { formatTplFloat } from '../tpl/Format.tish'
 import { generatorIdToTpl, stepLaneLine, noteLine } from '../tpl/Emit.tish'
@@ -152,7 +152,7 @@ fn actorMixLine(project, lane, param, value) {
 }
 
 /**
- * Build the minimal TPL fragment for an addressed edit. Addresses (value type):
+ * Build the minimal deck fragment for an addressed edit. Addresses (value type):
  *   bpm | launch_quant | swing                     (number)
  *   xfade                                           ([x,y] or {x,y})
  *   main_deck                                       ("live"|"local")
@@ -162,7 +162,7 @@ fn actorMixLine(project, lane, param, value) {
  *   track/<id>/mix/<gain|pan|mute|solo|eq_*>        (number|bool)
  *   track/<id>/fx/<reverb|drive|cutoff|res|lfo_*>   (number)
  *   track/<id>/voice/<octave|arp|chord>             (number|string)
- *   track/<id>/gen/<param>                          (number|string)  // param in TPL snake_case
+ *   track/<id>/gen/<param>                          (number|string)  // param in deck snake_case
  *   track/<id>/deck                                 ({deck,slot})
  *   track/<id>/steps                                (array of bool/{on})
  * Returns "" for unknown/invalid addresses (caller can ignore — no-op edit).
@@ -289,7 +289,7 @@ export fn fragmentForEdit(project, address, value) {
     // The WHOLE pattern as one statement: on/off + the 4 per-step parameter-lock lanes. `value` is the
     // channel's full steps array ({on,vel,prob,ratchet,nudge}). Used by the step grid's live lock editing
     // (velocity drag, prob/ratchet/nudge lanes) so a single cell change re-emits a complete, gated,
-    // broadcast, round-trip-safe pattern — no direct model mutation (the UI stays a pure TPL client).
+    // broadcast, round-trip-safe pattern — no direct model mutation (the UI stays a pure deck client).
     if (section === "pattern") {
       let o = hdr + "\n" + stepsLine(value) + "\n"
       o = o + stepLaneLine(value, "step_vel", "vel", 100, true)
@@ -412,7 +412,7 @@ export fn readAddr(project, address) {
       if (p === "strum") { return (ch.strum !== null && ch.strum !== undefined) ? ch.strum : 0 }
     }
     // Generator params (every instrument knob: waveform/ratio/cutoff/attack/decay/sustain/release/…) — the
-    // current value lives in ch.generatorParams keyed CAMEL-case; the address param is TPL snake_case. Returning
+    // current value lives in ch.generatorParams keyed CAMEL-case; the address param is deck snake_case. Returning
     // it makes instrument adjustments undoable (they emit through gen/<param> like a fader, but weren't reversible
     // before). undefined (param never set) just isn't pushed — the panel seeds defaults so it's normally present.
     if (section === "gen") {

@@ -1,4 +1,4 @@
-// Headless smoke test: TPL round-trip, incremental decode, skill-gating, co-DJ permissions.
+// Headless smoke test: deck round-trip, incremental decode, skill-gating, co-DJ permissions.
 // Run: npm test  (builds to JS and runs under node — the same target the browser app uses).
 import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
 import { emitProject, emitLivePlayback } from '../src/tpl/Emit.tish'
@@ -68,7 +68,7 @@ check("default project loads without errors", boot.errors.length === 0)
 let proj = boot.project
 check("default has >= 4 channels", proj.channels.length >= 4)
 let emitted = emitProject(proj)
-check("emit starts with tpl header", emitted.indexOf("tpl 1") === 0)
+check("emit starts with tpl header", emitted.indexOf("deck 1") === 0)
 check("emit includes step_pitch", emitted.indexOf("step_pitch") >= 0)
 check("emit includes master_mix line", emitted.indexOf("master_mix ") >= 0)
 check("emit includes actor_mix line", emitted.indexOf("actor_mix ") >= 0)
@@ -78,7 +78,7 @@ check("round-trip preserves channel count", boot2.project.channels.length === pr
 check("round-trip preserves bpm", boot2.project.bpm === proj.bpm)
 
 // 2. Incremental streaming decode == atomic block apply (progressive)
-let blockSrc = "tpl 1\ntrack Hat id s_hat gen noise_burst\n  noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1\n  steps x . x . x . x . x . x . x . x ."
+let blockSrc = "deck 1\ntrack Hat id s_hat gen noise_burst\n  noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1\n  steps x . x . x . x . x . x . x . x ."
 let viaBlock = loadDefaultDeckardProject().project
 applyCoDjTplSource(viaBlock, blockSrc, "agent-1", "agent-1", 0, ["add_track", "pattern_steps"])
 let hb = findChannelById(viaBlock, "s_hat")
@@ -110,26 +110,26 @@ check("non-master denied master_mix", coDjLineAllowedForSkills("master_mix eq_lo
 // 4. Permission model via applyCoDjTplSource (skillIds-driven, with legacy fallback)
 let permProj = loadDefaultDeckardProject().project
 let origBpm = permProj.bpm
-applyCoDjTplSource(permProj, "tpl 1\nbpm 200\ntrack X id px gen basic_osc\n  steps x . . .", "agent-1", "agent-1", 0, ["add_track", "pattern_steps"])
+applyCoDjTplSource(permProj, "deck 1\nbpm 200\ntrack X id px gen basic_osc\n  steps x . . .", "agent-1", "agent-1", 0, ["add_track", "pattern_steps"])
 check("agent (no master_mixer) cannot change bpm", permProj.bpm === origBpm)
 check("agent (no master_mixer) can still add a track", findChannelById(permProj, "px") !== null)
 
 let permProj2 = loadDefaultDeckardProject().project
-applyCoDjTplSource(permProj2, "tpl 1\nbpm 200", "anon-7", "anon-7", 0, ["master_mixer"])
+applyCoDjTplSource(permProj2, "deck 1\nbpm 200", "anon-7", "anon-7", 0, ["master_mixer"])
 check("actor WITH master_mixer skill can change bpm", permProj2.bpm === 200)
 
 let permProj3 = loadDefaultDeckardProject().project
-applyCoDjTplSource(permProj3, "tpl 1\nbpm 175", "human-xyz", "human-xyz", 0)
+applyCoDjTplSource(permProj3, "deck 1\nbpm 175", "human-xyz", "human-xyz", 0)
 check("legacy fallback: human-* actorId masters when skillIds absent", permProj3.bpm === 175)
 
 let permProj4 = loadDefaultDeckardProject().project
 let b4 = permProj4.bpm
-applyCoDjTplSource(permProj4, "tpl 1\nbpm 175", "agent-1", "agent-1", 0)
+applyCoDjTplSource(permProj4, "deck 1\nbpm 175", "agent-1", "agent-1", 0)
 check("legacy fallback: agent-* actorId cannot master when skillIds absent", permProj4.bpm === b4)
 
-// 5. New-synth TPL round-trip: gen / fx / voice lines (drum, drive, lfo, octave, arp, chord)
+// 5. New-synth deck round-trip: gen / fx / voice lines (drum, drive, lfo, octave, arp, chord)
 let synProj = loadDefaultDeckardProject().project
-let synTpl = "tpl 1\ntrack DrumK id dk gen drum\n  gen tone sine pitch_env 40 pitch_decay 0.05 decay 0.4\n  fx reverb_send 0.3 drive 0.5 lfo_rate 4 lfo_depth 1200\n  voice octave 1 arp up chord minor\n  steps x . . . x . . . x . . . x . . ."
+let synTpl = "deck 1\ntrack DrumK id dk gen drum\n  gen tone sine pitch_env 40 pitch_decay 0.05 decay 0.4\n  fx reverb_send 0.3 drive 0.5 lfo_rate 4 lfo_depth 1200\n  voice octave 1 arp up chord minor\n  steps x . . . x . . . x . . . x . . ."
 applyTplSource(synProj, synTpl)
 let dk = findChannelById(synProj, "dk")
 check("gen line: generatorId resolves to drumSynth", dk !== null && dk.generatorId === "drumSynth")
@@ -144,7 +144,7 @@ check("emit round-trips fx drive", synEmit.indexOf("drive 0.5") >= 0)
 check("emit round-trips voice chord", synEmit.indexOf("chord minor") >= 0)
 
 // 5b. Modular patch DSL: parse → graph → emit → re-parse round-trip
-let patchSrc = "tpl 1\ntrack Kick id pk gen patch\n  fx cutoff 20000 reverb_send 0.05\n  gen_block patch\n    osc o sine\n    gain a\n    conn o a\n    conn a out\n    env o.freq set 0 150 exp 0.5 0.01\n    env a.gain set 0 1 exp 0.5 0.01\n    dur 0.6\n  end gen_block\n  step_pitch 36\n  steps x . . . x . . . x . . . x . . ."
+let patchSrc = "deck 1\ntrack Kick id pk gen patch\n  fx cutoff 20000 reverb_send 0.05\n  gen_block patch\n    osc o sine\n    gain a\n    conn o a\n    conn a out\n    env o.freq set 0 150 exp 0.5 0.01\n    env a.gain set 0 1 exp 0.5 0.01\n    dur 0.6\n  end gen_block\n  step_pitch 36\n  steps x . . . x . . . x . . . x . . ."
 let patchProj = loadDefaultDeckardProject().project
 applyTplSource(patchProj, patchSrc)
 let pk = findChannelById(patchProj, "pk")
@@ -217,7 +217,7 @@ syncPatchSpecFromGraph(specForSync)
 check("patchgraph: sync refreshes raw", specForSync.raw.length > 0 && specForSync.graph === graphRef)
 
 // 5c. Bar selectors: per-bar note expansion + per-bar step_pitch + multi-bar round-trip
-let barSrc = "tpl 1\ntrack Ch id ch gen patch * 4\n  gen_block patch\n    osc o sine\n    gain a\n    conn o a\n    conn a out\n    env a.gain set 0 0.3 exp 0.4 0.01\n    dur 0.4\n  end gen_block\n  note 48 0 4 v 90 bar 0\n  note 43 0 4 v 90 bar 1,3\n  note 44 0 4 v 90 bar 2\ntrack Bs id bs gen patch * 4\n  gen_block patch\n    osc o sawtooth note\n    gain a\n    conn o a\n    conn a out\n    env a.gain set 0 0.3 exp 0.3 0.01\n    dur 0.3\n  end gen_block\n  step_pitch 36 bar 0\n  step_pitch 31 bar 1\n  step_pitch 34 bar 2,3\n  steps x . x . x . x . x . x . x . x ."
+let barSrc = "deck 1\ntrack Ch id ch gen patch * 4\n  gen_block patch\n    osc o sine\n    gain a\n    conn o a\n    conn a out\n    env a.gain set 0 0.3 exp 0.4 0.01\n    dur 0.4\n  end gen_block\n  note 48 0 4 v 90 bar 0\n  note 43 0 4 v 90 bar 1,3\n  note 44 0 4 v 90 bar 2\ntrack Bs id bs gen patch * 4\n  gen_block patch\n    osc o sawtooth note\n    gain a\n    conn o a\n    conn a out\n    env a.gain set 0 0.3 exp 0.3 0.01\n    dur 0.3\n  end gen_block\n  step_pitch 36 bar 0\n  step_pitch 31 bar 1\n  step_pitch 34 bar 2,3\n  steps x . x . x . x . x . x . x . x ."
 let barProj = loadDefaultDeckardProject().project
 applyTplSource(barProj, barSrc)
 let chCh = findChannelById(barProj, "ch")
@@ -234,7 +234,7 @@ let bs2 = findChannelById(barProj2, "bs")
 check("bar sel: round-trip preserves per-bar step_pitch", bs2 !== null && bs2.stepPitchByBar !== null && bs2.stepPitchByBar !== undefined && bs2.stepPitchByBar[1] === 31)
 
 // 5d. Macros: built-in reference, param override, user-defined macro, concise emit + round-trip
-let macSrc = "tpl 1\nmacro my_zap top=4000 q=18\n  osc o sawtooth note\n  filter f lowpass q $q\n  gain a\n  conn o f\n  conn f a\n  conn a out\n  env f.freq set 0 $top exp 0.2 100\n  env a.gain set 0 0.3 lin dur 0.01\nend macro\ntrack Kick id mk gen kick_edm\n  step_pitch 36\n  steps x . . . x . . . x . . . x . . .\ntrack Bass id mb gen bass_acid q 9\n  step_pitch 36\n  steps x . x . x . x . x . x . x . x .\ntrack Lead id ml gen my_zap top 5000\n  note 60 0 0.5 v 90"
+let macSrc = "deck 1\nmacro my_zap top=4000 q=18\n  osc o sawtooth note\n  filter f lowpass q $q\n  gain a\n  conn o f\n  conn f a\n  conn a out\n  env f.freq set 0 $top exp 0.2 100\n  env a.gain set 0 0.3 lin dur 0.01\nend macro\ntrack Kick id mk gen kick_edm\n  step_pitch 36\n  steps x . . . x . . . x . . . x . . .\ntrack Bass id mb gen bass_acid q 9\n  step_pitch 36\n  steps x . x . x . x . x . x . x . x .\ntrack Lead id ml gen my_zap top 5000\n  note 60 0 0.5 v 90"
 let macProj = loadDefaultDeckardProject().project
 applyTplSource(macProj, macSrc)
 let mk = findChannelById(macProj, "mk")
@@ -277,7 +277,7 @@ check("macrovoice: freeze drops the macro and emits a raw patch block", mvCh.mac
 
 // 5d-ii. Fixed-param designer round-trips (pad / bell / drumSynth) — the gen <k> <v> path the new arms emit
 check("registry: drumSynth default now includes noiseHp", defaultParamsForGeneratorId("drumSynth").noiseHp === 1500)
-let gpSrc = "tpl 1\ntrack Pad id gp gen pad\n  gen wave1 sawtooth wave2 square detune 14 cutoff 1400 attack 0.05 decay 0.3 sustain 0.5 release 0.9\n  steps x . . . x . . . x . . . x . . .\ntrack Bell id gb gen bell\n  gen partial 3.01 highpass 1200 decay 2.5\n  steps x . . . x . . . x . . . x . . .\ntrack Drum id gd gen drumSynth\n  gen tone triangle pitch_env 40 pitch_decay 0.05 decay 0.4 noise 0.6 noise_decay 0.2 noise_hp 2200 drive 0.3\n  steps x . . . x . . . x . . . x . . ."
+let gpSrc = "deck 1\ntrack Pad id gp gen pad\n  gen wave1 sawtooth wave2 square detune 14 cutoff 1400 attack 0.05 decay 0.3 sustain 0.5 release 0.9\n  steps x . . . x . . . x . . . x . . .\ntrack Bell id gb gen bell\n  gen partial 3.01 highpass 1200 decay 2.5\n  steps x . . . x . . . x . . . x . . .\ntrack Drum id gd gen drumSynth\n  gen tone triangle pitch_env 40 pitch_decay 0.05 decay 0.4 noise 0.6 noise_decay 0.2 noise_hp 2200 drive 0.3\n  steps x . . . x . . . x . . . x . . ."
 let gpProj = loadDefaultDeckardProject().project
 applyTplSource(gpProj, gpSrc)
 let gpPad = findChannelById(gpProj, "gp")
@@ -293,8 +293,8 @@ applyTplSource(gpProj2, gpEmit)
 let gpDrum2 = findChannelById(gpProj2, "gd")
 check("designer round-trip: drum noiseHp re-parses", gpDrum2 !== null && gpDrum2.generatorParams.noiseHp === 2200)
 
-// 5d-iii. Per-module instrument slices (the Designer⇄Raw "break it down to TPL" view)
-let modSrc = "tpl 1\ntrack Lead id tl gen pad\n  mix gain 0.8 pan 0 eq_lo 0 eq_mid 0 eq_hi 0\n  fx reverb_send 0.3 drive 0.2 cutoff 4000 res 2\n  voice octave 1 arp up chord maj7\n  gen wave1 sawtooth wave2 square detune 12 cutoff 3000 attack 0.05 decay 0.3 sustain 0.5 release 0.8\n  steps x . . . x . . . x . . . x . . ."
+// 5d-iii. Per-module instrument slices (the Designer⇄Raw "break it down to deck" view)
+let modSrc = "deck 1\ntrack Lead id tl gen pad\n  mix gain 0.8 pan 0 eq_lo 0 eq_mid 0 eq_hi 0\n  fx reverb_send 0.3 drive 0.2 cutoff 4000 res 2\n  voice octave 1 arp up chord maj7\n  gen wave1 sawtooth wave2 square detune 12 cutoff 3000 attack 0.05 decay 0.3 sustain 0.5 release 0.8\n  steps x . . . x . . . x . . . x . . ."
 let modProj = loadDefaultDeckardProject().project
 applyTplSource(modProj, modSrc)
 let genSlice = emitInstrumentModuleTpl(modProj, "tl", "gen")
@@ -311,7 +311,7 @@ applyTplSource(modProj2, modSrc)
 applyTplSource(modProj2, voiceSlice.split("arp up").join("arp down"))
 let tl2 = findChannelById(modProj2, "tl")
 check("module slice: applying edited voice slice merges (arp down) without wiping gen/fx", tl2 !== null && tl2.arp === "down" && tl2.generatorParams.wave1 === "sawtooth" && tl2.reverbSend === 0.3)
-let genBlockSrc = "tpl 1\ntrack Pat id tp gen patch\n  fx reverb_send 0.1\n  voice octave 0\n  gen_block patch\n    osc o1 sawtooth note\n    gain a1 0\n    conn o1 a1 1\n    conn a1 out 1\n    env a1.gain set 0 0.9 lin dur 0\n  end gen_block\n  steps x . . . x . . . x . . . x . . ."
+let genBlockSrc = "deck 1\ntrack Pat id tp gen patch\n  fx reverb_send 0.1\n  voice octave 0\n  gen_block patch\n    osc o1 sawtooth note\n    gain a1 0\n    conn o1 a1 1\n    conn a1 out 1\n    env a1.gain set 0 0.9 lin dur 0\n  end gen_block\n  steps x . . . x . . . x . . . x . . ."
 let gbProj = loadDefaultDeckardProject().project
 applyTplSource(gbProj, genBlockSrc)
 let gbGen = emitInstrumentModuleTpl(gbProj, "tp", "gen")
@@ -334,7 +334,7 @@ let cbPad = parsePatchGraph(compileGeneratorToPatchLines("pad", { wave1: "sawtoo
 check("compile pad: three oscillators through a lowpass", cbPad.nodes.filter(n => n.kind === "osc").length === 3 && cbPad.nodes.some(n => n.kind === "filter" && n.ftype === "lowpass"))
 // guitar (Karplus-Strong) generator: catalog + default params + gen key/val round-trip
 check("guitar: registered with default string params", defaultParamsForGeneratorId("guitar").decay === 0.6 && defaultParamsForGeneratorId("guitar").mute === 0 && defaultParamsForGeneratorId("guitar").body === 3500)
-let gtrSrc = "tpl 1\ntrack Lead id gt gen guitar\n  gen tone 0.7 decay 0.8 damping 0.3 drive 0.5 body 2800 mute 0.4\n  note 52 0 0.5 v 100"
+let gtrSrc = "deck 1\ntrack Lead id gt gen guitar\n  gen tone 0.7 decay 0.8 damping 0.3 drive 0.5 body 2800 mute 0.4\n  note 52 0 0.5 v 100"
 let gtrProj = loadDefaultDeckardProject().project
 applyTplSource(gtrProj, gtrSrc)
 let gtrCh = findChannelById(gtrProj, "gt")
@@ -346,7 +346,7 @@ check("guitar: params survive emit→re-parse", gtrEmit.indexOf("mute 0.4") >= 0
 check("clap: registered in catalog", generatorCatalog().some(g => g.id === "clap" && g.label === "Clap"))
 let clapDef = defaultParamsForGeneratorId("clap")
 check("clap: default params (hands/spread/size/claps/tail/body)", clapDef.hands === 3 && clapDef.spread === 0.4 && clapDef.size === 0.5 && clapDef.claps === 1 && clapDef.tail === 0.4 && clapDef.body === 0.2)
-let clapSrc = "tpl 1\ntrack Clap id cp gen clap\n  gen hands 8 spread 0.7 size 0.3 tone 0.6 claps 2 gap 0.4 tail 0.5 body 0.25\n  steps x . . . x . . . x . . . x . . ."
+let clapSrc = "deck 1\ntrack Clap id cp gen clap\n  gen hands 8 spread 0.7 size 0.3 tone 0.6 claps 2 gap 0.4 tail 0.5 body 0.25\n  steps x . . . x . . . x . . . x . . ."
 let clapProj = loadDefaultDeckardProject().project
 applyTplSource(clapProj, clapSrc)
 let clapCh = findChannelById(clapProj, "cp")
@@ -359,7 +359,7 @@ check("clap→patch: bandpassed noise snap with an amp env", clapPatchG.nodes.so
 // Clap edit through the INCREMENTAL ingest door (rt.emit) keeps generatorId + params (no silent reset).
 let clapIng = loadDefaultDeckardProject().project
 applyCoDjTplSource(clapIng, clapSrc, "host", "host", 0, ["master_mixer"])
-applyCoDjTplSource(clapIng, "tpl 1\n" + fragmentForEdit(clapIng, "track/cp/gen/hands", 10) + "\n", "host", "host", 0, ["master_mixer"])
+applyCoDjTplSource(clapIng, "deck 1\n" + fragmentForEdit(clapIng, "track/cp/gen/hands", 10) + "\n", "host", "host", 0, ["master_mixer"])
 let clapIngCh = findChannelById(clapIng, "cp")
 check("clap: gen edit folds through ingest (genId + hands)", clapIngCh.generatorId === "clap" && clapIngCh.generatorParams.hands === 10)
 
@@ -368,7 +368,7 @@ check("clap: gen edit folds through ingest (genId + hands)", clapIngCh.generator
 check("arco: registered in catalog", generatorCatalog().some(g => g.id === "arco" && g.label === "Arco"))
 let arcoDef = defaultParamsForGeneratorId("arco")
 check("arco: defaults (voice=violin + bow controls)", arcoDef.voice === "violin" && arcoDef.pressure === 0.5 && arcoDef.bow === 0.4 && arcoDef.vibrato === 0.35 && arcoDef.rosin === 0.3 && arcoDef.body === 0.6)
-let arcoSrc = "tpl 1\ntrack Strings id ar gen arco\n  gen voice cello pressure 0.7 bow 0.6 vibrato 0.5 rosin 0.4 body 0.8\n  note 48 0 1 v 100"
+let arcoSrc = "deck 1\ntrack Strings id ar gen arco\n  gen voice cello pressure 0.7 bow 0.6 vibrato 0.5 rosin 0.4 body 0.8\n  note 48 0 1 v 100"
 let arcoProj = loadDefaultDeckardProject().project
 applyTplSource(arcoProj, arcoSrc)
 let arcoCh = findChannelById(arcoProj, "ar")
@@ -381,7 +381,7 @@ check("arco→patch: saw → lowpass → slow-attack amp", arcoPatchG.nodes.some
 // Arco edit through the INCREMENTAL ingest door keeps generatorId + the string voice param.
 let arcoIng = loadDefaultDeckardProject().project
 applyCoDjTplSource(arcoIng, arcoSrc, "host", "host", 0, ["master_mixer"])
-applyCoDjTplSource(arcoIng, "tpl 1\n" + fragmentForEdit(arcoIng, "track/ar/gen/voice", "bass") + "\n", "host", "host", 0, ["master_mixer"])
+applyCoDjTplSource(arcoIng, "deck 1\n" + fragmentForEdit(arcoIng, "track/ar/gen/voice", "bass") + "\n", "host", "host", 0, ["master_mixer"])
 let arcoIngCh = findChannelById(arcoIng, "ar")
 check("arco: voice change folds through ingest (genId + voice)", arcoIngCh.generatorId === "arco" && arcoIngCh.generatorParams.voice === "bass")
 
@@ -414,7 +414,7 @@ check("halo→patch keeps the beating triad (octave+fifth detuned pairs)", haloO
 
 // Tine round-trip through emit + ingest.
 let tineProj = loadDefaultDeckardProject().project
-applyTplSource(tineProj, "tpl 1\ntrack EP id ep gen tine\n  gen bark 0.8 tine 0.4 tremolo 0.6 decay 0.7 drive 0.3\n  note 60 0 1 v 110")
+applyTplSource(tineProj, "deck 1\ntrack EP id ep gen tine\n  gen bark 0.8 tine 0.4 tremolo 0.6 decay 0.7 drive 0.3\n  note 60 0 1 v 110")
 let tineCh = findChannelById(tineProj, "ep")
 check("tine: gen params parse", tineCh.generatorId === "tine" && tineCh.generatorParams.bark === 0.8 && tineCh.generatorParams.tremolo === 0.6)
 check("tine: survives emit→re-parse", emitProject(tineProj).indexOf("bark 0.8") >= 0 && emitProject(tineProj).indexOf("tremolo 0.6") >= 0)
@@ -458,11 +458,11 @@ check("preset: legacy preset resets voice/fx panels to neutral", prT2.arp === "o
 // "change cutoff → bass unrecognizable, no way back" + "chord on bass designer goes silent until you
 // re-pick the designer" bug. trackHeader also has to carry the macro overrides so they survive.
 let macEditProj = loadDefaultDeckardProject().project
-applyCoDjTplSource(macEditProj, "tpl 1\ntrack B id mfb gen bass_acid q 9 top 5000\n  steps x . . . x . . . x . . . x . . .", "host", "host", 0, ["host"])
-applyCoDjTplSource(macEditProj, "tpl 1\n" + fragmentForEdit(macEditProj, "track/mfb/fx/cutoff", 2000) + "\n", "host", "host", 0, ["host"])
+applyCoDjTplSource(macEditProj, "deck 1\ntrack B id mfb gen bass_acid q 9 top 5000\n  steps x . . . x . . . x . . . x . . .", "host", "host", 0, ["host"])
+applyCoDjTplSource(macEditProj, "deck 1\n" + fragmentForEdit(macEditProj, "track/mfb/fx/cutoff", 2000) + "\n", "host", "host", 0, ["host"])
 let mfb = findChannelById(macEditProj, "mfb")
 check("macro edit via ingest keeps patch gen + overrides (fx cutoff)", mfb.generatorId === "patch" && mfb.macroName === "bass_acid" && mfb.macroParams.q === 9 && mfb.macroParams.top === 5000 && mfb.generatorSpec.graph.nodes[1].q === 9 && mfb.filterCutoff === 2000)
-applyCoDjTplSource(macEditProj, "tpl 1\n" + fragmentForEdit(macEditProj, "track/mfb/voice/chord", "major") + "\n", "host", "host", 0, ["host"])
+applyCoDjTplSource(macEditProj, "deck 1\n" + fragmentForEdit(macEditProj, "track/mfb/voice/chord", "major") + "\n", "host", "host", 0, ["host"])
 let mfb2 = findChannelById(macEditProj, "mfb")
 check("macro edit via ingest keeps patch gen + spec (voice chord)", mfb2.generatorId === "patch" && mfb2.macroName === "bass_acid" && mfb2.chord === "major" && mfb2.generatorSpec !== null && mfb2.generatorSpec.graph.nodes.length >= 2)
 
@@ -537,7 +537,7 @@ check("macro expand: defaults apply when no override", expDef.join("\n").indexOf
 
 // 5g. Pattern length (`* N`, loops forever) vs finite loop cap (`loops N`) are separate
 let lenProj = loadDefaultDeckardProject().project
-applyTplSource(lenProj, "tpl 1\ntrack A id la gen basic_osc * 4\n  steps x . . . x . . . x . . . x . . .\ntrack B id lb gen basic_osc\n  loops 2\n  steps x . . . x . . . x . . . x . . .")
+applyTplSource(lenProj, "deck 1\ntrack A id la gen basic_osc * 4\n  steps x . . . x . . . x . . . x . . .\ntrack B id lb gen basic_osc\n  loops 2\n  steps x . . . x . . . x . . . x . . .")
 let la = findChannelById(lenProj, "la")
 check("pattern len: `* 4` sets patternBars=4, no loop cap", la !== null && la.patternBars === 4 && (la.tplLoopBars === null || la.tplLoopBars === undefined))
 let lb = findChannelById(lenProj, "lb")
@@ -546,14 +546,14 @@ check("loop cap: `loops 2` sets tplLoopBars cap, patternBars stays 1", lb !== nu
 // 5h. Rack bar add/remove (duplicate-last on grow, truncate on shrink)
 let rbProj = loadDefaultDeckardProject().project
 let rbCh = rbProj.channels[0]
-applyTplSource(rbProj, "tpl 1\ntrack RB id rbx gen patch\n  step_pitch 36\n  steps x . . . x . . . . . . . . . . .")
+applyTplSource(rbProj, "deck 1\ntrack RB id rbx gen patch\n  step_pitch 36\n  steps x . . . x . . . . . . . . . . .")
 let rbx = findChannelById(rbProj, "rbx")
 resizeChannelBars(rbx, 3, true)
 check("rack bars: grow duplicates last bar (3 bars, steps 0/4 per bar)", rbx.steps.length === 48 && rbx.patternBars === 3 && rbx.steps[0].on && rbx.steps[16].on && rbx.steps[32].on)
 resizeChannelBars(rbx, 1, false)
 check("rack bars: shrink truncates to 1 bar (16 steps)", rbx.steps.length === 16 && rbx.patternBars === 1)
 let rbMel = loadDefaultDeckardProject().project
-applyTplSource(rbMel, "tpl 1\ntrack M id mmx gen patch\n  note 60 1 0.5 v 100")
+applyTplSource(rbMel, "deck 1\ntrack M id mmx gen patch\n  note 60 1 0.5 v 100")
 let mmx = findChannelById(rbMel, "mmx")
 resizeChannelBars(mmx, 2, true)
 check("rack bars: grow duplicates piano notes into the new bar", mmx.pianoNotes.length === 2 && mmx.pianoNotes.some(n => n.startBeat === 1) && mmx.pianoNotes.some(n => n.startBeat === 5))
@@ -723,7 +723,7 @@ armSceneWithOverrides(stProj, stRt, 0)
 check("stop track: stays silent across scene (re)arm", stRt.sessionArmedClipIds[1] === "")
 check("stop track: not stopped for a track that was never stopped", sessionTrackStopped(stRt, 0) === false)
 
-// 5r. Explicit `song` arrangement + `launch_quant` scalar round-trip through TPL.
+// 5r. Explicit `song` arrangement + `launch_quant` scalar round-trip through deck.
 let sgProj = loadDefaultDeckardProject().project
 ensureProjectSession(sgProj)
 sgProj.launchQuant = 8
@@ -759,7 +759,7 @@ check("songAdvance: scene 1 repeats x4 then wraps to head", s4 === 1 && s5 === 1
 let s7 = songAdvance(sgBack, sgRt, s6)
 check("songAdvance: wraps back to scene 0", s7 === 0 && sgRt.songPos.idx === 0)
 
-// 5t2. Follow actions: per-scene progression + deterministic chance ratio, round-tripped in TPL.
+// 5t2. Follow actions: per-scene progression + deterministic chance ratio, round-tripped in deck.
 let faProj = loadDefaultDeckardProject().project
 ensureProjectSession(faProj)
 let q = 0
@@ -866,7 +866,7 @@ let MASTER = ["master_mixer", "pattern_steps"]
 let GUEST = ["pattern_steps"]
 check("directive detect: launch scene", isLaunchDirective("@ launch scene 2") === true)
 check("directive detect: transport", isLaunchDirective("@ transport song 1") === true)
-check("directive detect: plain TPL is not a directive", isLaunchDirective("  steps x . x .") === false)
+check("directive detect: plain deck is not a directive", isLaunchDirective("  steps x . x .") === false)
 check("directive emit: scene", launchSceneDirective(2) === "@ launch scene 2")
 check("directive emit: clip release", launchClipDirective("kick", "") === "@ launch clip kick -")
 
@@ -928,7 +928,7 @@ let mxProj = loadDefaultDeckardProject().project
 ensureProjectSession(mxProj)
 sessionWriteRackToSceneClip(mxProj, 1)
 let mxRt = { sessionArmedClipIds: [], trackOverrides: [] }
-let mxRest = applyLaunchLinesFromSource(mxProj, mxRt, "tpl 1\n@ launch scene 1\nbpm 145\n", "actor-host", MASTER)
+let mxRest = applyLaunchLinesFromSource(mxProj, mxRt, "deck 1\n@ launch scene 1\nbpm 145\n", "actor-host", MASTER)
 check("splitter: directive applied to rt (songScene 1)", mxRt.songScene === 1)
 check("splitter: directive line stripped from remainder", mxRest.indexOf("@ launch") < 0)
 check("splitter: project line kept in remainder", mxRest.indexOf("bpm 145") >= 0)
@@ -963,7 +963,7 @@ check("clock sim: follower converges to within a bar of host", Math.abs(followTi
 check("clock sim: follower not stuck at its wild start", followTick < 200)
 
 // 5x. Switching a deck preset must NOT wipe the rest of the session — other decks' queued scenes
-// persist (everything is in TPL; swapping one deck only replaces that deck's channels).
+// persist (everything is in deck; swapping one deck only replaces that deck's channels).
 let dsProj = loadDefaultDeckardProject().project
 ensureProjectSession(dsProj)
 sessionWriteRackToSceneClip(dsProj, 0)                 // save all current (deck A) channels into scene 0
@@ -990,7 +990,7 @@ check("deck swap: deck B preset loaded its stems", bChan !== null && bChan !== u
 
 // 6. Every stem deck set parses cleanly into >= 5 stems (the deck.tsx conversions)
 let cat = deckSetCatalog()
-check("15 stem deck sets in catalog", cat.length === 15)
+check("20 stem deck sets in catalog", cat.length === 20)
 let badSet = ""
 let si = 0
 while (si < cat.length) {
@@ -1004,7 +1004,7 @@ while (si < cat.length) {
   }
   si = si + 1
 }
-check("all 15 deck sets parse clean with >=5 stems", badSet === "")
+check("all stem deck sets parse clean with >=5 stems", badSet === "")
 if (badSet !== "") {
   console.log("  -> offending set: " + badSet)
 }
@@ -1150,7 +1150,7 @@ check("private: @ cue not broadcast", wireP.length === 0)
 ingA.ingest("@ throw 2", ctxMaster)
 check("private: @ throw broadcast", wireP.length === 1)
 
-// 6f. emit/edit helper (rearch step 2/3): addressed edit -> minimal TPL fragment -> ingest -> fold.
+// 6f. emit/edit helper (rearch step 2/3): addressed edit -> minimal deck fragment -> ingest -> fold.
 let projE = loadDefaultDeckardProject().project
 let chE = projE.channels[0].id
 // fragmentForEdit shapes
@@ -1179,9 +1179,9 @@ check("master: comp/reverb survive emit -> re-parse", mtRT2.masterMixer.compEnab
 // real door rt.emit uses. (It previously only applied via full applyParsed, so UI master EQ + the
 // compressor/reverb toggles silently no-op'd through ingest.) Master-gated, so use a master skillId.
 let mtIng = loadDefaultDeckardProject().project
-applyCoDjTplSource(mtIng, "tpl 1\n" + fragmentForEdit(mtIng, "master/comp", false) + "\n", "host", "host", 0, ["master_mixer"])
+applyCoDjTplSource(mtIng, "deck 1\n" + fragmentForEdit(mtIng, "master/comp", false) + "\n", "host", "host", 0, ["master_mixer"])
 check("master: comp toggle folds through INGEST path", mtIng.masterMixer.compEnabled === false && mtIng.masterMixer.reverbEnabled === true)
-applyCoDjTplSource(mtIng, "tpl 1\n" + fragmentForEdit(mtIng, "master/reverb", false) + "\n", "host", "host", 0, ["master_mixer"])
+applyCoDjTplSource(mtIng, "deck 1\n" + fragmentForEdit(mtIng, "master/reverb", false) + "\n", "host", "host", 0, ["master_mixer"])
 check("master: reverb toggle folds through INGEST path", mtIng.masterMixer.reverbEnabled === false)
 let mixFrag = fragmentForEdit(projE, "track/" + chE + "/mix/gain", 0.5)
 check("frag: track mix re-emits full mix line", mixFrag.indexOf("mix gain 0.5 pan ") >= 0 && mixFrag.indexOf("id " + chE) >= 0)
@@ -1215,7 +1215,7 @@ let gp0 = findChannelById(projE, chId0).generatorParams
 check("edit-loop: adsr folds attack", gp0.attack !== null && gp0.attack !== undefined && Math.abs(gp0.attack - 0.02) < 1e-6)
 check("edit-loop: adsr folds release", gp0.release !== null && gp0.release !== undefined && Math.abs(gp0.release - 0.9) < 1e-6)
 
-// ---- Undo / redo (Phase 4): inverse TPL re-ingested through the same gated door ----
+// ---- Undo / redo (Phase 4): inverse deck re-ingested through the same gated door ----
 let uProj = loadDefaultDeckardProject().project
 let uCh = uProj.channels[0].id
 let uStore = { project: uProj, runtime: {} }
@@ -1721,7 +1721,7 @@ while (pgsi < 16) {
 pgMch.steps = pgFreshSteps
 pgMch.gain = 0.42
 let pgGenFrag = emitInstrumentModuleTpl(pgMP, pgMch.id, "gen")
-applyCoDjTplSource(pgMP, "tpl 1\n" + pgGenFrag + "\n", "host", "host", 0, ["add_track", "pattern_steps", "master"])
+applyCoDjTplSource(pgMP, "deck 1\n" + pgGenFrag + "\n", "host", "host", 0, ["add_track", "pattern_steps", "master"])
 let pgMch2 = pgMP.channels[0]
 check("patch broadcast MERGES: steps preserved (not wiped by a gen edit)", pgMch2.steps.filter(s => s.on).length === 2)
 check("patch broadcast MERGES: mix gain preserved", Math.abs(pgMch2.gain - 0.42) < 0.001)
@@ -1917,11 +1917,11 @@ check("matrix filter reach: a filter with no route onward is a dead end", pgFR2[
 let pgFR3 = matrixFiltersReachingOut({ routes: [{ srcKind: "filter", srcId: "1", dstKind: "filter", dstId: "2" }, { srcKind: "filter", srcId: "2", dstKind: "out" }] })
 check("matrix filter reach: filter→filter→out chain resolves", pgFR3["1"] === true && pgFR3["2"] === true)
 
-// (11) Reusable rich TPL editor (RichTplEditor) — the module "Raw" views reuse the main editor's highlighter.
+// (11) Reusable rich deck editor (RichTplEditor) — the module "Raw" views reuse the main editor's highlighter.
 let reProj = loadDefaultDeckardProject().project
 let reCh = reProj.channels[0]
 let reGenTpl = emitInstrumentModuleTpl(reProj, reCh.id, "gen")
-// Same highlighter the main TPL editor uses, run on a real module gen fragment → produces keyword spans.
+// Same highlighter the main deck editor uses, run on a real module gen fragment → produces keyword spans.
 let reHl = tplDocumentToHighlightHtml(reGenTpl, -1, false, 0, 0)
 check("rich editor: the shared highlighter marks up a real module gen fragment", typeof reHl === "string" && reHl.indexOf("tpl-hl-kw") >= 0)
 check("rich editor: highlighting wraps the source verbatim (no token loss)", reHl.indexOf("<span") >= 0)

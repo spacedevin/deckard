@@ -101,7 +101,7 @@ Target: the [`deck.tsx`](../inspiritaion/deck.tsx) layout, rebuilt in Lattish/ti
 Port `deck.tsx`'s routine (bass-swap → highpass sweep → crossfade → restore) as a tish module
 `src/codj/AutoDj.tish`, driven off the transport tick. It writes the crossfader + deck EQ over a few
 bars. **This is also the natural home for an agent to "DJ" a deck** — the same routine an agent could
-emit as TPL automation.
+emit as deck automation.
 
 ---
 
@@ -116,7 +116,7 @@ piano-roll with **one** beautiful editor.
 - **Cells**: dim when off; when on, filled with the **instrument's color + glow** (per the
   `track.color`/`shadow` map). A translating **playhead overlay** column; the active cell at the
   playhead flashes white and scales (`sequence.tsx` lines 666–694).
-- **Terminal log** strip beneath (we already have a Co-DJ log + can stream TPL events here).
+- **Terminal log** strip beneath (we already have a Co-DJ log + can stream deck events here).
 
 ### Mapping to Deckard's model (the important part)
 Deckard channels are either **step/drum** (one `stepPitch`, `steps[16]`) or **melodic**
@@ -153,7 +153,7 @@ Collapse SEQ-buttons + Save-edit + Session-grid + LIVE/CUE into the **deck + pat
 
 - **Pattern bank per deck.** The old "scenes" become each deck's slots (reuse `session.slots` /
   `sessionClips` in [`Session.tish`](../../src/model/Session.tish) — the data already round-trips through
-  TPL `clip` / `session_slot` blocks). UI: a small row of slot buttons on each deck.
+  deck `clip` / `session_slot` blocks). UI: a small row of slot buttons on each deck.
 - **Save = capture.** "Save edit" becomes **CAPTURE → slot N** on the focused deck: snapshot the current
   grid into that deck's slot (`sessionWriteRackToSceneClip`, already implemented).
 - **Launch = load to deck, queued.** Clicking a slot **loads that pattern into the deck**, queued to the
@@ -175,7 +175,7 @@ Collapse SEQ-buttons + Save-edit + Session-grid + LIVE/CUE into the **deck + pat
   [`styles.css`](../../styles.css).
 - **Lattish/tish:** the references are React + Tailwind; we port the **structure**, not the deps —
   plain `h()`/JSX + CSS classes. DOM cells (not canvas) for the grid so we get CSS transitions/glow.
-- **Reuse, don't rewrite the engine.** Audio routing, scheduling, TPL apply/emit, session clips, and
+- **Reuse, don't rewrite the engine.** Audio routing, scheduling, deck apply/emit, session clips, and
   per-bus EQ already exist — this is largely a **view + thin model** change (stem tag, deck buses,
   crossfader). Keep `npm test` green; the grid/deck math should get smoke coverage.
 
@@ -195,7 +195,7 @@ Collapse SEQ-buttons + Save-edit + Session-grid + LIVE/CUE into the **deck + pat
    can be unassigned → routes to a default stem.)
 3. **Melodic in the grid:** windowed pitch range per focused channel, or a fixed scale/row set like the
    reference's curated 8 pitches? (Recommend: windowed range + optional scale snap.)
-4. **Auto-DJ ownership:** local routine vs. an agent that emits crossfade/EQ automation as TPL.
+4. **Auto-DJ ownership:** local routine vs. an agent that emits crossfade/EQ automation as deck.
    (Recommend: ship the local routine first; let an agent drive it later via the same automation lanes.)
 
 ---
@@ -225,5 +225,5 @@ Collapse SEQ-buttons + Save-edit + Session-grid + LIVE/CUE into the **deck + pat
 | Model/TPL | — | `Project.tish` (+`stem`), `Apply/Emit` (`stem` line, deck=A\|B) | `transportMainDeck` binary → crossfader |
 | Audio | per-deck filter + xfade gains | `Engine.tish`, `MixerAutomation.tish` | — |
 
-> The engine, scheduler, TPL pipeline, and session model are kept. This is mostly a **view + thin-model**
+> The engine, scheduler, deck pipeline, and session model are kept. This is mostly a **view + thin-model**
 > redesign — the streamed-stems / co-DJ core is already the right shape for a two-deck DJ surface.

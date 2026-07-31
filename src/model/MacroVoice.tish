@@ -1,7 +1,7 @@
 // Macro voice helpers for the UI designers. A macro-backed channel stores `macroName` + `macroParams`
 // (overrides) and re-expands to a `gen_block patch` graph on every edit, so the designers stay a pure
-// TPL client: a slider move writes one override, re-expands the patch, and the channel emits
-// `gen <macro> <k> <v> ...` — identical to what the TPL parser produces. No graph is hand-edited.
+// deck client: a slider move writes one override, re-expands the patch, and the channel emits
+// `gen <macro> <k> <v> ...` — identical to what the deck parser produces. No graph is hand-edited.
 
 import { lookupMacro, expandMacroBody, builtinMacros } from '../tpl/Macros.tish'
 import { parseGenBlock } from '../tpl/TplExtension.tish'

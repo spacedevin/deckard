@@ -18,7 +18,7 @@ Add the glue layer — drones, pads, risers, noise beds, reverb-soaked space —
 - Avoid stacking two wide reverbed pads — they turn to mud. One drone bed + one moving element (riser/sweep) is plenty. Leave headroom.
 - Gens: `pad` (detuned triple-osc bed), `aether` (eerie theremin swells), `arco` (bowed-string pad), `noise_burst` (noise riser / air bed).
 
-## TPL it emits
+## deck it emits
 - `track … gen pad|aether|arco|noise_burst [* <bars>]`
 - `pad` knobs: `gen detune <0..30> cutoff <hz> attack <s> decay <s> sustain <0..1> release <s>` (slow attack+long release = swell)
 - `aether` knobs: `gen glide <0..1> waver <0..1> tone <0..1> swell <0..1> air <0..1>` · `arco`: `gen voice cello|bass|viola pressure <0..1> bow <0..1> vibrato <0..1> body <0..1>`
@@ -29,7 +29,7 @@ Add the glue layer — drones, pads, risers, noise beds, reverb-soaked space —
 
 ## Examples
 ```tpl
-tpl 1
+deck 1
 track Pad Drone id <me>_pad gen pad * 2
   gen detune 12 cutoff 1600 attack 1.2 decay 0.6 sustain 0.8 release 2.0
   voice chord min7 octave -1
@@ -38,7 +38,7 @@ track Pad Drone id <me>_pad gen pad * 2
   mix gain 0.3 pan -0.2 eq_lo 2
 ```
 ```tpl
-tpl 1
+deck 1
 track Noise Riser id <me>_riser gen noise_burst
   noise attack 1.8 decay 0.2 tone 0.85 pitch_follow 0.0
   steps x . . . . . . . . . . . . . . .
@@ -46,7 +46,7 @@ track Noise Riser id <me>_riser gen noise_burst
   mix gain 0.25 pan 0.3
 ```
 ```tpl
-tpl 1
+deck 1
 track Aether Bed id <me>_atmos gen aether
   gen glide 0.6 waver 0.5 tone 0.25 swell 0.7 air 0.4
   note 60 0 16 v 60

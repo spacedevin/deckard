@@ -1,10 +1,10 @@
 // Sets — the TIME-aware, per-player loadable bundle (the new "Set"; the whole-workspace snapshot is now a
-// "Station", see StationPresets.tish). A Set is a stream of TPL for 1–4 "players" plus a `song`
+// "Station", see StationPresets.tish). A Set is a stream of deck for 1–4 "players" plus a `song`
 // arrangement (the TIME axis). You load a Set onto one deck, or let it fill the free deck slots — a loaded
-// player you didn't perform is a "ghost" you can play alongside (Mario-Kart style). This is the TPL thesis:
-// a Set is a replayable stream of TPL.
+// player you didn't perform is a "ghost" you can play alongside (Mario-Kart style). This is the deck thesis:
+// a Set is a replayable stream of deck.
 //
-// Storage is a single TPL document with explicit player delimiters, so it stays deck-agnostic — each
+// Storage is a single deck document with explicit player delimiters, so it stays deck-agnostic — each
 // player is a plain rack (+ its clips) that loadSet can drop onto ANY free deck:
 //
 //   # player 0
@@ -17,7 +17,7 @@
 //   P1
 //   P2 x2
 //
-// localStorage-backed (deckard.sets.v1) + .tpl file export/import, mirroring StationPresets' API. Seeded
+// localStorage-backed (deckard.sets.v1) + .deck file export/import, mirroring StationPresets' API. Seeded
 // from the existing deck-set catalog (each deck set becomes a 1-player Set) so the library is never empty.
 
 import { emitProject } from '../tpl/Emit.tish'
@@ -101,7 +101,7 @@ fn clipChannelId(header) {
   return null
 }
 
-// Strip a leading `tpl 1` header line from a rack TPL so it can nest inside a player section.
+// Strip a leading `deck 1` header line from a rack deck so it can nest inside a player section.
 fn stripTplHeader(tpl) {
   let lines = String(tpl).split("\n")
   let out = []
@@ -142,7 +142,7 @@ export fn emitSetArrangement(project) {
 }
 
 /**
- * Emit a Set as a player-delimited TPL document. `deckLetters` = the decks to capture as players (in
+ * Emit a Set as a player-delimited deck document. `deckLetters` = the decks to capture as players (in
  * order), e.g. ["A","B"]. Each player section holds that deck's track blocks (deck-line stripped) plus the
  * clips for those channels; a trailing `# song` section carries the shared arrangement.
  */
@@ -214,7 +214,7 @@ export fn emitSet(project, deckLetters) {
 
 /**
  * Parse a Set document back into { players: [tplString], song: [line] }. Each player string is a standalone
- * `tpl 1` rack (+ clips) ready to graft onto a deck; song is the raw `P<n> [xN]` arrangement lines.
+ * `deck 1` rack (+ clips) ready to graft onto a deck; song is the raw `P<n> [xN]` arrangement lines.
  */
 export fn parseSet(tpl) {
   let lines = String(tpl).split("\n")
@@ -246,7 +246,7 @@ export fn parseSet(tpl) {
   let out = []
   let pj = 0
   while (pj < players.length) {
-    out.push("tpl 1\n" + players[pj].join("\n"))
+    out.push("deck 1\n" + players[pj].join("\n"))
     pj = pj + 1
   }
   return { players: out, song: song }
@@ -307,7 +307,7 @@ fn restoreSong(project, songLines) {
 }
 
 /**
- * Load a Set. `set` is a library entry ({tpl}) or a raw Set TPL string. With `targetDeck` ("A".."D") the
+ * Load a Set. `set` is a library entry ({tpl}) or a raw Set deck string. With `targetDeck` ("A".."D") the
  * Set's first player lands on that deck (load onto your own deck to modify it). With targetDeck null each
  * player fills the next FREE deck slot in A→D order — occupied decks are skipped, so a 4-player Set onto an
  * empty station fills everything (listen-only) while a 2-player Set leaves room to jam alongside the ghosts.
@@ -450,7 +450,7 @@ fn parseTapeLines(lines) {
 }
 
 /**
- * Serialize a recorded Set: the sound-state project TPL (header) + the play mode + the played-trigger tape.
+ * Serialize a recorded Set: the sound-state project deck (header) + the play mode + the played-trigger tape.
  * `headerTpl` is emitProject(startState); `tape` is the recorder's [{step,triggers}] log.
  */
 export fn emitSetStream(headerTpl, tape, mode) {

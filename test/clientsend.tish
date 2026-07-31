@@ -1,6 +1,6 @@
 // Headless co-DJ CLIENT that faithfully reproduces broadcastSelfLines: joins AFTER a host, waits for the
-// host snapshot, then streams its OWN re-homed deck as tpl.line frames (exactly the shape the browser client
-// sends: {type:"tpl.line", line, authorId}). Distinct track name CLIENTLEAD so we can spot it on the host.
+// host snapshot, then streams its OWN re-homed deck as deck.line frames (exactly the shape the browser client
+// sends: {type:"deck.line", line, authorId}). Distinct track name CLIENTLEAD so we can spot it on the host.
 // Run against a BROWSER host: tish run test/clientsend.tish  → then inspect the browser host's Deck B / log.
 import { WebSocket } from "tish:ws"
 import { process } from "tish:process"
@@ -14,7 +14,7 @@ let ME = "actor-clientsend"
 
 // A re-homed initial deck (ids id-prefixed with my actorId, as rehomeJoinerChannels would produce).
 let MY_LINES = [
-  "tpl 1",
+  "deck 1",
   "bpm 120",
   "",
   "track CLIENTLEAD id actor-clientsend_c0 gen noise_burst",
@@ -39,10 +39,10 @@ ws.send(JSON.stringify({ type: "join", sessionId: SESSION, actorId: ME, channelI
 fn sendMyLines() {
   let i = 0
   while (i < MY_LINES.length) {
-    ws.send(JSON.stringify({ type: "tpl.line", line: MY_LINES[i], authorId: ME }))
+    ws.send(JSON.stringify({ type: "deck.line", line: MY_LINES[i], authorId: ME }))
     i = i + 1
   }
-  console.log("CLIENT sent " + String(MY_LINES.length) + " tpl.line frames (CLIENTLEAD + CLIENTBASS)")
+  console.log("CLIENT sent " + String(MY_LINES.length) + " deck.line frames (CLIENTLEAD + CLIENTBASS)")
 }
 
 let sentOnce = false

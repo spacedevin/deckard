@@ -1,9 +1,9 @@
-# Deckard: TPL Audio System & Track Generation Guide
+# Deckard: deck Audio System & Track Generation Guide
 
 ## 1. System Overview
 Deckard is a token-streamed, live-coding DAW designed as the auditory counterpart to a 3D Solar System viewer. It does not use external audio files (no .mp3 or .wav samples). Instead, it synthesizes all audio in real-time using mathematical oscillators, noise buffers, and custom audio node routing provided by fixed generators and macro voices.
 
-The system features a multi-lane co-DJ environment where AI agents and humans collaborate by streaming TPL (Tish Patch Language). Nothing is pre-rendered; all audio is generated in-app from the token stream. 
+The system features a multi-lane co-DJ environment where AI agents and humans collaborate by streaming deck (deck). Nothing is pre-rendered; all audio is generated in-app from the token stream. 
 
 ## 2. Creative Inspiration & Theme
 The creative direction is "Retro-Futuristic Space."
@@ -19,7 +19,7 @@ The creative direction is "Retro-Futuristic Space."
 - **Bb major**: Bb, D, F (MIDI 58, 62, 65)
 
 ## 3. The Multi-Track Structure
-There is no strict 5-stem limit in Deckard, but a well-rounded generated song should cover discrete elements. Each track in TPL is defined with a unique lane ID and a specific generator:
+There is no strict 5-stem limit in Deckard, but a well-rounded generated song should cover discrete elements. Each track in deck is defined with a unique lane ID and a specific generator:
 - **KICK**: Low-end transients.
 - **PERC/HATS**: Noise-based percussion, hi-hats, and snares.
 - **BASS**: Sub-bass, reese basses, acid lines, and midtempo wobbles.
@@ -38,14 +38,14 @@ Common Generators & Macros:
 - **Matrix FM**: `matrix_fm` (for complex FM patches)
 
 ## 5. Track Data Structure & Sequencer Logic
-Tracks are defined using TPL. A track block starts with `track <Name> id <id> gen <generator> [* <bars>]`.
+Tracks are defined using deck. A track block starts with `track <Name> id <id> gen <generator> [* <bars>]`.
 - **Rhythm (Steps)**: Use `steps x . . .` or `steps euclid <hits> 16`. The step sequencer uses a 16-step grid per bar.
 - **Melody (Piano Roll)**: Use `note <midi> <startBeat> <durBeats> v <velocity> [bar <selector>]`. Beats are in quarter-notes.
 - **Mix**: Use `mix gain <0..1> pan <-1..1>`.
 
-### Example TPL Track Template
+### Example deck Track Template
 ```tpl
-tpl 1
+deck 1
 bpm 100
 
 # 1. KICK: Four-on-the-floor
@@ -96,7 +96,7 @@ track Arp id ai_arp gen fm
 ## 6. Prompting Instructions for the Next LLM
 Copy and paste the following to the next LLM to generate more tracks:
 
-"I am providing you with the specification for the 'Deckard' token-streamed DAW. Your task is to generate a new procedural music song using TPL (Tish Patch Language).
+"I am providing you with the specification for the 'Deckard' token-streamed DAW. Your task is to generate a new procedural music song using deck (deck).
 Rules:
 1. You must ONLY write in C Minor / Eb Major to ensure harmonic compatibility.
 2. You must ONLY use the provided generators and macros (e.g., `kick_deep`, `noise_burst`, `bass_reese`, `pad`, `fm`).
@@ -104,4 +104,4 @@ Rules:
 4. Map your instruments properly to build a full mix (Kick, Hats, Bass, Chords, Arp/Lead).
 5. Use `steps` for percussion (16 steps) and `note <midi> <startBeat> <durBeats> v <vel>` for melodies (quarter-note beats).
 6. Be highly creative with rhythms, step probabilities (`p 0.8` on notes), multi-bar changes (`bar 0,2` / `bar 1`), and instrument parameters.
-7. Output ONLY the raw TPL text representing the new song, starting with `tpl 1` and `bpm <tempo>`."
+7. Output ONLY the raw deck text representing the new song, starting with `deck 1` and `bpm <tempo>`."

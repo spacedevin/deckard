@@ -4,7 +4,7 @@
 > `generatorCatalog()` in [`src/generators/Registry.tish`](../src/generators/Registry.tish) and `macroCatalog()`
 > in [`src/model/MacroVoice.tish`](../src/model/MacroVoice.tish); the picker grouping is `VOICE_GROUPS` in
 > [`src/ui/InstrumentStack.tish`](../src/ui/InstrumentStack.tish). For the agent-facing list by role + the
-> `gen <id>` TPL aliases, see [`TPL_AGENT_GRAMMAR.md`](TPL_AGENT_GRAMMAR.md). This page is the **how-to-add** guide.
+> `gen <id>` deck aliases, see [`DECK_AGENT_GRAMMAR.md`](DECK_AGENT_GRAMMAR.md). This page is the **how-to-add** guide.
 
 ## 1. Pick an `id`
 
@@ -40,7 +40,7 @@ Extend [`docs/schema/project-v2.json`](schema/project-v2.json) with a `generator
 
 ## Matrix FM (`matrixFm`)
 
-Sytrus-style multi-operator graph: define the patch in TPL with `track … gen matrix_fm` and an indented `gen_block matrix_fm` … `end gen_block`. Parsed graph lives in `channel.generatorSpec.graph`; see [`docs/TPL_GRAMMAR.md`](TPL_GRAMMAR.md) and [`docs/TPL_EXTENSION.md`](TPL_EXTENSION.md).
+Sytrus-style multi-operator graph: define the patch in deck with `track … gen matrix_fm` and an indented `gen_block matrix_fm` … `end gen_block`. Parsed graph lives in `channel.generatorSpec.graph`; see [`docs/DECK_GRAMMAR.md`](DECK_GRAMMAR.md) and [`docs/DECK_EXTENSION.md`](DECK_EXTENSION.md).
 
 ### Factory matrix FM presets
 

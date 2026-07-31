@@ -18,7 +18,7 @@ Push the production toward a genre, energy, or tempo-FEEL purely by what you ADD
 - This is a PROPOSAL by example. Commit hard enough to read as intent, but leave space — one clear genre gesture beats five competing ones. Don't fight what already plays; pivot or deepen it.
 - To pivot, introduce ONE bold signature element (instrument + its rhythm) and let it sit. The host adapts the mix and tempo around your move; clutter just muddies the signal.
 
-## TPL it emits
+## deck it emits
 - `track … gen <signature generator>` — choose by genre: `acid303`/`sub808`/`reeseBass`, `drumSynth`/`noise_burst`/`clap`, `tine`/`halo`/`bell`, `fm`/`aether`.
 - `steps`/`steps euclid`/`step_pitch` — encode the tempo-FEEL and rhythm (halftime kick, rolling/triplet hats, broken breaks).
 - `note … v <vel> [p] [r] [n]` + `voice octave|chord|arp|arprate` — encode key, mood, and melodic genre signal.
@@ -26,7 +26,7 @@ Push the production toward a genre, energy, or tempo-FEEL purely by what you ADD
 
 ## Examples
 ```tpl
-tpl 1
+deck 1
 track Halftime Kick id <me>_htkick gen kick_deep
   steps x . . . . . . . x . . . . . . .
   step_vel 120 1 1 1 1 1 1 1 110 1 1 1 1 1 1 1
@@ -36,7 +36,7 @@ track Top Roll id <me>_roll gen noise_burst
   step_ratchet 1 1 2 1 1 1 3 1 1 1 2 1 1 1 4 1
 ```
 ```tpl
-tpl 1
+deck 1
 track Acid Pivot id <me>_acid gen acid303
   step_pitch 33
   steps x . x x . x . x x . x . x x . x

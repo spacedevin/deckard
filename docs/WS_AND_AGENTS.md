@@ -1,6 +1,6 @@
 # WebSocket gateway and actor workers
 
-This document specifies how actors (browser, worker) connect to a **session gateway**, exchange TPL and direction text, and how workers persist memory in **SQLite + vectors**.
+This document specifies how actors (browser, worker) connect to a **session gateway**, exchange deck and direction text, and how workers persist memory in **SQLite + vectors**.
 
 ## 1. Session gateway
 
@@ -39,23 +39,23 @@ Gateway responds:
 - **`actorId`** (required): for **human** joins, the gateway picks a paired agent lane when exactly one agent is online (v1 prefers **`ai-a`**); otherwise `null`. Browsers show “No agent” until an agent connects.
 - When anyone joins or leaves, the gateway broadcasts **`presence`**: `{ "type": "presence", "sessionId": "...", "actors": ["agent-1", "human-xyz"] }`.
 
-### Human TPL stream (Play)
+### Human deck stream (Play)
 
 While the browser actor is **playing**, the browser sends:
 
-1. **`control`** `{ "type": "control", "op": "playing_start", "actorId": "...", "authorId": "...", "perfStep": <host 16th> }` — agents mark the session live and may run inference after buffered TPL arrives.
-2. **`tpl.line`** per emitted TPL line (throttled). The gateway stamps **`actorId`** from the connection and fans out.
+1. **`control`** `{ "type": "control", "op": "playing_start", "actorId": "...", "authorId": "...", "perfStep": <host 16th> }` — agents mark the session live and may run inference after buffered deck arrives.
+2. **`deck.line`** per emitted deck line (throttled). The gateway stamps **`actorId`** from the connection and fans out.
 3. **`control`** `{ "op": "playing_stop", ... }` on stop — agents clear live mode.
 
-Agents append `tpl.line` text from the playing actor to a rolling buffer and respond with **`tpl.stream_chunk`** then **`tpl.block`** with their own `actorId`.
+Agents append `deck.line` text from the playing actor to a rolling buffer and respond with **`deck.stream_chunk`** then **`deck.block`** with their own `actorId`.
 
 ### 1.3 Message families
 
 | `type` | Direction | Fields |
 |--------|-----------|--------|
-| `tpl.line` | any → gateway → fanout | `actorId`, `line`, `authorId`, `seq` (hub-assigned) |
-| `tpl.block` | any → gateway | `actorId`, `lines[]`, `authorId`, optional `effectivePerfStep`, `submitDeadlinePerfStep`, `asap` — see [STREAM_PROTOCOL.md](./STREAM_PROTOCOL.md) |
-| `tpl.stream_chunk` | worker → gateway → browsers | `actorId`, `chunk`, `authorId` (no seq until line commit) |
+| `deck.line` | any → gateway → fanout | `actorId`, `line`, `authorId`, `seq` (hub-assigned) |
+| `deck.block` | any → gateway | `actorId`, `lines[]`, `authorId`, optional `effectivePerfStep`, `submitDeadlinePerfStep`, `asap` — see [STREAM_PROTOCOL.md](./STREAM_PROTOCOL.md) |
+| `deck.stream_chunk` | worker → gateway → browsers | `actorId`, `chunk`, `authorId` (no seq until line commit) |
 | `direct` | any → gateway → target actor | `targetActorId` (target), `text`, `authorId`, optional `perfStep` (host 16th index when sent) |
 | `state.snapshot` | gateway or browser | `hash`, `tplPreview` (truncated), `ts` |
 | `control` | master | `op`, `payload` — see [STREAM_PROTOCOL.md](./STREAM_PROTOCOL.md) |
@@ -65,7 +65,7 @@ Error `code`s **actually emitted** by `services/gateway/main.tish`: **`BAD_JSON`
 
 ### 1.4 Ordering
 
-- Gateway maintains **`seq` per `actorId`** (monotonic). All `tpl.line` / `tpl.block` / `direct` get a server timestamp + actor seq.
+- Gateway maintains **`seq` per `actorId`** (monotonic). All `deck.line` / `deck.block` / `direct` get a server timestamp + actor seq.
 - Cross-lane order is **not** total; merge rules live in the browser ([CO_DJ_SPACE.md](./CO_DJ_SPACE.md)).
 
 ### 1.5 Rooms
@@ -83,20 +83,20 @@ Error `code`s **actually emitted** by `services/gateway/main.tish`: **`BAD_JSON`
 
 The persistence / RAG steps below (local DB, embeddings, `chunks`) are **planned** — see [§3](#3-sqlite--vector-schema-planned). Today the worker keeps an in-memory rolling context buffer only.
 
-1. On each inbound `tpl.line` / `tpl.block` (other actors or merged snapshot): append to the context buffer (planned: also persist to local DB and embed chunks).
+1. On each inbound `deck.line` / `deck.block` (other actors or merged snapshot): append to the context buffer (planned: also persist to local DB and embed chunks).
 2. On each `direct` where `targetActorId` matches this actor's `actorId`: enqueue for response.
 3. On timer or debounce: build context = system prompt + last N buffered messages (planned: + **RAG** top-k from `chunks`).
 
 ### 2.3 Output loop
 
-The worker (`services/agent-worker/main.tish`) **calls its LLM**: `handlePlayingStream` and `handleDirect` snapshot the buffered peer stream into one prompt (`llmLinesFrom`), call `callLLM`, and stream the **real model output** — first as `tpl.stream_chunk` (the finished text char-by-char), then as a committed `tpl.block`. It **falls back to a demo patch only** when `GRADIENT_MODEL_ACCESS_KEY` (or `MODEL_ACCESS_KEY`) is unset or the call fails. The worker also **ingests inbound `tpl.block`** from other actors into its context buffer so responses are aware of them. The old 3-second periodic demo `tpl.block` flood has been **removed**.
+The worker (`services/agent-worker/main.tish`) **calls its LLM**: `handlePlayingStream` and `handleDirect` snapshot the buffered peer stream into one prompt (`llmLinesFrom`), call `callLLM`, and stream the **real model output** — first as `deck.stream_chunk` (the finished text char-by-char), then as a committed `deck.block`. It **falls back to a demo patch only** when `GRADIENT_MODEL_ACCESS_KEY` (or `MODEL_ACCESS_KEY`) is unset or the call fails. The worker also **ingests inbound `deck.block`** from other actors into its context buffer so responses are aware of them. The old 3-second periodic demo `deck.block` flood has been **removed**.
 
 > **Note:** the worker streams the *finished* text char-by-char — provider-side SSE token streaming (live provider tokens) is **planned, not implemented**.
 
 1. Snapshot the buffered peer stream into one prompt; call `callLLM` and stream the resulting text.
-2. Emit `tpl.stream_chunk` (per character of the finished output) for the UI typing indicator, then a `tpl.block`.
-3. Validate TPL line against actor's skills ([DJ_SKILLS.md](./DJ_SKILLS.md)); if invalid, log and skip or send `error` to gateway.
-4. For **`tpl.block`**: set **`effectivePerfStep`** to **host `perfStep` + lookahead** (default **64** sixteenths ≈ four 4/4 bars). Set **`submitDeadlinePerfStep`** to host step + slack (e.g. **48**) so the host drops the block if it arrives too late. Omit both and use **`asap: true`** for emergency edits. Alternatively put **`@ perf_step N`** as the first line of TPL (parsed by host; same as `effectivePerfStep`).
+2. Emit `deck.stream_chunk` (per character of the finished output) for the UI typing indicator, then a `deck.block`.
+3. Validate deck line against actor's skills ([DJ_SKILLS.md](./DJ_SKILLS.md)); if invalid, log and skip or send `error` to gateway.
+4. For **`deck.block`**: set **`effectivePerfStep`** to **host `perfStep` + lookahead** (default **64** sixteenths ≈ four 4/4 bars). Set **`submitDeadlinePerfStep`** to host step + slack (e.g. **48**) so the host drops the block if it arrives too late. Omit both and use **`asap: true`** for emergency edits. Alternatively put **`@ perf_step N`** as the first line of deck (parsed by host; same as `effectivePerfStep`).
 
 ### 2.4 Reconnect
 
@@ -153,7 +153,7 @@ CREATE TABLE agent_memory (
 
 ### 3.2 Vector index
 
-- **sqlite-vec** or **sqlite-vss**: store `chunk_id` + embedding; on ingest, chunk TPL lines (~512 chars) and `direct` messages; query with same embedding model as ingest.
+- **sqlite-vec** or **sqlite-vss**: store `chunk_id` + embedding; on ingest, chunk deck lines (~512 chars) and `direct` messages; query with same embedding model as ingest.
 - **Fallback**: no extension — keyword search on `chunks.text` only.
 
 ### 3.3 Embedding model
@@ -164,7 +164,7 @@ CREATE TABLE agent_memory (
 
 - **Token** on WS URL for v1 stub auth.
 - **direct** channel: treat as user input; strip control chars; max length 8 KiB.
-- Rate-limit `tpl.line` per `actorId` (e.g. 30/sec).
+- Rate-limit `deck.line` per `actorId` (e.g. 30/sec).
 
 ## 5. Reference implementation layout
 

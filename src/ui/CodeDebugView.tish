@@ -207,7 +207,7 @@ export fn CodeDebugView(project, setProject, tplText, setTplText, rt, dock) {
     let ta = document.createElement("textarea")
     ta.className = "tpl-song-input-layer"
     ta.rows = taRows
-    ta.placeholder = "TPL song…"
+    ta.placeholder = "deck song…"
     rt.tplSongEditorEcho = tplText
     ta.value = tplText
     ta.setAttribute("spellcheck", "false")
@@ -258,12 +258,12 @@ export fn CodeDebugView(project, setProject, tplText, setTplText, rt, dock) {
 
   return (
     <section class={panelCls}>
-      <h2>{"TPL"}</h2>
+      <h2>{"deck"}</h2>
       {docked ? null : (
         <Fragment>
           <p class="code-debug-hint code-debug-hint-hub">
             {
-              "WebSocket / hub: use the Co-DJ panel for Connect, stream previews, and the activity log. Play streams your project TPL to the gateway; agents join as separate actors. Nothing duplicated here anymore."
+              "WebSocket / hub: use the Co-DJ panel for Connect, stream previews, and the activity log. Play streams your project deck to the gateway; agents join as separate actors. Nothing duplicated here anymore."
             }
           </p>
           <p class="code-debug-hint">{"Song editor: Apply / Sync ↔ project."}</p>
@@ -278,7 +278,7 @@ export fn CodeDebugView(project, setProject, tplText, setTplText, rt, dock) {
       </div>
       <div class="code-debug-actions">
         <button type="button" class="code-debug-btn" onclick={onApply}>
-          {"Apply TPL"}
+          {"Apply deck"}
         </button>
         <button type="button" class="code-debug-btn" onclick={onSync}>
           {"Sync from project"}

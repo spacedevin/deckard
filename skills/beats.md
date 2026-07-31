@@ -18,7 +18,7 @@ Lay down and evolve the rhythmic foundation — kicks, snares, hats, perc — an
 - `steps euclid <hits> 16` is your fastest way to a syncopated, non-obvious pattern — reach for it on hats and perc instead of hand-placing 16 tokens.
 - As a CLIENT, steer energy by what you add: a halftime kick, a busy ratcheted hat run, or a sparse perc pattern implies a direction the host will mix around. Leave headroom (`mix gain` ~0.7) so the host can balance you — don't slam everything to 1.0.
 
-## TPL it emits
+## deck it emits
 - `track <Name> id <me>_<x> gen <kick_edm|kick_deep|kick_distorted|drumSynth|clap|cymbal|noise_burst>`
 - `steps <16 x/. tokens>`  |  `steps euclid <hits> 16`
 - `step_pitch <midi>` (tune a perc/tom hit; default 36)
@@ -28,14 +28,14 @@ Lay down and evolve the rhythmic foundation — kicks, snares, hats, perc — an
 
 ## Examples
 ```tpl
-tpl 1
+deck 1
 track Kick id <me>_kick gen kick_edm
   mix gain 0.85 eq_lo 2
   steps x . . . x . . . x . . . x . . .
   step_vel 110 0 0 0 100 0 0 0 110 0 0 0 100 0 0 0
 ```
 ```tpl
-tpl 1
+deck 1
 track Hat id <me>_hat gen noise_burst
   noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1
   mix gain 0.6 pan 0.2
@@ -44,7 +44,7 @@ track Hat id <me>_hat gen noise_burst
   step_nudge 0 0 0.04 0 0 0 -0.03 0 0 0 0.04 0 0 0 -0.03 0
 ```
 ```tpl
-tpl 1
+deck 1
 track Clap id <me>_clap gen clap
   gen hands 0.6 spread 0.4 room 0.3 bright 0.55
   mix gain 0.7

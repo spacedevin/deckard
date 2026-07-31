@@ -1,4 +1,4 @@
-// Serialize / mutate a modular `patch` graph ↔ TPL lines (keeps generatorSpec.raw + .graph in sync).
+// Serialize / mutate a modular `patch` graph ↔ deck lines (keeps generatorSpec.raw + .graph in sync).
 // Mirror of MatrixFmGraph.tish but for the free-form patch model that Patch.tish plays and
 // TplExtension.parsePatchGraph reads: nodes (osc/noise/filter/shaper/gain), connections
 // (conn src dst[.param] vol), and breakpoint envelopes (env node.param seg...) with expression tokens.
@@ -162,7 +162,7 @@ export fn syncPatchSpecFromGraph(spec) {
   if (!spec || !spec.graph) {
     return
   }
-  /** Refresh `raw` only (for emit / TPL mirror). Do not replace `graph`: UI handlers close over the
+  /** Refresh `raw` only (for emit / deck mirror). Do not replace `graph`: UI handlers close over the
    *  graph object from the last render; re-parsing would orphan live edits. Same rule as Matrix FM. */
   spec.raw = patchGraphToLines(spec.graph)
 }

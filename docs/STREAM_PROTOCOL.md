@@ -10,9 +10,9 @@
   "authorId": "string",
   "layer": "canonical | ui_overlay",
   "master": false,
-  "op": "TPL_LINE | TPL_BLOCK | DIRECT | CONTROL",
+  "op": "DECK_LINE | DECK_BLOCK | DIRECT | CONTROL",
   "target": { "channelId": "c0", "domain": "mix | steps | gen | notes | auto" },
-  "payload": "single TPL line or object",
+  "payload": "single deck line or object",
   "clientSeq": 42
 }
 ```
@@ -23,9 +23,9 @@ Hub responds with `{ "ok": true, "seq": 17 }` or `{ "ok": false, "code": "SKILL_
 
 The host advances **`perfStep`** in **16th-note steps** (one sequencer column per step; 16 steps per 4/4 bar). Agents should target **future** steps, not “now”.
 
-| Field | On `tpl.block` | Meaning |
+| Field | On `deck.block` | Meaning |
 |-------|----------------|---------|
-| `effectivePerfStep` | optional | Apply merge when host `perfStep >= this`. If omitted (and no `@ perf_step` in TPL), block is **ASAP**. |
+| `effectivePerfStep` | optional | Apply merge when host `perfStep >= this`. If omitted (and no `@ perf_step` in deck), block is **ASAP**. |
 | `submitDeadlinePerfStep` | optional | If host `perfStep` **exceeds** this when the message is received, **drop** (late delivery). Omit = no deadline check. |
 | `asap` | optional | If `true`, ignore schedule and apply immediately when received. |
 
@@ -42,9 +42,9 @@ See [WS_AND_AGENTS.md](./WS_AND_AGENTS.md). Summary:
 | type | Purpose |
 |------|---------|
 | `join` / `joined` | Handshake |
-| `tpl.line` | One completed TPL line |
-| `tpl.block` | Multiple lines atomically (+ optional schedule fields above) |
-| `tpl.stream_chunk` | Live typing (agents) |
+| `deck.line` | One completed deck line |
+| `deck.block` | Multiple lines atomically (+ optional schedule fields above) |
+| `deck.stream_chunk` | Live typing (agents) |
 | `direct` | Natural-language direction to a target actor |
 | `state.snapshot` | Resync |
 | `error` | Rejection |
@@ -81,7 +81,7 @@ These are *Planned* (not yet emitted):
 |------|---------|
 | `SKILL_DENIED` | Lane lacks skill for op |
 | `LEASE_CONFLICT` | Track owned by another lane / master lock |
-| `PARSE_FAIL` | TPL invalid |
+| `PARSE_FAIL` | deck invalid |
 | `RATE_LIMIT` | Too many lines/sec |
 | `AUTH` | Bad token |
 
@@ -92,7 +92,7 @@ Skill-gating is enforced today, but **not** via an error code: the receiver sile
 **Human line**
 
 ```json
-{ "type": "tpl.line", "actorId": "human-xyz", "line": "  mix gain 0.9 pan 0", "authorId": "u1" }
+{ "type": "deck.line", "actorId": "human-xyz", "line": "  mix gain 0.9 pan 0", "authorId": "u1" }
 ```
 
 **Direct to AI-A** (with perf step for scheduling)
@@ -101,14 +101,14 @@ Skill-gating is enforced today, but **not** via an error code: the receiver sile
 { "type": "direct", "targetActorId": "agent-1", "text": "add euclidean 5/16 hi-hat pattern", "authorId": "u1", "perfStep": 120 }
 ```
 
-**tpl.block scheduled for step 200, must arrive by 180**
+**deck.block scheduled for step 200, must arrive by 180**
 
 ```json
 {
-  "type": "tpl.block",
+  "type": "deck.block",
   "actorId": "agent-1",
   "authorId": "agent",
-  "lines": ["tpl 1", "track H id h1 gen noise_burst", "  steps euclid 5 16"],
+  "lines": ["deck 1", "track H id h1 gen noise_burst", "  steps euclid 5 16"],
   "effectivePerfStep": 200,
   "submitDeadlinePerfStep": 180
 }

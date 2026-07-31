@@ -18,7 +18,7 @@ Carve a clear space for every lane and glue the whole mix on the master so nothi
 - Glue on the master sparingly: `master_mix` is output EQ ONLY (eq_lo/mid/hi) — a gentle high-shelf or low-trim to seat the bus. There is no master comp/reverb line, so build 'glue' from balanced per-lane levels and a shared `fx reverb_send` space, not a magic master knob.
 - Balance lanes, don't bury them: use `actor_mix <lane> gain` to set relative loudness between players; reach for `mute`/`solo` only to arrange, then restore. If a new busy lane crowds the mix, pull a competing one back rather than turning everything up.
 
-## TPL it emits
+## deck it emits
 - Per-track (channel_mix, on your own `<me>_` lanes): `mix gain <0..1> pan <-1..1> eq_lo <dB> eq_mid <dB> eq_hi <dB> [mute 1] [solo 1]`
 - Per-track FX space (channel_mix): `fx reverb_send <0..1> cutoff <hz> res <0..1> drive <0..1> filter_type <lowpass|highpass|bandpass|notch>`
 - Master bus EQ glue (master_mixer, master-scope): `master_mix eq_lo <dB> eq_mid <dB> eq_hi <dB>`
@@ -26,7 +26,7 @@ Carve a clear space for every lane and glue the whole mix on the master so nothi
 
 ## Examples
 ```tpl
-tpl 1
+deck 1
 track Kick id <me>_kick gen kick_deep
   mix gain 0.9 pan 0 eq_lo 2 eq_hi -1
 track Sub id <me>_sub gen sub808
@@ -34,7 +34,7 @@ track Sub id <me>_sub gen sub808
   fx cutoff 220 filter_type lowpass
 ```
 ```tpl
-tpl 1
+deck 1
 track Hat id <me>_hat gen noise_burst
   mix gain 0.55 pan 0.35 eq_lo -6 eq_hi 3
   fx reverb_send 0.25
@@ -43,7 +43,7 @@ track Perc id <me>_perc gen clap
   fx reverb_send 0.3
 ```
 ```tpl
-tpl 1
+deck 1
 master_mix eq_lo -1 eq_mid 0 eq_hi 1.5
 actor_mix client-a gain 0.85 eq_mid -2
 ```

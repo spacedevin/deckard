@@ -1,5 +1,5 @@
 // MIDI strip (footer, right of the I/O Rack). Enable Web MIDI, pick an input, MIDI-learn a knob to a target.
-// A connected keyboard plays the SELECTED instrument; a learned CC drives its target via rt.emit (TPL → the
+// A connected keyboard plays the SELECTED instrument; a learned CC drives its target via rt.emit (deck → the
 // move broadcasts + round-trips like a UI drag). Mappings persist locally. `controller` = createMidiController.
 
 import { h, Fragment } from '@tishlang/lattish'

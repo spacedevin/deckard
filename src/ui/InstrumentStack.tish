@@ -1,10 +1,10 @@
 // The instrument as a chain of hardware-style modules. Top→bottom is the signal path, and each module
-// maps to exactly one TPL block (shown as a badge on its header):
+// maps to exactly one deck block (shown as a badge on its header):
 //   Generator (voice picker + per-voice designer + amp envelope) → `gen` / `gen_block`
 //   Pitch     (octave · arp · chord)                             → `voice`
 //   Filter/FX (cutoff · res · drive · lfo · reverb)              → `fx`
 // The sequencer/euclidean lives in the channel rack (it edits `steps`), not here. Picking a voice and
-// every pill is a ch.* edit or rt.emit that re-folds to TPL — the UI stays a pure TPL client.
+// every pill is a ch.* edit or rt.emit that re-folds to deck — the UI stays a pure deck client.
 
 import { h, Fragment } from '@tishlang/lattish'
 import { defaultParamsForGeneratorId, generatorDescriptionById } from '../generators/Registry.tish'
@@ -231,7 +231,7 @@ fn voiceDropdown(project, ch, setProject, tplMirrorFlush, rt, deckColor, badgeTe
 }
 
 
-// Maps a voice/fx field name to its TPL emit address (used by the pitch selector knobs + fx controls);
+// Maps a voice/fx field name to its deck emit address (used by the pitch selector knobs + fx controls);
 // every edit is one rt.emit through the gated ingest door.
 fn fieldAddress(field) {
   if (field === "arp") {
@@ -294,7 +294,7 @@ fn msKnob(label, ch, field, maxMs, rt, accent) {
 // Per-track VOLUME — the channel's mix gain (0..150%). Lives in the FX row; writes through the gated
 // `track/<id>/mix/gain` door (same door the deck fader uses), so the move broadcasts + round-trips.
 fn volKnob(ch, rt, accent) {
-  // Gain lives at ch.gain (the `mix gain` TPL field — Apply.tish writes there, mixLine reads it), NOT ch.mix.gain.
+  // Gain lives at ch.gain (the `mix gain` deck field — Apply.tish writes there, mixLine reads it), NOT ch.mix.gain.
   let g = (typeof ch.gain === "number") ? ch.gain : 0.85
   return Knob({
     label: "Vol",
@@ -412,7 +412,7 @@ fn ModuleCard(title, tplBlock, module, ctx, children, wide, extraClass) {
   if (extraClass !== null && extraClass !== undefined && extraClass !== "") {
     cardClass = cardClass + " " + extraClass
   }
-  // When the code (raw TPL) view is active this module takes over the whole panel — the CSS hides its sibling
+  // When the code (raw deck) view is active this module takes over the whole panel — the CSS hides its sibling
   // row and lets the editor fill the width/height (see .instr-module-raw-active).
   if (raw) {
     cardClass = cardClass + " instr-module-raw-active"
@@ -422,7 +422,7 @@ fn ModuleCard(title, tplBlock, module, ctx, children, wide, extraClass) {
     // The current gen_block for this module — shown in the editor AND used as the undo inverse (the pre-edit
     // text), since onCommit fires on blur with the new text and this closure captures the pre-edit value.
     let curTpl = emitInstrumentModuleTpl(ctx.project, ctx.ch.id, module)
-    // A fragment doesn't need the "tpl 1" document header shown in the editor — strip it for DISPLAY only, then
+    // A fragment doesn't need the "deck 1" document header shown in the editor — strip it for DISPLAY only, then
     // re-add it on apply so the round-trip (and the undo inverse, which keeps the original) is unchanged.
     let displayTpl = curTpl
     if (displayTpl.substring(0, 4) === "tpl ") {
@@ -442,7 +442,7 @@ fn ModuleCard(title, tplBlock, module, ctx, children, wide, extraClass) {
         if ((ctx.rt === null || ctx.rt === undefined)) {
           return
         }
-        let full = text.substring(0, 4) === "tpl " ? text : "tpl 1\n\n" + text
+        let full = text.substring(0, 4) === "tpl " ? text : "deck 1\n\n" + text
         if (ctx.rt.directiveUndoable) {
           ctx.rt.directiveUndoable(full, curTpl, "rawedit:" + ctx.ch.id + ":" + module)
         } else if (ctx.rt.directive) {
@@ -466,7 +466,7 @@ fn ModuleCard(title, tplBlock, module, ctx, children, wide, extraClass) {
         {hasRaw ? (
           <span class="instr-module-toggle" style={toggleStyle}>
             <button type="button" class={raw ? "imt-btn" : "imt-btn imt-on"} title="Designer (knobs)" style={!raw && accent ? { background: accent + "33", color: accent } : {}} onclick={() => setModuleRaw(ctx, module, false)}>{LucideIcon("sliders")}</button>
-            <button type="button" class={raw ? "imt-btn imt-on" : "imt-btn"} title="Raw (TPL)" style={raw && accent ? { background: accent + "33", color: accent } : {}} onclick={() => setModuleRaw(ctx, module, true)}>{LucideIcon("code")}</button>
+            <button type="button" class={raw ? "imt-btn imt-on" : "imt-btn"} title="Raw (deck)" style={raw && accent ? { background: accent + "33", color: accent } : {}} onclick={() => setModuleRaw(ctx, module, true)}>{LucideIcon("code")}</button>
           </span>
         ) : null}
         {tplBlock !== "" ? <span class="instr-module-tpl" style={tplStyle}>{tplBlock}</span> : null}
@@ -626,7 +626,7 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
   
   if (targetChannels.length === 0) {
     let hint = activeDeck !== null && activeDeck !== undefined && activeDeck !== ""
-      ? "No instruments routed to deck " + activeDeck + ". Assign a track to this deck in the mixer or TPL."
+      ? "No instruments routed to deck " + activeDeck + ". Assign a track to this deck in the mixer or deck."
       : "Select a channel in the rack."
     let title = activeDeck !== null && activeDeck !== undefined && activeDeck !== ""
       ? "DECK " + activeDeck + " // INSTRUMENTS"

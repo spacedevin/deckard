@@ -1,6 +1,6 @@
 // Generative pattern helpers: pure transforms over a 16-step array of {on,vel,prob,ratchet,nudge}. They take
 // an injected `rng` (a () -> 0..1 fn) so they're deterministic in tests; the UI passes Math.random and emits
-// the CONCRETE result through the TPL pattern door — so generation runs once on the actor's machine and peers
+// the CONCRETE result through the deck pattern door — so generation runs once on the actor's machine and peers
 // receive the realized steps (no per-client divergence). Euclid distribution keeps the output musical, not noise.
 
 import { euclideanPattern } from '../tpl/Euclidean.tish'

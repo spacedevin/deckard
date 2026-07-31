@@ -1,4 +1,4 @@
-// Build HTML for mirrored TPL highlight layer (textarea overlay). All logic in Tish.
+// Build HTML for mirrored deck highlight layer (textarea overlay). All logic in Tish.
 
 import { tokenize } from './Parser.tish'
 import { classifyLine, isKeyword, isInlineKeyword, isStepToken } from './Highlight.tish'

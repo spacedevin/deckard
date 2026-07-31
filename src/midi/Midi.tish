@@ -1,8 +1,8 @@
 // MIDI input — Web MIDI keyboard + controller, ported clean (no app-specific deps) from the patterns in
 // ~/Projects/tish-audio. Two jobs: (1) keyboard NOTES audition the selected instrument live; (2) a CC/knob,
 // once MIDI-learned to a target, drives that control via `rt.emit` — the SAME gated, broadcast, round-tripping
-// TPL a UI drag emits, so a hardware move is multiplayer-native. Device + mappings persist locally (per
-// machine); the actions they trigger are TPL.
+// deck a UI drag emits, so a hardware move is multiplayer-native. Device + mappings persist locally (per
+// machine); the actions they trigger are deck.
 
 /// Pure MIDI byte parser → a normalized event, or null. Status: 0x90 noteOn (vel 0 = noteOff), 0x80 noteOff,
 /// 0xB0 control change, 0xE0 pitch bend (14-bit). System messages (0xF0+) are ignored.

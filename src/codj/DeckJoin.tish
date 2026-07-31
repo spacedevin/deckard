@@ -5,7 +5,7 @@
 // actorId (collision-free) AND owned by the joiner — which is exactly what routes a channel to that player's
 // deck (DeckRouting.channelPlayerIndex → owner's slot in coDjPlayers → A/B/C/D). The host then accepts the
 // joiner-owned tracks (ownership-gated, as NEW tracks) and re-snapshots, so every member converges on ONE
-// shared TPL with the joiner's deck filled. Pure model logic so it's testable headlessly.
+// shared deck with the joiner's deck filled. Pure model logic so it's testable headlessly.
 
 import { emitProject } from '../tpl/Emit.tish'
 import { loadDefaultDeckardProject } from '../model/ProjectLoad.tish'
@@ -119,7 +119,7 @@ export fn rehomeJoinerChannels(np, sourceChannels, actorId) {
     ch.actorLane = ""
     // Drop the channel's carried-over session clip(s): their ids were baked from the OLD channel id
     // (`<oldId>_main`). Clearing lets the session sync regenerate the main clip as `<nid>_main` — the SAME
-    // id the host derives when it applies this track — so every member's TPL (clips included) is identical.
+    // id the host derives when it applies this track — so every member's deck (clips included) is identical.
     // Lossless: the main clip is a pure projection of the channel's steps/notes.
     ch.sessionClips = null
     have[nid] = true

@@ -1,7 +1,7 @@
 import { automationAt } from '../schedule/Engine.tish'
 import { paramKeyToCamel } from '../tpl/RegistryMap.tish'
 
-// TPL mix param tokens → project field names (channel / actor / master EQ).
+// deck mix param tokens → project field names (channel / actor / master EQ).
 export fn mixParamFromTpl(tok) {
   let s = String(tok)
   if (s === "trim") {

@@ -1,4 +1,4 @@
-// Runtime bar counts for TPL tplLoopBars (finite loops). Keyed by channel id.
+// Runtime bar counts for deck tplLoopBars (finite loops). Keyed by channel id.
 
 import { effectiveTplLoopCap } from '../model/Session.tish'
 

@@ -141,9 +141,9 @@ fn noteIdxAtStep(ch, pitch, step) {
 }
 
 // ---- Per-step PARAMETER LOCKS (velocity / probability / ratchet / nudge) --------------------------------
-// Live + multiplayer-safe: every lock edit re-emits the WHOLE pattern as ONE TPL statement through
+// Live + multiplayer-safe: every lock edit re-emits the WHOLE pattern as ONE deck statement through
 // rt.emit("track/<id>/pattern", stepsArray) — the same gated, broadcast, round-trip door a fader uses. No
-// direct model mutation (the grid stays a pure TPL client; the anti-spaghetti ratchet stays clean).
+// direct model mutation (the grid stays a pure deck client; the anti-spaghetti ratchet stays clean).
 fn lockLaneCfg(field) {
   if (field === "vel") {
     return { label: "VEL", lo: 1, hi: 127, dflt: 100, bip: false }
@@ -214,7 +214,7 @@ fn emitStepLock(rt, project, chIdx, stepIdx, field, value) {
 }
 
 // Projectional step toggle: flip (or force-off) one step and emit the WHOLE pattern through the gated door,
-// so a grid click becomes a real TPL statement that round-trips to the editor AND broadcasts to co-DJ peers
+// so a grid click becomes a real deck statement that round-trips to the editor AND broadcasts to co-DJ peers
 // (the old toggleStep path mutated locally + never reached ingest, so peers never saw step edits). Returns
 // false when it can't take the projectional path (multi-bar pattern — the `steps` emit is bar-1 only — so the
 // caller falls back to the legacy direct edit).

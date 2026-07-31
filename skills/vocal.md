@@ -13,12 +13,12 @@ Add the human element — a vowel hook, choir pad, or choppy vox stab that gives
 ## How to think
 - Reach for a vocal when the production has rhythm + bass but no hook or top-line identity; a single sung phrase or stab can define the whole drop.
 - `formantVocal` = expressive sung/glided lead (use `note` lines, let `glide` bend between pitches); `syncChoir` = lush 80s analog choir pad (sustained chords); `ttsVocal`/`meSpeakVocal` = robotic spoken/chopped texture (short `steps` hits, not melodies).
-- There is NO lyric/text token in co-DJ TPL — you sequence vocals by pitch (`note`/`steps`) and shape them with generator knobs, `voice`, and `fx reverb_send`. Don't try to emit words.
+- There is NO lyric/text token in co-DJ deck — you sequence vocals by pitch (`note`/`steps`) and shape them with generator knobs, `voice`, and `fx reverb_send`. Don't try to emit words.
 - Vocals own the mid band, so carve room: keep gain moderate, ride `eq_mid`, and pan a stab off-center if a lead already sits up the middle. One vocal element at a time — stacked vocals turn to mud.
 - Chops/stabs sit best rhythmically locked to the beat (short notes, `step_nudge`/`prob` for swing); sung hooks want space and `reverb_send` for depth.
 - As a client: a key-implying sung melody is your strongest genre/energy steer — show the direction in the notes. As a host: pull a vocal forward (gain/EQ) when it's the hook, duck it under the next builder.
 
-## TPL it emits
+## deck it emits
 - `track <Name> id <me>_<x> gen formantVocal|syncChoir|ttsVocal|meSpeakVocal`
 - `note <midi> <startBeat> <durBeats> v <vel> [p <prob>] [r <ratchet>] [n <nudge>]` — pitched vocal lines (melody / chopped stabs).
 - `steps <16 x/.>` + `step_pitch <midi>` — rhythmic spoken/robotic chops.
@@ -28,7 +28,7 @@ Add the human element — a vowel hook, choir pad, or choppy vox stab that gives
 
 ## Examples
 ```tpl
-tpl 1
+deck 1
 track Vowel Hook id <me>_vox gen formantVocal
   gen glide 0.18 vibDepth 0.03 vibRate 5 humanize 0.6
   voice octave 0
@@ -39,7 +39,7 @@ track Vowel Hook id <me>_vox gen formantVocal
   fx reverb_send 0.4
 ```
 ```tpl
-tpl 1
+deck 1
 track Vox Stab id <me>_voxchop gen ttsVocal
   step_pitch 60
   steps x . . x . . x . x . . . x . x .
@@ -48,7 +48,7 @@ track Vox Stab id <me>_voxchop gen ttsVocal
   mix gain 0.5 pan -0.25 eq_mid -1
 ```
 ```tpl
-tpl 1
+deck 1
 track Choir Pad id <me>_choir gen syncChoir
   gen vowelShift 22 morphRate 0.4 morphAmt 12 ensembleDetune 15
   voice chord min7 octave 0

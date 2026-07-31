@@ -17,18 +17,18 @@ Stored in project as `coDjMeta` (parallel to channels):
 
 `ensureCoDjMeta` in `src/codj/CoDjMeta.tish` only ever builds the `tracks` object, keyed by `channelId`. A `lanes` object is _not_ created (Planned).
 
-- **`ownerActorId`**: which lane’s TPL is authoritative for this channel’s body (after merge).
+- **`ownerActorId`**: which lane’s deck is authoritative for this channel’s body (after merge).
 - **`masterLock`**: if true, only master/human actor may change this track until released. Now has a UI toggle: a per-track **LOCK/OPEN** button in the channel rack (`src/ui/ChannelRack.tish`) calls `setMasterLock`.
 - **`authorId`**: last writer or creator.
 - **`lastTouchedPerfStep`**: performance step at which the track was last written (`setTrackTouched`).
 
 ## Merge precedence
 
-1. If `masterLock` and actor is not master → ignore non-master TPL for that `channelId` from other actors (or require `control` overwrite).
-2. Else use **ownerActorId**’s latest TPL for that track id.
+1. If `masterLock` and actor is not master → ignore non-master deck for that `channelId` from other actors (or require `control` overwrite).
+2. Else use **ownerActorId**’s latest deck for that track id.
 3. New track from actor X → `ownerActorId = X`, `authorId = emitter`.
 
-## Planned: inline TPL
+## Planned: inline deck
 
 Optional parser extension (still unimplemented):
 

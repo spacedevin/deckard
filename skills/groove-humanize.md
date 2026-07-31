@@ -18,7 +18,7 @@ Make parts that already play feel human and pocketed — velocity dynamics, prob
 - `step_ratchet` adds rolls/flams — reserve it for tension (a 2-3x ratchet on the last step before a turnaround); ratcheting everything turns a groove to mush.
 - Groove is how a production locks together: match the host's implied feel, pocket your part against what's already playing, and leave the strong beats clean so the kick/bass read.
 
-## TPL it emits
+## deck it emits
 - `step_vel <16 ints 1-127>` — per-step velocity accents/ghosts (channel_mix), parallel to an existing `steps` lane.
 - `step_prob <16 floats 0-1>` — seeded per-step probability for living variation (channel_mix).
 - `step_ratchet <16 ints 1-8>` — per-step sub-hit rolls/flams (channel_mix).
@@ -27,7 +27,7 @@ Make parts that already play feel human and pocketed — velocity dynamics, prob
 
 ## Examples
 ```tpl
-tpl 1
+deck 1
 track Hat id <me>_hat gen noise_burst
   noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1
   steps x x x x x x x x x x x x x x x x
@@ -36,14 +36,14 @@ track Hat id <me>_hat gen noise_burst
   step_nudge 0 0.1 0 0.1 0 0.1 0 0.1 0 0.1 0 0.1 0 0.1 0 0.1
 ```
 ```tpl
-tpl 1
+deck 1
 track Snare id <me>_snare gen drumSynth
   steps . . . . x . . . . . . . x . . x
   step_vel 1 1 1 1 118 1 1 1 1 1 1 1 118 1 1 90
   step_ratchet 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 3
 ```
 ```tpl
-tpl 1
+deck 1
 track Pluck id <me>_pluck gen tine
   note 60 0 0.5 v 112 p 1 n 0
   note 64 0.5 0.5 v 70 p 0.8 n 0.08

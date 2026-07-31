@@ -1,8 +1,9 @@
-// Line-level classification for TPL syntax and step highlighting (no full parse).
+// Line-level classification for deck syntax and step highlighting (no full parse).
 
 import { tokenize } from './Parser.tish'
 
 let TOP_KEYS = {}
+TOP_KEYS["deck"] = true
 TOP_KEYS["tpl"] = true
 TOP_KEYS["bpm"] = true
 TOP_KEYS["launch_quant"] = true

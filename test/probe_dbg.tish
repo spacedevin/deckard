@@ -7,7 +7,7 @@ let p = loadDefaultDeckardProject().project
 let ch = p.channels[0]
 let T = ch.id
 console.log("channel name=" + String(ch.name) + " id=" + String(T))
-let mtx = "tpl 1\ntrack " + ch.name + " id " + T + " gen matrixFm\n" +
+let mtx = "deck 1\ntrack " + ch.name + " id " + T + " gen matrixFm\n" +
   "  gen_block matrix_fm\n" +
   "    op 1 wave sine ratio 1\n" +
   "    op 2 wave sine ratio 2\n" +
