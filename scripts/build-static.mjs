@@ -46,5 +46,13 @@ for (const entry of readdirSync(publicDir)) {
   cpSync(join(publicDir, entry), join(out, entry), { recursive: true })
 }
 
+// Docs + llms.txt are generated into public/ by build:docs (run before this script).
+if (!existsSync(join(out, 'docs', 'index.html'))) {
+  console.warn('build-static: warning — public/docs missing; run `npm run build:docs` first for /docs')
+}
+if (!existsSync(join(out, 'llms.txt'))) {
+  console.warn('build-static: warning — public/llms.txt missing')
+}
+
 console.log(`build-static: assembled static site → ${out}`)
 console.log(`build-static: contents → ${readdirSync(out).sort().join(', ')}`)

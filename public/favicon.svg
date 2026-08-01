@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Deckard">
+  <rect width="32" height="32" fill="#09090d"/>
+  <path fill="#e8945c" fill-rule="evenodd" d="
+    M6.5 5h10c5.9 0 9.8 3.5 9.8 8.7v4.6c0 5.2-3.9 8.7-9.8 8.7h-10V5zm4.4 3.8v14.4h5.4c3.5 0 5.5-2 5.5-5.3v-3.8c0-3.3-2-5.3-5.5-5.3h-5.4z
+  "/>
+  <g fill="#7cff7c">
+    <rect x="13" y="11.1" width="7.4" height="1.15" rx="0.35"/>
+    <rect x="13.5" y="10.55" width="2" height="2.25" rx="0.35"/>
+    <rect x="13" y="15.4" width="7.4" height="1.15" rx="0.35"/>
+    <rect x="17.4" y="14.85" width="2" height="2.25" rx="0.35"/>
+    <rect x="13" y="19.7" width="7.4" height="1.15" rx="0.35"/>
+    <rect x="15.4" y="19.15" width="2" height="2.25" rx="0.35"/>
+  </g>
+</svg>

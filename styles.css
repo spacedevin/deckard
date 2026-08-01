@@ -660,19 +660,6 @@ input[type="range"]::-moz-range-thumb {
   gap: 0.4rem;
 }
 
-.logo-beta {
-  font-size: 0.55rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent-warm, #e8945c);
-  background: rgba(232, 148, 92, 0.14);
-  border: 1px solid rgba(232, 148, 92, 0.4);
-  border-radius: 4px;
-  padding: 0.08rem 0.32rem;
-  transform: translateY(-0.35em);
-}
-
 .transport-bar {
   display: flex;
   align-items: center;
@@ -7081,8 +7068,7 @@ input[type="text"].instr-name-input:focus {
   border-radius: 0 !important;
 }
 
-/* "created with 🎹 by space.la" credit — fixed bottom-right corner */
-/* Credit sits under the Deckard logo in the top bar (was a fixed bottom-right overlay). */
+/* Credit + Docs link under the Deckard logo in the top bar. */
 .logo-col { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; }
 .made-by-credit {
   font-size: 9px;
@@ -7096,6 +7082,9 @@ input[type="text"].instr-name-input:focus {
 .made-by-credit:hover { opacity: 1; }
 .made-by-credit a { color: inherit; text-decoration: none; }
 .made-by-credit a:hover { color: var(--accent, #e8945c); text-decoration: underline; }
+.made-by-credit a.docs-link { color: var(--mint, #7cff7c); }
+.made-by-credit a.docs-link:hover { color: var(--mint, #7cff7c); text-decoration: underline; }
+.made-by-sep { opacity: 0.6; }
 
 /* Deck-cycler chip is non-interactive in a co-DJ session (deck↔player mapping is fixed) */
 .sg-deck-chip-locked { opacity: 0.45; cursor: not-allowed; filter: grayscale(0.4); }

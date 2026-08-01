@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "npm run build:static",
+  "outputDirectory": "build",
+  "headers": [
+    {
+      "source": "/api/og",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, immutable, no-transform, max-age=31536000"
+        }
+      ]
+    }
+  ]
+}

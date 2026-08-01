@@ -2996,11 +2996,12 @@ export fn App() {
   return <div class="daw-root">
     <header class="daw-header">
       <div class="logo-col">
-        <h1 class="logo">{"Deckard"}<span class="logo-beta" title="beata">{"beata"}</span></h1>
+        <h1 class="logo">{"Deckard"}</h1>
         <div class="made-by-credit">
-          <a href="https://github.com/spacedevin/deckard" target="_blank" rel="noopener noreferrer">created with 🎹</a>
-          {" by "}
+          {"by "}
           <a href="https://space.la" target="_blank" rel="noopener noreferrer">space.la</a>
+          <span class="made-by-sep">{" · "}</span>
+          <a href="/docs/" class="docs-link">{"Docs"}</a>
         </div>
       </div>
       {TransportBar(

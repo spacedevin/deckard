@@ -77,13 +77,22 @@ Specs: [docs/WS_AND_AGENTS.md](docs/WS_AND_AGENTS.md), [docs/STREAM_PROTOCOL.md]
 
 ## Docs
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — **start here:** overview, vision, subsystem map, end-to-end path  
-- [docs/FL_STUDIO_GENERATORS.md](docs/FL_STUDIO_GENERATORS.md) — how this maps to FL-style channel instruments  
-- [docs/GENERATORS.md](docs/GENERATORS.md) — adding a new generator module  
-- [docs/schema/project-v2.json](docs/schema/project-v2.json) — project shape (v1 `waveform` auto-migrates)  
-- [docs/TISH_JS_BUILTINS.md](docs/TISH_JS_BUILTINS.md) — `new` for JS (e.g. `AudioContext`, `Uint8Array`)  
-- [docs/LATTISH.md](docs/LATTISH.md) — **Lattish** hooks + `h()` JSX-like DOM (no angle brackets)  
+**Published (deckard.lol):** [https://deckard.lol/docs/](https://deckard.lol/docs/) · [`/llms.txt`](https://deckard.lol/llms.txt) · [`/llms-full.txt`](https://deckard.lol/llms-full.txt)
+
+Build locally with `npm run build:docs` (also runs as part of `build:static` / `dev`). Sources live in [`content/docs/`](content/docs/) plus the canonical markdown under [`docs/`](docs/).
+
+**In-repo:**
+
+- [llms.txt](llms.txt) — llmstxt.org index for agents in a checkout  
 - [AGENTS.md](AGENTS.md) — agent editing contract  
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — overview, vision, subsystem map  
+- [docs/DECK_GRAMMAR.md](docs/DECK_GRAMMAR.md) — full deck language  
+- [docs/DECK_AGENT_GRAMMAR.md](docs/DECK_AGENT_GRAMMAR.md) — co-DJ lane subset  
+- [docs/GENERATORS.md](docs/GENERATORS.md) — adding a new generator module  
+- [docs/schema/project-v2.json](docs/schema/project-v2.json) — project shape  
+- [docs/FL_STUDIO_GENERATORS.md](docs/FL_STUDIO_GENERATORS.md) — FL-style mapping  
+- [docs/TISH_JS_BUILTINS.md](docs/TISH_JS_BUILTINS.md) — `new` for JS  
+- [docs/LATTISH.md](docs/LATTISH.md) — Lattish hooks + `h()`
 
 ## Upstream Tish changes
 

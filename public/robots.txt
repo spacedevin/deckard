@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Allow: /api/og
+Allow: /api/og/*
+
+Sitemap: https://deckard.lol/docs/

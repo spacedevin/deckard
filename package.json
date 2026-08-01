@@ -4,9 +4,11 @@
   "private": true,
   "description": "Token-streamed live-coding DAW in Tish — LLM + human co-DJ over deck",
   "scripts": {
-    "dev": "vite",
+    "dev": "npm run build:og && npm run build:docs && vite",
     "build": "tish build --target js src/main.tish -o dist/bundle.js && tish build --target js src/ScopeWorker.tish -o scope-worker.js",
-    "build:static": "npm run build && node scripts/build-static.mjs",
+    "build:og": "node scripts/build-og.mjs",
+    "build:docs": "node scripts/build-docs.mjs",
+    "build:static": "npm run build:og && npm run build:docs && npm run build && node scripts/build-static.mjs",
     "serve:static": "npx --yes serve build -p 3456",
     "test": "npm run test:smoke && npm run test:mp && npm run test:levels && npm run test:multiword && npm run test:voicereset && npm run test:ratchet && npm run test:deckjoin && npm run test:transport && npm run test:deckmix",
     "test:deckmix": "tish build --target js test/deckmix.tish -o /tmp/deckard-dm.js && node /tmp/deckard-dm.js",
@@ -33,15 +35,19 @@
   "dependencies": {
     "@tishlang/lattish": "^2.0.0",
     "@tishlang/tish": "^2.2.5",
+    "@vercel/og": "^0.11.1",
     "mespeak": "^2.0.2"
   },
   "devDependencies": {
+    "@types/react": "^19.2.18",
     "lucide": "^0.469.0",
+    "react": "^19.2.8",
     "vite": "^8.0.14"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "@tishlang/tish"
+      "@tishlang/tish",
+      "sharp"
     ]
   }
 }

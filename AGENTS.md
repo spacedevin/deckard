@@ -1,5 +1,7 @@
 # Agent / LLM editing contract — Deckard
 
+**LLM index:** [llms.txt](llms.txt) (checkout) · [https://deckard.lol/llms.txt](https://deckard.lol/llms.txt) (site) · human docs at [https://deckard.lol/docs/](https://deckard.lol/docs/).
+
 For the big picture (vision, subsystems, end-to-end signal path) read
 **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** first.
 

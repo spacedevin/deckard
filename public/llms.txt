@@ -1,0 +1,50 @@
+# Deckard
+
+> Token-streamed live-coding DAW in Tish. Humans and LLM agents co-DJ by streaming **deck** — a line-oriented patch language decoded into live synthesised stems (never WAV files). Published docs: https://deckard.lol/docs/ — this file is the **in-repo** index for agents working in a checkout.
+
+Deckard is the product. **deck** is the language (`.deck` files, header `deck 1`). DJ mixer lanes use track-body `deck A|B|C|D` — that is not the version header.
+
+## How agents should work
+
+- The UI is a **deck client**: every meaningful edit round-trips emit → apply. Do not invent parallel mutation paths.
+- Co-DJ agents may only edit **their lane** (prefix track ids with `actorId`, e.g. `ai-a_hat`).
+- Master-scope lines (`bpm`, `deck 1` / legacy `tpl 1`, `scale`, `swing`, `master_mix`, `actor_mix`, `auto`, `session_*`, `clip`, …) require the `master_mixer` skill.
+- Beats are **quarter notes**. Step `i` (0–15) = beat `i * 0.25` in a 4/4 bar.
+- Wire protocol types: `deck.line`, `deck.block`, `deck.stream_chunk` (envelope ops `DECK_LINE` / `DECK_BLOCK`).
+- Parser/apply/emit live in `src/deckfile/`. Agent prompts compose from `skills/*.md` + agent grammar.
+
+## Core documentation (repo paths)
+
+- [AGENTS.md](AGENTS.md): Agent editing contract — start here in a checkout
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): Vision, subsystems, end-to-end path
+- [docs/DECK_GRAMMAR.md](docs/DECK_GRAMMAR.md): Complete streamable patch grammar
+- [docs/DECK_AGENT_GRAMMAR.md](docs/DECK_AGENT_GRAMMAR.md): Co-DJ lane subset (lockstep with worker SYSTEM_PROMPT)
+- [docs/DECK_EXTENSION.md](docs/DECK_EXTENSION.md): `gen_block` patch / matrix graphs
+- [docs/WS_AND_AGENTS.md](docs/WS_AND_AGENTS.md): Gateway, actors, streaming
+- [docs/STREAM_PROTOCOL.md](docs/STREAM_PROTOCOL.md): Envelope, scheduling, control
+- [docs/DJ_SKILLS.md](docs/DJ_SKILLS.md): Skill gating / master-scope denylist
+- [skills/README.md](skills/README.md): Host/client roles and skill file format
+- [docs/GENERATORS.md](docs/GENERATORS.md): Adding instrument modules
+- [docs/schema/project-v2.json](docs/schema/project-v2.json): Project JSON shape
+
+## Code entry points
+
+- [src/deckfile/](src/deckfile/): Parser, Apply, Emit, Stream, Highlight
+- [src/generators/](src/generators/): Instrument registry and modules
+- [src/codj/](src/codj/): Merge, Skills, DeckJoin, Launch
+- [services/agent-worker/main.tish](services/agent-worker/main.tish): LLM co-DJ worker
+- [services/gateway/main.tish](services/gateway/main.tish): WebSocket hub
+- [projects/default.deckard.deck](projects/default.deckard.deck): Bundled demo song
+- [content/docs/](content/docs/): Sources for the published https://deckard.lol/docs site
+
+## Published site
+
+- [https://deckard.lol/llms.txt](https://deckard.lol/llms.txt): Site-root llmstxt.org index (absolute URLs)
+- [https://deckard.lol/llms-full.txt](https://deckard.lol/llms-full.txt): Concatenated published docs
+- [https://deckard.lol/docs/](https://deckard.lol/docs/): Human-readable docs
+
+## Optional
+
+- [docs/AUTHOR_TAGGING.md](docs/AUTHOR_TAGGING.md): Who authored which stems
+- [docs/TOKEN_STREAM_DEMO.md](docs/TOKEN_STREAM_DEMO.md): Offline streaming demo
+- [DEPLOY.md](DEPLOY.md): DigitalOcean static + gateway deploy
