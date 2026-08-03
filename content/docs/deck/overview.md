@@ -43,10 +43,11 @@ track Bass id c1 gen bass_acid
 
 ## Runtime path
 
-Parser / apply / emit live in `src/deckfile/` (`Parser.tish`, `Apply.tish`, `Emit.tish`, `Stream.tish`). Incremental Co-DJ decode is skill-gated per line.
+Language parse / format / highlight: **`@spacedevin/deck`**. Host apply / emit / stream: `src/deckfile/` (`Apply.tish`, `Emit.tish`, `Stream.tish`). Registries boot from `src/generators/DeckIds.tish`. Incremental Co-DJ decode is skill-gated per line.
 
 ## Full references
 
-- [deck grammar](/docs/deck/grammar/) — complete language
+- [deck grammar](/docs/deck/grammar/) — canonical language (`@spacedevin/deck`)
+- [Deckard overlay](/docs/deck/host/) — UI, ownership, clamps
 - [Agent grammar](/docs/deck/agent-grammar/) — co-DJ lane subset
-- [Extensions](/docs/deck/extensions/) — `gen_block` patch / matrix
+- [Extensions](/docs/deck/extensions/) — `gen_block` patch / matrix engines

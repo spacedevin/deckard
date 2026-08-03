@@ -1,21 +1,7 @@
-// Macros — named, parameterized patch templates. Built-ins port the deck.tsx kick/bass voices; users
-// define their own in deck:
-//
-//   macro my_kick pitch=150 decay=0.5
-//     osc o sine
-//     gain a
-//     conn o a
-//     conn a out
-//     env o.freq set 0 $pitch exp $decay 0.01
-//     env a.gain set 0 1 exp $decay 0.01
-//     dur 0.6
-//   end macro
-//
-// A track uses one with `gen my_kick [pitch 120 ...]`, which expands to a `gen_block patch` at apply
-// time. `$name` tokens in the body are substituted by the resolved parameter (override else default).
+// Deckard built-in macro catalog (host-owned). Register into @spacedevin/deck at boot.
+import { registerBuiltinMacros } from '@spacedevin/deck'
 
-/// Built-in macro library — { name: { params: {k: default}, body: [patch lines] } }.
-export fn builtinMacros() {
+fn deckardBuiltinMacros() {
   return {
     "kick_edm": {
       params: { pitch: 150, decay: 0.5 },
@@ -140,47 +126,9 @@ export fn builtinMacros() {
   }
 }
 
-/// Resolve a macro by name from user-defined macros first, then built-ins. Returns null if not a macro.
-export fn lookupMacro(name, userMacros) {
-  if (userMacros && userMacros[name]) {
-    return userMacros[name]
-  }
-  let b = builtinMacros()
-  if (b[name]) {
-    return b[name]
-  }
-  return null
-}
-
-/// Expand a macro's body into patch lines, substituting $param with override-or-default values.
-export fn expandMacroBody(macro, overrides) {
-  let vals = {}
-  let keys = Object.keys(macro.params)
-  let i = 0
-  while (i < keys.length) {
-    vals[keys[i]] = macro.params[keys[i]]
-    i = i + 1
-  }
-  if (overrides) {
-    let ok = Object.keys(overrides)
-    let j = 0
-    while (j < ok.length) {
-      vals[ok[j]] = overrides[ok[j]]
-      j = j + 1
-    }
-  }
-  let valKeys = Object.keys(vals)
-  let out = []
-  let li = 0
-  while (li < macro.body.length) {
-    let line = macro.body[li]
-    let ki = 0
-    while (ki < valKeys.length) {
-      line = line.split("$" + valKeys[ki]).join(String(vals[valKeys[ki]]))
-      ki = ki + 1
-    }
-    out.push(line)
-    li = li + 1
-  }
-  return out
+let done = false
+export fn ensureBuiltinMacros() {
+  if (done) { return }
+  done = true
+  registerBuiltinMacros(deckardBuiltinMacros())
 }

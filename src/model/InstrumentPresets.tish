@@ -1,6 +1,11 @@
+import {
+  parseGenBlock
+} from '@spacedevin/deck'
+import {
+  defaultMatrixFmRawLines
+} from './MatrixFmDefaults.tish'
 // Per-track instrument state is isolated: always clone params when assigning or loading presets.
 
-import { parseGenBlock, defaultMatrixFmRawLines } from '../deckfile/TplExtension.tish'
 
 export fn deepCloneParams(obj) {
   return JSON.parse(JSON.stringify(obj))

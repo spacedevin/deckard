@@ -1,10 +1,11 @@
-// Sytrus-style Matrix FM editor: operators, modulation matrix, filters, routing.
-// Now with SVG signal-flow cables like the Patch editor.
-
-import { h } from '@tishlang/lattish'
+import {
+  parseGenBlock
+} from '@spacedevin/deck'
 import {
   sortedStringKeys,
-  syncMatrixFmSpecFromGraph,
+  syncMatrixFmSpecFromGraph
+} from '../deckfile/MatrixFmGraph.tish'
+import {
   addMatrixFmOperator,
   removeMatrixFmOperator,
   addMatrixFmFilter,
@@ -15,8 +16,14 @@ import {
   removeMatrixFmRouteAt,
   ensureMatrixFmOpEnv,
   ensureMatrixFmFilterEnv
-} from '../deckfile/MatrixFmGraph.tish'
-import { parseGenBlock, defaultMatrixFmRawLines } from '../deckfile/TplExtension.tish'
+} from '../model/MatrixFmGraphEdit.tish'
+import {
+  defaultMatrixFmRawLines
+} from '../model/MatrixFmDefaults.tish'
+// Sytrus-style Matrix FM editor: operators, modulation matrix, filters, routing.
+// Now with SVG signal-flow cables like the Patch editor.
+
+import { h } from '@tishlang/lattish'
 import { Knob, WaveIconPicker, IkSelect, accentForGenerator, matrixFmSvgDataUrl, matrixFmLucideIconSvg, isKnobDragging } from './InstrumentKit.tish'
 import { emitInstrumentModuleTpl } from '../core/Levels.tish'
 import { cablePathD } from './PatchGraphPanel.tish'

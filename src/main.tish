@@ -1,3 +1,8 @@
+import { ensureDeckGeneratorIds } from './generators/DeckIds.tish'
+import { ensureBuiltinMacros } from './generators/BuiltinMacros.tish'
+ensureDeckGeneratorIds()
+ensureBuiltinMacros()
+
 import { createRoot } from '@tishlang/lattish'
 import { App } from './ui/App.tish'
 

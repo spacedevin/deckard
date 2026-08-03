@@ -1,3 +1,6 @@
+import {
+  tokenize
+} from '@spacedevin/deck'
 // Level snapshots (expand-the-concept): the project is a tree of nested deck-serializable LEVELS, and any
 // node can be emitted/applied on its own. A snapshot is just a named deck fragment — so it's streamable,
 // diffable, file-able, and doubles as a test fixture. Levels (sound/pattern split):
@@ -14,7 +17,6 @@
 // body), so this is purely additive — no change to the emitter. Apply goes back through the gated ingest.
 
 import { emitProject } from '../deckfile/Emit.tish'
-import { tokenize } from '../deckfile/Parser.tish'
 import { findChannelById } from '../deckfile/Apply.tish'
 
 // Body keywords that describe the SOUND (instrument) vs the PATTERN (sequence). gen_block children

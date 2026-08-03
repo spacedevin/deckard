@@ -1,9 +1,11 @@
+import {
+  parseProgram
+} from '@spacedevin/deck'
 // Round-trip guard for the deck_mix deck directive (per-deck booth EQ + volume). Proves the centre DJ-mixer
 // strip — which had NO wire representation before — now serializes, parses, and re-applies identically, so it
 // can ride the host state.snapshot and a follower deck.put. Run: tish build --target js test/deckmix.tish ...
 import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
 import { emitProject, deckMixLine } from '../src/deckfile/Emit.tish'
-import { parseProgram } from '../src/deckfile/Parser.tish'
 import { applyCoDjTplSource } from '../src/codj/Merge.tish'
 import { ensureDeckEq } from '../src/ui/deck/DeckMixer.tish'
 

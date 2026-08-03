@@ -11,15 +11,16 @@ Deckard is the product. **deck** is the language (`.deck` files, header `deck 1`
 - Master-scope lines (`bpm`, `deck 1` / legacy `tpl 1`, `scale`, `swing`, `master_mix`, `actor_mix`, `auto`, `session_*`, `clip`, …) require the `master_mixer` skill.
 - Beats are **quarter notes**. Step `i` (0–15) = beat `i * 0.25` in a 4/4 bar.
 - Wire protocol types: `deck.line`, `deck.block`, `deck.stream_chunk` (envelope ops `DECK_LINE` / `DECK_BLOCK`).
-- Parser/apply/emit live in `src/deckfile/`. Agent prompts compose from `skills/*.md` + agent grammar.
+- Parser in `@spacedevin/deck`; apply/emit/stream in `src/deckfile/`. Agent prompts compose from `skills/*.md` + agent grammar.
 
 ## Core documentation (repo paths)
 
 - [AGENTS.md](AGENTS.md): Agent editing contract — start here in a checkout
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): Vision, subsystems, end-to-end path
-- [docs/DECK_GRAMMAR.md](docs/DECK_GRAMMAR.md): Complete streamable patch grammar
+- [`@spacedevin/deck` grammar](node_modules/@spacedevin/deck/docs/DECK_GRAMMAR.md): Canonical streamable patch language
+- [docs/DECK_GRAMMAR.md](docs/DECK_GRAMMAR.md): Deckard overlay (UI, ownership, clamps, generator spellings)
 - [docs/DECK_AGENT_GRAMMAR.md](docs/DECK_AGENT_GRAMMAR.md): Co-DJ lane subset (lockstep with worker SYSTEM_PROMPT)
-- [docs/DECK_EXTENSION.md](docs/DECK_EXTENSION.md): `gen_block` patch / matrix graphs
+- [docs/DECK_EXTENSION.md](docs/DECK_EXTENSION.md): Deckard `gen_block` patch / matrix engines
 - [docs/WS_AND_AGENTS.md](docs/WS_AND_AGENTS.md): Gateway, actors, streaming
 - [docs/STREAM_PROTOCOL.md](docs/STREAM_PROTOCOL.md): Envelope, scheduling, control
 - [docs/DJ_SKILLS.md](docs/DJ_SKILLS.md): Skill gating / master-scope denylist
@@ -29,7 +30,9 @@ Deckard is the product. **deck** is the language (`.deck` files, header `deck 1`
 
 ## Code entry points
 
-- [src/deckfile/](src/deckfile/): Parser, Apply, Emit, Stream, Highlight
+- [`@spacedevin/deck`](https://github.com/spacedevin/deck): Language parse / format / registries / highlight
+- [src/deckfile/](src/deckfile/): Apply, Emit, Stream, PatchGraph, MatrixFmGraph
+- [src/generators/DeckIds.tish](src/generators/DeckIds.tish): Host registry boot
 - [src/generators/](src/generators/): Instrument registry and modules
 - [src/codj/](src/codj/): Merge, Skills, DeckJoin, Launch
 - [services/agent-worker/main.tish](services/agent-worker/main.tish): LLM co-DJ worker

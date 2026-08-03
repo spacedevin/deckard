@@ -1,7 +1,9 @@
+import {
+  tplDocumentToHighlightHtml
+} from './SongEditorHighlight.tish'
 import { useState, h, Fragment } from '@tishlang/lattish'
 import { emitProject } from '../deckfile/Emit.tish'
 import { applyTplSource } from '../deckfile/Apply.tish'
-import { tplDocumentToHighlightHtml } from '../deckfile/SongEditorHighlight.tish'
 
 fn flushTplSongEditorFromProject(project, setTplText, rt) {
   let p = project

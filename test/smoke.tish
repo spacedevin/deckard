@@ -1,3 +1,35 @@
+import {
+  parseBarSelector,
+  barSelectorMatches,
+  lookupMacro,
+  expandMacroBody,
+  parseGenBlock
+} from '@spacedevin/deck'
+import {
+  parsePatchGraph,
+  patchGraphToLines,
+  syncPatchSpecFromGraph
+} from '../src/deckfile/PatchGraph.tish'
+import {
+  syncMatrixFmSpecFromGraph
+} from '../src/deckfile/MatrixFmGraph.tish'
+import {
+  defaultMatrixFmRawLines
+} from '../src/model/MatrixFmDefaults.tish'
+import {
+  defaultPatchRawLines,
+  addPatchNode,
+  removePatchNode,
+  addPatchConn,
+  removePatchConnAt,
+  addPatchEnv,
+  addPatchEnvSeg,
+  removePatchEnvSegAt,
+  patchSignalStages
+} from '../src/model/PatchGraphEdit.tish'
+import {
+  tplDocumentToHighlightHtml
+} from '../src/ui/SongEditorHighlight.tish'
 // Headless smoke test: deck round-trip, incremental decode, skill-gating, co-DJ permissions.
 // Run: npm test  (builds to JS and runs under node — the same target the browser app uses).
 import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
@@ -11,8 +43,6 @@ import { createTplLineStream, tplLineStreamPush } from '../src/deckfile/Stream.t
 import { coDjLineAllowedForSkills } from '../src/codj/Skills.tish'
 import { deckSetCatalog, deckSetTplById, loadDeckSet } from '../src/model/DeckSets.tish'
 import { emptyProjectShell } from '../src/model/Project.tish'
-import { parseBarSelector, barSelectorMatches } from '../src/deckfile/BarSelector.tish'
-import { lookupMacro, expandMacroBody } from '../src/deckfile/Macros.tish'
 import { resizeChannelBars, setRackBars, rackBars } from '../src/model/RackBars.tish'
 import { ensureProjectSession, sessionWriteRackToSceneClip, loadSceneIntoRack, sessionArmScene, playbackClipForChannel, firstSongScene, nextSongScene, sceneHasSavedClip, sceneBarLength, armSceneWithOverrides, sceneSlotClipId, findClipOnChannel, loadSceneBarIntoRack, sessionWriteRackBarToSceneClip, sessionStopTrack, sessionTrackStopped, sessionEffectiveArmedClipId, songStart, songAdvance, hasExplicitSong, normalizeSongEntries, setSceneFollow, sceneFollow, hasFollowActions, resolveFollowAction, detRand01 } from '../src/model/Session.tish'
 import { toggleStep, clearAllSteps } from '../src/model/Edits.tish'
@@ -21,8 +51,6 @@ import { freshSetEnergy, freshActiveDecks, foldSetEnergyStep } from '../src/mode
 import { createSignals } from '../src/core/Signals.tish'
 import { createIngest } from '../src/core/Ingest.tish'
 import { fragmentForEdit, createEditor } from '../src/core/Edit.tish'
-import { parsePatchGraph, parseGenBlock, defaultMatrixFmRawLines } from '../src/deckfile/TplExtension.tish'
-import { patchGraphToLines, syncPatchSpecFromGraph, defaultPatchRawLines, addPatchNode, removePatchNode, addPatchConn, removePatchConnAt, addPatchEnv, addPatchEnvSeg, removePatchEnvSegAt, patchSignalStages } from '../src/deckfile/PatchGraph.tish'
 import { macroCatalog, macroKind, macroParamControls, expandMacroToSpec, assignMacroToChannel, setMacroParam, freezeMacroChannel } from '../src/model/MacroVoice.tish'
 import { defaultParamsForGeneratorId, generatorCatalog } from '../src/generators/Registry.tish'
 import { matrixFmPatches, matrixFmFactoryInstrumentPresets } from '../src/model/MatrixFmPresets.tish'
@@ -35,10 +63,8 @@ import { StepGridPanel } from '../src/ui/grid/StepGrid.tish'
 import { Knob } from '../src/ui/InstrumentKit.tish'
 import { octaveKnob, selectorKnob } from '../src/ui/InstrumentStack.tish'
 import { PatchGraphPanel, cablePathD, cableKindFor } from '../src/ui/PatchGraphPanel.tish'
-import { syncMatrixFmSpecFromGraph } from '../src/deckfile/MatrixFmGraph.tish'
 import { MatrixFmPanel, matrixOpsReachingOut, matrixFiltersReachingOut } from '../src/ui/MatrixFmPanel.tish'
 import { RichTplEditor } from '../src/ui/RichTplEditor.tish'
-import { tplDocumentToHighlightHtml } from '../src/deckfile/SongEditorHighlight.tish'
 
 let pass = 0
 let fail = 0

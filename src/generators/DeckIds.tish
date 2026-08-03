@@ -1,0 +1,80 @@
+// Deckard host registrations for @spacedevin/deck (ids, params, gen_block dialects, highlight).
+import {
+  registerGeneratorIdAliases,
+  registerParamKeyAliases,
+  registerGenBlockDialect,
+  registerHighlightKeywords
+} from '@spacedevin/deck'
+import { parseMatrixFmGraph } from '../deckfile/MatrixFmGraph.tish'
+import { parsePatchGraph } from '../deckfile/PatchGraph.tish'
+
+let registered = false
+
+fn parseMatrixFmDialect(generatorId, lines) {
+  return {
+    kind: "matrixFm",
+    tplHeaderId: generatorId,
+    version: 2,
+    raw: lines,
+    graph: parseMatrixFmGraph(lines)
+  }
+}
+
+fn parsePatchDialect(generatorId, lines) {
+  return {
+    kind: "patch",
+    tplHeaderId: generatorId,
+    version: 1,
+    raw: lines,
+    graph: parsePatchGraph(lines)
+  }
+}
+
+export fn ensureDeckGeneratorIds() {
+  if (registered) {
+    return
+  }
+  registered = true
+  registerGeneratorIdAliases(
+    {
+      noise_burst: "noiseBurst",
+      noiseburst: "noiseBurst",
+      fm: "fmTone",
+      fm_tone: "fmTone",
+      fmtone: "fmTone",
+      basic_osc: "basicOsc",
+      basicosc: "basicOsc",
+      osc: "basicOsc",
+      matrix_fm: "matrixFm",
+      matrixfm: "matrixFm",
+      drum: "drumSynth",
+      drum_synth: "drumSynth",
+      drumsynth: "drumSynth",
+      patch: "patch",
+      modular: "patch",
+      synth: "patch"
+    },
+    {
+      noiseBurst: "noise_burst",
+      fmTone: "fm",
+      basicOsc: "basic_osc",
+      drumSynth: "drum",
+      matrixFm: "matrix_fm"
+    }
+  )
+  registerParamKeyAliases({
+    pitch_follow: "pitchFollow",
+    mod_index: "modIndex",
+    carrier_wave: "carrierWave",
+    mod_wave: "modWave",
+    filter_cutoff: "filterCutoff"
+  })
+  registerGenBlockDialect(["matrixFm", "matrix_fm", "matrixfm"], parseMatrixFmDialect)
+  registerGenBlockDialect(["patch", "modular", "synth"], parsePatchDialect)
+  registerHighlightKeywords({
+    body: [
+      "noise", "fm", "osc", "conn", "env", "filter", "shaper", "gain", "dur",
+      "pan", "string", "syncosc", "op", "mod", "route"
+    ]
+  })
+}

@@ -8,12 +8,15 @@ importers:
 
   .:
     dependencies:
+      '@spacedevin/deck':
+        specifier: ^1.2.4
+        version: 1.2.4(@tishlang/tish@3.2.2)
       '@tishlang/lattish':
-        specifier: ^2.0.0
-        version: 2.0.0
+        specifier: ^4.0.2
+        version: 4.0.2
       '@tishlang/tish':
-        specifier: ^2.2.5
-        version: 2.12.0
+        specifier: ^3.2.2
+        version: 3.2.2
       '@vercel/og':
         specifier: ^0.11.1
         version: 0.11.1
@@ -292,11 +295,18 @@ packages:
     engines: {node: '>= 8.0.0'}
     hasBin: true
 
-  '@tishlang/lattish@2.0.0':
-    resolution: {integrity: sha512-0LBIq5PY6f4PIxrqMF7AxaQ/ca5I1yaL+RpSof84kdNDsSN50srNzLdzYjgnGPs3FNTu/ceQUfv7578TIfcoIg==}
+  '@spacedevin/deck@1.2.4':
+    resolution: {integrity: sha512-/PXaI+OJPR99S94vK3dop2YxRlBt155MQbwXq+WxJfJp2fNUW+Rr6xqTATuxih/OtDas5FMlw+386nhTfR2GUw==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@tishlang/tish': '>=3.2.2'
 
-  '@tishlang/tish@2.12.0':
-    resolution: {integrity: sha512-3AOe7bu6I4n40mzhT0SnMJqSPYWjwamklDY9T0gsQ/+TqrK30fKio+kJU5VRIvMNRin3FFbzU/chURUI0PmyYQ==}
+  '@tishlang/lattish@4.0.2':
+    resolution: {integrity: sha512-xVKy6pd79PQs6SKhpLE6B1DNHRC3kyLT8KQ3OlmSWwKvxV5364XYHtSwvV9zoEVYMVdmXMwbmq1Wu8eWXQF+2A==}
+    engines: {node: '>=22'}
+
+  '@tishlang/tish@3.2.2':
+    resolution: {integrity: sha512-5NLkKY6c7J+4xdPhReB9TKW0a5Ra3qglvkooKgzuPnBK3H9QW3KCTBAdU3mjOtnaRGxr9COoZBEJ1w7nXNRrcQ==}
     engines: {node: '>=22'}
     hasBin: true
 
@@ -746,9 +756,13 @@ snapshots:
       fflate: 0.7.5
       string.prototype.codepointat: 0.2.1
 
-  '@tishlang/lattish@2.0.0': {}
+  '@spacedevin/deck@1.2.4(@tishlang/tish@3.2.2)':
+    dependencies:
+      '@tishlang/tish': 3.2.2
 
-  '@tishlang/tish@2.12.0': {}
+  '@tishlang/lattish@4.0.2': {}
+
+  '@tishlang/tish@3.2.2': {}
 
   '@tybys/wasm-util@0.10.2':
     dependencies:

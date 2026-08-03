@@ -1,7 +1,14 @@
+import {
+  parseGenBlock
+} from '@spacedevin/deck'
+import {
+  defaultMatrixFmRawLines
+} from '../model/MatrixFmDefaults.tish'
+import {
+  defaultPatchRawLines
+} from '../model/PatchGraphEdit.tish'
 import { h } from '@tishlang/lattish'
 import { defaultParamsForGeneratorId, normalizeBasicOscWaveform } from '../generators/Registry.tish'
-import { parseGenBlock, defaultMatrixFmRawLines } from '../deckfile/TplExtension.tish'
-import { defaultPatchRawLines } from '../deckfile/PatchGraph.tish'
 import { Knob, InfiniteKnob, WaveIconPicker, EnvDisplay, accentForGenerator, Switch } from './InstrumentKit.tish'
 
 // Every instrument edit routes one param through the single gated write door (rt.emit → `gen <snake> <v>`,

@@ -1,0 +1,11 @@
+// Deckard Matrix FM starter lines (host-owned).
+export fn defaultMatrixFmRawLines() {
+  return [
+    "op 1 wave sine ratio 1.0",
+    "op 2 wave sine ratio 1.0",
+    "mod fm 2 1 3.0",
+    "env op 1 a 0.005 d 0.1 s 0.35 r 0.12",
+    "env op 2 a 0.005 d 0.08 s 0.4 r 0.1",
+    "route op 1 out 1.0"
+  ]
+}

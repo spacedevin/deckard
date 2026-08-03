@@ -1,8 +1,10 @@
+import {
+  parseGenBlock
+} from '@spacedevin/deck'
 // Factory Patch showcase presets — complex multi-node patches that demonstrate the full power
 // of the modular Patch system. These are the "show don't tell" presets: sounds you CAN'T build
 // with a single generator. Also includes Tier 5 (missing instruments built as patches).
 
-import { parseGenBlock } from '../deckfile/TplExtension.tish'
 
 export fn patchFactoryPresets() {
   let patches = [

@@ -1,3 +1,16 @@
+import { ensureBuiltinMacros } from '../generators/BuiltinMacros.tish'
+import { ensureDeckGeneratorIds } from '../generators/DeckIds.tish'
+import {
+  paramKeyToCamel,
+  snakeToCamel,
+  parseBarSelector,
+  barSelectorMatches,
+  lookupMacro,
+  expandMacroBody,
+  euclideanPattern,
+  parseGenBlock,
+  parseProgram
+} from '@spacedevin/deck'
 import { makeChannel, defaultParamsForGeneratorId, makeStep, makeSteps16 } from '../model/Project.tish'
 import {
   findClipOnChannel,
@@ -8,18 +21,12 @@ import {
   normalizeSongEntries,
   normalizeFollow
 } from '../model/Session.tish'
-import { paramKeyToCamel, snakeToCamel } from './RegistryMap.tish'
-import { parseBarSelector, barSelectorMatches } from './BarSelector.tish'
-import { lookupMacro, expandMacroBody } from './Macros.tish'
 import {
   mixParamFromTpl,
   isChannelMixParam,
   isMasterMixParam,
   isActorMixParam
 } from '../audio/MixerAutomation.tish'
-import { euclideanPattern } from './Euclidean.tish'
-import { parseGenBlock } from './TplExtension.tish'
-import { parseProgram } from './Parser.tish'
 import { applyDeckMixParsed } from '../model/DeckRouting.tish'
 import { tplLoopResetChannel } from './LoopState.tish'
 import { ensureMasterMixer, ensureActorMixerEntries } from '../model/MixerRouting.tish'
@@ -1140,6 +1147,8 @@ export fn applyParsed(project, parsed) {
 }
 
 export fn applyTplSource(project, source) {
+  ensureDeckGeneratorIds()
+  ensureBuiltinMacros()
   let parsed = parseProgram(source)
   return applyParsed(project, parsed)
 }

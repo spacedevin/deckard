@@ -46,7 +46,7 @@ Click **Play** once to unlock audio.
 | Transport, rack, mixer | DOM + CSS |
 | Piano roll, scope | `<canvas>` |
 
-**Reachability:** `src/main.tish` → `ui/App.tish` pulls in model, audio, schedule, generators, tpl/ (deck emit/apply/highlight), and Lattish. **Removed unused:** `hooks.tish` (dead shim), `deckfile/Lexer.tish` (Parser inlines the same concerns).
+**Reachability:** `src/main.tish` → `ui/App.tish` pulls in model, audio, schedule, generators, `@spacedevin/deck` + `src/deckfile/` (apply/emit/stream), and Lattish.
 
 ## Co-DJ (WebSocket + actors)
 
@@ -86,7 +86,8 @@ Build locally with `npm run build:docs` (also runs as part of `build:static` / `
 - [llms.txt](llms.txt) — llmstxt.org index for agents in a checkout  
 - [AGENTS.md](AGENTS.md) — agent editing contract  
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — overview, vision, subsystem map  
-- [docs/DECK_GRAMMAR.md](docs/DECK_GRAMMAR.md) — full deck language  
+- [`@spacedevin/deck` grammar](node_modules/@spacedevin/deck/docs/DECK_GRAMMAR.md) — canonical language
+- [docs/DECK_GRAMMAR.md](docs/DECK_GRAMMAR.md) — Deckard overlay (UI / ownership / clamps)  
 - [docs/DECK_AGENT_GRAMMAR.md](docs/DECK_AGENT_GRAMMAR.md) — co-DJ lane subset  
 - [docs/GENERATORS.md](docs/GENERATORS.md) — adding a new generator module  
 - [docs/schema/project-v2.json](docs/schema/project-v2.json) — project shape  

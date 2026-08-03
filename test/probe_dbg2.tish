@@ -1,10 +1,13 @@
+import {
+  syncMatrixFmSpecFromGraph,
+  sortedStringKeys
+} from '../src/deckfile/MatrixFmGraph.tish'
 import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
 import { findChannelById } from '../src/deckfile/Apply.tish'
 import { applyCoDjTplSource } from '../src/codj/Merge.tish'
 import { createEditor } from '../src/core/Edit.tish'
 import { emitInstrumentModuleTpl } from '../src/core/Levels.tish'
 import { matrixFmFactoryInstrumentPresets } from '../src/model/MatrixFmPresets.tish'
-import { syncMatrixFmSpecFromGraph, sortedStringKeys } from '../src/deckfile/MatrixFmGraph.tish'
 
 let proj = loadDefaultDeckardProject().project
 let store = { project: proj }

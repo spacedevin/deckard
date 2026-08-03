@@ -1,3 +1,7 @@
+import {
+  syncMatrixFmSpecFromGraph,
+  sortedStringKeys
+} from '../src/deckfile/MatrixFmGraph.tish'
 // Headless review probe for the patch/matrix undoable change.
 import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
 import { findChannelById } from '../src/deckfile/Apply.tish'
@@ -6,7 +10,6 @@ import { createEditor } from '../src/core/Edit.tish'
 import { emitInstrumentModuleTpl } from '../src/core/Levels.tish'
 import { emitProject } from '../src/deckfile/Emit.tish'
 import { matrixFmFactoryInstrumentPresets } from '../src/model/MatrixFmPresets.tish'
-import { syncMatrixFmSpecFromGraph, sortedStringKeys } from '../src/deckfile/MatrixFmGraph.tish'
 
 let pass = 0
 let fail = 0

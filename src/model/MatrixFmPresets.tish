@@ -1,9 +1,11 @@
+import {
+  parseGenBlock
+} from '@spacedevin/deck'
 // Factory Matrix FM patches — Sytrus/DX7-style showcase patches that exercise the engine's depth
 // (multi-operator FM/RM, per-op ADSR, lp/hp filters with cutoff-sweep envelopes). One source of truth:
 // `matrixFmPatches()` is the raw {id,name,category,lines} list the MatrixFmPanel patch-picker loads;
 // `matrixFmFactoryInstrumentPresets()` wraps the same data as instrument presets seeded into a project.
 
-import { parseGenBlock } from '../deckfile/TplExtension.tish'
 
 export fn matrixFmPatches() {
   return [
