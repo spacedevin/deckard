@@ -4,6 +4,7 @@ import {
   paramKeyToCamel,
   snakeToCamel,
   parseBarSelector,
+  parseBodyLine,
   barSelectorMatches,
   lookupMacro,
   expandMacroBody,
@@ -206,30 +207,24 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
     }
     let h = t[0]
     if (h === "loops") {
-      if (t.length >= 2) {
-        let v = t[1]
-        if (v === "inf" || v === "infinite") {
-          ch.tplLoopBars = null
-        } else {
-          let n = Math.floor(Number(v))
-          if (n >= 1 && n === n) {
-            ch.tplLoopBars = n
-          } else {
-            errors.push({ line: row.lineNo, msg: "loops: expected positive integer or inf/infinite" })
-          }
-        }
+      let lrow = parseBodyLine(t)
+      if (lrow.kind === "error") {
+        errors.push({ line: row.lineNo, msg: lrow.msg })
+      } else if (lrow.cap === null) {
+        ch.tplLoopBars = null
+      } else if (lrow.cap >= 1) {
+        ch.tplLoopBars = lrow.cap
+      } else {
+        errors.push({ line: row.lineNo, msg: "loops: expected positive integer or inf/infinite" })
       }
     } else {
-    if (h === "step_pitch" && t.length >= 2) {
-      let sp = Math.floor(Number(t[1]))
-      if (sp === sp && sp >= 0 && sp <= 127) {
-        let sel = null
-        if (t.length >= 4 && t[2] === "bar") {
-          sel = parseBarSelector(t[3])
-        }
-        stepPitchEntries.push({ pitch: sp, sel: sel })
-        if (sel === null) {
-          ch.stepPitch = sp
+    if (h === "step_pitch") {
+      let sprow = parseBodyLine(t)
+      // Range stays here: 0..127 is host policy, not grammar.
+      if (sprow.kind === "stepPitch" && sprow.midi >= 0 && sprow.midi <= 127) {
+        stepPitchEntries.push({ pitch: sprow.midi, sel: sprow.bar })
+        if (sprow.bar === null) {
+          ch.stepPitch = sprow.midi
         }
       }
     } else if (h === "gen") {
@@ -324,44 +319,29 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
         dki = dki + 1
       }
     } else if (h === "mix") {
-      let mi = 1
-      while (mi < t.length) {
-        if (t[mi] === "gain" && mi + 1 < t.length) {
-          ch.gain = Number(t[mi + 1])
-          mi = mi + 2
-          continue
-        }
-        if (t[mi] === "pan" && mi + 1 < t.length) {
-          ch.pan = Number(t[mi + 1])
-          mi = mi + 2
-          continue
-        }
-        if (t[mi] === "mute" && mi + 1 < t.length) {
-          ch.mute = parseBoolish(t[mi + 1])
-          mi = mi + 2
-          continue
-        }
-        if (t[mi] === "solo" && mi + 1 < t.length) {
-          ch.solo = parseBoolish(t[mi + 1])
-          mi = mi + 2
-          continue
-        }
-        if (t[mi] === "eq_lo" && mi + 1 < t.length) {
-          ch.eqLo = Number(t[mi + 1])
-          mi = mi + 2
-          continue
-        }
-        if (t[mi] === "eq_mid" && mi + 1 < t.length) {
-          ch.eqMid = Number(t[mi + 1])
-          mi = mi + 2
-          continue
-        }
-        if (t[mi] === "eq_hi" && mi + 1 < t.length) {
-          ch.eqHi = Number(t[mi + 1])
-          mi = mi + 2
-          continue
-        }
-        mi = mi + 1
+      // Shape from the package; only fields the line actually wrote are applied, so a mix/fx-only
+      // edit fragment cannot silently reset the ones it left out.
+      let mrow = parseBodyLine(t)
+      if (mrow.gain !== null) {
+        ch.gain = mrow.gain
+      }
+      if (mrow.pan !== null) {
+        ch.pan = mrow.pan
+      }
+      if (mrow.mute !== null) {
+        ch.mute = mrow.mute
+      }
+      if (mrow.solo !== null) {
+        ch.solo = mrow.solo
+      }
+      if (mrow.eqLo !== null) {
+        ch.eqLo = mrow.eqLo
+      }
+      if (mrow.eqMid !== null) {
+        ch.eqMid = mrow.eqMid
+      }
+      if (mrow.eqHi !== null) {
+        ch.eqHi = mrow.eqHi
       }
     } else {
       if (h === "steps") {
@@ -385,42 +365,30 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
         applyStepLyricLane(ch, t)
       } else {
         if (h === "note") {
-          if (t.length >= 6 && t[4] === "v") {
-            let sb = Number(t[2])
-            let db = Number(t[3])
+          // Shape comes from the package (`parseBodyLine`) so this host and tish-gba's bake read a
+          // `note` line the same way; the CLAMPS stay here because they are host policy — a value
+          // out of range is clamped in Deckard and rejected on GBA.
+          let nrow = parseBodyLine(t)
+          if (nrow.kind === "note") {
+            let sb = nrow.startBeat
+            let db = nrow.durBeats
             let barMax = nbars * 4
-            // After `v <vel>`, scan keyword PAIRS (any order): `p <prob>` `r <ratchet>` `n <nudge>` (per-note
-            // locks) and `bar <sel>` (repeat on matching loop bars). Locks default 1/1/0 when absent.
-            let sel = null
+            let sel = nrow.bar
             let nprob = 1
             let nratchet = 1
             let nnudge = 0
             let nlyric = ""
-            let ti = 6
-            while (ti + 1 < t.length) {
-              let key = t[ti]
-              let val = t[ti + 1]
-              if (key === "bar") {
-                sel = parseBarSelector(val)
-              } else if (key === "p") {
-                let pv = Number(val)
-                if (pv === pv) {
-                  nprob = pv < 0 ? 0 : (pv > 1 ? 1 : pv)
-                }
-              } else if (key === "r") {
-                let rv = Math.floor(Number(val))
-                if (rv === rv) {
-                  nratchet = rv < 1 ? 1 : (rv > 8 ? 8 : rv)
-                }
-              } else if (key === "n") {
-                let nv = Number(val)
-                if (nv === nv) {
-                  nnudge = nv < -0.5 ? -0.5 : (nv > 0.5 ? 0.5 : nv)
-                }
-              } else if (key === "l") {
-                nlyric = val
-              }
-              ti = ti + 2
+            if (nrow.prob !== null) {
+              nprob = nrow.prob < 0 ? 0 : (nrow.prob > 1 ? 1 : nrow.prob)
+            }
+            if (nrow.ratchet !== null) {
+              nratchet = nrow.ratchet < 1 ? 1 : (nrow.ratchet > 8 ? 8 : nrow.ratchet)
+            }
+            if (nrow.nudge !== null) {
+              nnudge = nrow.nudge < -0.5 ? -0.5 : (nrow.nudge > 0.5 ? 0.5 : nrow.nudge)
+            }
+            if (nrow.lyric !== null) {
+              nlyric = nrow.lyric
             }
             if (sb < 0 || sb >= barMax || sb + db > barMax + 0.0001 || (sel !== null && sb >= 4)) {
               errors.push({
@@ -428,8 +396,8 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
                 msg: "note: out of range (0<=start, start+dur<=bars*4; with `bar`, start<4)"
               })
             } else {
-              let pitch = Math.floor(Number(t[1]))
-              let vel = Math.floor(Number(t[5]))
+              let pitch = nrow.midi
+              let vel = nrow.vel === null ? 100 : nrow.vel
               if (sel === null) {
                 noteLines.push({ pitch: pitch, startBeat: sb, durBeats: db, vel: vel, prob: nprob, ratchet: nratchet, nudge: nnudge, lyric: nlyric })
               } else {
@@ -445,8 +413,9 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
           }
         } else {
           if (h === "transpose") {
-            if (t.length >= 2) {
-              transposeSemi = Math.floor(Number(t[1]))
+            let trow = parseBodyLine(t)
+            if (trow.kind === "transpose") {
+              transposeSemi = trow.semitones
               sawTranspose = true
             }
           } else {
