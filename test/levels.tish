@@ -1,3 +1,7 @@
+import {
+  parsePatchGraph,
+  patchGraphToLines
+} from '../src/deckfile/PatchGraph.tish'
 // Level-snapshot tests — store/restore at every level (instrument, sequence, rack, deck, session, set).
 // Proves the "debug without clicking 9000 times" promise: snapshot a level → mutate → restore from the
 // snapshot → exact state returns. Each snapshot is plain deck, so it also doubles as a test fixture.
@@ -17,8 +21,6 @@ import { createAudioDeviceSettings } from '../src/core/AudioDeviceSettings.tish'
 import { applyCueRouting, applyChannelFilterAutomation } from '../src/audio/Engine.tish'
 import { levelPresetList, addLevelPreset, findLevelPreset, removeLevelPreset } from '../src/model/LevelPresets.tish'
 import { compileGeneratorToPatchLines, canCompileToPatch } from '../src/model/PatchCompile.tish'
-import { parsePatchGraph } from '../src/deckfile/TplExtension.tish'
-import { patchGraphToLines } from '../src/deckfile/PatchGraph.tish'
 import { resolveExpr } from '../src/generators/Patch.tish'
 import { parseMidiBytes, ccKey, normalize01, createMidiController, midiTargetList, defaultMidiMappings } from '../src/midi/Midi.tish'
 import { fragmentForEdit } from '../src/core/Edit.tish'

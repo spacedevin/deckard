@@ -3,7 +3,8 @@
 The lines a **co-DJ lane** may emit. Human/host stream lines are **read-only context**; you add **new tracks +
 patterns on your own lane only** (ids prefixed with your `actorId`, e.g. `ai-a_hat`). This is the agent subset
 of the full language — for the complete grammar (master-scope headers, clips, `gen_block` graphs, automation,
-control directives) see **[DECK_GRAMMAR.md](DECK_GRAMMAR.md)** (canonical). Keep this in lockstep with the agent
+control directives) see **[`@spacedevin/deck` grammar](../node_modules/@spacedevin/deck/docs/DECK_GRAMMAR.md)** (canonical).
+Deckard UI / ownership notes: **[DECK_GRAMMAR.md](DECK_GRAMMAR.md)**. Keep this in lockstep with the agent
 `SYSTEM_PROMPT` in [`services/agent-worker/main.tish`](../services/agent-worker/main.tish) and the master-scope
 denylist in [`src/codj/Skills.tish`](../src/codj/Skills.tish).
 
@@ -62,7 +63,7 @@ Generators vs. macros never share a label (see project memory *macro-generator-b
 | `fm` | `fm ratio <n> mod_index <n> carrier <sine\|square> mod <sine\|square>` (+ `adsr`) |
 | `basic_osc` | `osc waveform <sine\|square\|saw\|triangle>` (+ `adsr`) |
 | every other named generator | `gen <param> <value> …` — 0–1 designer knobs (e.g. `gen tone 0.5 swell 0.45`) |
-| `matrix_fm` / `patch` | `gen_block <patch\|matrix_fm> … end gen_block` graph — see [DECK_GRAMMAR.md](DECK_GRAMMAR.md) / [DECK_EXTENSION.md](DECK_EXTENSION.md) |
+| `matrix_fm` / `patch` | `gen_block <patch\|matrix_fm> … end gen_block` graph — see [DECK_EXTENSION.md](DECK_EXTENSION.md) / package [extension](../node_modules/@spacedevin/deck/docs/DECK_EXTENSION.md) |
 
 ## What you may NOT emit (master-scope)
 
@@ -79,7 +80,7 @@ agent does. You add complementary parts.
 
 So **global key (`scale`) and groove (`swing`) are master-only** — you cannot re-key or re-shuffle the mix.
 Live control directives (`@ launch`/`transport`/`cue`/`throw`/`fx`/`deck`) are a separate master/owner surface —
-see [DECK_GRAMMAR.md § Control directives](DECK_GRAMMAR.md#control-directives--).
+see [package grammar § Control directives](../node_modules/@spacedevin/deck/docs/DECK_GRAMMAR.md#control-directives-).
 
 ## Streaming
 

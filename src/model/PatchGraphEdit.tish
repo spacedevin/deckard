@@ -1,0 +1,269 @@
+// Deckard patch-graph editor helpers + starter lines (host-owned).
+/// Default starter patch: a subtractive pluck (saw → lowpass → amp gain → out) with an amp envelope.
+export fn defaultPatchRawLines() {
+  return [
+    "osc o1 sawtooth note",
+    "filter f1 lowpass q 4 freq 1800",
+    "gain a1 0",
+    "conn o1 f1 1",
+    "conn f1 a1 1",
+    "conn a1 out 1",
+    "env a1.gain set 0 0 lin 0.01 0.9 lin dur 0"
+  ]
+}
+
+fn idExists(graph, id) {
+  let i = 0
+  while (i < graph.nodes.length) {
+    if (graph.nodes[i].id === id) {
+      return true
+    }
+    i = i + 1
+  }
+  return false
+}
+
+fn nextNodeId(graph, prefix) {
+  let n = 1
+  while (n < 1000) {
+    let id = prefix + String(n)
+    if (!idExists(graph, id)) {
+      return id
+    }
+    n = n + 1
+  }
+  return prefix + "x"
+}
+
+fn defaultNodeForKind(kind, id) {
+  if (kind === "osc") {
+    return { kind: "osc", id: id, wave: "sine", freqMode: "note", fixedHz: 220, ratio: 1, detune: 0 }
+  }
+  if (kind === "noise") {
+    return { kind: "noise", id: id }
+  }
+  if (kind === "string") {
+    return { kind: "string", id: id, tone: 0.5, damping: 0.4, decay: 0.6, mute: 0 }
+  }
+  if (kind === "filter") {
+    return { kind: "filter", id: id, ftype: "lowpass", q: 0.7, freq: 1200 }
+  }
+  if (kind === "shaper") {
+    return { kind: "shaper", id: id, amount: 50 }
+  }
+  if (kind === "pan") {
+    return { kind: "pan", id: id, pos: 0 }
+  }
+  return { kind: "gain", id: id, value: 1 }
+}
+
+fn prefixForKind(kind) {
+  if (kind === "osc") {
+    return "o"
+  }
+  if (kind === "noise") {
+    return "n"
+  }
+  if (kind === "string") {
+    return "st"
+  }
+  if (kind === "filter") {
+    return "f"
+  }
+  if (kind === "shaper") {
+    return "s"
+  }
+  if (kind === "pan") {
+    return "p"
+  }
+  return "g"
+}
+
+export fn addPatchNode(graph, kind) {
+  let id = nextNodeId(graph, prefixForKind(kind))
+  graph.nodes.push(defaultNodeForKind(kind, id))
+  return id
+}
+
+export fn removePatchNode(graph, id) {
+  let newNodes = []
+  let i = 0
+  while (i < graph.nodes.length) {
+    if (graph.nodes[i].id !== id) {
+      newNodes.push(graph.nodes[i])
+    }
+    i = i + 1
+  }
+  graph.nodes = newNodes
+  let newConns = []
+  let ci = 0
+  while (ci < graph.conns.length) {
+    let cn = graph.conns[ci]
+    if (cn.src !== id && cn.dst !== id) {
+      newConns.push(cn)
+    }
+    ci = ci + 1
+  }
+  graph.conns = newConns
+  let newEnvs = []
+  let ei = 0
+  while (ei < graph.envs.length) {
+    if (graph.envs[ei].node !== id) {
+      newEnvs.push(graph.envs[ei])
+    }
+    ei = ei + 1
+  }
+  graph.envs = newEnvs
+}
+
+export fn addPatchConn(graph) {
+  let src = graph.nodes.length > 0 ? graph.nodes[0].id : "o1"
+  graph.conns.push({ src: src, dst: "out", dstParam: null, vol: 1 })
+}
+
+// Add an output route FROM a specific node (used by the per-card inline routing — each module owns
+// its outgoing connections instead of one global connection list).
+export fn addPatchConnFrom(graph, srcId) {
+  graph.conns.push({ src: srcId, dst: "out", dstParam: null, vol: 1 })
+}
+
+export fn addPatchConnTo(graph, dstId) {
+  let src = graph.nodes.length > 0 ? graph.nodes[0].id : "o1"
+  graph.conns.push({ src: src, dst: dstId, dstParam: null, vol: 1 })
+}
+
+export fn removePatchConnAt(graph, index) {
+  let idx = Math.floor(Number(index))
+  let newC = []
+  let i = 0
+  while (i < graph.conns.length) {
+    if (i !== idx) {
+      newC.push(graph.conns[i])
+    }
+    i = i + 1
+  }
+  graph.conns = newC
+}
+
+/// First node that owns a `gain` AudioParam (gain node), else first node — sensible env default.
+fn firstGainNodeId(graph) {
+  let i = 0
+  while (i < graph.nodes.length) {
+    if (graph.nodes[i].kind === "gain") {
+      return graph.nodes[i].id
+    }
+    i = i + 1
+  }
+  if (graph.nodes.length > 0) {
+    return graph.nodes[0].id
+  }
+  return "a1"
+}
+
+export fn addPatchEnv(graph) {
+  graph.envs.push({
+    node: firstGainNodeId(graph),
+    param: "gain",
+    segs: [
+      { type: "set", tExpr: "0", vExpr: "0" },
+      { type: "lin", tExpr: "0.01", vExpr: "0.9" },
+      { type: "lin", tExpr: "dur", vExpr: "0" }
+    ]
+  })
+}
+
+export fn removePatchEnvAt(graph, index) {
+  let idx = Math.floor(Number(index))
+  let newE = []
+  let i = 0
+  while (i < graph.envs.length) {
+    if (i !== idx) {
+      newE.push(graph.envs[i])
+    }
+    i = i + 1
+  }
+  graph.envs = newE
+}
+
+export fn addPatchEnvSeg(graph, envIndex) {
+  let idx = Math.floor(Number(envIndex))
+  if (idx < 0 || idx >= graph.envs.length) {
+    return
+  }
+  graph.envs[idx].segs.push({ type: "lin", tExpr: "dur", vExpr: "0" })
+}
+
+export fn removePatchEnvSegAt(graph, envIndex, segIndex) {
+  let ei = Math.floor(Number(envIndex))
+  let si = Math.floor(Number(segIndex))
+  if (ei < 0 || ei >= graph.envs.length) {
+    return
+  }
+  let newS = []
+  let i = 0
+  while (i < graph.envs[ei].segs.length) {
+    if (i !== si) {
+      newS.push(graph.envs[ei].segs[i])
+    }
+    i = i + 1
+  }
+  graph.envs[ei].segs = newS
+}
+
+/// Group node objects into signal-flow STAGES (left→right columns) for a layered layout. A node's stage is the
+/// longest AUDIO-path depth from a source (osc/noise with no audio input). Only audio conns count (dstParam empty);
+/// param-modulation conns (freq/gain/…) are excluded — they're back-edges (FM feedback) that would otherwise
+/// distort the columns. Returns an array (stage 0 = sources) of arrays of nodes, in stable node order within each
+/// stage. Cycle-safe: relaxation is bounded by node count. Pure — reused by the layout + tested headlessly.
+export fn patchSignalStages(graph) {
+  let nodes = graph.nodes ? graph.nodes : []
+  let conns = graph.conns ? graph.conns : []
+  let stageById = {}
+  let i = 0
+  while (i < nodes.length) {
+    stageById[nodes[i].id] = 0
+    i = i + 1
+  }
+  let pass = 0
+  while (pass < nodes.length) {
+    let changed = false
+    let ci = 0
+    while (ci < conns.length) {
+      let cn = conns[ci]
+      let isAudio = (cn.dstParam === null || cn.dstParam === undefined) || String(cn.dstParam).length === 0
+      if (isAudio && stageById[cn.src] !== null && stageById[cn.src] !== undefined && stageById[cn.dst] !== null && stageById[cn.dst] !== undefined) {
+        if (stageById[cn.dst] < stageById[cn.src] + 1) {
+          stageById[cn.dst] = stageById[cn.src] + 1
+          changed = true
+        }
+      }
+      ci = ci + 1
+    }
+    if (changed) {
+      pass = pass + 1
+    } else {
+      pass = nodes.length
+    }
+  }
+  let maxStage = 0
+  let n2 = 0
+  while (n2 < nodes.length) {
+    let s = stageById[nodes[n2].id]
+    if (s > maxStage) {
+      maxStage = s
+    }
+    n2 = n2 + 1
+  }
+  let cols = []
+  let s2 = 0
+  while (s2 <= maxStage) {
+    cols.push([])
+    s2 = s2 + 1
+  }
+  let n3 = 0
+  while (n3 < nodes.length) {
+    cols[stageById[nodes[n3].id]].push(nodes[n3])
+    n3 = n3 + 1
+  }
+  return cols
+}

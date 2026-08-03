@@ -1,14 +1,17 @@
+import {
+  formatTplFloat,
+  camelToSnake,
+  paramKeyToCamel
+} from '@spacedevin/deck'
 // emit/edit — the UI convenience over ingest (Plan: "emit reads the owning statement's current values
 // from the fold and re-emits it with the single changed field"). deck statements are coarse (one `mix`
 // line carries gain+pan+eq+mute+solo), so a single-field UI change re-emits that whole statement with
 // current values for the untouched fields. The result is one minimal deck fragment fed to ingest — the
 // same door peers and the agent use. This is how "the UI is just a deck client" becomes literal.
 
-import { formatTplFloat } from '../deckfile/Format.tish'
 import { generatorIdToTpl, stepLaneLine, noteLine } from '../deckfile/Emit.tish'
 import { findChannelById } from '../deckfile/Apply.tish'
 import { scaleRootNames } from '../model/Scale.tish'
-import { camelToSnake, paramKeyToCamel } from '../deckfile/RegistryMap.tish'
 
 fn f(v) {
   return formatTplFloat(Number(v))

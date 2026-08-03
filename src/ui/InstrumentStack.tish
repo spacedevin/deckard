@@ -1,3 +1,12 @@
+import {
+  parseGenBlock
+} from '@spacedevin/deck'
+import {
+  defaultMatrixFmRawLines
+} from '../model/MatrixFmDefaults.tish'
+import {
+  defaultPatchRawLines
+} from '../model/PatchGraphEdit.tish'
 // The instrument as a chain of hardware-style modules. Top→bottom is the signal path, and each module
 // maps to exactly one deck block (shown as a badge on its header):
 //   Generator (voice picker + per-voice designer + amp envelope) → `gen` / `gen_block`
@@ -16,9 +25,7 @@ import {
   ensureInstrumentPresets
 } from '../model/InstrumentPresets.tish'
 import { promptName } from './PromptModal.tish'
-import { parseGenBlock, defaultMatrixFmRawLines } from '../deckfile/TplExtension.tish'
 import { PanelHeader, PresetBar } from './PresetBar.tish'
-import { defaultPatchRawLines } from '../deckfile/PatchGraph.tish'
 import { macroCatalog, assignMacroToChannel } from '../model/MacroVoice.tish'
 import { compileGeneratorToPatchLines } from '../model/PatchCompile.tish'
 import { emitInstrumentModuleTpl } from '../core/Levels.tish'

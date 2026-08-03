@@ -1,7 +1,12 @@
+// Host (Deckard) song-editor HTML highlight — not part of @spacedevin/deck.
+import {
+  tokenize,
+  classifyLine,
+  isKeyword,
+  isInlineKeyword,
+  isStepToken
+} from '@spacedevin/deck'
 // Build HTML for mirrored deck highlight layer (textarea overlay). All logic in Tish.
-
-import { tokenize } from './Parser.tish'
-import { classifyLine, isKeyword, isInlineKeyword, isStepToken } from './Highlight.tish'
 
 fn escapeHtml(s) {
   if ((s === null || s === undefined)) {

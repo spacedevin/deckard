@@ -1,8 +1,10 @@
+import {
+  parseProgram
+} from '@spacedevin/deck'
 // Regression: channel names with SPACES (e.g. "MOS 6581", "Tine EP", "GBA PCM" — the labels a picked voice
 // inherits) must round-trip through the deck parser, so gen/knob edit fragments land on the channel instead of
 // being silently dropped. The track-header grammar is `track <name> id <id> gen <genid>`; the name may be
 // multiple tokens, so the parser anchors on the `id <x> gen <y>` keywords rather than assuming name == toks[1].
-import { parseProgram } from '../src/deckfile/Parser.tish'
 import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
 import { applyTplSource, findChannelById } from '../src/deckfile/Apply.tish'
 import { fragmentForEdit } from '../src/core/Edit.tish'

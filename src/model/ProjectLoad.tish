@@ -1,3 +1,5 @@
+import { ensureBuiltinMacros } from '../generators/BuiltinMacros.tish'
+import { ensureDeckGeneratorIds } from '../generators/DeckIds.tish'
 import { emptyProjectShell } from './Project.tish'
 import { applyTplSource } from '../deckfile/Apply.tish'
 import { migrateProjectGenerators } from './Migrate.tish'
@@ -5,6 +7,8 @@ import { defaultDeckardTplText } from './DefaultDeckardTpl.tish'
 
 // Parse deck into a fresh project (empty channels + shell presets/automation, then tracks from text).
 export fn loadProjectFromTpl(source) {
+  ensureDeckGeneratorIds()
+  ensureBuiltinMacros()
   let p = emptyProjectShell()
   migrateProjectGenerators(p)
   let r = applyTplSource(p, source)

@@ -1,0 +1,163 @@
+// Deckard matrix-FM graph editor helpers (host-owned).
+
+export fn matrixFmNextOpId(graph) {
+  let i = 1
+  while (i <= 8) {
+    let id = String(i)
+    if (!graph.ops[id]) {
+      return id
+    }
+    i = i + 1
+  }
+  return ""
+}
+
+export fn matrixFmNextFilterId(graph) {
+  let i = 1
+  while (i <= 6) {
+    let id = String(i)
+    if (!graph.filters[id]) {
+      return id
+    }
+    i = i + 1
+  }
+  return ""
+}
+
+export fn ensureMatrixFmOpEnv(graph, oid) {
+  if (!graph.opEnvs[oid]) {
+    graph.opEnvs[oid] = { a: 0.005, d: 0.1, s: 0.35, r: 0.12 }
+  }
+}
+
+export fn ensureMatrixFmFilterEnv(graph, fid) {
+  if (!graph.filterEnvs[fid]) {
+    graph.filterEnvs[fid] = { a: 0.1, d: 0.2, s: 0.3, r: 0.15, amount: 0 }
+  }
+}
+
+export fn addMatrixFmOperator(graph) {
+  let id = matrixFmNextOpId(graph)
+  if (id.length === 0) {
+    return ""
+  }
+  graph.ops[id] = { wave: "sine", ratio: 1 }
+  ensureMatrixFmOpEnv(graph, id)
+  return id
+}
+
+export fn removeMatrixFmOperator(graph, oid) {
+  graph.ops = omitObjectKey(graph.ops, oid)
+  graph.opEnvs = omitObjectKey(graph.opEnvs, oid)
+  let newMods = []
+  let mi = 0
+  while (mi < graph.mods.length) {
+    let m = graph.mods[mi]
+    if (m.src !== oid && m.dst !== oid) {
+      newMods.push(m)
+    }
+    mi = mi + 1
+  }
+  graph.mods = newMods
+  let newRt = []
+  let ri = 0
+  while (ri < graph.routes.length) {
+    let rt = graph.routes[ri]
+    let drop = false
+    if (rt.srcKind === "op" && rt.srcId === oid) {
+      drop = true
+    }
+    if (!drop) {
+      newRt.push(rt)
+    }
+    ri = ri + 1
+  }
+  graph.routes = newRt
+}
+
+export fn addMatrixFmFilter(graph) {
+  let id = matrixFmNextFilterId(graph)
+  if (id.length === 0) {
+    return ""
+  }
+  graph.filters[id] = { type: "lp24", cutoff: 4000, res: 0.6 }
+  ensureMatrixFmFilterEnv(graph, id)
+  return id
+}
+
+export fn removeMatrixFmFilter(graph, fid) {
+  graph.filters = omitObjectKey(graph.filters, fid)
+  graph.filterEnvs = omitObjectKey(graph.filterEnvs, fid)
+  let newRt = []
+  let ri = 0
+  while (ri < graph.routes.length) {
+    let rt = graph.routes[ri]
+    let drop = false
+    if (rt.srcKind === "filter" && rt.srcId === fid) {
+      drop = true
+    }
+    if (rt.dstKind === "filter" && rt.dstId === fid) {
+      drop = true
+    }
+    if (!drop) {
+      newRt.push(rt)
+    }
+    ri = ri + 1
+  }
+  graph.routes = newRt
+}
+
+export fn findModAmount(graph, typ, src, dst) {
+  let mi = 0
+  while (mi < graph.mods.length) {
+    let m = graph.mods[mi]
+    if (m.type === typ && m.src === src && m.dst === dst) {
+      return m.amount
+    }
+    mi = mi + 1
+  }
+  return 0
+}
+
+export fn setModAmount(graph, typ, src, dst, amount) {
+  let newMods = []
+  let mi = 0
+  while (mi < graph.mods.length) {
+    let m = graph.mods[mi]
+    if (!(m.type === typ && m.src === src && m.dst === dst)) {
+      newMods.push(m)
+    }
+    mi = mi + 1
+  }
+  if (amount > 0.02) {
+    newMods.push({ type: typ, src: src, dst: dst, amount: amount })
+  }
+  graph.mods = newMods
+}
+
+export fn addMatrixFmRoute(graph, srcKind, srcId, dstKind, dstId, volume) {
+  let row = {
+    srcKind: srcKind,
+    srcId: srcId,
+    dstKind: dstKind,
+    dstId: dstId,
+    volume: volume
+  }
+  graph.routes.push(row)
+}
+
+export fn removeMatrixFmRouteAt(graph, index) {
+  let idx = Math.floor(Number(index))
+  if (idx < 0 || idx >= graph.routes.length) {
+    return
+  }
+  let newR = []
+  let ri = 0
+  while (ri < graph.routes.length) {
+    if (ri !== idx) {
+      newR.push(graph.routes[ri])
+    }
+    ri = ri + 1
+  }
+  graph.routes = newR
+}

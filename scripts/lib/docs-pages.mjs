@@ -32,7 +32,14 @@ export const pages = [
     slug: "deck/grammar",
     section: "Deck language",
     title: "deck grammar",
-    description: "Full streamable patch language reference.",
+    description: "Full streamable patch language reference (@spacedevin/deck).",
+    source: "node_modules/@spacedevin/deck/docs/DECK_GRAMMAR.md",
+  },
+  {
+    slug: "deck/host",
+    section: "Deck language",
+    title: "Deckard host overlay",
+    description: "UI, ownership, clamps, and generator spellings on top of @spacedevin/deck.",
     source: "docs/DECK_GRAMMAR.md",
   },
   {
@@ -46,7 +53,7 @@ export const pages = [
     slug: "deck/extensions",
     section: "Deck language",
     title: "Generator extensions",
-    description: "gen_block patch / matrix graphs.",
+    description: "gen_block patch / matrix graphs in Deckard.",
     source: "docs/DECK_EXTENSION.md",
   },
   {

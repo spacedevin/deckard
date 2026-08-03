@@ -1,5 +1,7 @@
+import {
+  paramKeyToCamel
+} from '@spacedevin/deck'
 import { automationAt } from '../schedule/Engine.tish'
-import { paramKeyToCamel } from '../deckfile/RegistryMap.tish'
 
 // deck mix param tokens → project field names (channel / actor / master EQ).
 export fn mixParamFromTpl(tok) {

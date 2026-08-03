@@ -39,7 +39,7 @@ fn flat(parts) {
 
 // ---- Voice library (deck.tsx AudioEngine ports, as deck patch blocks) -----------------------------
 
-// Kicks + basses now live as built-in macros (src/deckfile/Macros.tish); referenced by name from the sets.
+// Kicks + basses now live as built-in macros (/deck); referenced by name from the sets.
 
 // Hats (noise → highpass → fast/slow decay)
 fn vHatClosed() {

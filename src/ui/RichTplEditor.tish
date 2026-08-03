@@ -1,3 +1,6 @@
+import {
+  tplDocumentToHighlightHtml
+} from './SongEditorHighlight.tish'
 // Reusable syntax-highlighted deck editor — the SAME transparent-textarea-over-highlighted-<pre> mechanism the
 // main deck editor (CodeDebugView) uses, extracted so every "Raw" deck surface gets syntax highlighting.
 //
@@ -8,7 +11,6 @@
 // would error, so we commit on settle, not per keystroke). The <pre> re-highlights live on every keystroke.
 
 import { h } from '@tishlang/lattish'
-import { tplDocumentToHighlightHtml } from '../deckfile/SongEditorHighlight.tish'
 
 // Syntax highlight only — no playback step / no "recently applied" flash (those are song-editor specific).
 fn highlightFragment(src) {

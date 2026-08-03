@@ -1,10 +1,14 @@
+import {
+  lookupMacro,
+  expandMacroBody,
+  builtinMacros,
+  parseGenBlock
+} from '@spacedevin/deck'
 // Macro voice helpers for the UI designers. A macro-backed channel stores `macroName` + `macroParams`
 // (overrides) and re-expands to a `gen_block patch` graph on every edit, so the designers stay a pure
 // deck client: a slider move writes one override, re-expands the patch, and the channel emits
 // `gen <macro> <k> <v> ...` — identical to what the deck parser produces. No graph is hand-edited.
 
-import { lookupMacro, expandMacroBody, builtinMacros } from '../deckfile/Macros.tish'
-import { parseGenBlock } from '../deckfile/TplExtension.tish'
 
 /// The dedicated designers — kick & bass families that dominate the factory deck-sets.
 export fn macroCatalog() {

@@ -1,3 +1,22 @@
+import {
+  parseGenBlock
+} from '@spacedevin/deck'
+import {
+  syncPatchSpecFromGraph
+} from '../deckfile/PatchGraph.tish'
+import {
+  defaultPatchRawLines,
+  addPatchNode,
+  removePatchNode,
+  addPatchConnFrom,
+  addPatchConnTo,
+  removePatchConnAt,
+  addPatchEnv,
+  removePatchEnvAt,
+  addPatchEnvSeg,
+  removePatchEnvSegAt,
+  patchSignalStages
+} from '../model/PatchGraphEdit.tish'
 // Modular patch editor — DECOMPOSED into per-module cards. Each node (osc / noise / string / filter /
 // shaper / gain / pan) is its own card with a header, body knobs, and INLINE output routing (each module
 // owns where its signal goes), plus envelope cards. The universal counterpart to MatrixFmPanel, editing the
@@ -17,23 +36,8 @@
 
 import { h } from '@tishlang/lattish'
 import { normalizeBasicOscWaveform } from '../generators/Registry.tish'
-import { parseGenBlock } from '../deckfile/TplExtension.tish'
 import { emitInstrumentModuleTpl } from '../core/Levels.tish'
 import { Knob, accentForGenerator, WaveIconPicker, isKnobDragging, selOpt } from './InstrumentKit.tish'
-import {
-  syncPatchSpecFromGraph,
-  defaultPatchRawLines,
-  addPatchNode,
-  removePatchNode,
-  addPatchConnFrom,
-  addPatchConnTo,
-  removePatchConnAt,
-  addPatchEnv,
-  removePatchEnvAt,
-  addPatchEnvSeg,
-  removePatchEnvSegAt,
-  patchSignalStages
-} from '../deckfile/PatchGraph.tish'
 
 fn numOr(x, def) {
   if (typeof x === "number" && x === x) {

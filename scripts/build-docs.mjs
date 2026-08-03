@@ -14,7 +14,7 @@ import {
   existsSync,
   cpSync,
 } from "node:fs"
-import { join, dirname } from "node:path"
+import { join, dirname, basename } from "node:path"
 import { fileURLToPath } from "node:url"
 import { mdToHtml, stripFrontmatter } from "./lib/md.mjs"
 import { pages } from "./lib/docs-pages.mjs"
@@ -22,6 +22,18 @@ import { pages } from "./lib/docs-pages.mjs"
 const root = join(dirname(fileURLToPath(import.meta.url)), "..")
 const outDir = join(root, "public", "docs")
 const SITE = process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_URL || "https://deckard.lol"
+const siblingDeckDocs = join(root, "../../deck/docs")
+
+function resolveSource(rel) {
+  const primary = join(root, rel)
+  if (existsSync(primary)) return primary
+  // Prefer installed package; fall back to sibling @spacedevin/deck checkout
+  if (rel.includes("@spacedevin/deck/docs/")) {
+    const sib = join(siblingDeckDocs, basename(rel))
+    if (existsSync(sib)) return sib
+  }
+  throw new Error(`docs source missing: ${rel}`)
+}
 
 const sidebar = []
 for (const p of pages) {
@@ -47,7 +59,7 @@ function readPage(p) {
       body,
     }
   }
-  const raw = readFileSync(join(root, p.source), "utf8")
+  const raw = readFileSync(resolveSource(p.source), "utf8")
   // Drop leading H1 from source — page template supplies title
   let body = raw
   if (body.startsWith("# ")) {
@@ -60,9 +72,15 @@ function readPage(p) {
 function rewriteLinks(html) {
   // Map common in-repo markdown links to /docs/ routes
   const map = [
-    [/href="(?:\.\.\/)?docs\/DECK_GRAMMAR\.md"/g, 'href="/docs/deck/grammar/"'],
+    [/href="(?:\.\.\/)?docs\/DECK_GRAMMAR\.md"/g, 'href="/docs/deck/host/"'],
     [/href="(?:\.\.\/)?docs\/DECK_AGENT_GRAMMAR\.md"/g, 'href="/docs/deck/agent-grammar/"'],
     [/href="(?:\.\.\/)?docs\/DECK_EXTENSION\.md"/g, 'href="/docs/deck/extensions/"'],
+    [/href="[^"]*@spacedevin\/deck\/docs\/DECK_GRAMMAR\.md"/g, 'href="/docs/deck/grammar/"'],
+    [/href="[^"]*node_modules\/@spacedevin\/deck\/docs\/DECK_GRAMMAR\.md"/g, 'href="/docs/deck/grammar/"'],
+    [/href="[^"]*@spacedevin\/deck\/docs\/DECK_EXTENSION\.md"/g, 'href="/docs/deck/extensions/"'],
+    [/href="[^"]*node_modules\/@spacedevin\/deck\/docs\/DECK_EXTENSION\.md"/g, 'href="/docs/deck/extensions/"'],
+    [/href="[^"]*@spacedevin\/deck\/docs\/HOST\.md"/g, 'href="https://github.com/spacedevin/deck/blob/main/docs/HOST.md"'],
+    [/href="[^"]*node_modules\/@spacedevin\/deck\/docs\/HOST\.md"/g, 'href="https://github.com/spacedevin/deck/blob/main/docs/HOST.md"'],
     [/href="(?:\.\.\/)?docs\/ARCHITECTURE\.md"/g, 'href="/docs/architecture/overview/"'],
     [/href="(?:\.\.\/)?docs\/GENERATORS\.md"/g, 'href="/docs/architecture/generators/"'],
     [/href="(?:\.\.\/)?docs\/WS_AND_AGENTS\.md"/g, 'href="/docs/agents/websocket/"'],

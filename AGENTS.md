@@ -7,6 +7,8 @@ For the big picture (vision, subsystems, end-to-end signal path) read
 
 ## Prefer these surfaces
 
+0. **`@spacedevin/deck`** — `.deck` language (parse / format / registries / highlight). Canonical grammar: package `docs/DECK_GRAMMAR.md` (`@spacedevin/deck/grammar`). Host keepers: `src/deckfile/` (`Apply` / `Emit` / `Stream` / `LoopState` / `PatchGraph` / `MatrixFmGraph`), boot registries in `src/generators/DeckIds.tish` + `BuiltinMacros.tish`, co-DJ in `src/codj/`.
+
 1. **[docs/schema/project-v2.json](docs/schema/project-v2.json)** — v2 shape (`generatorId` + `generatorParams` per channel). v1 JSON with `waveform` only is migrated on load.
 2. **[src/model/Project.tish](src/model/Project.tish)** — `emptyProjectShell()`, `projectToJson` / `projectFromJson`. **`[src/model/ProjectLoad.tish](src/model/ProjectLoad.tish)`** — `loadProjectFromTpl(source)` builds a project from deck (use for multiple songs); bundled default text in **`[projects/default.deckard.deck](projects/default.deckard.deck)`** / `DefaultDeckardTpl.tish`.
 3. **[src/generators/](src/generators/)** — modular instruments; see [docs/GENERATORS.md](docs/GENERATORS.md).
@@ -19,7 +21,7 @@ For the big picture (vision, subsystems, end-to-end signal path) read
 The text protocol (deck) is the source-of-truth control language — every UI edit round-trips through it, and the
 LLM co-DJ and multiplayer peers speak it. Don't learn the vocabulary from scattered UI files; use:
 
-- **[docs/DECK_GRAMMAR.md](docs/DECK_GRAMMAR.md)** — canonical, complete grammar (headers, track body, `gen_block` patch/matrix graphs, automation `auto`, clips/sessions, control directives `@ …`).
+- **`@spacedevin/deck` grammar** — canonical language ([`node_modules/@spacedevin/deck/docs/DECK_GRAMMAR.md`](node_modules/@spacedevin/deck/docs/DECK_GRAMMAR.md)). Deckard overlay (UI / ownership / clamps): [docs/DECK_GRAMMAR.md](docs/DECK_GRAMMAR.md).
 - **[docs/DECK_AGENT_GRAMMAR.md](docs/DECK_AGENT_GRAMMAR.md)** — the **co-DJ lane subset** (what an agent may emit), kept in lockstep with the agent `SYSTEM_PROMPT` in [services/agent-worker/main.tish](services/agent-worker/main.tish).
 - **[docs/DJ_SKILLS.md](docs/DJ_SKILLS.md)** — skill-gating: which lines are **master-scope** (`bpm`/`deck`/`tpl`/`auto`/`transpose`/`scale`/`swing`/`master_mix`/`actor_mix`/`session_*`/`clip`) and thus require the `master_mixer` skill. Source of truth: [src/codj/Skills.tish](src/codj/Skills.tish) `coDjLineAllowedForSkills`; per-track ownership in [src/codj/Merge.tish](src/codj/Merge.tish) `actorMayEditTrack`.
 - **[skills/README.md](skills/README.md)** — the AI agents are **role-based** (`--role host` = mixing/master/cohesion, joins with `master_mixer`; `--role client` = production) and **compose their system prompt at boot** from `skills/*.md` (a role file + a persona-selected subset of capability skills + `docs/DECK_AGENT_GRAMMAR.md`), read via `tish:fs` `readFile`. The persona is LLM-composed (seeded-by-actorId fallback) so same-role agents differ. Run: `pnpm run agent:host` / `pnpm run agent:client` (+ `pnpm run gateway`). The hardcoded `SYSTEM_PROMPT` in [services/agent-worker/main.tish](services/agent-worker/main.tish) is now only a fallback.

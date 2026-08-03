@@ -1,7 +1,11 @@
+import {
+  parseProgram,
+  lookupMacro,
+  expandMacroBody
+} from '@spacedevin/deck'
 // Apply deck from an actor with ownership / master-lock rules.
 
 import { makeChannel, defaultParamsForGeneratorId } from '../model/Project.tish'
-import { parseProgram } from '../deckfile/Parser.tish'
 import {
   applyTrackBody,
   applyAutos,
@@ -11,7 +15,6 @@ import {
   applyActorMixRows
 } from '../deckfile/Apply.tish'
 import { ensureProjectSession, normalizeSongEntries, normalizeFollow } from '../model/Session.tish'
-import { lookupMacro, expandMacroBody } from '../deckfile/Macros.tish'
 import { tplLoopResetChannel } from '../deckfile/LoopState.tish'
 import { findChannelById } from '../deckfile/Apply.tish'
 import { ensureCoDjMeta, setTrackOwner, setTrackTouched } from './CoDjMeta.tish'

@@ -1,5 +1,9 @@
-import { formatTplBeat, formatTplFloat } from './Format.tish'
-import { camelToSnake } from './RegistryMap.tish'
+import {
+  formatTplBeat,
+  formatTplFloat,
+  camelToSnake,
+  generatorIdToDeck
+} from '@spacedevin/deck'
 import { mixParamToTpl } from '../audio/MixerAutomation.tish'
 import { collectActorLanes } from '../model/MixerRouting.tish'
 import { syncAllMainClipsFromChannels, ensureProjectSession, playbackClipForChannel } from '../model/Session.tish'
@@ -92,19 +96,7 @@ export fn stepLyricLaneLine(steps) {
 }
 
 export fn generatorIdToTpl(id) {
-  if (id === "noiseBurst") {
-    return "noise_burst"
-  }
-  if (id === "fmTone") {
-    return "fm"
-  }
-  if (id === "basicOsc") {
-    return "basic_osc"
-  }
-  if (id === "drumSynth") {
-    return "drum"
-  }
-  return id
+  return generatorIdToDeck(id)
 }
 
 export fn emitProject(project) {

@@ -7,8 +7,9 @@
 
 This document is the map of the whole project: where it came from, the core idea, the
 end-to-end signal path, and how the subsystems fit together. For the language reference see
-[DECK_GRAMMAR.md](DECK_GRAMMAR.md); for the wire protocol see [WS_AND_AGENTS.md](WS_AND_AGENTS.md)
-and [STREAM_PROTOCOL.md](STREAM_PROTOCOL.md).
+**`@spacedevin/deck`** ([grammar in `node_modules`](../node_modules/@spacedevin/deck/docs/DECK_GRAMMAR.md));
+Deckard overlay (UI / ownership) is [DECK_GRAMMAR.md](DECK_GRAMMAR.md). Wire protocol:
+[WS_AND_AGENTS.md](WS_AND_AGENTS.md) and [STREAM_PROTOCOL.md](STREAM_PROTOCOL.md).
 
 ---
 
@@ -49,7 +50,9 @@ the Tish interpreter with the `ws` / `http` / `process` features.
 
 | Concern | Where |
 |---------|-------|
-| Streaming language (parse / apply / emit / stream) | `src/deckfile/` |
+| `.deck` language (parse / format / registries / highlight) | `@spacedevin/deck` |
+| Apply / emit / stream + graph dialects | `src/deckfile/` |
+| Generator id + macro registration | `src/generators/DeckIds.tish`, `BuiltinMacros.tish` |
 | Data model (project = single source of truth) | `src/model/` |
 | Synthesis & scheduling (the "stems") | `src/audio/`, `src/schedule/`, `src/generators/` |
 | Co-DJ collaboration (lanes, merge, skills, scheduling) | `src/codj/` |
@@ -92,8 +95,7 @@ through those `Edits.tish` setters, so UI edits and programmatic/agent edits sha
 
 ## 4. deck — the streaming token language (the centerpiece)
 
-deck is line-oriented and streamable. A full reference is in [DECK_GRAMMAR.md](DECK_GRAMMAR.md); the
-shape:
+deck is line-oriented and streamable. Canonical grammar: `@spacedevin/deck`. Shape:
 
 ```
 deck 1
@@ -126,7 +128,7 @@ blocks) and heavy generators (`gen_block matrix_fm … end gen_block`, see
 
 | Path | Unit | Module | Use |
 |------|------|--------|-----|
-| **Atomic** | whole program / block | `src/deckfile/Parser.tish` → `Apply.tish` (`applyTplSource`) | Editor *Apply*, JSON import, `deck.block` over the wire |
+| **Atomic** | whole program / block | `@spacedevin/deck` `parseProgram` → `Apply.tish` (`applyTplSource`) | Editor *Apply*, JSON import, `deck.block` over the wire |
 | **Incremental** | one line at a time | `src/deckfile/Stream.tish` (`tplLineStreamPush`) | `deck.line` over the wire — progressive decode |
 
 The atomic path (`parseProgram` → `applyParsed`) merges a complete program into the project by
@@ -137,7 +139,7 @@ instant its `track …` header arrives**, then the pattern fills in as `steps �
 share the same ownership/skill enforcement via `applyCoDjTplSource`.
 
 `src/deckfile/Emit.tish` does the reverse — `project → deck` — for the editor mirror, JSON↔deck, and the
-"what you send on Play" preview. Parser/apply/emit are a verified round-trip (see `test/smoke.tish`).
+"what you send on Play" preview. Package parse + host apply/emit are a verified round-trip (see `test/smoke.tish`).
 
 ---
 
@@ -268,9 +270,10 @@ See the [README](../README.md) quick-start.
 - **Model:** [Project.tish](../src/model/Project.tish), [Session.tish](../src/model/Session.tish),
   [Edits.tish](../src/model/Edits.tish), [Migrate.tish](../src/model/Migrate.tish),
   [MixerRouting.tish](../src/model/MixerRouting.tish), [DeckRouting.tish](../src/model/DeckRouting.tish)
-- **deck:** [Parser.tish](../src/deckfile/Parser.tish), [Apply.tish](../src/deckfile/Apply.tish),
-  [Emit.tish](../src/deckfile/Emit.tish), [Stream.tish](../src/deckfile/Stream.tish) (incremental),
-  [TplExtension.tish](../src/deckfile/TplExtension.tish)
+- **deck language:** [`@spacedevin/deck`](../node_modules/@spacedevin/deck/docs/DECK_GRAMMAR.md)
+- **deck host:** [Apply.tish](../src/deckfile/Apply.tish), [Emit.tish](../src/deckfile/Emit.tish),
+  [Stream.tish](../src/deckfile/Stream.tish), [PatchGraph.tish](../src/deckfile/PatchGraph.tish),
+  [MatrixFmGraph.tish](../src/deckfile/MatrixFmGraph.tish), [DeckIds.tish](../src/generators/DeckIds.tish)
 - **Audio:** [Engine.tish](../src/audio/Engine.tish), [Playback.tish](../src/audio/Playback.tish),
   [schedule/Engine.tish](../src/schedule/Engine.tish), [generators/](../src/generators/)
 - **Co-DJ:** [Merge.tish](../src/codj/Merge.tish), [Skills.tish](../src/codj/Skills.tish),

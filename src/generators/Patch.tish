@@ -1,3 +1,6 @@
+import {
+  parsePatchGraph
+} from '../deckfile/PatchGraph.tish'
 // Modular patch voice — interprets a `gen_block patch` graph into a Web Audio voice per trigger.
 // This is the universal synth: oscillators, noise, filters, waveshapers and gains wired by `conn`
 // lines, with breakpoint envelopes (`env node.param set/lin/exp t v ...`) on any AudioParam.
@@ -5,7 +8,6 @@
 // `vel`. Anything deck.tsx hand-coded (EDM kick, acid/reese bass, FM pluck, pad, stab) is now data.
 
 import { midiToHz } from '../schedule/Engine.tish'
-import { parsePatchGraph } from '../deckfile/TplExtension.tish'
 import { normalizeBasicOscWaveform } from './Registry.tish'
 import { playBasicOsc } from './BasicOsc.tish'
 
