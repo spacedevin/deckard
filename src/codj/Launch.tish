@@ -1,5 +1,6 @@
 import {
-  tokenize
+  tokenize,
+  parseProgram
 } from '@spacedevin/deck'
 // Live session-control directives, expressed as deck `@` lines so they travel in the same stream as
 // everything else — a player receiving the stream applies the host's launches to its OWN shared arming
@@ -104,15 +105,28 @@ export fn deckMoveDirective(deck, move, on) {
 // ---- detect ------------------------------------------------------------------------------------
 
 /** True when a trimmed line is a session-control directive (`@ launch|transport|cue|throw …`). */
+/// The verb of a `@ …` line, or null if the line is not a directive.
+///
+/// Reads the package's `directives[]` rather than hand-indexing tokens, so "what counts as a
+/// directive" is defined in exactly one place — including the rule that a bare `@` with no verb is
+/// an error rather than a directive with an empty verb.
+fn directiveVerb(line) {
+  if (line === null) {
+    return null
+  }
+  let ds = parseProgram(String(line).trim()).directives
+  if (ds.length === 0) {
+    return null
+  }
+  return ds[0].verb
+}
+
 export fn isLaunchDirective(line) {
-  if (line === null || line === undefined) {
+  let verb = directiveVerb(line)
+  if (verb === null) {
     return false
   }
-  let toks = tokenize(String(line).trim())
-  if (toks.length < 2 || toks[0] !== "@") {
-    return false
-  }
-  return toks[1] === "launch" || toks[1] === "transport" || toks[1] === "cue" || toks[1] === "throw" || toks[1] === "fx" || toks[1] === "deck"
+  return verb === "launch" || verb === "transport" || verb === "cue" || verb === "throw" || verb === "fx" || verb === "deck"
 }
 
 /** A PRIVATE directive must never leave this machine (cue/preview are local-only). Used by the
@@ -121,14 +135,15 @@ export fn isPrivateDirective(line) {
   if (line === null || line === undefined) {
     return false
   }
-  let toks = tokenize(String(line).trim())
-  if (toks.length < 2 || toks[0] !== "@") {
+  let verb = directiveVerb(line)
+  if (verb === null) {
     return false
   }
-  if (toks[1] === "cue") {
+  if (verb === "cue") {
     return true
   }
-  return toks[1] === "transport" && toks.length >= 3 && toks[2] === "preview"
+  let toks = tokenize(String(line).trim())
+  return verb === "transport" && toks.length >= 3 && toks[2] === "preview"
 }
 
 fn channelIndexById(project, trackId) {
