@@ -420,17 +420,14 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
             }
           } else {
             if (h === "noise" || h === "fm" || h === "osc") {
-              let ki = 1
-              while (ki + 1 < t.length) {
-                let key = paramKeyToCamel(t[ki])
-                let val = t[ki + 1]
-                let num = Number(val)
-                if (num === num && val.length > 0) {
-                  ch.generatorParams[key] = num
-                } else {
-                  ch.generatorParams[key] = val
-                }
-                ki = ki + 2
+              // Registered as a body dialect in DeckIds.tish, so the shape lives in the package with
+              // every other body line rather than being re-scanned here.
+              let lrow = parseBodyLine(t)
+              let lkeys = Object.keys(lrow.params)
+              let lk = 0
+              while (lk < lkeys.length) {
+                ch.generatorParams[lkeys[lk]] = lrow.params[lkeys[lk]]
+                lk = lk + 1
               }
             } else {
               if (h === "adsr") {

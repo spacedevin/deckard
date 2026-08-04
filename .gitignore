@@ -13,3 +13,5 @@ node_modules
 .env
 .DS_Store
 tish_out.js
+# pnpm content-addressable store — a local cache, never repo content.
+.pnpm-store/
