@@ -56,7 +56,7 @@ export fn stepsToScheduleInWindow(startStep, nextStepSec, ctxNow, lookahead, sec
   let step = Math.floor(Number(startStep))
   let when = Number(nextStepSec)
   let sp = Number(secPerStep)
-  let limit = (maxBatch !== null && maxBatch !== undefined) && Math.floor(Number(maxBatch)) > 0 ? Math.floor(Number(maxBatch)) : 256
+  let limit = (maxBatch !== null) && Math.floor(Number(maxBatch)) > 0 ? Math.floor(Number(maxBatch)) : 256
   if (sp <= 0 || sp !== sp) {
     return { items: out, nextStep: step, nextSec: when }
   }

@@ -12,8 +12,8 @@ export fn coDjClockPayload(actorId, perfStep, scene, bpm, playMode) {
     actorId: actorId,
     authorId: actorId,
     perfStep: Math.floor(Number(perfStep)),
-    scene: scene !== null && scene !== undefined ? Math.floor(Number(scene)) : null,
-    bpm: bpm !== null && bpm !== undefined ? Number(bpm) : null,
+    scene: scene !== null ? Math.floor(Number(scene)) : null,
+    bpm: bpm !== null ? Number(bpm) : null,
     playMode: playMode === "sequence" ? "sequence" : "song"
   }
 }
@@ -46,16 +46,16 @@ export fn coDjIsFollower(rt) {
   // broadcast playing_start/stop, silently breaking the WHOLE room's transport. An unresolved client has no
   // followers to disturb, so the safe direction is "not a follower" (drive + broadcast normally). Once joined
   // resolves coDjHostActorId, a true follower (coDjIsHost false) correctly reports as a follower below.
-  if (rt.coDjHostActorId === null || rt.coDjHostActorId === undefined) {
+  if (rt.coDjHostActorId === null) {
     return false
   }
-  return rt.coDjWs !== null && rt.coDjWs !== undefined && rt.coDjWs.readyState === 1
+  return rt.coDjWs !== null && rt.coDjWs.readyState === 1
 }
 
 /** True when this client is in a LIVE co-DJ session (the WS is connected). Read straight off the runtime, so
  *  it's reliable the instant we connect — no dependence on a roster being synced onto a particular project ref. */
 export fn coDjConnected(rt) {
-  return rt !== null && rt !== undefined && rt.coDjWs !== null && rt.coDjWs !== undefined && rt.coDjWs.readyState === 1
+  return rt !== null && rt.coDjWs !== null && rt.coDjWs.readyState === 1
 }
 
 /** The LOCAL player's own deck letter (A/B/C/D) while in a connected session, else null (solo = unrestricted).
@@ -66,7 +66,7 @@ export fn coDjOwnDeckLetter(rt) {
   if (!coDjConnected(rt)) {
     return null
   }
-  let host = rt.coDjHostActorId !== null && rt.coDjHostActorId !== undefined ? String(rt.coDjHostActorId) : ""
+  let host = rt.coDjHostActorId !== null ? String(rt.coDjHostActorId) : ""
   let actors = Array.isArray(rt.coDjActors) ? rt.coDjActors : []
   let players = []
   if (host.length > 0) {
@@ -80,7 +80,7 @@ export fn coDjOwnDeckLetter(rt) {
     }
     i = i + 1
   }
-  let self = rt.coDjActorId !== null && rt.coDjActorId !== undefined ? String(rt.coDjActorId) : ""
+  let self = rt.coDjActorId !== null ? String(rt.coDjActorId) : ""
   let j = 0
   while (j < players.length && j < 4) {
     if (players[j] === self) {
@@ -101,7 +101,7 @@ export fn coDjOwnDeckLetter(rt) {
 export fn coDjClockAlign(localTick, hostTick, threshold) {
   let lt = Math.floor(Number(localTick))
   let ht = Math.floor(Number(hostTick))
-  let th = threshold !== null && threshold !== undefined && Math.floor(Number(threshold)) >= 0 ? Math.floor(Number(threshold)) : 1
+  let th = threshold !== null && Math.floor(Number(threshold)) >= 0 ? Math.floor(Number(threshold)) : 1
   if (Math.abs(lt - ht) > th) {
     return ht + 1
   }

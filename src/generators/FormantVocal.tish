@@ -54,11 +54,11 @@ export fn playFormantVocal(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
   let glide = 0.1
   let humanize = 0.5
   if (p) {
-    if (p.release !== null && p.release !== undefined) release = p.release
-    if (p.vibDepth !== null && p.vibDepth !== undefined) vibDepth = p.vibDepth
-    if (p.vibRate !== null && p.vibRate !== undefined) vibRate = p.vibRate
-    if (p.glide !== null && p.glide !== undefined) glide = p.glide
-    if (p.humanize !== null && p.humanize !== undefined) humanize = p.humanize
+    if (p.release !== null) release = p.release
+    if (p.vibDepth !== null) vibDepth = p.vibDepth
+    if (p.vibRate !== null) vibRate = p.vibRate
+    if (p.glide !== null) glide = p.glide
+    if (p.humanize !== null) humanize = p.humanize
   }
 
   let n = Math.floor(midi + bendSemis)

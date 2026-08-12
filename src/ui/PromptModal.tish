@@ -7,12 +7,12 @@
 //   onConfirm(value) fires only on OK/Enter with a non-empty value. opts: { multiline, okLabel, placeholder }.
 export fn promptName(title, defaultValue, onConfirm, opts) {
   let doc = globalThis.document
-  if (doc === null || doc === undefined) {
+  if (doc === null) {
     return
   }
-  let o = opts !== null && opts !== undefined ? opts : {}
+  let o = opts !== null ? opts : {}
   let multiline = o.multiline === true
-  let okLabel = o.okLabel !== null && o.okLabel !== undefined ? o.okLabel : "Save"
+  let okLabel = o.okLabel !== null ? o.okLabel : "Save"
 
   let existing = doc.getElementById("ui-prompt-modal")
   if (existing) {
@@ -36,10 +36,10 @@ export fn promptName(title, defaultValue, onConfirm, opts) {
   if (!multiline) {
     input.type = "text"
   }
-  if (o.placeholder !== null && o.placeholder !== undefined) {
+  if (o.placeholder !== null) {
     input.placeholder = String(o.placeholder)
   }
-  input.value = defaultValue !== null && defaultValue !== undefined ? String(defaultValue) : ""
+  input.value = defaultValue !== null ? String(defaultValue) : ""
   box.appendChild(input)
 
   let btnRow = doc.createElement("div")
@@ -62,7 +62,7 @@ export fn promptName(title, defaultValue, onConfirm, opts) {
   fn confirm() {
     let v = input.value
     close()
-    if (v !== null && v !== undefined && String(v).length > 0 && onConfirm !== null && onConfirm !== undefined) {
+    if (v !== null && String(v).length > 0 && onConfirm !== null) {
       onConfirm(String(v))
     }
   }
@@ -109,7 +109,7 @@ export fn promptName(title, defaultValue, onConfirm, opts) {
 // alertModal(message, title?) — a dismissible info box (replaces window.alert).
 export fn alertModal(message, title) {
   let doc = globalThis.document
-  if (doc === null || doc === undefined) {
+  if (doc === null) {
     return
   }
   let existing = doc.getElementById("ui-prompt-modal")
@@ -124,7 +124,7 @@ export fn alertModal(message, title) {
   let box = doc.createElement("div")
   box.className = "ui-modal"
 
-  if (title !== null && title !== undefined && String(title).length > 0) {
+  if (title !== null && String(title).length > 0) {
     let titleEl = doc.createElement("div")
     titleEl.className = "ui-modal-title"
     titleEl.textContent = title
@@ -133,7 +133,7 @@ export fn alertModal(message, title) {
 
   let msgEl = doc.createElement("div")
   msgEl.className = "ui-modal-msg"
-  msgEl.textContent = message !== null && message !== undefined ? String(message) : ""
+  msgEl.textContent = message !== null ? String(message) : ""
   box.appendChild(msgEl)
 
   let btnRow = doc.createElement("div")

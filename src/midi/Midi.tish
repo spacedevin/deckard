@@ -178,7 +178,7 @@ export fn createMidiController(deps) {
   }
   // restore persisted mappings, or seed defaults on a machine that has never saved any
   let raw = backend.read()
-  if (raw !== null && raw !== undefined && String(raw).length > 0) {
+  if (raw !== null && String(raw).length > 0) {
     try {
       let m = JSON.parse(raw)
       if (m && typeof m === "object") {
@@ -224,7 +224,7 @@ export fn createMidiController(deps) {
         return
       }
       let target = state.mappings[key]
-      if (target !== null && target !== undefined && d.onControl) {
+      if (target !== null && d.onControl) {
         d.onControl(target, normalize01(ev.value))
       }
     }
@@ -305,7 +305,7 @@ export fn createMidiController(deps) {
     notify()
   }
   fn removeMapping(key) {
-    if (state.mappings[key] !== null && state.mappings[key] !== undefined) {
+    if (state.mappings[key] !== null) {
       delete state.mappings[key]
       persist()
       notify()

@@ -1,0 +1,51 @@
+import { test } from "tish:test"
+import assert from "node:assert/strict"
+// Regression guard for co-DJ ROLE detection — the load-bearing gate behind host-only live transport.
+// The bug this locks (2026-06): coDjIsFollower failed OPEN toward "follower" whenever coDjIsHost wasn't yet
+// true (the connect window, or a stale reconnect). Combined with onPlayStop's follower→Preview early-return,
+// the REAL host got downgraded to local Preview and NEVER broadcast playing_start/stop — silently breaking
+// the whole room's transport. The fix: until the gateway resolves our role (coDjHostActorId set), an open
+// socket is NOT classified as a follower (fail SAFE toward host). See [[host-only-live-transport]].
+import { coDjIsFollower, coDjShouldFollow } from '../../src/codj/Transport.tish'
+
+test("transport", () => {
+
+
+  let OPEN = { readyState: 1 }
+  let CONNECTING = { readyState: 0 }
+
+  // ---- coDjIsFollower ----
+  // Solo (never connected): not a follower → Play drives locally.
+  assert.ok(coDjIsFollower({ coDjIsHost: false, coDjHostActorId: null, coDjWs: null }) === false, "solo (no ws) is NOT a follower")
+
+  // The HOST: coDjIsHost true short-circuits → never a follower (drives + broadcasts).
+  assert.ok(coDjIsFollower({ coDjIsHost: true, coDjHostActorId: "h", coDjWs: OPEN }) === false, "resolved HOST is NOT a follower")
+
+  // THE FIX — connect window: socket OPEN but role not yet resolved (coDjHostActorId null). A true host is
+  // here for a beat before its joined frame; must NOT be downgraded to follower/Preview.
+  assert.ok(coDjIsFollower({ coDjIsHost: false, coDjHostActorId: null, coDjWs: OPEN }) === false, "open socket, role UNRESOLVED is NOT a follower (fail-safe toward host)")
+
+  // THE FIX — stale reconnect: coDjIsHost left false, coDjHostActorId not yet re-resolved.
+  assert.ok(coDjIsFollower({ coDjIsHost: false, coDjWs: OPEN }) === false, "open socket, undefined host id is NOT a follower")
+
+  // Resolved FOLLOWER: role known (coDjHostActorId set to someone else), socket open → IS a follower.
+  assert.ok(coDjIsFollower({ coDjIsHost: false, coDjHostActorId: "host-X", coDjWs: OPEN }) === true, "resolved follower (host id set, open socket) IS a follower")
+
+  // Resolved follower but socket still connecting → not yet a follower.
+  assert.ok(coDjIsFollower({ coDjIsHost: false, coDjHostActorId: "host-X", coDjWs: CONNECTING }) === false, "resolved follower, socket CONNECTING is NOT a follower")
+
+  // Null rt is safe.
+  assert.ok(coDjIsFollower(null) === false, "null rt is NOT a follower")
+
+  // ---- coDjShouldFollow (slaves transport to host clock) ----
+  // Host never follows.
+  assert.ok(coDjShouldFollow({ coDjIsHost: true }) === false, "HOST should NOT follow")
+  // A non-host with default (undefined) follow-transport DOES follow (behavior-preserving default).
+  assert.ok(coDjShouldFollow({ coDjIsHost: false }) === true, "non-host with default follow-transport DOES follow")
+  // Explicit seeded default true also follows.
+  assert.ok(coDjShouldFollow({ coDjIsHost: false, coDjFollowTransport: true }) === true, "non-host with coDjFollowTransport:true DOES follow")
+  // Independent mode opts out.
+  assert.ok(coDjShouldFollow({ coDjIsHost: false, coDjFollowTransport: false }) === false, "non-host with coDjFollowTransport:false does NOT follow (independent mode)")
+
+  console.log("")
+})

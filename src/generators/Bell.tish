@@ -11,9 +11,9 @@ export fn playBell(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   if (n >= 0 && n <= 127) {
     hz = midiToHz(n)
   }
-  let partial = p.partial !== null && p.partial !== undefined && p.partial > 0 ? p.partial : 2.01
-  let hp = p.highpass !== null && p.highpass !== undefined && p.highpass > 0 ? p.highpass : 800
-  let decay = p.decay !== null && p.decay !== undefined && p.decay > 0 ? p.decay : 1.0
+  let partial = p.partial !== null && p.partial > 0 ? p.partial : 2.01
+  let hp = p.highpass !== null && p.highpass > 0 ? p.highpass : 800
+  let decay = p.decay !== null && p.decay > 0 ? p.decay : 1.0
 
   let o1 = ctx.createOscillator()
   o1.type = "sine"

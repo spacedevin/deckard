@@ -25,7 +25,7 @@ let INSTR_PRESET_KEY = "deckard.instrumentpresets.v1"
 fn instrPresetBackend() {
   // globalThis.localStorage is a plain property read (undefined off-browser, no throw — see typeof gotcha).
   let ls = globalThis.localStorage
-  if (ls !== null && ls !== undefined) {
+  if (ls !== null) {
     return {
       read: () => ls.getItem(INSTR_PRESET_KEY),
       write: (s) => {
@@ -56,7 +56,7 @@ export fn persistUserInstrumentPresets(project) {
 export fn loadUserInstrumentPresets(project) {
   ensureInstrumentPresets(project)
   let raw = instrPresetBackend().read()
-  if (raw === null || raw === undefined || String(raw).length === 0) {
+  if (raw === null || String(raw).length === 0) {
     return
   }
   let users = null
@@ -71,7 +71,7 @@ export fn loadUserInstrumentPresets(project) {
   let i = 0
   while (i < users.length) {
     let u = users[i]
-    if (u !== null && u !== undefined) {
+    if (u !== null) {
       let exists = false
       let j = 0
       while (j < project.instrumentPresets.length) {
@@ -100,7 +100,7 @@ export fn addInstrumentPreset(project, displayName, ch) {
     userSaved: true,
     generatorId: ch.generatorId,
     params: deepCloneParams(ch.generatorParams),
-    macroName: ch.macroName !== null && ch.macroName !== undefined ? ch.macroName : null,
+    macroName: ch.macroName !== null ? ch.macroName : null,
     macroParams: ch.macroParams ? deepCloneParams(ch.macroParams) : null,
     fx: {
       reverbSend: ch.reverbSend,
@@ -155,19 +155,19 @@ export fn applyInstrumentPresetToChannel(ch, preset) {
     ch.generatorSpec = parseGenBlock("matrix_fm", defaultMatrixFmRawLines())
   }
   // Macro identity (so the Sound box shows the macro designer + the voice picker highlights it).
-  ch.macroName = preset.macroName !== null && preset.macroName !== undefined ? preset.macroName : null
+  ch.macroName = preset.macroName !== null ? preset.macroName : null
   ch.macroParams = preset.macroParams ? deepCloneParams(preset.macroParams) : null
   // Filter / FX box (older presets without `fx` reset to neutral so nothing stale lingers).
   let fx = preset.fx ? preset.fx : {}
-  ch.reverbSend = fx.reverbSend !== null && fx.reverbSend !== undefined ? fx.reverbSend : 0
-  ch.drive = fx.drive !== null && fx.drive !== undefined ? fx.drive : 0
-  ch.filterCutoff = fx.filterCutoff !== null && fx.filterCutoff !== undefined ? fx.filterCutoff : 20000
-  ch.filterQ = fx.filterQ !== null && fx.filterQ !== undefined ? fx.filterQ : 0.7
-  ch.lfoRate = fx.lfoRate !== null && fx.lfoRate !== undefined ? fx.lfoRate : 0
-  ch.lfoDepth = fx.lfoDepth !== null && fx.lfoDepth !== undefined ? fx.lfoDepth : 0
+  ch.reverbSend = fx.reverbSend !== null ? fx.reverbSend : 0
+  ch.drive = fx.drive !== null ? fx.drive : 0
+  ch.filterCutoff = fx.filterCutoff !== null ? fx.filterCutoff : 20000
+  ch.filterQ = fx.filterQ !== null ? fx.filterQ : 0.7
+  ch.lfoRate = fx.lfoRate !== null ? fx.lfoRate : 0
+  ch.lfoDepth = fx.lfoDepth !== null ? fx.lfoDepth : 0
   // Pitch box.
   let voice = preset.voice ? preset.voice : {}
-  ch.octave = voice.octave !== null && voice.octave !== undefined ? voice.octave : 0
-  ch.arp = voice.arp !== null && voice.arp !== undefined ? voice.arp : "off"
-  ch.chord = voice.chord !== null && voice.chord !== undefined ? voice.chord : "off"
+  ch.octave = voice.octave !== null ? voice.octave : 0
+  ch.arp = voice.arp !== null ? voice.arp : "off"
+  ch.chord = voice.chord !== null ? voice.chord : "off"
 }

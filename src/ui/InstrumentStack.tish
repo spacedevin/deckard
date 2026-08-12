@@ -79,7 +79,7 @@ fn isMacroVoice(key) {
 }
 
 fn activeVoiceKey(ch) {
-  if (ch.macroName !== null && ch.macroName !== undefined) {
+  if (ch.macroName !== null) {
     return ch.macroName
   }
   return ch.generatorId ? ch.generatorId : "basicOsc"
@@ -168,11 +168,11 @@ fn pickVoice(project, ch, key, setProject, tplMirrorFlush) {
       if (key === "patch") {
         // Patch is the universal substrate: compile the previous voice into an equivalent graph so the
         // sound is preserved. An already-patch (incl. an expanded macro) keeps its graph.
-        if (keptPatchSpec !== null && keptPatchSpec !== undefined) {
+        if (keptPatchSpec !== null) {
           ch.generatorSpec = keptPatchSpec
         } else {
           let compiled = compileGeneratorToPatchLines(prevId, prevParams, prevSpec)
-          let lines = compiled !== null && compiled !== undefined ? compiled : defaultPatchRawLines()
+          let lines = compiled !== null ? compiled : defaultPatchRawLines()
           ch.generatorSpec = parseGenBlock("patch", lines)
         }
       } else {
@@ -282,7 +282,7 @@ fn fieldAddress(field) {
 // label index to a string. msKnob is a continuous dial for millisecond values.
 
 fn msKnob(label, ch, field, maxMs, rt, accent) {
-  let ms = ch[field] !== null && ch[field] !== undefined ? ch[field] : 0
+  let ms = ch[field] !== null ? ch[field] : 0
   return Knob({
     label: label,
     value: ms, min: 0, max: maxMs, step: 1,
@@ -319,7 +319,7 @@ fn volKnob(ch, rt, accent) {
 }
 
 export fn octaveKnob(ch, rt, accent) {
-  let cur = ch.octave !== null && ch.octave !== undefined ? ch.octave : 0
+  let cur = ch.octave !== null ? ch.octave : 0
   return Knob({
     label: "Octave",
     value: cur,
@@ -343,7 +343,7 @@ export fn octaveKnob(ch, rt, accent) {
 }
 
 export fn selectorKnob(label, ch, field, defs, rt, accent) {
-  let curStr = ch[field] !== null && ch[field] !== undefined ? ch[field] : defs[0][1]
+  let curStr = ch[field] !== null ? ch[field] : defs[0][1]
   let n = defs.length
   let curIdx = 0
   let i = 0
@@ -386,7 +386,7 @@ export fn selectorKnob(label, ch, field, defs, rt, accent) {
 
 fn moduleRawActive(ctx, module) {
   let rt = ctx.rt
-  return rt !== null && rt !== undefined && rt.moduleRaw !== null && rt.moduleRaw !== undefined && rt.moduleRaw[ctx.ch.id + "/" + module] === true
+  return rt !== null && rt.moduleRaw !== null && rt.moduleRaw[ctx.ch.id + "/" + module] === true
 }
 
 fn setModuleRaw(ctx, module, on) {
@@ -413,10 +413,10 @@ fn closeGenModal(rt, project, setProject) {
 }
 
 fn ModuleCard(title, tplBlock, module, ctx, children, wide, extraClass) {
-  let hasRaw = module !== null && module !== undefined && module !== ""
+  let hasRaw = module !== null && module !== ""
   let raw = hasRaw && moduleRawActive(ctx, module)
   let cardClass = wide ? "instr-module instr-module-wide" : "instr-module"
-  if (extraClass !== null && extraClass !== undefined && extraClass !== "") {
+  if (extraClass !== null && extraClass !== "") {
     cardClass = cardClass + " " + extraClass
   }
   // When the code (raw deck) view is active this module takes over the whole panel — the CSS hides its sibling
@@ -446,7 +446,7 @@ fn ModuleCard(title, tplBlock, module, ctx, children, wide, extraClass) {
       "rawed-" + ctx.ch.id + "-" + module,
       displayTpl,
       (text) => {
-        if ((ctx.rt === null || ctx.rt === undefined)) {
+        if ((ctx.rt === null)) {
           return
         }
         let full = text.substring(0, 4) === "tpl " ? text : "deck 1\n\n" + text
@@ -484,7 +484,7 @@ fn ModuleCard(title, tplBlock, module, ctx, children, wide, extraClass) {
 }
 
 fn voiceDesigner(project, ch, gid, setProject, tplMirrorFlush, rt, inModal) {
-  let isMacro = ch.macroName !== null && ch.macroName !== undefined
+  let isMacro = ch.macroName !== null
   // Ownership gate: the modular patch/matrix editors mutate the project locally + broadcast, so a non-owner
   // (a co-DJ track you don't own, or a master-locked track) must not author edits — else the optimistic
   // local state diverges from the gated-rejected broadcast. actorMayEditTrack respects ownership + masterLock;
@@ -554,7 +554,7 @@ fn instrumentPresetBar(project, ch, setProject, tplMirrorFlush) {
 
 fn SoundModule(ctx, gid) {
   // Modular designers (Matrix FM / Patch / a frozen macro graph) need more room than a small box.
-  let wide = gid === "matrixFm" || gid === "patch" || ctx.ch.macroName !== null && ctx.ch.macroName !== undefined
+  let wide = gid === "matrixFm" || gid === "patch" || ctx.ch.macroName !== null
   return ModuleCard(
     "Sound",
     "",
@@ -610,7 +610,7 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
   let targetChannels = []
   let deckColor = ""
   
-  if (activeDeck !== null && activeDeck !== undefined && activeDeck !== "") {
+  if (activeDeck !== null && activeDeck !== "") {
     deckColor = deckWaveColorHex(activeDeck)
     let i = 0
     while (i < project.channels.length) {
@@ -632,13 +632,13 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
   }
   
   if (targetChannels.length === 0) {
-    let hint = activeDeck !== null && activeDeck !== undefined && activeDeck !== ""
+    let hint = activeDeck !== null && activeDeck !== ""
       ? "No instruments routed to deck " + activeDeck + ". Assign a track to this deck in the mixer or deck."
       : "Select a channel in the rack."
-    let title = activeDeck !== null && activeDeck !== undefined && activeDeck !== ""
+    let title = activeDeck !== null && activeDeck !== ""
       ? "DECK " + activeDeck + " // INSTRUMENTS"
       : "INSTRUMENT"
-    let color = activeDeck !== null && activeDeck !== undefined && activeDeck !== ""
+    let color = activeDeck !== null && activeDeck !== ""
       ? deckWaveColorHex(activeDeck)
       : "var(--border, #2a2a2a)"
     return (
@@ -676,7 +676,7 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
 
     ensureCoDjMeta(project)
     let meta = project.coDjMeta.tracks[ch.id]
-    let locked = meta !== null && meta !== undefined && meta.masterLock === true
+    let locked = meta !== null && meta.masterLock === true
 
     cards.push(
       <section
@@ -723,7 +723,7 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
                 title="Hover or double click to edit track name"
               />
               <div class="sg-gutter-ctl" style={{ display: "flex", gap: "3px", marginRight: "4px" }}>
-                {(rt !== null && rt !== undefined && rt.coDjWs && rt.coDjWs.readyState === 1) ? (
+                {(rt !== null && rt.coDjWs && rt.coDjWs.readyState === 1) ? (
                   <button
                     type="button"
                     class="sg-deck-chip sg-deck-chip-locked"
@@ -874,7 +874,7 @@ export fn InstrumentStack(project, selectedCh, setProjectFromUI, tplMirrorFlush,
       )
     }
   }
-  if (activeDeck !== null && activeDeck !== undefined && activeDeck !== "") {
+  if (activeDeck !== null && activeDeck !== "") {
     // Fill out the last row of the 3-wide grid with EMPTY slots (slightly different background) — a reserved
     // zone for a future "fun" element. Only when there's at least one instrument and the row isn't already full.
     if (cards.length > 0) {

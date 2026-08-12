@@ -19,11 +19,11 @@ export fn ensureCoDjMeta(project) {
         lastTouchedPerfStep: 0
       }
     } else {
-      if (meta.ownerLane !== null && meta.ownerLane !== undefined && (meta.ownerActorId === null || meta.ownerActorId === undefined)) {
+      if (meta.ownerLane !== null && (meta.ownerActorId === null)) {
         meta.ownerActorId = meta.ownerLane === "human" ? "human" : ("agent-" + meta.ownerLane)
       }
-      if ((meta.ownerActorId === null || meta.ownerActorId === undefined)) meta.ownerActorId = "human"
-      if ((meta.authorId === null || meta.authorId === undefined)) meta.authorId = meta.ownerActorId
+      if ((meta.ownerActorId === null)) meta.ownerActorId = "human"
+      if ((meta.authorId === null)) meta.authorId = meta.ownerActorId
     }
     meta = project.coDjMeta.tracks[id]
     if (typeof meta.lastTouchedPerfStep !== "number") {

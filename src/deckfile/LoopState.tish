@@ -26,13 +26,13 @@ export fn tplLoopOnBarBoundary(project, globalStep, rt) {
   while (i < project.channels.length) {
     let ch = project.channels[i]
     let n = effectiveTplLoopCap(project, rt, i)
-    if (n === null || n === undefined) {
+    if (n === null) {
       i = i + 1
       continue
     }
     let id = ch.id
     let prev = barsDone[id]
-    if (prev === undefined || prev === null) {
+    if (prev === null) {
       prev = 0
     }
     barsDone[id] = prev + 1
@@ -52,7 +52,7 @@ export fn tplLoopSkipsChannel(project, chIdx, rt) {
     return false
   }
   let n = effectiveTplLoopCap(project, rt, chIdx)
-  if (n === null || n === undefined) {
+  if (n === null) {
     return false
   }
   return exhausted[ch.id] === true

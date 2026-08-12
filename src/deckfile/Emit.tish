@@ -16,19 +16,19 @@ import { scaleRootNames } from '../model/Scale.tish'
 // the format can't drift. Caller adds any trailing `bar <sel>` (that lives only in the live channel emit).
 export fn noteLine(n) {
   let o = "  note " + String(n.pitch) + " " + String(n.startBeat) + " " + String(n.durBeats) + " v " + String(n.vel)
-  let prob = n.prob !== null && n.prob !== undefined ? Number(n.prob) : 1
+  let prob = n.prob !== null ? Number(n.prob) : 1
   if (prob < 0.999) {
     o = o + " p " + formatTplFloat(prob)
   }
-  let ratchet = n.ratchet !== null && n.ratchet !== undefined ? Math.floor(Number(n.ratchet)) : 1
+  let ratchet = n.ratchet !== null ? Math.floor(Number(n.ratchet)) : 1
   if (ratchet > 1) {
     o = o + " r " + String(ratchet)
   }
-  let nudge = n.nudge !== null && n.nudge !== undefined ? Number(n.nudge) : 0
+  let nudge = n.nudge !== null ? Number(n.nudge) : 0
   if (nudge > 0.0005 || nudge < -0.0005) {
     o = o + " n " + formatTplFloat(nudge)
   }
-  if (n.lyric !== null && n.lyric !== undefined && n.lyric !== "") {
+  if (n.lyric !== null && n.lyric !== "") {
     o = o + " l " + n.lyric
   }
   return o
@@ -41,7 +41,7 @@ export fn stepLaneLine(steps, label, field, dflt, isInt) {
   let any = false
   let i = 0
   while (i < 16) {
-    let v = (steps[i] && (steps[i][field] !== null && steps[i][field] !== undefined)) ? Number(steps[i][field]) : dflt
+    let v = (steps[i] && (steps[i][field] !== null)) ? Number(steps[i][field]) : dflt
     if (isInt) {
       if (Math.floor(v) !== Math.floor(dflt)) {
         any = true
@@ -59,7 +59,7 @@ export fn stepLaneLine(steps, label, field, dflt, isInt) {
   let o = "  " + label
   let j = 0
   while (j < 16) {
-    let v = (steps[j] && (steps[j][field] !== null && steps[j][field] !== undefined)) ? Number(steps[j][field]) : dflt
+    let v = (steps[j] && (steps[j][field] !== null)) ? Number(steps[j][field]) : dflt
     if (isInt) {
       o = o + " " + String(Math.floor(v))
     } else {
@@ -77,7 +77,7 @@ export fn stepLyricLaneLine(steps) {
   let any = false
   let i = 0
   while (i < 16) {
-    if (steps[i] && steps[i].lyric !== null && steps[i].lyric !== undefined && steps[i].lyric !== "") {
+    if (steps[i] && steps[i].lyric !== null && steps[i].lyric !== "") {
       any = true
     }
     i = i + 1
@@ -88,7 +88,7 @@ export fn stepLyricLaneLine(steps) {
   let o = "  step_lyric"
   let j = 0
   while (j < 16) {
-    let l = (steps[j] && steps[j].lyric !== null && steps[j].lyric !== undefined && steps[j].lyric !== "") ? steps[j].lyric : "."
+    let l = (steps[j] && steps[j].lyric !== null && steps[j].lyric !== "") ? steps[j].lyric : "."
     o = o + " " + l
     j = j + 1
   }
@@ -133,26 +133,26 @@ export fn emitProjectInner(project, skipSync) {
   ensureProjectSession(project)
   let o = "deck 1\n"
   o = o + "bpm " + formatTplFloat(project.bpm) + "\n"
-  if (project.launchQuant !== null && project.launchQuant !== undefined && Math.floor(Number(project.launchQuant)) >= 1) {
+  if (project.launchQuant !== null && Math.floor(Number(project.launchQuant)) >= 1) {
     o = o + "launch_quant " + String(Math.floor(Number(project.launchQuant))) + "\n"
   }
-  if (project.songSeed !== null && project.songSeed !== undefined && Math.floor(Number(project.songSeed)) === Math.floor(Number(project.songSeed))) {
+  if (project.songSeed !== null && Math.floor(Number(project.songSeed)) === Math.floor(Number(project.songSeed))) {
     o = o + "song_seed " + String(Math.floor(Number(project.songSeed))) + "\n"
   }
   // Transport routing scalars — emitted only when off their defaults (keeps round-trip minimal & stable).
-  let cfx = project.transportCrossfade !== null && project.transportCrossfade !== undefined ? Number(project.transportCrossfade) : 0.5
-  let cfy = project.transportCrossfadeY !== null && project.transportCrossfadeY !== undefined ? Number(project.transportCrossfadeY) : 0.5
+  let cfx = project.transportCrossfade !== null ? Number(project.transportCrossfade) : 0.5
+  let cfy = project.transportCrossfadeY !== null ? Number(project.transportCrossfadeY) : 0.5
   if (Math.abs(cfx - 0.5) > 0.0001 || Math.abs(cfy - 0.5) > 0.0001) {
     o = o + "xfade " + formatTplFloat(cfx) + " " + formatTplFloat(cfy) + "\n"
   }
   if (project.transportMainDeck === "local") {
     o = o + "main_deck local\n"
   }
-  if (project.swing !== null && project.swing !== undefined && Number(project.swing) > 0.0001) {
+  if (project.swing !== null && Number(project.swing) > 0.0001) {
     o = o + "swing " + formatTplFloat(project.swing) + "\n"
   }
   // Scale lock (global key constraint) — root pitch-class name + mode.
-  if (project.scaleRoot !== null && project.scaleRoot !== undefined && project.scaleMode !== null && project.scaleMode !== undefined && project.scaleMode !== "" && project.scaleMode !== "off") {
+  if (project.scaleRoot !== null && project.scaleMode !== null && project.scaleMode !== "" && project.scaleMode !== "off") {
     let rn = scaleRootNames()
     let pc = Math.floor(Number(project.scaleRoot))
     if (pc >= 0 && pc <= 11) {
@@ -179,16 +179,16 @@ export fn emitProjectInner(project, skipSync) {
       gid = "basicOsc"
     }
     // A macro-backed channel round-trips as `gen <macroName> [overrides]` (the macro re-expands on load).
-    let genTok = (ch.macroName !== null && ch.macroName !== undefined) ? ch.macroName : generatorIdToTpl(gid)
+    let genTok = (ch.macroName !== null) ? ch.macroName : generatorIdToTpl(gid)
     o = o + "track " + ch.name + " id " + ch.id + " gen " + genTok
     let pb = ch.patternBars
-    if (pb !== null && pb !== undefined) {
+    if (pb !== null) {
       let pn = Math.floor(Number(pb))
       if (pn >= 2 && pn === pn) {
         o = o + " * " + String(pn)
       }
     }
-    if (ch.macroName !== null && ch.macroName !== undefined && ch.macroParams) {
+    if (ch.macroName !== null && ch.macroParams) {
       let mk = Object.keys(ch.macroParams)
       let mki = 0
       while (mki < mk.length) {
@@ -199,7 +199,7 @@ export fn emitProjectInner(project, skipSync) {
     o = o + "\n"
     // Finite loop cap (play N bars then go silent) — distinct from pattern length above.
     let tlb = ch.tplLoopBars
-    if (tlb !== null && tlb !== undefined) {
+    if (tlb !== null) {
       let tn = Math.floor(Number(tlb))
       if (tn >= 1 && tn === tn) {
         o = o + "  loops " + String(tn) + "\n"
@@ -212,9 +212,9 @@ export fn emitProjectInner(project, skipSync) {
     if (ch.solo) {
       o = o + " solo 1"
     }
-    let loV = ch.eqLo !== null && ch.eqLo !== undefined ? ch.eqLo : 0
-    let midV = ch.eqMid !== null && ch.eqMid !== undefined ? ch.eqMid : 0
-    let hiV = ch.eqHi !== null && ch.eqHi !== undefined ? ch.eqHi : 0
+    let loV = ch.eqLo !== null ? ch.eqLo : 0
+    let midV = ch.eqMid !== null ? ch.eqMid : 0
+    let hiV = ch.eqHi !== null ? ch.eqHi : 0
     o = o + " eq_lo " + formatTplFloat(loV) + " eq_mid " + formatTplFloat(midV) + " eq_hi " + formatTplFloat(hiV)
     o = o + "\n"
     if (ch.stepPitchByBar && ch.stepPitchByBar.length > 0) {
@@ -224,7 +224,7 @@ export fn emitProjectInner(project, skipSync) {
         sbi = sbi + 1
       }
     } else {
-      if (ch.stepPitch !== null && ch.stepPitch !== undefined && ch.stepPitch !== 36) {
+      if (ch.stepPitch !== null && ch.stepPitch !== 36) {
         o = o + "  step_pitch " + String(Math.floor(ch.stepPitch)) + "\n"
       }
     }
@@ -301,25 +301,25 @@ export fn emitProjectInner(project, skipSync) {
     }
 
     let fxParts = ""
-    if (ch.filterType !== null && ch.filterType !== undefined && ch.filterType !== "lowpass") {
+    if (ch.filterType !== null && ch.filterType !== "lowpass") {
       fxParts = fxParts + " filter_type " + String(ch.filterType)
     }
-    if (ch.reverbSend !== null && ch.reverbSend !== undefined && ch.reverbSend > 0.0001) {
+    if (ch.reverbSend !== null && ch.reverbSend > 0.0001) {
       fxParts = fxParts + " reverb_send " + formatTplFloat(ch.reverbSend)
     }
-    if (ch.drive !== null && ch.drive !== undefined && ch.drive > 0.0001) {
+    if (ch.drive !== null && ch.drive > 0.0001) {
       fxParts = fxParts + " drive " + formatTplFloat(ch.drive)
     }
-    if (ch.lfoRate !== null && ch.lfoRate !== undefined && ch.lfoRate > 0.0001) {
+    if (ch.lfoRate !== null && ch.lfoRate > 0.0001) {
       fxParts = fxParts + " lfo_rate " + formatTplFloat(ch.lfoRate)
     }
-    if (ch.lfoDepth !== null && ch.lfoDepth !== undefined && ch.lfoDepth > 0.0001) {
+    if (ch.lfoDepth !== null && ch.lfoDepth > 0.0001) {
       fxParts = fxParts + " lfo_depth " + formatTplFloat(ch.lfoDepth)
     }
-    if (ch.filterCutoff !== null && ch.filterCutoff !== undefined && ch.filterCutoff < 20000) {
+    if (ch.filterCutoff !== null && ch.filterCutoff < 20000) {
       fxParts = fxParts + " cutoff " + formatTplFloat(ch.filterCutoff)
     }
-    if (ch.filterQ !== null && ch.filterQ !== undefined && Math.abs(ch.filterQ - 0.7) > 0.001) {
+    if (ch.filterQ !== null && Math.abs(ch.filterQ - 0.7) > 0.001) {
       fxParts = fxParts + " res " + formatTplFloat(ch.filterQ)
     }
     if (fxParts.length > 0) {
@@ -327,22 +327,22 @@ export fn emitProjectInner(project, skipSync) {
     }
 
     let voiceParts = ""
-    if (ch.octave !== null && ch.octave !== undefined && ch.octave !== 0) {
+    if (ch.octave !== null && ch.octave !== 0) {
       voiceParts = voiceParts + " octave " + String(Math.floor(ch.octave))
     }
-    if (ch.arp !== null && ch.arp !== undefined && ch.arp !== "" && ch.arp !== "off") {
+    if (ch.arp !== null && ch.arp !== "" && ch.arp !== "off") {
       voiceParts = voiceParts + " arp " + String(ch.arp)
     }
-    if (ch.chord !== null && ch.chord !== undefined && ch.chord !== "" && ch.chord !== "off") {
+    if (ch.chord !== null && ch.chord !== "" && ch.chord !== "off") {
       voiceParts = voiceParts + " chord " + String(ch.chord)
     }
-    if (ch.arpRate !== null && ch.arpRate !== undefined && ch.arpRate !== "auto") {
+    if (ch.arpRate !== null && ch.arpRate !== "auto") {
       voiceParts = voiceParts + " arprate " + String(ch.arpRate)
     }
-    if (ch.inversion !== null && ch.inversion !== undefined && ch.inversion !== "root") {
+    if (ch.inversion !== null && ch.inversion !== "root") {
       voiceParts = voiceParts + " inversion " + String(ch.inversion)
     }
-    if (ch.strum !== null && ch.strum !== undefined) {
+    if (ch.strum !== null) {
       let s = ch.strum
       let sStr = String(Math.round(s * 1000) / 1000)
       voiceParts = voiceParts + " strum " + sStr
@@ -356,9 +356,9 @@ export fn emitProjectInner(project, skipSync) {
     // letter. The slot MUST round-trip even when ch.deck is still "live": graftRackOntoDeck parks B/C/D
     // channels on ch.deck="live" with the real deck living only in deckSlot, so gating on the letter alone
     // would silently drop multi-deck routing on save/load.
-    let hasDeckSlot = ch.deckSlot !== null && ch.deckSlot !== undefined && Math.floor(Number(ch.deckSlot)) === Math.floor(Number(ch.deckSlot))
-    if (hasDeckSlot || (ch.deck !== null && ch.deck !== undefined && ch.deck !== "live")) {
-      o = o + "  deck " + String(ch.deck !== null && ch.deck !== undefined ? ch.deck : "live")
+    let hasDeckSlot = ch.deckSlot !== null && Math.floor(Number(ch.deckSlot)) === Math.floor(Number(ch.deckSlot))
+    if (hasDeckSlot || (ch.deck !== null && ch.deck !== "live")) {
+      o = o + "  deck " + String(ch.deck !== null ? ch.deck : "live")
       if (hasDeckSlot) {
         o = o + " slot " + String(Math.floor(Number(ch.deckSlot)))
       }
@@ -396,7 +396,7 @@ export fn emitProjectInner(project, skipSync) {
     }
 
     // Macro-backed channels emit `gen <macro>` above instead of the expanded patch graph.
-    let isMacroChan = ch.macroName !== null && ch.macroName !== undefined
+    let isMacroChan = ch.macroName !== null
     if (!isMacroChan && ch.generatorSpec && ch.generatorSpec.raw) {
       let gk = ch.generatorSpec.tplHeaderId
       if (!gk && ch.generatorSpec.kind === "matrixFm") {
@@ -427,10 +427,10 @@ export fn emitProjectInner(project, skipSync) {
     let scj = 0
     while (scj < project.session.sceneCount) {
       let slotId = ""
-      if (project.session.slots[sti] && project.session.slots[sti][scj] !== undefined) {
+      if (project.session.slots[sti] && project.session.slots[sti][scj] !== null) {
         slotId = project.session.slots[sti][scj]
       }
-      if (slotId === undefined || slotId === null) {
+      if (slotId === null) {
         slotId = ""
       }
       o =
@@ -453,7 +453,7 @@ export fn emitProjectInner(project, skipSync) {
     let sgi = 0
     while (sgi < project.session.song.length) {
       let e = project.session.song[sgi]
-      let rep = e.repeat !== null && e.repeat !== undefined ? Math.floor(Number(e.repeat)) : 1
+      let rep = e.repeat !== null ? Math.floor(Number(e.repeat)) : 1
       if (rep < 1) {
         rep = 1
       }
@@ -471,7 +471,7 @@ export fn emitProjectInner(project, skipSync) {
     let anyFollow = false
     let fck = 0
     while (fck < project.session.follow.length) {
-      if (project.session.follow[fck] !== null && project.session.follow[fck] !== undefined) {
+      if (project.session.follow[fck] !== null) {
         anyFollow = true
       }
       fck = fck + 1
@@ -481,10 +481,10 @@ export fn emitProjectInner(project, skipSync) {
       let fgi = 0
       while (fgi < project.session.follow.length) {
         let fe = project.session.follow[fgi]
-        if (fe !== null && fe !== undefined) {
-          o = o + "  P" + String(fgi + 1) + " " + String(fe.a) + " " + formatTplFloat(fe.wa !== null && fe.wa !== undefined ? fe.wa : 1)
-          if (fe.b !== null && fe.b !== undefined) {
-            o = o + " " + String(fe.b) + " " + formatTplFloat(fe.wb !== null && fe.wb !== undefined ? fe.wb : 0)
+        if (fe !== null) {
+          o = o + "  P" + String(fgi + 1) + " " + String(fe.a) + " " + formatTplFloat(fe.wa !== null ? fe.wa : 1)
+          if (fe.b !== null) {
+            o = o + " " + String(fe.b) + " " + formatTplFloat(fe.wb !== null ? fe.wb : 0)
           }
           o = o + "\n"
         }
@@ -524,7 +524,7 @@ export fn emitProjectInner(project, skipSync) {
           }
           o = o + "\n"
         }
-        if (cl.tplLoopBars !== undefined && cl.tplLoopBars !== null) {
+        if (cl.tplLoopBars !== null) {
           let tn = Math.floor(Number(cl.tplLoopBars))
           if (tn >= 1 && tn === tn) {
             o = o + "  loops " + String(tn) + "\n"
@@ -542,11 +542,11 @@ export fn emitProjectInner(project, skipSync) {
     o =
       o +
       "master_mix eq_lo " +
-      formatTplFloat(mm.eqLo !== null && mm.eqLo !== undefined ? mm.eqLo : 0) +
+      formatTplFloat(mm.eqLo !== null ? mm.eqLo : 0) +
       " eq_mid " +
-      formatTplFloat(mm.eqMid !== null && mm.eqMid !== undefined ? mm.eqMid : 0) +
+      formatTplFloat(mm.eqMid !== null ? mm.eqMid : 0) +
       " eq_hi " +
-      formatTplFloat(mm.eqHi !== null && mm.eqHi !== undefined ? mm.eqHi : 0) +
+      formatTplFloat(mm.eqHi !== null ? mm.eqHi : 0) +
       " comp " +
       (mm.compEnabled === false ? "0" : "1") +
       " reverb " +
@@ -559,15 +559,15 @@ export fn emitProjectInner(project, skipSync) {
     let Ln = mixLanes[lix]
     if (project.actorMixer && project.actorMixer[Ln]) {
       let amx = project.actorMixer[Ln]
-      o = o + "actor_mix " + Ln + " gain " + formatTplFloat(amx.gain !== null && amx.gain !== undefined ? amx.gain : 1)
+      o = o + "actor_mix " + Ln + " gain " + formatTplFloat(amx.gain !== null ? amx.gain : 1)
       o =
         o +
         " eq_lo " +
-        formatTplFloat(amx.eqLo !== null && amx.eqLo !== undefined ? amx.eqLo : 0) +
+        formatTplFloat(amx.eqLo !== null ? amx.eqLo : 0) +
         " eq_mid " +
-        formatTplFloat(amx.eqMid !== null && amx.eqMid !== undefined ? amx.eqMid : 0) +
+        formatTplFloat(amx.eqMid !== null ? amx.eqMid : 0) +
         " eq_hi " +
-        formatTplFloat(amx.eqHi !== null && amx.eqHi !== undefined ? amx.eqHi : 0)
+        formatTplFloat(amx.eqHi !== null ? amx.eqHi : 0)
       if (amx.mute) {
         o = o + " mute 1"
       }
@@ -681,8 +681,8 @@ export fn emitLivePlayback(project, rt) {
     } else if (clip) {
       ch.steps = clip.steps
       ch.pianoNotes = clip.pianoNotes
-      ch.patternBars = clip.bars !== null && clip.bars !== undefined ? clip.bars : 1
-      ch.stepPitchByBar = clip.stepPitchByBar !== null && clip.stepPitchByBar !== undefined ? clip.stepPitchByBar : null
+      ch.patternBars = clip.bars !== null ? clip.bars : 1
+      ch.stepPitchByBar = clip.stepPitchByBar !== null ? clip.stepPitchByBar : null
     }
     i = i + 1
   }

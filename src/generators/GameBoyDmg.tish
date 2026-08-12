@@ -96,29 +96,29 @@ export fn playGameBoyDmg(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let type = gp.type ? gp.type : "pulse"
   let duty = gp.duty ? String(gp.duty) : "50"
   let envMode = gp.envMode ? gp.envMode : "step"
-  let vol = gp.vol !== null && gp.vol !== undefined ? Math.round(gp.vol) : 10
-  let sweep = gp.sweep !== null && gp.sweep !== undefined ? Math.round(gp.sweep) : 0
+  let vol = gp.vol !== null ? Math.round(gp.vol) : 10
+  let sweep = gp.sweep !== null ? Math.round(gp.sweep) : 0
   let noiseMode = gp.noiseMode ? gp.noiseMode : "long"
   let waveShape = gp.waveShape ? gp.waveShape : "saw"
 
-  let attack = gp.attack !== null && gp.attack !== undefined ? gp.attack : 0
-  let decay = gp.decay !== null && gp.decay !== undefined ? gp.decay : 0
-  let sustain = gp.sustain !== null && gp.sustain !== undefined ? gp.sustain : 15
-  let release = gp.release !== null && gp.release !== undefined ? gp.release : 0
-  let pitchDrop = gp.pitchDrop !== null && gp.pitchDrop !== undefined ? Math.round(gp.pitchDrop) : 0
-  let pitchDec = gp.pitchDec !== null && gp.pitchDec !== undefined ? gp.pitchDec : 0.05
-  let vibRate = gp.vibRate !== null && gp.vibRate !== undefined ? gp.vibRate : 0
-  let vibAmt = gp.vibAmt !== null && gp.vibAmt !== undefined ? gp.vibAmt : 0
-  let arpRate = gp.arpRate !== null && gp.arpRate !== undefined ? gp.arpRate : 0
-  let arpSemis = gp.arpSemis !== null && gp.arpSemis !== undefined ? Math.round(gp.arpSemis) : 0
-  let len = gp.len !== null && gp.len !== undefined ? Math.round(gp.len) : 0
-  let envStep = gp.envStep !== null && gp.envStep !== undefined ? Math.round(gp.envStep) : 0
+  let attack = gp.attack !== null ? gp.attack : 0
+  let decay = gp.decay !== null ? gp.decay : 0
+  let sustain = gp.sustain !== null ? gp.sustain : 15
+  let release = gp.release !== null ? gp.release : 0
+  let pitchDrop = gp.pitchDrop !== null ? Math.round(gp.pitchDrop) : 0
+  let pitchDec = gp.pitchDec !== null ? gp.pitchDec : 0.05
+  let vibRate = gp.vibRate !== null ? gp.vibRate : 0
+  let vibAmt = gp.vibAmt !== null ? gp.vibAmt : 0
+  let arpRate = gp.arpRate !== null ? gp.arpRate : 0
+  let arpSemis = gp.arpSemis !== null ? Math.round(gp.arpSemis) : 0
+  let len = gp.len !== null ? Math.round(gp.len) : 0
+  let envStep = gp.envStep !== null ? Math.round(gp.envStep) : 0
   let envUp = gp.envUp === true
-  let sweepShift = gp.sweepShift !== null && gp.sweepShift !== undefined ? Math.round(gp.sweepShift) : 0
-  let sweepPeriod = gp.sweepPeriod !== null && gp.sweepPeriod !== undefined ? Math.round(gp.sweepPeriod) : 0
+  let sweepShift = gp.sweepShift !== null ? Math.round(gp.sweepShift) : 0
+  let sweepPeriod = gp.sweepPeriod !== null ? Math.round(gp.sweepPeriod) : 0
   let sweepDown = gp.sweepDown === true || sweep < 0
-  let noiseShift = gp.noiseShift !== null && gp.noiseShift !== undefined ? Math.round(gp.noiseShift) : null
-  let noiseRatio = gp.noiseRatio !== null && gp.noiseRatio !== undefined ? Math.round(gp.noiseRatio) : 0
+  let noiseShift = gp.noiseShift !== null ? Math.round(gp.noiseShift) : null
+  let noiseRatio = gp.noiseRatio !== null ? Math.round(gp.noiseRatio) : 0
 
   let isNoise = (type === "noise")
   let isWave = (type === "wave")

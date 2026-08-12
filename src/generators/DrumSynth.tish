@@ -25,12 +25,12 @@ export fn playDrumSynth(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
     baseHz = midiToHz(n)
   }
   let tone = p.tone ? p.tone : "sine"
-  let pitchEnv = p.pitchEnv !== null && p.pitchEnv !== undefined ? p.pitchEnv : 36
-  let pitchDecay = p.pitchDecay !== null && p.pitchDecay !== undefined && p.pitchDecay > 0 ? p.pitchDecay : 0.06
-  let decay = p.decay !== null && p.decay !== undefined && p.decay > 0 ? p.decay : 0.35
-  let noiseAmt = p.noise !== null && p.noise !== undefined ? p.noise : 0
-  let noiseDecay = p.noiseDecay !== null && p.noiseDecay !== undefined && p.noiseDecay > 0 ? p.noiseDecay : 0.12
-  let drive = p.drive !== null && p.drive !== undefined ? p.drive : 0
+  let pitchEnv = p.pitchEnv !== null ? p.pitchEnv : 36
+  let pitchDecay = p.pitchDecay !== null && p.pitchDecay > 0 ? p.pitchDecay : 0.06
+  let decay = p.decay !== null && p.decay > 0 ? p.decay : 0.35
+  let noiseAmt = p.noise !== null ? p.noise : 0
+  let noiseDecay = p.noiseDecay !== null && p.noiseDecay > 0 ? p.noiseDecay : 0.12
+  let drive = p.drive !== null ? p.drive : 0
   let v = vel / 127
   if (v < 0) {
     v = 0
@@ -78,7 +78,7 @@ export fn playDrumSynth(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
     src.buffer = buf
     let nf = ctx.createBiquadFilter()
     nf.type = "highpass"
-    nf.frequency.value = p.noiseHp !== null && p.noiseHp !== undefined && p.noiseHp > 0 ? p.noiseHp : 1500
+    nf.frequency.value = p.noiseHp !== null && p.noiseHp > 0 ? p.noiseHp : 1500
     let ng = ctx.createGain()
     ng.gain.setValueAtTime(v * noiseAmt, t)
     ng.gain.exponentialRampToValueAtTime(0.0008, t + noiseDecay)

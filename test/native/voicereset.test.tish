@@ -1,0 +1,40 @@
+import { test } from "tish:test"
+import assert from "node:assert/strict"
+// Regression: voice (PITCH module) selector/knob values must be resettable to their DEFAULT. The edit fragment
+// (voiceLine) must emit every field even at default, because applyTrackBody only sets tokens that are present —
+// it never resets an absent one. Omitting inversion=root / arprate=auto / strum=0 locked those knobs off-default
+// (the reported "Inv knob starts at root, then locks at 1st/2nd, can't return to root" bug).
+import { loadDefaultDeckardProject } from '../../src/model/ProjectLoad.tish'
+import { applyTplSource, findChannelById } from '../../src/deckfile/Apply.tish'
+import { fragmentForEdit } from '../../src/core/Edit.tish'
+
+test("voicereset", () => {
+
+
+  let proj = loadDefaultDeckardProject().project
+  let cid = proj.channels[0].id
+  fn edit(addr, val) { applyTplSource(proj, fragmentForEdit(proj, "track/" + cid + "/" + addr, val)) }
+  fn ch() { return findChannelById(proj, cid) }
+
+  // inversion: root -> 2nd -> root (must return, not lock)
+  edit("voice/inversion", "2nd")
+  assert.ok(ch().inversion === "2nd", "inversion -> 2nd")
+  edit("voice/inversion", "1st")
+  assert.ok(ch().inversion === "1st", "inversion -> 1st")
+  edit("voice/inversion", "root")
+  assert.ok(ch().inversion === "root", "inversion returns to root (no lock)")
+
+  // arpRate: auto -> 1/8 -> auto
+  edit("voice/arprate", "1/8")
+  assert.ok(ch().arpRate === "1/8", "arprate -> 1/8")
+  edit("voice/arprate", "auto")
+  assert.ok(ch().arpRate === "auto", "arprate returns to auto")
+
+  // strum: 0 -> 0.1 -> 0
+  edit("voice/strum", 0.1)
+  assert.ok(Math.abs(ch().strum - 0.1) < 0.001, "strum -> 0.1")
+  edit("voice/strum", 0)
+  assert.ok(ch().strum === 0, "strum returns to 0")
+
+  console.log("")
+})

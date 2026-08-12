@@ -47,13 +47,13 @@ export fn PlaylistView(project, rt, props) {
 
   let energy = rt && rt.tplEnergy ? rt.tplEnergy : { A: {}, B: {}, C: {}, D: {}, maxStep: 0, maxE: 1, totalNotes: 0 }
   let active = rt && rt.tplActiveDecks ? rt.tplActiveDecks : { A: false, B: false, C: false, D: false }
-  let maxStep = energy.maxStep !== null && energy.maxStep !== undefined ? energy.maxStep : 0
-  let totalNotes = energy.totalNotes !== null && energy.totalNotes !== undefined ? energy.totalNotes : 0
+  let maxStep = energy.maxStep !== null ? energy.maxStep : 0
+  let totalNotes = energy.totalNotes !== null ? energy.totalNotes : 0
 
   // Direct-DOM playhead mover (re-asserted every rAF by the transport.position subscriber in App).
   if (rt) {
     rt.updateTimelinePlayhead = (step, playing) => {
-      if (globalThis.document === null || globalThis.document === undefined || globalThis.document.querySelector === null || globalThis.document.querySelector === undefined) {
+      if (globalThis.document === null || globalThis.document.querySelector === null) {
         return
       }
       let doc = globalThis.document

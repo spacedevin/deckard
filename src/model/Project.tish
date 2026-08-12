@@ -23,11 +23,11 @@ export fn clonePianoNote(n) {
     startBeat: n.startBeat,
     durBeats: n.durBeats,
     pitch: n.pitch,
-    vel: n.vel !== null && n.vel !== undefined ? n.vel : 100,
-    prob: n.prob !== null && n.prob !== undefined ? n.prob : 1,
-    ratchet: n.ratchet !== null && n.ratchet !== undefined ? n.ratchet : 1,
-    nudge: n.nudge !== null && n.nudge !== undefined ? n.nudge : 0,
-    lyric: n.lyric !== null && n.lyric !== undefined ? n.lyric : ""
+    vel: n.vel !== null ? n.vel : 100,
+    prob: n.prob !== null ? n.prob : 1,
+    ratchet: n.ratchet !== null ? n.ratchet : 1,
+    nudge: n.nudge !== null ? n.nudge : 0,
+    lyric: n.lyric !== null ? n.lyric : ""
   }
 }
 
@@ -39,11 +39,11 @@ export fn cloneStep(st) {
   }
   return {
     on: st.on === true,
-    vel: st.vel !== null && st.vel !== undefined ? st.vel : 100,
-    prob: st.prob !== null && st.prob !== undefined ? st.prob : 1,
-    ratchet: st.ratchet !== null && st.ratchet !== undefined ? st.ratchet : 1,
-    nudge: st.nudge !== null && st.nudge !== undefined ? st.nudge : 0,
-    lyric: st.lyric !== null && st.lyric !== undefined ? st.lyric : ""
+    vel: st.vel !== null ? st.vel : 100,
+    prob: st.prob !== null ? st.prob : 1,
+    ratchet: st.ratchet !== null ? st.ratchet : 1,
+    nudge: st.nudge !== null ? st.nudge : 0,
+    lyric: st.lyric !== null ? st.lyric : ""
   }
 }
 

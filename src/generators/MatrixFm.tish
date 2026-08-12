@@ -8,16 +8,16 @@ fn mergeOpEnv(e) {
   let s = 0.35
   let r = 0.12
   if (e) {
-    if (e.a !== null && e.a !== undefined) {
+    if (e.a !== null) {
       a = e.a
     }
-    if (e.d !== null && e.d !== undefined) {
+    if (e.d !== null) {
       d = e.d
     }
-    if (e.s !== null && e.s !== undefined) {
+    if (e.s !== null) {
       s = e.s
     }
-    if (e.r !== null && e.r !== undefined) {
+    if (e.r !== null) {
       r = e.r
     }
   }
@@ -27,7 +27,7 @@ fn mergeOpEnv(e) {
 fn mergeFilterEnv(e) {
   let o = mergeOpEnv(e)
   let amt = 0
-  if (e && e.amount !== null && e.amount !== undefined) {
+  if (e && e.amount !== null) {
     amt = e.amount
   }
   return { a: o.a, d: o.d, s: o.s, r: o.r, amount: amt }
@@ -136,7 +136,7 @@ export fn playMatrixFm(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
     let oid = opKeys[ki]
     let od = ops[oid]
     let wave = od.wave ? od.wave : "sine"
-    let ratio = od.ratio !== null && od.ratio !== undefined && od.ratio > 0 ? od.ratio : 1
+    let ratio = od.ratio !== null && od.ratio > 0 ? od.ratio : 1
     let hz = Fc * ratio
 
     let srcNode = null
@@ -171,7 +171,7 @@ export fn playMatrixFm(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
         rmG.gain.value = 0
         tailD.connect(rmG)
         let scale = ctx.createGain()
-        let amt = md.amount !== null && md.amount !== undefined && md.amount === md.amount ? md.amount : 1
+        let amt = md.amount !== null && md.amount === md.amount ? md.amount : 1
         scale.gain.value = amt * 0.4
         tailS.connect(scale)
         scale.connect(rmG.gain)
@@ -209,9 +209,9 @@ export fn playMatrixFm(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
         let modTap = opTail[md.src]
         if (modTap) {
           let dg = ctx.createGain()
-          let ratioD = ops[md.dst].ratio !== null && ops[md.dst].ratio !== undefined && ops[md.dst].ratio > 0 ? ops[md.dst].ratio : 1
+          let ratioD = ops[md.dst].ratio !== null && ops[md.dst].ratio > 0 ? ops[md.dst].ratio : 1
           let hzDst = Fc * ratioD
-          let amt = md.amount !== null && md.amount !== undefined && md.amount === md.amount ? md.amount : 1
+          let amt = md.amount !== null && md.amount === md.amount ? md.amount : 1
           let depthHz = hzDst * amt * 0.12
           if (depthHz < 0.5) {
             depthHz = 0.5
@@ -238,9 +238,9 @@ export fn playMatrixFm(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
     let fd = filtersDef[fid]
     let bq1 = ctx.createBiquadFilter()
     setupBiquadType(bq1, fd.type)
-    let c0 = clampHz(fd.cutoff !== null && fd.cutoff !== undefined ? fd.cutoff : 8000)
+    let c0 = clampHz(fd.cutoff !== null ? fd.cutoff : 8000)
     bq1.frequency.value = c0
-    let qv = fd.res !== null && fd.res !== undefined ? fd.res : 0.7
+    let qv = fd.res !== null ? fd.res : 0.7
     bq1.Q.value = Math.min(40, Math.max(0.0001, qv * 8))
     filterFirst[fid] = bq1
     let last = bq1
@@ -257,7 +257,7 @@ export fn playMatrixFm(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
     filterLast[fid] = last
 
     let fe = mergeFilterEnv(filterEnvs[fid])
-    if (fe.amount !== null && fe.amount !== undefined && fe.amount !== 0) {
+    if (fe.amount !== null && fe.amount !== 0) {
       let tfe = scheduleAdsrCutoff(bq1.frequency, t, c0, fe.amount, fe.a, fe.d, fe.s, fe.r, durSec)
       let bq2b = filterSecond[fid]
       if (bq2b) {
@@ -277,7 +277,7 @@ export fn playMatrixFm(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let ri = 0
   while (ri < routes.length) {
     let rt = routes[ri]
-    let vol = rt.volume !== null && rt.volume !== undefined && rt.volume === rt.volume ? rt.volume : 1
+    let vol = rt.volume !== null && rt.volume === rt.volume ? rt.volume : 1
     let rg = ctx.createGain()
     rg.gain.value = vol * v
     let srcN = null

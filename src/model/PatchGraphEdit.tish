@@ -230,8 +230,8 @@ export fn patchSignalStages(graph) {
     let ci = 0
     while (ci < conns.length) {
       let cn = conns[ci]
-      let isAudio = (cn.dstParam === null || cn.dstParam === undefined) || String(cn.dstParam).length === 0
-      if (isAudio && stageById[cn.src] !== null && stageById[cn.src] !== undefined && stageById[cn.dst] !== null && stageById[cn.dst] !== undefined) {
+      let isAudio = (cn.dstParam === null) || String(cn.dstParam).length === 0
+      if (isAudio && stageById[cn.src] !== null && stageById[cn.dst] !== null) {
         if (stageById[cn.dst] < stageById[cn.src] + 1) {
           stageById[cn.dst] = stageById[cn.src] + 1
           changed = true

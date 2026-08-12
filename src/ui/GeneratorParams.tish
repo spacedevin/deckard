@@ -82,7 +82,7 @@ fn numKnob(label, val, min, max, step, suffix, rt, ch, key, accent, disabled) {
     step: step,
     fmt: (x) => {
       let decs = 0
-      if (step !== null && step !== undefined && step % 1 !== 0) {
+      if (step !== null && step % 1 !== 0) {
         let strStep = String(step)
         let parts = strStep.split(".")
         if (parts.length > 1) {
@@ -192,12 +192,12 @@ fn genSelectorKnob(label, current, opts, rt, ch, key, accent, disabled) {
 // Shared performance-macro row (pitch drop / vibrato / arpeggio) — identical across every chip voice, so it
 // lives here ONCE instead of being copy-pasted into all 7. Always visible; a dense, de-duplicated knob grid.
 fn perfMacrosSection(rt, ch, project, setProject, p, accent, vibDisabled) {
-  let pitchDrop = p.pitchDrop !== null && p.pitchDrop !== undefined ? Math.round(p.pitchDrop) : 0
-  let pitchDec = p.pitchDec !== null && p.pitchDec !== undefined ? p.pitchDec : 0.05
-  let vibRate = p.vibRate !== null && p.vibRate !== undefined ? p.vibRate : 0
-  let vibAmt = p.vibAmt !== null && p.vibAmt !== undefined ? p.vibAmt : 0
-  let arpRate = p.arpRate !== null && p.arpRate !== undefined ? p.arpRate : 0
-  let arpSemis = p.arpSemis !== null && p.arpSemis !== undefined ? Math.round(p.arpSemis) : 0
+  let pitchDrop = p.pitchDrop !== null ? Math.round(p.pitchDrop) : 0
+  let pitchDec = p.pitchDec !== null ? p.pitchDec : 0.05
+  let vibRate = p.vibRate !== null ? p.vibRate : 0
+  let vibAmt = p.vibAmt !== null ? p.vibAmt : 0
+  let arpRate = p.arpRate !== null ? p.arpRate : 0
+  let arpSemis = p.arpSemis !== null ? Math.round(p.arpSemis) : 0
   return (
     <div class="ik-card">
       <div class="ik-knob-grid">
@@ -310,8 +310,8 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
   if (id === "pad") {
     let w1 = normalizeBasicOscWaveform(p.wave1 ? p.wave1 : "sine")
     let w2 = normalizeBasicOscWaveform(p.wave2 ? p.wave2 : "triangle")
-    let detune = p.detune !== null && p.detune !== undefined ? p.detune : 9
-    let cutoff = p.cutoff !== null && p.cutoff !== undefined && p.cutoff > 0 ? p.cutoff : 2200
+    let detune = p.detune !== null ? p.detune : 9
+    let cutoff = p.cutoff !== null && p.cutoff > 0 ? p.cutoff : 2200
     let a = p.attack > 0 ? p.attack : 0.08
     let d = p.decay > 0 ? p.decay : 0.25
     let s = p.sustain >= 0 && p.sustain <= 1 ? p.sustain : 0.6
@@ -372,13 +372,13 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
 
   if (id === "drumSynth") {
     let tone = normalizeBasicOscWaveform(p.tone ? p.tone : "sine")
-    let pitchEnv = p.pitchEnv !== null && p.pitchEnv !== undefined ? p.pitchEnv : 36
+    let pitchEnv = p.pitchEnv !== null ? p.pitchEnv : 36
     let pitchDecay = p.pitchDecay > 0 ? p.pitchDecay : 0.06
     let dec = p.decay > 0 ? p.decay : 0.35
-    let noise = p.noise !== null && p.noise !== undefined ? p.noise : 0
+    let noise = p.noise !== null ? p.noise : 0
     let noiseDecay = p.noiseDecay > 0 ? p.noiseDecay : 0.12
     let noiseHp = p.noiseHp > 0 ? p.noiseHp : 1500
-    let drive = p.drive !== null && p.drive !== undefined ? p.drive : 0
+    let drive = p.drive !== null ? p.drive : 0
     return (
       <article class="gen-params ik-cols">
         {waveCard(
@@ -411,8 +411,8 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     let tone = p.tone >= 0 && p.tone <= 1 ? p.tone : 0.5
     let dec = p.decay >= 0 && p.decay <= 1 ? p.decay : 0.6
     let damping = p.damping >= 0 && p.damping <= 1 ? p.damping : 0.4
-    let drive = p.drive !== null && p.drive !== undefined ? p.drive : 0.25
-    let body = p.body !== null && p.body !== undefined && p.body > 0 ? p.body : 3500
+    let drive = p.drive !== null ? p.drive : 0.25
+    let body = p.body !== null && p.body > 0 ? p.body : 3500
     let mute = p.mute >= 0 && p.mute <= 1 ? p.mute : 0
     return (
       <article class="gen-params ik-cols">
@@ -436,14 +436,14 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     )
   }
   if (id === "clap") {
-    let hands = p.hands !== null && p.hands !== undefined ? p.hands : 3
-    let spread = p.spread !== null && p.spread !== undefined ? p.spread : 0.4
-    let size = p.size !== null && p.size !== undefined ? p.size : 0.5
-    let tone = p.tone !== null && p.tone !== undefined ? p.tone : 0.5
-    let claps = p.claps !== null && p.claps !== undefined ? p.claps : 1
-    let gap = p.gap !== null && p.gap !== undefined ? p.gap : 0.35
-    let tail = p.tail !== null && p.tail !== undefined ? p.tail : 0.4
-    let body = p.body !== null && p.body !== undefined ? p.body : 0.2
+    let hands = p.hands !== null ? p.hands : 3
+    let spread = p.spread !== null ? p.spread : 0.4
+    let size = p.size !== null ? p.size : 0.5
+    let tone = p.tone !== null ? p.tone : 0.5
+    let claps = p.claps !== null ? p.claps : 1
+    let gap = p.gap !== null ? p.gap : 0.35
+    let tail = p.tail !== null ? p.tail : 0.4
+    let body = p.body !== null ? p.body : 0.2
     return (
       <article class="gen-params ik-cols">
         <div class="ik-card">
@@ -468,11 +468,11 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     )
   }
   if (id === "tine") {
-    let bark = p.bark !== null && p.bark !== undefined ? p.bark : 0.55
-    let tineP = p.tine !== null && p.tine !== undefined ? p.tine : 0.6
-    let tremolo = p.tremolo !== null && p.tremolo !== undefined ? p.tremolo : 0.35
-    let decay = p.decay !== null && p.decay !== undefined ? p.decay : 0.5
-    let drive = p.drive !== null && p.drive !== undefined ? p.drive : 0.2
+    let bark = p.bark !== null ? p.bark : 0.55
+    let tineP = p.tine !== null ? p.tine : 0.6
+    let tremolo = p.tremolo !== null ? p.tremolo : 0.35
+    let decay = p.decay !== null ? p.decay : 0.5
+    let drive = p.drive !== null ? p.drive : 0.2
     return (
       <article class="gen-params ik-cols">
         <div class="ik-card">
@@ -494,11 +494,11 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     )
   }
   if (id === "aether") {
-    let glide = p.glide !== null && p.glide !== undefined ? p.glide : 0.4
-    let waver = p.waver !== null && p.waver !== undefined ? p.waver : 0.5
-    let toneA = p.tone !== null && p.tone !== undefined ? p.tone : 0.3
-    let swell = p.swell !== null && p.swell !== undefined ? p.swell : 0.45
-    let air = p.air !== null && p.air !== undefined ? p.air : 0.25
+    let glide = p.glide !== null ? p.glide : 0.4
+    let waver = p.waver !== null ? p.waver : 0.5
+    let toneA = p.tone !== null ? p.tone : 0.3
+    let swell = p.swell !== null ? p.swell : 0.45
+    let air = p.air !== null ? p.air : 0.25
     return (
       <article class="gen-params ik-cols">
         <div class="ik-card">
@@ -520,11 +520,11 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     )
   }
   if (id === "halo") {
-    let temper = p.temper !== null && p.temper !== undefined ? p.temper : 0.4
-    let ring = p.ring !== null && p.ring !== undefined ? p.ring : 0.55
-    let mallet = p.mallet !== null && p.mallet !== undefined ? p.mallet : 0.35
-    let bloom = p.bloom !== null && p.bloom !== undefined ? p.bloom : 0.5
-    let lows = p.lows !== null && p.lows !== undefined ? p.lows : 0.45
+    let temper = p.temper !== null ? p.temper : 0.4
+    let ring = p.ring !== null ? p.ring : 0.55
+    let mallet = p.mallet !== null ? p.mallet : 0.35
+    let bloom = p.bloom !== null ? p.bloom : 0.5
+    let lows = p.lows !== null ? p.lows : 0.45
     return (
       <article class="gen-params ik-cols">
         <div class="ik-card">
@@ -572,10 +572,10 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
             startBeat: n.startBeat,
             durBeats: n.durBeats,
             pitch: n.pitch,
-            vel: n.vel !== null && n.vel !== undefined ? n.vel : 100,
-            prob: n.prob !== null && n.prob !== undefined ? n.prob : 1,
-            ratchet: n.ratchet !== null && n.ratchet !== undefined ? n.ratchet : 1,
-            nudge: n.nudge !== null && n.nudge !== undefined ? n.nudge : 0,
+            vel: n.vel !== null ? n.vel : 100,
+            prob: n.prob !== null ? n.prob : 1,
+            ratchet: n.ratchet !== null ? n.ratchet : 1,
+            nudge: n.nudge !== null ? n.nudge : 0,
             lyric: nlyr
           })
           i = i + 1
@@ -590,11 +590,11 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
           let s = ch.steps[i]
           arr.push({
             on: s.on === true,
-            vel: s.vel !== null && s.vel !== undefined ? s.vel : 100,
-            prob: s.prob !== null && s.prob !== undefined ? s.prob : 1,
-            ratchet: s.ratchet !== null && s.ratchet !== undefined ? s.ratchet : 1,
-            nudge: s.nudge !== null && s.nudge !== undefined ? s.nudge : 0,
-            lyric: s.lyric !== null && s.lyric !== undefined ? s.lyric : ""
+            vel: s.vel !== null ? s.vel : 100,
+            prob: s.prob !== null ? s.prob : 1,
+            ratchet: s.ratchet !== null ? s.ratchet : 1,
+            nudge: s.nudge !== null ? s.nudge : 0,
+            lyric: s.lyric !== null ? s.lyric : ""
           })
           i = i + 1
         }
@@ -615,11 +615,11 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
 
     let genSpecific = null
     if (id === "formantVocal") {
-      let glide = p.glide !== null && p.glide !== undefined ? p.glide : 0.1
-      let vibDepth = p.vibDepth !== null && p.vibDepth !== undefined ? p.vibDepth : 0.02
-      let vibRate = p.vibRate !== null && p.vibRate !== undefined ? p.vibRate : 5.0
-      let humanize = p.humanize !== null && p.humanize !== undefined ? p.humanize : 0.5
-      let release = p.release !== null && p.release !== undefined ? p.release : 0.2
+      let glide = p.glide !== null ? p.glide : 0.1
+      let vibDepth = p.vibDepth !== null ? p.vibDepth : 0.02
+      let vibRate = p.vibRate !== null ? p.vibRate : 5.0
+      let humanize = p.humanize !== null ? p.humanize : 0.5
+      let release = p.release !== null ? p.release : 0.2
       genSpecific = (
         <div class="ik-card">
           <div class="ik-card-h">{"Formant"}</div>
@@ -657,11 +657,11 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
         </div>
       )
     } else if (id === "meSpeakVocal") {
-      let pitch = p.pitch !== null && p.pitch !== undefined ? p.pitch : 50
-      let speed = p.speed !== null && p.speed !== undefined ? p.speed : 175
-      let wordgap = p.wordgap !== null && p.wordgap !== undefined ? p.wordgap : 0
-      let variant = p.variant !== null && p.variant !== undefined ? p.variant : "m1"
-      let voice = p.voice !== null && p.voice !== undefined ? p.voice : "en/en-us"
+      let pitch = p.pitch !== null ? p.pitch : 50
+      let speed = p.speed !== null ? p.speed : 175
+      let wordgap = p.wordgap !== null ? p.wordgap : 0
+      let variant = p.variant !== null ? p.variant : "m1"
+      let voice = p.voice !== null ? p.voice : "en/en-us"
       
       let voiceOpts = [
         ["en/en-us", "US Eng"], ["en/en-sc", "Scottish"], ["en/en-rp", "British"],
@@ -751,8 +751,8 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
         </div>
       )
     } else {
-      let voice = p.voice !== null && p.voice !== undefined ? p.voice : 0
-      let rate = p.rate !== null && p.rate !== undefined ? p.rate : 1.5
+      let voice = p.voice !== null ? p.voice : 0
+      let rate = p.rate !== null ? p.rate : 1.5
       
       let voiceList = []
       if (typeof window !== "undefined" && window.speechSynthesis) {
@@ -832,11 +832,11 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
   }
   if (id === "arco") {
     let voice = p.voice ? p.voice : "violin"
-    let pressure = p.pressure !== null && p.pressure !== undefined ? p.pressure : 0.5
-    let bow = p.bow !== null && p.bow !== undefined ? p.bow : 0.4
-    let vibrato = p.vibrato !== null && p.vibrato !== undefined ? p.vibrato : 0.35
-    let rosin = p.rosin !== null && p.rosin !== undefined ? p.rosin : 0.3
-    let bodyAmt = p.body !== null && p.body !== undefined ? p.body : 0.6
+    let pressure = p.pressure !== null ? p.pressure : 0.5
+    let bow = p.bow !== null ? p.bow : 0.4
+    let vibrato = p.vibrato !== null ? p.vibrato : 0.35
+    let rosin = p.rosin !== null ? p.rosin : 0.3
+    let bodyAmt = p.body !== null ? p.body : 0.6
     let voiceOpts = [["violin", "Violin"], ["fiddle", "Fiddle"], ["viola", "Viola"], ["cello", "Cello"], ["bass", "Bass"]]
     return (
       <article class="gen-params ik-cols">
@@ -865,11 +865,11 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     )
   }
   if (id === "acid303") {
-    let wave = p.waveform !== null && p.waveform !== undefined ? p.waveform : "sawtooth"
-    let cutoff = p.cutoff !== null && p.cutoff !== undefined ? p.cutoff : 800
-    let res = p.resonance !== null && p.resonance !== undefined ? p.resonance : 15
-    let envMod = p.envMod !== null && p.envMod !== undefined ? p.envMod : 4000
-    let decay = p.decay !== null && p.decay !== undefined ? p.decay : 0.4
+    let wave = p.waveform !== null ? p.waveform : "sawtooth"
+    let cutoff = p.cutoff !== null ? p.cutoff : 800
+    let res = p.resonance !== null ? p.resonance : 15
+    let envMod = p.envMod !== null ? p.envMod : 4000
+    let decay = p.decay !== null ? p.decay : 0.4
     return (
       <article class="gen-params ik-cols">
         {waveCard("Wave", wave, "waveform", rt, ch, accent)}
@@ -886,10 +886,10 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     )
   }
   if (id === "sub808") {
-    let punch = p.punch !== null && p.punch !== undefined ? p.punch : 60
-    let decay = p.decay !== null && p.decay !== undefined ? p.decay : 1.2
-    let drive = p.drive !== null && p.drive !== undefined ? p.drive : 0
-    let glide = p.glide !== null && p.glide !== undefined ? p.glide : 0.05
+    let punch = p.punch !== null ? p.punch : 60
+    let decay = p.decay !== null ? p.decay : 1.2
+    let drive = p.drive !== null ? p.drive : 0
+    let glide = p.glide !== null ? p.glide : 0.05
     return (
       <article class="gen-params ik-cols">
         <div class="ik-card">
@@ -906,16 +906,16 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
   }
   if (id === "chiptune") {
     let wf = p.waveform ? p.waveform : "pulse"
-    let pw = p.pulseWidth !== null && p.pulseWidth !== undefined ? p.pulseWidth : 0.5
-    let pwmSpeed = p.pwmSpeed !== null && p.pwmSpeed !== undefined ? p.pwmSpeed : 0
-    let crush = p.bitcrush !== null && p.bitcrush !== undefined ? p.bitcrush : 0
-    let lpAmt = p.lowpass !== null && p.lowpass !== undefined ? p.lowpass : 0
-    let arpRate = p.arpRate !== null && p.arpRate !== undefined ? p.arpRate : 0
-    let arpSemis = p.arpSemis !== null && p.arpSemis !== undefined ? p.arpSemis : 0
-    let att = p.attack !== null && p.attack !== undefined ? p.attack : 0.005
-    let dec = p.decay !== null && p.decay !== undefined ? p.decay : 0.3
-    let sus = p.sustain !== null && p.sustain !== undefined ? p.sustain : 0
-    let rel = p.release !== null && p.release !== undefined ? p.release : 0.05
+    let pw = p.pulseWidth !== null ? p.pulseWidth : 0.5
+    let pwmSpeed = p.pwmSpeed !== null ? p.pwmSpeed : 0
+    let crush = p.bitcrush !== null ? p.bitcrush : 0
+    let lpAmt = p.lowpass !== null ? p.lowpass : 0
+    let arpRate = p.arpRate !== null ? p.arpRate : 0
+    let arpSemis = p.arpSemis !== null ? p.arpSemis : 0
+    let att = p.attack !== null ? p.attack : 0.005
+    let dec = p.decay !== null ? p.decay : 0.3
+    let sus = p.sustain !== null ? p.sustain : 0
+    let rel = p.release !== null ? p.release : 0.05
     let isPulse = wf === "pulse"
     let pulseKnobs = null
     if (isPulse) {
@@ -953,19 +953,19 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
   }
   if (id === "sn76489") {
     let type = p.type ? p.type : "square"
-    let vol = p.vol !== null && p.vol !== undefined ? Math.round(p.vol) : 15
+    let vol = p.vol !== null ? Math.round(p.vol) : 15
     let noiseMode = p.noiseMode ? p.noiseMode : "white"
-    let attack = p.attack !== null && p.attack !== undefined ? p.attack : 0
-    let decay = p.decay !== null && p.decay !== undefined ? p.decay : 0.1
-    let sustain = p.sustain !== null && p.sustain !== undefined ? Math.round(p.sustain) : 15
-    let release = p.release !== null && p.release !== undefined ? p.release : 0
+    let attack = p.attack !== null ? p.attack : 0
+    let decay = p.decay !== null ? p.decay : 0.1
+    let sustain = p.sustain !== null ? Math.round(p.sustain) : 15
+    let release = p.release !== null ? p.release : 0
     
-    let pitchDrop = p.pitchDrop !== null && p.pitchDrop !== undefined ? Math.round(p.pitchDrop) : 0
-    let pitchDec = p.pitchDec !== null && p.pitchDec !== undefined ? p.pitchDec : 0.05
-    let vibRate = p.vibRate !== null && p.vibRate !== undefined ? p.vibRate : 0
-    let vibAmt = p.vibAmt !== null && p.vibAmt !== undefined ? p.vibAmt : 0
-    let arpRate = p.arpRate !== null && p.arpRate !== undefined ? p.arpRate : 0
-    let arpSemis = p.arpSemis !== null && p.arpSemis !== undefined ? Math.round(p.arpSemis) : 0
+    let pitchDrop = p.pitchDrop !== null ? Math.round(p.pitchDrop) : 0
+    let pitchDec = p.pitchDec !== null ? p.pitchDec : 0.05
+    let vibRate = p.vibRate !== null ? p.vibRate : 0
+    let vibAmt = p.vibAmt !== null ? p.vibAmt : 0
+    let arpRate = p.arpRate !== null ? p.arpRate : 0
+    let arpSemis = p.arpSemis !== null ? Math.round(p.arpSemis) : 0
     
     let isNoise = type === "noise"
 
@@ -994,20 +994,20 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
   }
   if (id === "spc700") {
     let wf = p.waveform ? p.waveform : "strings"
-    let att = p.attack !== null && p.attack !== undefined ? Math.round(p.attack) : 0
-    let dec = p.decay !== null && p.decay !== undefined ? Math.round(p.decay) : 3
-    let sus = p.sustainLevel !== null && p.sustainLevel !== undefined ? Math.round(p.sustainLevel) : 7
-    let sr = p.sustainRate !== null && p.sustainRate !== undefined ? Math.round(p.sustainRate) : 0
+    let att = p.attack !== null ? Math.round(p.attack) : 0
+    let dec = p.decay !== null ? Math.round(p.decay) : 3
+    let sus = p.sustainLevel !== null ? Math.round(p.sustainLevel) : 7
+    let sr = p.sustainRate !== null ? Math.round(p.sustainRate) : 0
     let echoEn = p.echoEnable === true
-    let echoDelay = p.echoDelay !== null && p.echoDelay !== undefined ? Math.round(p.echoDelay) : 4
-    let echoFb = p.echoFeedback !== null && p.echoFeedback !== undefined ? Math.round(p.echoFeedback) : 0
+    let echoDelay = p.echoDelay !== null ? Math.round(p.echoDelay) : 4
+    let echoFb = p.echoFeedback !== null ? Math.round(p.echoFeedback) : 0
     
-    let pitchDrop = p.pitchDrop !== null && p.pitchDrop !== undefined ? Math.round(p.pitchDrop) : 0
-    let pitchDec = p.pitchDec !== null && p.pitchDec !== undefined ? p.pitchDec : 0.05
-    let vibRate = p.vibRate !== null && p.vibRate !== undefined ? p.vibRate : 0
-    let vibAmt = p.vibAmt !== null && p.vibAmt !== undefined ? p.vibAmt : 0
-    let arpRate = p.arpRate !== null && p.arpRate !== undefined ? p.arpRate : 0
-    let arpSemis = p.arpSemis !== null && p.arpSemis !== undefined ? Math.round(p.arpSemis) : 0
+    let pitchDrop = p.pitchDrop !== null ? Math.round(p.pitchDrop) : 0
+    let pitchDec = p.pitchDec !== null ? p.pitchDec : 0.05
+    let vibRate = p.vibRate !== null ? p.vibRate : 0
+    let vibAmt = p.vibAmt !== null ? p.vibAmt : 0
+    let arpRate = p.arpRate !== null ? p.arpRate : 0
+    let arpSemis = p.arpSemis !== null ? Math.round(p.arpSemis) : 0
 
     return (
       <article class="gen-params ik-cols">
@@ -1038,19 +1038,19 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
   if (id === "gbaDirectSound") {
     let wf = p.waveform ? p.waveform : "pulse"
     let duty = p.duty ? p.duty : "50"
-    let att = p.attack !== null && p.attack !== undefined ? p.attack : 0
-    let dec = p.decay !== null && p.decay !== undefined ? p.decay : 2
-    let sus = p.sustain !== null && p.sustain !== undefined ? Math.round(p.sustain) : 15
-    let rel = p.release !== null && p.release !== undefined ? p.release : 0
+    let att = p.attack !== null ? p.attack : 0
+    let dec = p.decay !== null ? p.decay : 2
+    let sus = p.sustain !== null ? Math.round(p.sustain) : 15
+    let rel = p.release !== null ? p.release : 0
     
     let bitcrush = p.bitcrush !== false && p.bitcrush !== "16bit"
     
-    let pitchDrop = p.pitchDrop !== null && p.pitchDrop !== undefined ? Math.round(p.pitchDrop) : 0
-    let pitchDec = p.pitchDec !== null && p.pitchDec !== undefined ? p.pitchDec : 0.05
-    let vibRate = p.vibRate !== null && p.vibRate !== undefined ? p.vibRate : 0
-    let vibAmt = p.vibAmt !== null && p.vibAmt !== undefined ? p.vibAmt : 0
-    let arpRate = p.arpRate !== null && p.arpRate !== undefined ? p.arpRate : 0
-    let arpSemis = p.arpSemis !== null && p.arpSemis !== undefined ? Math.round(p.arpSemis) : 0
+    let pitchDrop = p.pitchDrop !== null ? Math.round(p.pitchDrop) : 0
+    let pitchDec = p.pitchDec !== null ? p.pitchDec : 0.05
+    let vibRate = p.vibRate !== null ? p.vibRate : 0
+    let vibAmt = p.vibAmt !== null ? p.vibAmt : 0
+    let arpRate = p.arpRate !== null ? p.arpRate : 0
+    let arpSemis = p.arpSemis !== null ? Math.round(p.arpSemis) : 0
 
     return (
       <article class="gen-params ik-cols">
@@ -1076,24 +1076,24 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     )
   }
   if (id === "ym2612") {
-    let algo = p.algorithm !== null && p.algorithm !== undefined ? p.algorithm : 0
-    let fdbk = p.feedback !== null && p.feedback !== undefined ? p.feedback : 0
-    let pitchDrop = p.pitchDrop !== null && p.pitchDrop !== undefined ? Math.round(p.pitchDrop) : 0
-    let pitchDec = p.pitchDec !== null && p.pitchDec !== undefined ? p.pitchDec : 0.05
-    let vibRate = p.vibRate !== null && p.vibRate !== undefined ? p.vibRate : 0
-    let vibAmt = p.vibAmt !== null && p.vibAmt !== undefined ? p.vibAmt : 0
-    let arpRate = p.arpRate !== null && p.arpRate !== undefined ? p.arpRate : 0
-    let arpSemis = p.arpSemis !== null && p.arpSemis !== undefined ? Math.round(p.arpSemis) : 0
+    let algo = p.algorithm !== null ? p.algorithm : 0
+    let fdbk = p.feedback !== null ? p.feedback : 0
+    let pitchDrop = p.pitchDrop !== null ? Math.round(p.pitchDrop) : 0
+    let pitchDec = p.pitchDec !== null ? p.pitchDec : 0.05
+    let vibRate = p.vibRate !== null ? p.vibRate : 0
+    let vibAmt = p.vibAmt !== null ? p.vibAmt : 0
+    let arpRate = p.arpRate !== null ? p.arpRate : 0
+    let arpSemis = p.arpSemis !== null ? Math.round(p.arpSemis) : 0
 
     let opKnobs = (n) => {
-      let tl = p["op" + n + "Tl"] !== null && p["op" + n + "Tl"] !== undefined ? p["op" + n + "Tl"] : 0
-      let mul = p["op" + n + "Mul"] !== null && p["op" + n + "Mul"] !== undefined ? p["op" + n + "Mul"] : 1
-      let dt = p["op" + n + "Dt"] !== null && p["op" + n + "Dt"] !== undefined ? p["op" + n + "Dt"] : 0
-      let ar = p["op" + n + "Ar"] !== null && p["op" + n + "Ar"] !== undefined ? p["op" + n + "Ar"] : 31
-      let dr = p["op" + n + "Dr"] !== null && p["op" + n + "Dr"] !== undefined ? p["op" + n + "Dr"] : 5
-      let sr = p["op" + n + "Sr"] !== null && p["op" + n + "Sr"] !== undefined ? p["op" + n + "Sr"] : 5
-      let rr = p["op" + n + "Rr"] !== null && p["op" + n + "Rr"] !== undefined ? p["op" + n + "Rr"] : 5
-      let sl = p["op" + n + "Sl"] !== null && p["op" + n + "Sl"] !== undefined ? p["op" + n + "Sl"] : 0
+      let tl = p["op" + n + "Tl"] !== null ? p["op" + n + "Tl"] : 0
+      let mul = p["op" + n + "Mul"] !== null ? p["op" + n + "Mul"] : 1
+      let dt = p["op" + n + "Dt"] !== null ? p["op" + n + "Dt"] : 0
+      let ar = p["op" + n + "Ar"] !== null ? p["op" + n + "Ar"] : 31
+      let dr = p["op" + n + "Dr"] !== null ? p["op" + n + "Dr"] : 5
+      let sr = p["op" + n + "Sr"] !== null ? p["op" + n + "Sr"] : 5
+      let rr = p["op" + n + "Rr"] !== null ? p["op" + n + "Rr"] : 5
+      let sl = p["op" + n + "Sl"] !== null ? p["op" + n + "Sl"] : 0
       return (
         <div class="ik-card">
           <div class="ik-card-h">{"Operator " + n}</div>
@@ -1132,21 +1132,21 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     let type = p.type ? p.type : "pulse"
     let duty = p.duty ? p.duty : "50"
     let envMode = p.envMode ? p.envMode : "decay"
-    let vol = p.vol !== null && p.vol !== undefined ? Math.round(p.vol) : 10
-    let sweep = p.sweep !== null && p.sweep !== undefined ? Math.round(p.sweep) : 0
+    let vol = p.vol !== null ? Math.round(p.vol) : 10
+    let sweep = p.sweep !== null ? Math.round(p.sweep) : 0
     let noiseMode = p.noiseMode ? p.noiseMode : "long"
 
-    let attack = p.attack !== null && p.attack !== undefined ? p.attack : 0
-    let decay = p.decay !== null && p.decay !== undefined ? p.decay : 0
-    let sustain = p.sustain !== null && p.sustain !== undefined ? Math.round(p.sustain) : 15
-    let release = p.release !== null && p.release !== undefined ? p.release : 0
-    let vibRate = p.vibRate !== null && p.vibRate !== undefined ? p.vibRate : 0
-    let vibAmt = p.vibAmt !== null && p.vibAmt !== undefined ? p.vibAmt : 0
-    let arpRate = p.arpRate !== null && p.arpRate !== undefined ? p.arpRate : 0
-    let arpSemis = p.arpSemis !== null && p.arpSemis !== undefined ? Math.round(p.arpSemis) : 0
+    let attack = p.attack !== null ? p.attack : 0
+    let decay = p.decay !== null ? p.decay : 0
+    let sustain = p.sustain !== null ? Math.round(p.sustain) : 15
+    let release = p.release !== null ? p.release : 0
+    let vibRate = p.vibRate !== null ? p.vibRate : 0
+    let vibAmt = p.vibAmt !== null ? p.vibAmt : 0
+    let arpRate = p.arpRate !== null ? p.arpRate : 0
+    let arpSemis = p.arpSemis !== null ? Math.round(p.arpSemis) : 0
     
-    let pitchDrop = p.pitchDrop !== null && p.pitchDrop !== undefined ? Math.round(p.pitchDrop) : 0
-    let pitchDec = p.pitchDec !== null && p.pitchDec !== undefined ? p.pitchDec : 0.05
+    let pitchDrop = p.pitchDrop !== null ? Math.round(p.pitchDrop) : 0
+    let pitchDec = p.pitchDec !== null ? p.pitchDec : 0.05
     let dpcmSample = p.dpcmSample ? p.dpcmSample : "kick"
     
     let isPulse = type === "pulse"
@@ -1190,32 +1190,32 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     let type = p.type ? p.type : "pulse"
     let duty = p.duty ? p.duty : "50"
     let envMode = p.envMode ? p.envMode : "step"
-    let vol = p.vol !== null && p.vol !== undefined ? Math.round(p.vol) : 10
-    let sweep = p.sweep !== null && p.sweep !== undefined ? Math.round(p.sweep) : 0
+    let vol = p.vol !== null ? Math.round(p.vol) : 10
+    let sweep = p.sweep !== null ? Math.round(p.sweep) : 0
     let noiseMode = p.noiseMode ? p.noiseMode : "long"
     let waveShape = p.waveShape ? p.waveShape : "saw"
 
-    let attack = p.attack !== null && p.attack !== undefined ? p.attack : 0
-    let decay = p.decay !== null && p.decay !== undefined ? p.decay : 0
-    let sustain = p.sustain !== null && p.sustain !== undefined ? Math.round(p.sustain) : 15
-    let release = p.release !== null && p.release !== undefined ? p.release : 0
-    let vibRate = p.vibRate !== null && p.vibRate !== undefined ? p.vibRate : 0
-    let vibAmt = p.vibAmt !== null && p.vibAmt !== undefined ? p.vibAmt : 0
-    let arpRate = p.arpRate !== null && p.arpRate !== undefined ? p.arpRate : 0
-    let arpSemis = p.arpSemis !== null && p.arpSemis !== undefined ? Math.round(p.arpSemis) : 0
+    let attack = p.attack !== null ? p.attack : 0
+    let decay = p.decay !== null ? p.decay : 0
+    let sustain = p.sustain !== null ? Math.round(p.sustain) : 15
+    let release = p.release !== null ? p.release : 0
+    let vibRate = p.vibRate !== null ? p.vibRate : 0
+    let vibAmt = p.vibAmt !== null ? p.vibAmt : 0
+    let arpRate = p.arpRate !== null ? p.arpRate : 0
+    let arpSemis = p.arpSemis !== null ? Math.round(p.arpSemis) : 0
     
-    let pitchDrop = p.pitchDrop !== null && p.pitchDrop !== undefined ? Math.round(p.pitchDrop) : 0
-    let pitchDec = p.pitchDec !== null && p.pitchDec !== undefined ? p.pitchDec : 0.05
+    let pitchDrop = p.pitchDrop !== null ? Math.round(p.pitchDrop) : 0
+    let pitchDec = p.pitchDec !== null ? p.pitchDec : 0.05
 
-    let len = p.len !== null && p.len !== undefined ? Math.round(p.len) : 0
-    let envStep = p.envStep !== null && p.envStep !== undefined ? Math.round(p.envStep) : 0
+    let len = p.len !== null ? Math.round(p.len) : 0
+    let envStep = p.envStep !== null ? Math.round(p.envStep) : 0
     let envUp = p.envUp === true
-    let sweepShift = p.sweepShift !== null && p.sweepShift !== undefined ? Math.round(p.sweepShift) : 0
-    let sweepPeriod = p.sweepPeriod !== null && p.sweepPeriod !== undefined ? Math.round(p.sweepPeriod) : 0
+    let sweepShift = p.sweepShift !== null ? Math.round(p.sweepShift) : 0
+    let sweepPeriod = p.sweepPeriod !== null ? Math.round(p.sweepPeriod) : 0
     let sweepDown = p.sweepDown === true
-    let noiseShift = p.noiseShift !== null && p.noiseShift !== undefined ? Math.round(p.noiseShift) : 0
-    let noiseRatio = p.noiseRatio !== null && p.noiseRatio !== undefined ? Math.round(p.noiseRatio) : 0
-    let hasNoiseShift = p.noiseShift !== null && p.noiseShift !== undefined
+    let noiseShift = p.noiseShift !== null ? Math.round(p.noiseShift) : 0
+    let noiseRatio = p.noiseRatio !== null ? Math.round(p.noiseRatio) : 0
+    let hasNoiseShift = p.noiseShift !== null
     
     let isPulse = type === "pulse"
     let isNoise = type === "noise"
@@ -1273,22 +1273,22 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
   }
   if (id === "c64sid") {
     let wf = p.waveform ? p.waveform : "sawtooth"
-    let pw = p.pulseWidth !== null && p.pulseWidth !== undefined ? p.pulseWidth : 0.5
+    let pw = p.pulseWidth !== null ? p.pulseWidth : 0.5
     let ftype = p.filterType ? p.filterType : "lowpass"
-    let cut = p.cutoff !== null && p.cutoff !== undefined ? p.cutoff : 2000
-    let res = p.resonance !== null && p.resonance !== undefined ? p.resonance : 5
-    let att = p.attack !== null && p.attack !== undefined ? Math.round(p.attack) : 0
-    let dec = p.decay !== null && p.decay !== undefined ? Math.round(p.decay) : 5
-    let sus = p.sustain !== null && p.sustain !== undefined ? Math.round(p.sustain) : 15
-    let rel = p.release !== null && p.release !== undefined ? Math.round(p.release) : 6
+    let cut = p.cutoff !== null ? p.cutoff : 2000
+    let res = p.resonance !== null ? p.resonance : 5
+    let att = p.attack !== null ? Math.round(p.attack) : 0
+    let dec = p.decay !== null ? Math.round(p.decay) : 5
+    let sus = p.sustain !== null ? Math.round(p.sustain) : 15
+    let rel = p.release !== null ? Math.round(p.release) : 6
     let hardSync = p.hardSync === true
     let ringMod = p.ringMod === true
-    let pitchDrop = p.pitchDrop !== null && p.pitchDrop !== undefined ? Math.round(p.pitchDrop) : 0
-    let pitchDec = p.pitchDec !== null && p.pitchDec !== undefined ? p.pitchDec : 0.05
-    let vibRate = p.vibRate !== null && p.vibRate !== undefined ? p.vibRate : 0
-    let vibAmt = p.vibAmt !== null && p.vibAmt !== undefined ? p.vibAmt : 0
-    let arpRate = p.arpRate !== null && p.arpRate !== undefined ? p.arpRate : 0
-    let arpSemis = p.arpSemis !== null && p.arpSemis !== undefined ? Math.round(p.arpSemis) : 0
+    let pitchDrop = p.pitchDrop !== null ? Math.round(p.pitchDrop) : 0
+    let pitchDec = p.pitchDec !== null ? p.pitchDec : 0.05
+    let vibRate = p.vibRate !== null ? p.vibRate : 0
+    let vibAmt = p.vibAmt !== null ? p.vibAmt : 0
+    let arpRate = p.arpRate !== null ? p.arpRate : 0
+    let arpSemis = p.arpSemis !== null ? Math.round(p.arpSemis) : 0
 
     let isPulse = wf === "pulse"
     let pulseKnobs = (
@@ -1328,10 +1328,10 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
   }
 
   if (id === "cymbal") {
-    let tune = p.tune !== null && p.tune !== undefined ? p.tune : 300
-    let metallic = p.metallic !== null && p.metallic !== undefined ? p.metallic : 0.8
-    let decay = p.decay !== null && p.decay !== undefined ? p.decay : 0.4
-    let highpass = p.highpass !== null && p.highpass !== undefined ? p.highpass : 7000
+    let tune = p.tune !== null ? p.tune : 300
+    let metallic = p.metallic !== null ? p.metallic : 0.8
+    let decay = p.decay !== null ? p.decay : 0.4
+    let highpass = p.highpass !== null ? p.highpass : 7000
     return (
       <article class="gen-params ik-cols">
         <div class="ik-card">
@@ -1347,10 +1347,10 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     )
   }
   if (id === "reeseBass") {
-    let detune = p.detune !== null && p.detune !== undefined ? p.detune : 30
-    let cutoff = p.cutoff !== null && p.cutoff !== undefined ? p.cutoff : 1500
-    let wobble = p.wobble !== null && p.wobble !== undefined ? p.wobble : 0
-    let decay = p.decay !== null && p.decay !== undefined ? p.decay : 1.0
+    let detune = p.detune !== null ? p.detune : 30
+    let cutoff = p.cutoff !== null ? p.cutoff : 1500
+    let wobble = p.wobble !== null ? p.wobble : 0
+    let decay = p.decay !== null ? p.decay : 1.0
     return (
       <article class="gen-params ik-cols">
         <div class="ik-card">
@@ -1366,22 +1366,22 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     )
   }
   if (id === "syncLead") {
-    let mt = p.masterTune !== null && p.masterTune !== undefined ? p.masterTune : 0
-    let sb = p.slaveBase !== null && p.slaveBase !== undefined ? p.slaveBase : 12
-    let sw = p.sweepAmt !== null && p.sweepAmt !== undefined ? p.sweepAmt : 24
-    let sd = p.sweepDecay !== null && p.sweepDecay !== undefined ? p.sweepDecay : 0.4
-    let lr = p.lfoRate !== null && p.lfoRate !== undefined ? p.lfoRate : 0
-    let la = p.lfoAmt !== null && p.lfoAmt !== undefined ? p.lfoAmt : 0
+    let mt = p.masterTune !== null ? p.masterTune : 0
+    let sb = p.slaveBase !== null ? p.slaveBase : 12
+    let sw = p.sweepAmt !== null ? p.sweepAmt : 24
+    let sd = p.sweepDecay !== null ? p.sweepDecay : 0.4
+    let lr = p.lfoRate !== null ? p.lfoRate : 0
+    let la = p.lfoAmt !== null ? p.lfoAmt : 0
     
-    let cut = p.cutoff !== null && p.cutoff !== undefined ? p.cutoff : 3000
-    let res = p.resonance !== null && p.resonance !== undefined ? p.resonance : 5
-    let fea = p.filterEnvAmt !== null && p.filterEnvAmt !== undefined ? p.filterEnvAmt : 0
-    let fdec = p.filterDecay !== null && p.filterDecay !== undefined ? p.filterDecay : 0.4
+    let cut = p.cutoff !== null ? p.cutoff : 3000
+    let res = p.resonance !== null ? p.resonance : 5
+    let fea = p.filterEnvAmt !== null ? p.filterEnvAmt : 0
+    let fdec = p.filterDecay !== null ? p.filterDecay : 0.4
 
-    let att = p.attack !== null && p.attack !== undefined ? p.attack : 0.05
-    let dec = p.decay !== null && p.decay !== undefined ? p.decay : 0.3
-    let sus = p.sustain !== null && p.sustain !== undefined ? p.sustain : 0.8
-    let rel = p.release !== null && p.release !== undefined ? p.release : 0.5
+    let att = p.attack !== null ? p.attack : 0.05
+    let dec = p.decay !== null ? p.decay : 0.3
+    let sus = p.sustain !== null ? p.sustain : 0.8
+    let rel = p.release !== null ? p.release : 0.5
     
     return (
       <article class="gen-params ik-cols">
@@ -1418,19 +1418,19 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     )
   }
   if (id === "syncChoir") {
-    let vs = p.vowelShift !== null && p.vowelShift !== undefined ? p.vowelShift : 24
-    let mr = p.morphRate !== null && p.morphRate !== undefined ? p.morphRate : 0.5
-    let ma = p.morphAmt !== null && p.morphAmt !== undefined ? p.morphAmt : 12
+    let vs = p.vowelShift !== null ? p.vowelShift : 24
+    let mr = p.morphRate !== null ? p.morphRate : 0.5
+    let ma = p.morphAmt !== null ? p.morphAmt : 12
     
-    let ed = p.ensembleDetune !== null && p.ensembleDetune !== undefined ? p.ensembleDetune : 15
-    let vr = p.vibRate !== null && p.vibRate !== undefined ? p.vibRate : 5.0
-    let va = p.vibAmt !== null && p.vibAmt !== undefined ? p.vibAmt : 10
+    let ed = p.ensembleDetune !== null ? p.ensembleDetune : 15
+    let vr = p.vibRate !== null ? p.vibRate : 5.0
+    let va = p.vibAmt !== null ? p.vibAmt : 10
     
-    let hp = p.highpass !== null && p.highpass !== undefined ? p.highpass : 300
-    let att = p.attack !== null && p.attack !== undefined ? p.attack : 1.0
-    let dec = p.decay !== null && p.decay !== undefined ? p.decay : 1.0
-    let sus = p.sustain !== null && p.sustain !== undefined ? p.sustain : 0.8
-    let rel = p.release !== null && p.release !== undefined ? p.release : 1.5
+    let hp = p.highpass !== null ? p.highpass : 300
+    let att = p.attack !== null ? p.attack : 1.0
+    let dec = p.decay !== null ? p.decay : 1.0
+    let sus = p.sustain !== null ? p.sustain : 0.8
+    let rel = p.release !== null ? p.release : 1.5
     
     return (
       <article class="gen-params ik-cols">
@@ -1462,17 +1462,17 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     )
   }
   if (id === "obSync") {
-    let dt = p.detune !== null && p.detune !== undefined ? p.detune : 15
-    let sr = p.sweepRate !== null && p.sweepRate !== undefined ? p.sweepRate : 0.5
-    let sa = p.sweepAmt !== null && p.sweepAmt !== undefined ? p.sweepAmt : 24
-    let cut = p.cutoff !== null && p.cutoff !== undefined ? p.cutoff : 1200
-    let res = p.resonance !== null && p.resonance !== undefined ? p.resonance : 2
-    let fenv = p.filterEnv !== null && p.filterEnv !== undefined ? p.filterEnv : 2400
-    let fdec = p.filterDecay !== null && p.filterDecay !== undefined ? p.filterDecay : 0.8
-    let att = p.attack !== null && p.attack !== undefined ? p.attack : 0.1
-    let dec = p.decay !== null && p.decay !== undefined ? p.decay : 0.4
-    let sus = p.sustain !== null && p.sustain !== undefined ? p.sustain : 0.6
-    let rel = p.release !== null && p.release !== undefined ? p.release : 0.5
+    let dt = p.detune !== null ? p.detune : 15
+    let sr = p.sweepRate !== null ? p.sweepRate : 0.5
+    let sa = p.sweepAmt !== null ? p.sweepAmt : 24
+    let cut = p.cutoff !== null ? p.cutoff : 1200
+    let res = p.resonance !== null ? p.resonance : 2
+    let fenv = p.filterEnv !== null ? p.filterEnv : 2400
+    let fdec = p.filterDecay !== null ? p.filterDecay : 0.8
+    let att = p.attack !== null ? p.attack : 0.1
+    let dec = p.decay !== null ? p.decay : 0.4
+    let sus = p.sustain !== null ? p.sustain : 0.6
+    let rel = p.release !== null ? p.release : 0.5
 
     return (
       <article class="gen-params ik-cols">
@@ -1506,11 +1506,11 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     )
   }
   if (id === "laserSync") {
-    let dr = p.dropRate !== null && p.dropRate !== undefined ? p.dropRate : 0.8
-    let da = p.dropAmt !== null && p.dropAmt !== undefined ? p.dropAmt : 36
-    let sb = p.slaveBase !== null && p.slaveBase !== undefined ? p.slaveBase : 18
-    let att = p.attack !== null && p.attack !== undefined ? p.attack : 0.01
-    let dec = p.decay !== null && p.decay !== undefined ? p.decay : 0.3
+    let dr = p.dropRate !== null ? p.dropRate : 0.8
+    let da = p.dropAmt !== null ? p.dropAmt : 36
+    let sb = p.slaveBase !== null ? p.slaveBase : 18
+    let att = p.attack !== null ? p.attack : 0.01
+    let dec = p.decay !== null ? p.decay : 0.3
 
     return (
       <article class="gen-params ik-cols">
@@ -1548,7 +1548,7 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
     return <div class="gen-params" />
   }
   if (id === "patch") {
-    if (ch.macroName !== null && ch.macroName !== undefined) {
+    if (ch.macroName !== null) {
       return <div class="gen-params" />
     }
     if (

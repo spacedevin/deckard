@@ -2,7 +2,7 @@
   "name": "deckard",
   "version": "0.1.0",
   "private": true,
-  "description": "Token-streamed live-coding DAW in Tish \u2014 LLM + human co-DJ over deck",
+  "description": "Token-streamed live-coding DAW in Tish — LLM + human co-DJ over deck",
   "scripts": {
     "dev": "npm run build:og && npm run build:docs && vite",
     "build": "tish build --target js src/main.tish -o dist/bundle.js && tish build --target js src/ScopeWorker.tish -o scope-worker.js",
@@ -10,7 +10,7 @@
     "build:docs": "node scripts/build-docs.mjs",
     "build:static": "npm run build:og && npm run build:docs && npm run build && node scripts/build-static.mjs",
     "serve:static": "npx --yes serve build -p 3456",
-    "test": "npm run test:smoke && npm run test:mp && npm run test:levels && npm run test:multiword && npm run test:voicereset && npm run test:ratchet && npm run test:deckjoin && npm run test:transport && npm run test:deckmix",
+    "test": "npm run test:js && npm run test:tish && npm run test:ratchet",
     "test:deckmix": "tish build --target js test/deckmix.tish -o /tmp/deckard-dm.js && node /tmp/deckard-dm.js",
     "test:transport": "tish build --target js test/transport.tish -o /tmp/deckard-tr.js && node /tmp/deckard-tr.js",
     "test:deckjoin": "tish build --target js test/deckjoin.tish -o /tmp/deckard-dj.js && node /tmp/deckard-dj.js",
@@ -26,7 +26,9 @@
     "agent": "tish run services/agent-worker/main.tish",
     "agent:host": "tish run services/agent-worker/main.tish --role host --actor-id host-ai",
     "agent:client": "tish run services/agent-worker/main.tish --role client",
-    "token-demo": "tish run services/token-stream-demo/main.tish"
+    "token-demo": "tish run services/token-stream-demo/main.tish",
+    "test:js": "npm run test:smoke && npm run test:mp && npm run test:levels && npm run test:multiword && npm run test:voicereset && npm run test:deckjoin && npm run test:transport && npm run test:deckmix",
+    "test:tish": "tish test"
   },
   "engines": {
     "node": "22.x"
@@ -34,7 +36,7 @@
   "packageManager": "pnpm@9.15.4",
   "dependencies": {
     "@tishlang/lattish": "^4.0.2",
-    "@tishlang/tish": "^3.2.2",
+    "@tishlang/tish": "^3.7.1",
     "@vercel/og": "^0.11.1",
     "mespeak": "^2.0.2",
     "@spacedevin/deck": "^1.3.0"
@@ -50,5 +52,12 @@
       "@tishlang/tish",
       "sharp"
     ]
+  },
+  "tish": {
+    "test": {
+      "root": [
+        "test/native"
+      ]
+    }
   }
 }

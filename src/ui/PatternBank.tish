@@ -23,11 +23,11 @@ export fn PatternBank(bank) {
 
   // P0 — the LIVE output. Not editable; mirrors the currently armed pattern.
   let liveLabel = "idle"
-  if (live !== null && live !== undefined) {
+  if (live !== null) {
     liveLabel = "P" + String(Math.floor(Number(live)) + 1)
   }
   let liveCls = "pb-card pb-card-p0"
-  if (live !== null && live !== undefined) {
+  if (live !== null) {
     liveCls = liveCls + " pb-card-live-on"
   }
   cards.push(
@@ -41,9 +41,9 @@ export fn PatternBank(bank) {
   let i = 0
   while (i < count) {
     let sidx = i
-    let isEditing = editing !== null && editing !== undefined && Math.floor(Number(editing)) === sidx
-    let isLive = live !== null && live !== undefined && Math.floor(Number(live)) === sidx
-    let isQueued = queuePending && queued !== null && queued !== undefined && Math.floor(Number(queued)) === sidx
+    let isEditing = editing !== null && Math.floor(Number(editing)) === sidx
+    let isLive = live !== null && Math.floor(Number(live)) === sidx
+    let isQueued = queuePending && queued !== null && Math.floor(Number(queued)) === sidx
 
     let cardCls = "pb-card"
     if (isEditing) {
@@ -63,13 +63,13 @@ export fn PatternBank(bank) {
     }
     let launchLabel = "LAUNCH"
     if (isQueued) {
-      if (bank.dropSteps !== null && bank.dropSteps !== undefined) {
+      if (bank.dropSteps !== null) {
         launchLabel = bank.dropSteps === 0 ? "● NOW" : "◷ " + String(bank.dropSteps)
       } else {
         launchLabel = "◷ QUEUED"
       }
     }
-    let barN = bank.viewBar !== null && bank.viewBar !== undefined ? Math.floor(Number(bank.viewBar)) + 1 : 1
+    let barN = bank.viewBar !== null ? Math.floor(Number(bank.viewBar)) + 1 : 1
     let one = String(i + 1)
 
     cards.push(

@@ -78,10 +78,10 @@ fn connectTrackEq(ctx, filt, ch, gainAfterEq) {
   tMid.type = "peaking"
   tMid.frequency.value = 1400
   tMid.Q.value = 0.85
-  tMid.gain.value = ch.eqMid !== null && ch.eqMid !== undefined ? ch.eqMid : 0
+  tMid.gain.value = ch.eqMid !== null ? ch.eqMid : 0
   let tHi = makeShelf(ctx, "highshelf", 5200, 0.7)
-  tLo.gain.value = ch.eqLo !== null && ch.eqLo !== undefined ? ch.eqLo : 0
-  tHi.gain.value = ch.eqHi !== null && ch.eqHi !== undefined ? ch.eqHi : 0
+  tLo.gain.value = ch.eqLo !== null ? ch.eqLo : 0
+  tHi.gain.value = ch.eqHi !== null ? ch.eqHi : 0
   filt.connect(tLo)
   tLo.connect(tMid)
   tMid.connect(tHi)
@@ -94,26 +94,26 @@ export fn buildChannelBus(ctx, ch, actorSummingGain, reverbIn, cueSum) {
   let pan = ctx.createStereoPanner()
   pan.pan.value = ch.pan
   let g = ctx.createGain()
-  g.gain.value = ch.gain !== null && ch.gain !== undefined ? ch.gain : 0.85
+  g.gain.value = ch.gain !== null ? ch.gain : 0.85
   let filt = ctx.createBiquadFilter()
-  filt.type = ch.filterType !== null && ch.filterType !== undefined ? ch.filterType : "lowpass"
+  filt.type = ch.filterType !== null ? ch.filterType : "lowpass"
   // Default OPEN (20 kHz ≈ transparent): the channel filter is an opt-in effect, not an always-on dulling
   // insert. A null/unset cutoff must never collapse the filter to silence.
-  filt.frequency.value = ch.filterCutoff !== null && ch.filterCutoff !== undefined ? ch.filterCutoff : 20000
-  filt.Q.value = ch.filterQ !== null && ch.filterQ !== undefined ? ch.filterQ : 0.7
+  filt.frequency.value = ch.filterCutoff !== null ? ch.filterCutoff : 20000
+  filt.Q.value = ch.filterQ !== null ? ch.filterQ : 0.7
   // Per-channel drive (waveshaper) feeding the filter — saturation/warmth for any generator.
   let drive = ctx.createWaveShaper()
   drive.oversample = "2x"
-  if (ch.drive !== null && ch.drive !== undefined && ch.drive > 0) {
+  if (ch.drive !== null && ch.drive > 0) {
     drive.curve = makeDriveCurve(ctx, ch.drive)
   }
   drive.connect(filt)
   // Per-channel LFO modulating the filter cutoff — movement / wobble.
   let lfo = ctx.createOscillator()
   lfo.type = "sine"
-  lfo.frequency.value = ch.lfoRate !== null && ch.lfoRate !== undefined ? ch.lfoRate : 0
+  lfo.frequency.value = ch.lfoRate !== null ? ch.lfoRate : 0
   let lfoGain = ctx.createGain()
-  lfoGain.gain.value = ch.lfoDepth !== null && ch.lfoDepth !== undefined ? ch.lfoDepth : 0
+  lfoGain.gain.value = ch.lfoDepth !== null ? ch.lfoDepth : 0
   lfo.connect(lfoGain)
   lfoGain.connect(filt.frequency)
   lfo.start()
@@ -134,13 +134,13 @@ export fn buildChannelBus(ctx, ch, actorSummingGain, reverbIn, cueSum) {
   pan.connect(analyser)
   // Reverb aux send (post gain/pan) into the shared reverb bus.
   let revSend = ctx.createGain()
-  revSend.gain.value = ch.reverbSend !== null && ch.reverbSend !== undefined ? ch.reverbSend : 0
+  revSend.gain.value = ch.reverbSend !== null ? ch.reverbSend : 0
   pan.connect(revSend)
   if (reverbIn) {
     revSend.connect(reverbIn)
   }
   return {
-    chId: ch && (ch.id !== null && ch.id !== undefined) ? ch.id : null,
+    chId: ch && (ch.id !== null) ? ch.id : null,
     input: drive,
     gainNode: g,
     panNode: pan,
@@ -152,7 +152,7 @@ export fn buildChannelBus(ctx, ch, actorSummingGain, reverbIn, cueSum) {
     reverbSend: revSend,
     cueSend: cueSend,
     driveNode: drive,
-    driveCached: ch.drive !== null && ch.drive !== undefined ? ch.drive : 0,
+    driveCached: ch.drive !== null ? ch.drive : 0,
     lfo: lfo,
     lfoGain: lfoGain
   }
@@ -166,9 +166,9 @@ fn connectActorEq(ctx, summingGain, am, trimGain, masterSum) {
   aMid.Q.value = 0.85
   let aHi = makeShelf(ctx, "highshelf", 5200, 0.7)
   if (am) {
-    aLo.gain.value = am.eqLo !== null && am.eqLo !== undefined ? am.eqLo : 0
-    aMid.gain.value = am.eqMid !== null && am.eqMid !== undefined ? am.eqMid : 0
-    aHi.gain.value = am.eqHi !== null && am.eqHi !== undefined ? am.eqHi : 0
+    aLo.gain.value = am.eqLo !== null ? am.eqLo : 0
+    aMid.gain.value = am.eqMid !== null ? am.eqMid : 0
+    aHi.gain.value = am.eqHi !== null ? am.eqHi : 0
   }
   summingGain.connect(aLo)
   aLo.connect(aMid)
@@ -185,7 +185,7 @@ export fn buildActorBus(ctx, project, lane, masterSum) {
   let summingGain = ctx.createGain()
   summingGain.gain.value = 1
   let trimGain = ctx.createGain()
-  trimGain.gain.value = am && am.gain !== null && am.gain !== undefined ? am.gain : 1
+  trimGain.gain.value = am && am.gain !== null ? am.gain : 1
   let eq = connectActorEq(ctx, summingGain, am, trimGain, masterSum)
   return {
     lane: lane,
@@ -231,9 +231,9 @@ export fn ensureAudio(project, store) {
   mMid.Q.value = 0.85
   let mHi = makeShelf(ctx, "highshelf", 5200, 0.7)
   if (project.masterMixer) {
-    mLo.gain.value = project.masterMixer.eqLo !== null && project.masterMixer.eqLo !== undefined ? project.masterMixer.eqLo : 0
-    mMid.gain.value = project.masterMixer.eqMid !== null && project.masterMixer.eqMid !== undefined ? project.masterMixer.eqMid : 0
-    mHi.gain.value = project.masterMixer.eqHi !== null && project.masterMixer.eqHi !== undefined ? project.masterMixer.eqHi : 0
+    mLo.gain.value = project.masterMixer.eqLo !== null ? project.masterMixer.eqLo : 0
+    mMid.gain.value = project.masterMixer.eqMid !== null ? project.masterMixer.eqMid : 0
+    mHi.gain.value = project.masterMixer.eqHi !== null ? project.masterMixer.eqHi : 0
   }
   let masterSum = ctx.createGain()
   masterSum.gain.value = 1
@@ -310,7 +310,7 @@ export fn ensureAudio(project, store) {
     canSinkEl = typeof testEl.setSinkId === "function"
   }
   store.mkStreamDest = mkStreamDest
-  store.canDualOut = mkStreamDest !== null && mkStreamDest !== undefined && canSinkEl
+  store.canDualOut = mkStreamDest !== null && canSinkEl
   store.ctxCanSink = typeof ctx.setSinkId === "function"
   store.cueSum = null
   store.cueDest = null
@@ -536,7 +536,7 @@ export fn applyChannelFilterAutomation(project, store, beat, when) {
   let i = 0
   while (i < project.channels.length) {
     let pts = cutoffAutoPoints(project, project.channels[i].id)
-    if (pts !== null && pts !== undefined && i < store.buses.length && store.buses[i] && store.buses[i].filterNode) {
+    if (pts !== null && i < store.buses.length && store.buses[i] && store.buses[i].filterNode) {
       let hz = automationAt(pts, beat)
       if (hz < 20) {
         hz = 20
@@ -545,7 +545,7 @@ export fn applyChannelFilterAutomation(project, store, beat, when) {
         hz = 20000
       }
       let fp = store.buses[i].filterNode.frequency
-      if (when !== null && when !== undefined && when > 0) {
+      if (when !== null && when > 0) {
         fp.setValueAtTime(hz, when)
       } else {
         fp.value = hz
@@ -579,10 +579,10 @@ export fn updateMixerFromProject(project, store, atBeat) {
     let ch = project.channels[mi]
     let b = store.buses[mi]
     let gFall = coDjEffectiveGain(project, mi)
-    let pFall = ch.pan !== null && ch.pan !== undefined ? ch.pan : 0
-    let loFall = ch.eqLo !== null && ch.eqLo !== undefined ? ch.eqLo : 0
-    let midFall = ch.eqMid !== null && ch.eqMid !== undefined ? ch.eqMid : 0
-    let hiFall = ch.eqHi !== null && ch.eqHi !== undefined ? ch.eqHi : 0
+    let pFall = ch.pan !== null ? ch.pan : 0
+    let loFall = ch.eqLo !== null ? ch.eqLo : 0
+    let midFall = ch.eqMid !== null ? ch.eqMid : 0
+    let hiFall = ch.eqHi !== null ? ch.eqHi : 0
     let deckMul = deckMainOutGainMultiplier(project, ch)
     // While a deck's scratch platter is grabbed, DUCK that deck's live channels to silence so the scratch
     // REPLACES the deck (you scratch its loop instead of layering noise over the still-playing deck).
@@ -609,41 +609,41 @@ export fn updateMixerFromProject(project, store, atBeat) {
     // When a cutoff automation drives this channel's filter, seed it to the sweep's start (beat 0); the
     // transport's applyChannelFilterAutomation schedules the per-step values during play (so don't clobber
     // it with the static ch.filterCutoff each reconcile).
-    b.filterNode.type = ch.filterType !== null && ch.filterType !== undefined ? ch.filterType : "lowpass"
+    b.filterNode.type = ch.filterType !== null ? ch.filterType : "lowpass"
     let cutPts = cutoffAutoPoints(project, ch.id)
-    if (cutPts !== null && cutPts !== undefined) {
-      b.filterNode.frequency.value = automationAt(cutPts, atBeat !== null && atBeat !== undefined ? atBeat : 0)
+    if (cutPts !== null) {
+      b.filterNode.frequency.value = automationAt(cutPts, atBeat !== null ? atBeat : 0)
     } else {
-      b.filterNode.frequency.value = ch.filterCutoff !== null && ch.filterCutoff !== undefined ? ch.filterCutoff : 20000
+      b.filterNode.frequency.value = ch.filterCutoff !== null ? ch.filterCutoff : 20000
     }
     if (b.reverbSend) {
-      b.reverbSend.gain.value = ch.reverbSend !== null && ch.reverbSend !== undefined ? ch.reverbSend : 0
+      b.reverbSend.gain.value = ch.reverbSend !== null ? ch.reverbSend : 0
     }
     if (b.driveNode) {
-      let dv = ch.drive !== null && ch.drive !== undefined ? ch.drive : 0
+      let dv = ch.drive !== null ? ch.drive : 0
       if (b.driveCached !== dv) {
         b.driveNode.curve = dv > 0 ? makeDriveCurve(store.ctx, dv) : null
         b.driveCached = dv
       }
     }
     if (b.lfo) {
-      b.lfo.frequency.value = ch.lfoRate !== null && ch.lfoRate !== undefined ? ch.lfoRate : 0
+      b.lfo.frequency.value = ch.lfoRate !== null ? ch.lfoRate : 0
     }
     if (b.lfoGain) {
-      b.lfoGain.gain.value = ch.lfoDepth !== null && ch.lfoDepth !== undefined ? ch.lfoDepth : 0
+      b.lfoGain.gain.value = ch.lfoDepth !== null ? ch.lfoDepth : 0
     }
     mi = mi + 1
   }
   if (store.masterEq && project.masterMixer) {
     let m = project.masterMixer
     if (live) {
-      store.masterEq.lo.gain.value = mixerAutomationAt(project, "master", "", "eqLo", atBeat, m.eqLo !== null && m.eqLo !== undefined ? m.eqLo : 0)
-      store.masterEq.mid.gain.value = mixerAutomationAt(project, "master", "", "eqMid", atBeat, m.eqMid !== null && m.eqMid !== undefined ? m.eqMid : 0)
-      store.masterEq.hi.gain.value = mixerAutomationAt(project, "master", "", "eqHi", atBeat, m.eqHi !== null && m.eqHi !== undefined ? m.eqHi : 0)
+      store.masterEq.lo.gain.value = mixerAutomationAt(project, "master", "", "eqLo", atBeat, m.eqLo !== null ? m.eqLo : 0)
+      store.masterEq.mid.gain.value = mixerAutomationAt(project, "master", "", "eqMid", atBeat, m.eqMid !== null ? m.eqMid : 0)
+      store.masterEq.hi.gain.value = mixerAutomationAt(project, "master", "", "eqHi", atBeat, m.eqHi !== null ? m.eqHi : 0)
     } else {
-      store.masterEq.lo.gain.value = m.eqLo !== null && m.eqLo !== undefined ? m.eqLo : 0
-      store.masterEq.mid.gain.value = m.eqMid !== null && m.eqMid !== undefined ? m.eqMid : 0
-      store.masterEq.hi.gain.value = m.eqHi !== null && m.eqHi !== undefined ? m.eqHi : 0
+      store.masterEq.lo.gain.value = m.eqLo !== null ? m.eqLo : 0
+      store.masterEq.mid.gain.value = m.eqMid !== null ? m.eqMid : 0
+      store.masterEq.hi.gain.value = m.eqHi !== null ? m.eqHi : 0
     }
   }
   // Master glue compressor toggle: ratio 1 + threshold 0 makes the DynamicsCompressor a transparent
@@ -665,7 +665,7 @@ export fn updateMixerFromProject(project, store, atBeat) {
     while (sgi < sgDecks.length) {
       let sl = store.scratch[sgDecks[sgi]]
       if (sl && sl.gain) {
-        sl.gain.gain.value = (sl.volume !== null && sl.volume !== undefined ? sl.volume : 0.85) * deckCrossfadeGain(project, sgi)
+        sl.gain.gain.value = (sl.volume !== null ? sl.volume : 0.85) * deckCrossfadeGain(project, sgi)
       }
       sgi = sgi + 1
     }
@@ -679,20 +679,20 @@ export fn updateMixerFromProject(project, store, atBeat) {
       let am = project.actorMixer[L]
       if (ab && am) {
         if (live) {
-          ab.eqLo.gain.value = mixerAutomationAt(project, "actor", L, "eqLo", atBeat, am.eqLo !== null && am.eqLo !== undefined ? am.eqLo : 0)
-          ab.eqMid.gain.value = mixerAutomationAt(project, "actor", L, "eqMid", atBeat, am.eqMid !== null && am.eqMid !== undefined ? am.eqMid : 0)
-          ab.eqHi.gain.value = mixerAutomationAt(project, "actor", L, "eqHi", atBeat, am.eqHi !== null && am.eqHi !== undefined ? am.eqHi : 0)
-          let trimBase = am.gain !== null && am.gain !== undefined ? am.gain : 1
+          ab.eqLo.gain.value = mixerAutomationAt(project, "actor", L, "eqLo", atBeat, am.eqLo !== null ? am.eqLo : 0)
+          ab.eqMid.gain.value = mixerAutomationAt(project, "actor", L, "eqMid", atBeat, am.eqMid !== null ? am.eqMid : 0)
+          ab.eqHi.gain.value = mixerAutomationAt(project, "actor", L, "eqHi", atBeat, am.eqHi !== null ? am.eqHi : 0)
+          let trimBase = am.gain !== null ? am.gain : 1
           let trim = mixerAutomationAt(project, "actor", L, "gain", atBeat, trimBase)
           if (!actorLaneAudible(project, L)) {
             trim = 0
           }
           ab.trimGain.gain.value = trim
         } else {
-          ab.eqLo.gain.value = am.eqLo !== null && am.eqLo !== undefined ? am.eqLo : 0
-          ab.eqMid.gain.value = am.eqMid !== null && am.eqMid !== undefined ? am.eqMid : 0
-          ab.eqHi.gain.value = am.eqHi !== null && am.eqHi !== undefined ? am.eqHi : 0
-          let trim2 = am.gain !== null && am.gain !== undefined ? am.gain : 1
+          ab.eqLo.gain.value = am.eqLo !== null ? am.eqLo : 0
+          ab.eqMid.gain.value = am.eqMid !== null ? am.eqMid : 0
+          ab.eqHi.gain.value = am.eqHi !== null ? am.eqHi : 0
+          let trim2 = am.gain !== null ? am.gain : 1
           if (!actorLaneAudible(project, L)) {
             trim2 = 0
           }
@@ -721,7 +721,7 @@ export fn ensureCueOutput(store) {
   let ctx = store.ctx
   let cueDest = store.mkStreamDest()
   let cueSum = ctx.createGain()
-  cueSum.gain.value = store.cueLevel !== null && store.cueLevel !== undefined ? store.cueLevel : 0.9
+  cueSum.gain.value = store.cueLevel !== null ? store.cueLevel : 0.9
   cueSum.connect(cueDest)
   let cueEl = new Audio()
   cueEl.autoplay = true
@@ -755,7 +755,7 @@ export fn applyCueRouting(project, store) {
   if (!store || !store.buses) {
     return
   }
-  let cued = store.cuedDecks !== null && store.cuedDecks !== undefined ? store.cuedDecks : {}
+  let cued = store.cuedDecks !== null ? store.cuedDecks : {}
   // First time anything is cued, build the headphone output path on demand.
   if (!store.cueSum) {
     if (cued.A === true || cued.B === true || cued.C === true || cued.D === true) {
@@ -765,7 +765,7 @@ export fn applyCueRouting(project, store) {
       return
     }
   }
-  let level = store.cueLevel !== null && store.cueLevel !== undefined ? store.cueLevel : 0.9
+  let level = store.cueLevel !== null ? store.cueLevel : 0.9
   let i = 0
   while (i < project.channels.length && i < store.buses.length) {
     let b = store.buses[i]
@@ -783,7 +783,7 @@ export fn applyOutputDevices(store, speakersId, headphonesId) {
   if (!store) {
     return
   }
-  let spk = speakersId !== null && speakersId !== undefined ? String(speakersId) : ""
+  let spk = speakersId !== null ? String(speakersId) : ""
   // MAIN: in AUTO-SYNC it rides the matched <audio> element (shares the cue's buffering → stays in time with
   // the phones); otherwise it's the native ctx.destination (low-latency render thread, no MediaStream).
   if (store.autoSync && store.mainEl && typeof store.mainEl.setSinkId === "function") {
@@ -798,7 +798,7 @@ export fn applyOutputDevices(store, speakersId, headphonesId) {
     }
   }
   // HEADPHONES: build the cue path on first selection, then pin it to the chosen device.
-  let hp = headphonesId !== null && headphonesId !== undefined ? String(headphonesId) : ""
+  let hp = headphonesId !== null ? String(headphonesId) : ""
   if (hp.length > 0 && !store.cueSum) {
     ensureCueOutput(store)
   }
@@ -907,13 +907,13 @@ fn scratchSlot(store, deck) {
     return null
   }
   let sl = store.scratch[deck]
-  return sl !== null && sl !== undefined ? sl : null
+  return sl !== null ? sl : null
 }
 
 /** True once deck `deck`'s scratch buffer has been loaded (so a grab can duck + scratch instead of silence). */
 export fn scratchHasBuffer(store, deck) {
   let sl = scratchSlot(store, deck)
-  return sl !== null && sl !== undefined && sl.hasBuffer === true
+  return sl !== null && sl.hasBuffer === true
 }
 
 /** Invalidate deck `deck`'s scratch loop (after its content changes) so the next grab re-renders a fresh loop
@@ -1052,7 +1052,7 @@ export fn setDrawDisabled(store, on) {
 
 /** True if drawing should be skipped this frame — either the user disabled it or we're mid-switch. */
 export fn drawsSuspended(store) {
-  return store !== null && store !== undefined && (store.drawDisabled === true || store.drawBlocked === true)
+  return store !== null && (store.drawDisabled === true || store.drawBlocked === true)
 }
 
 /**
@@ -1169,7 +1169,7 @@ export fn channelAudible(project, idx, cuedDecks) {
     // fader / crossfader / deck-volume pulled all the way down (the cue send taps pre-fader). Without this a
     // faded-out cued deck generates no sound, so there's nothing for the cue tap to send to the headphones.
     let dk = channelDeck(project, ch)
-    if (!((cuedDecks !== null && cuedDecks !== undefined) && cuedDecks[dk] === true)) {
+    if (!((cuedDecks !== null) && cuedDecks[dk] === true)) {
       return false
     }
   }

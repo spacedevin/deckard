@@ -9,7 +9,7 @@ import {
 // Build HTML for mirrored deck highlight layer (textarea overlay). All logic in Tish.
 
 fn escapeHtml(s) {
-  if ((s === null || s === undefined)) {
+  if ((s === null)) {
     return ""
   }
   let x = String(s).split("&").join("&amp;")
@@ -19,7 +19,7 @@ fn escapeHtml(s) {
 }
 
 fn lineIndentAndCore(line) {
-  if ((line === null || line === undefined)) {
+  if ((line === null)) {
     return { indent: 0, core: "", tail: "" }
   }
   let a = 0
@@ -87,7 +87,7 @@ fn highlightCoreHtml(core, indentStr, tailStr, activeStep, playing) {
       if (ti > 0 && isInlineKeyword(tok)) {
         inner = "<span class=\"tpl-hl-kw tpl-hl-inline\">" + inner + "</span>"
       } else {
-      if (cl.kind === "steps" && slotStr !== null && slotStr !== undefined) {
+      if (cl.kind === "steps" && slotStr !== null) {
         let slot = slotStr
         let on = tok === "x" || tok === "X" || tok === "1"
         let off = tok === "." || tok === "0"
@@ -113,7 +113,7 @@ fn highlightCoreHtml(core, indentStr, tailStr, activeStep, playing) {
 export fn tplDocumentToHighlightHtml(source, playbackStep, playing, lastAppliedLineCount, lastAppliedAt) {
   let active = Math.floor(playbackStep) % 16
   let src = source
-  if ((src === null || src === undefined)) {
+  if ((src === null)) {
     src = ""
   }
   let lines = String(src).split("\n")

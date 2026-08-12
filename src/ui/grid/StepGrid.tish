@@ -50,7 +50,7 @@ export fn gridBarsForProject(project) {
   let i = 0
   while (i < project.channels.length) {
     let pb = project.channels[i].patternBars
-    if (pb !== null && pb !== undefined && Math.floor(pb) > mx) {
+    if (pb !== null && Math.floor(pb) > mx) {
       mx = Math.floor(pb)
     }
     i = i + 1
@@ -63,7 +63,7 @@ export fn gridBarsForProject(project) {
 
 /// Is cell i (within the viewed bar) lit for this channel — tiling shorter patterns across the bars.
 fn cellOnAtView(ch, i, melodic, viewBar) {
-  let chBars = (ch.patternBars !== null && ch.patternBars !== undefined && Math.floor(ch.patternBars) >= 1) ? Math.floor(ch.patternBars) : 1
+  let chBars = (ch.patternBars !== null && Math.floor(ch.patternBars) >= 1) ? Math.floor(ch.patternBars) : 1
   let local = (viewBar * 16 + i) % (chBars * 16)
   if (melodic) {
     return stepHasNote(ch, local)
@@ -118,7 +118,7 @@ export fn singleNotePitch(ch) {
     ch.soloNotePitch = p0
     return p0
   }
-  if (ch.soloNotePitch !== null && ch.soloNotePitch !== undefined) {
+  if (ch.soloNotePitch !== null) {
     return ch.soloNotePitch
   }
   return null
@@ -178,7 +178,7 @@ fn quantizeLock(field, v) {
 }
 
 fn stepLockVal(st, field) {
-  if (!st || st[field] === null || st[field] === undefined) {
+  if (!st || st[field] === null) {
     return lockLaneCfg(field).dflt
   }
   return st[field]
@@ -199,11 +199,11 @@ fn emitStepLock(rt, project, chIdx, stepIdx, field, value) {
     let s = ch.steps[i]
     arr.push({
       on: s.on === true,
-      vel: s.vel !== null && s.vel !== undefined ? s.vel : 100,
-      prob: s.prob !== null && s.prob !== undefined ? s.prob : 1,
-      ratchet: s.ratchet !== null && s.ratchet !== undefined ? s.ratchet : 1,
-      nudge: s.nudge !== null && s.nudge !== undefined ? s.nudge : 0,
-      lyric: s.lyric !== null && s.lyric !== undefined ? s.lyric : ""
+      vel: s.vel !== null ? s.vel : 100,
+      prob: s.prob !== null ? s.prob : 1,
+      ratchet: s.ratchet !== null ? s.ratchet : 1,
+      nudge: s.nudge !== null ? s.nudge : 0,
+      lyric: s.lyric !== null ? s.lyric : ""
     })
     i = i + 1
   }
@@ -232,11 +232,11 @@ fn emitStepToggle(rt, project, chIdx, stepIdx, forceOff) {
     let s = ch.steps[i]
     arr.push({
       on: s.on === true,
-      vel: s.vel !== null && s.vel !== undefined ? s.vel : 100,
-      prob: s.prob !== null && s.prob !== undefined ? s.prob : 1,
-      ratchet: s.ratchet !== null && s.ratchet !== undefined ? s.ratchet : 1,
-      nudge: s.nudge !== null && s.nudge !== undefined ? s.nudge : 0,
-      lyric: s.lyric !== null && s.lyric !== undefined ? s.lyric : ""
+      vel: s.vel !== null ? s.vel : 100,
+      prob: s.prob !== null ? s.prob : 1,
+      ratchet: s.ratchet !== null ? s.ratchet : 1,
+      nudge: s.nudge !== null ? s.nudge : 0,
+      lyric: s.lyric !== null ? s.lyric : ""
     })
     i = i + 1
   }
@@ -265,11 +265,11 @@ fn paintStep(rt, project, chIdx, absStep, value) {
     let s = ch.steps[i]
     arr.push({
       on: s.on === true,
-      vel: s.vel !== null && s.vel !== undefined ? s.vel : 100,
-      prob: s.prob !== null && s.prob !== undefined ? s.prob : 1,
-      ratchet: s.ratchet !== null && s.ratchet !== undefined ? s.ratchet : 1,
-      nudge: s.nudge !== null && s.nudge !== undefined ? s.nudge : 0,
-      lyric: s.lyric !== null && s.lyric !== undefined ? s.lyric : ""
+      vel: s.vel !== null ? s.vel : 100,
+      prob: s.prob !== null ? s.prob : 1,
+      ratchet: s.ratchet !== null ? s.ratchet : 1,
+      nudge: s.nudge !== null ? s.nudge : 0,
+      lyric: s.lyric !== null ? s.lyric : ""
     })
     i = i + 1
   }
@@ -319,7 +319,7 @@ fn stepPaintDown(e, rt, project, chIdx, absStep, curOn) {
 // through the SAME gated pattern door, so the generated pattern broadcasts to peers + round-trips. Generation
 // runs once here (Math.random) and peers receive the realized steps — no per-client divergence.
 fn emitGenerated(rt, project, chIdx, arr) {
-  if (!rt || !rt.emit || arr === null || arr === undefined) {
+  if (!rt || !rt.emit || arr === null) {
     return
   }
   let ch = project.channels[chIdx]
@@ -335,7 +335,7 @@ fn emitGenerated(rt, project, chIdx, arr) {
 // The same generative actions, but for MELODIC channels they author NOTES (emitted through the notes door)
 // instead of steps — so EUCLID/RESEED/MUTATE/HUMAN/PROB work everywhere, not just on drum/step rows.
 fn emitGeneratedNotes(rt, project, chIdx, arr) {
-  if (!rt || !rt.emit || arr === null || arr === undefined) {
+  if (!rt || !rt.emit || arr === null) {
     return
   }
   let ch = project.channels[chIdx]
@@ -729,11 +729,11 @@ fn emitNoteLock(rt, project, chIdx, absStep, field, value) {
       startBeat: n.startBeat,
       durBeats: n.durBeats,
       pitch: n.pitch,
-      vel: n.vel !== null && n.vel !== undefined ? n.vel : 100,
-      prob: n.prob !== null && n.prob !== undefined ? n.prob : 1,
-      ratchet: n.ratchet !== null && n.ratchet !== undefined ? n.ratchet : 1,
-      nudge: n.nudge !== null && n.nudge !== undefined ? n.nudge : 0,
-      lyric: n.lyric !== null && n.lyric !== undefined ? n.lyric : ""
+      vel: n.vel !== null ? n.vel : 100,
+      prob: n.prob !== null ? n.prob : 1,
+      ratchet: n.ratchet !== null ? n.ratchet : 1,
+      nudge: n.nudge !== null ? n.nudge : 0,
+      lyric: n.lyric !== null ? n.lyric : ""
     }
     if (Math.floor(n.startBeat * 4 + 0.0001) === absStep) {
       c[field] = value
@@ -860,7 +860,7 @@ fn pianoLockLanesForChannel(project, ch, chIdx, rt, viewBar) {
 // wide grid of one labeled syllable input per step, so lyrics get real horizontal room. Handles melodic/piano
 // channels (note lyrics via emitNoteLock) and boolean-step channels (step lyrics via emitStepLock).
 fn lyricEditorForChannel(project, ch, chIdx, rt, viewBar) {
-  let isPiano = ch.pianoNotes !== null && ch.pianoNotes !== undefined && ch.pianoNotes.length > 0
+  let isPiano = ch.pianoNotes !== null && ch.pianoNotes.length > 0
   let cells = []
   let i = 0
   while (i < 16) {
@@ -872,14 +872,14 @@ fn lyricEditorForChannel(project, ch, chIdx, rt, viewBar) {
       if (idxs.length > 0) {
         active = true
         let ly = ch.pianoNotes[idxs[0]].lyric
-        txt = (ly !== null && ly !== undefined) ? ly : ""
+        txt = (ly !== null) ? ly : ""
       }
     } else {
       let st = ch.steps[i]
-      if (st !== null && st !== undefined && st.on === true) {
+      if (st !== null && st.on === true) {
         active = true
         let ly2 = st.lyric
-        txt = (ly2 !== null && ly2 !== undefined) ? ly2 : ""
+        txt = (ly2 !== null) ? ly2 : ""
       }
     }
     let abs = absStep
@@ -920,14 +920,14 @@ fn stepLockOverlay(st) {
   if (!st) {
     return null
   }
-  let vel = st.vel !== null && st.vel !== undefined ? st.vel : 100
+  let vel = st.vel !== null ? st.vel : 100
   let velPct = Math.round((vel / 127) * 100)
   if (velPct < 8) {
     velPct = 8
   }
-  let prob = st.prob !== null && st.prob !== undefined ? st.prob : 1
-  let ratchet = st.ratchet !== null && st.ratchet !== undefined ? Math.floor(st.ratchet) : 1
-  let nudge = st.nudge !== null && st.nudge !== undefined ? st.nudge : 0
+  let prob = st.prob !== null ? st.prob : 1
+  let ratchet = st.ratchet !== null ? Math.floor(st.ratchet) : 1
+  let nudge = st.nudge !== null ? st.nudge : 0
   let marks = []
   marks.push(<div class="sg-vel-fill" style={{ height: String(velPct) + "%" }} key="vf" />)
   if (prob < 0.999) {
@@ -945,7 +945,7 @@ fn stepLockOverlay(st) {
 // soloPitch != null → single-note channel: toggle a note of that pitch (plays like a step sequencer).
 // melodic (and no soloPitch) → real melody: click opens the piano roll. else → drum step toggle.
 fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh, rt, viewBar, soloPitch) {
-  let single = soloPitch !== null && soloPitch !== undefined
+  let single = soloPitch !== null
   let cls = "sg-cell sg-col-" + String(i)
   if (on) {
     cls = cls + " sg-on"
@@ -960,12 +960,12 @@ fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh,
     cls = cls + " sg-beat"
   }
   // Absolute step index in the (possibly multi-bar) pattern for the bar being viewed.
-  let nbars = (rt !== null && rt !== undefined && rt.gridBars !== null && rt.gridBars !== undefined) ? Math.floor(rt.gridBars) : 1
+  let nbars = (rt !== null && rt.gridBars !== null) ? Math.floor(rt.gridBars) : 1
   let absStep = viewBar * 16 + i
   // The velocity/lock overlay must read the SAME (wrapped) step `cellOnAtView` uses — a 1-bar pattern tiled
   // across N bars has only 16 steps, so bars 2+ wrap; reading the raw absStep ran off the end and dropped the
   // fill (lit cells looked solid on bar 1, hollow on bars 2+).
-  let ovChBars = (ch.patternBars !== null && ch.patternBars !== undefined && Math.floor(ch.patternBars) >= 1) ? Math.floor(ch.patternBars) : 1
+  let ovChBars = (ch.patternBars !== null && Math.floor(ch.patternBars) >= 1) ? Math.floor(ch.patternBars) : 1
   let ovLocal = (viewBar * 16 + i) % (ovChBars * 16)
   let ovStep = (ch.steps && ovLocal < ch.steps.length) ? ch.steps[ovLocal] : (ch.steps ? ch.steps[ovLocal % 16] : null)
   return (
@@ -997,7 +997,7 @@ fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh,
         let c = project.channels[chIdx]
         if (single) {
           promoteChannelToBars(c, nbars)
-          let cb = (c.patternBars !== null && c.patternBars !== undefined && Math.floor(c.patternBars) >= 1) ? Math.floor(c.patternBars) : 1
+          let cb = (c.patternBars !== null && Math.floor(c.patternBars) >= 1) ? Math.floor(c.patternBars) : 1
           let abs = absStep % (cb * 16)
           let idx = noteIdxAtStep(c, soloPitch, abs)
           if (idx >= 0) {
@@ -1023,7 +1023,7 @@ fn StepCell(ch, chIdx, i, melodic, on, project, setProjectFromUI, setSelectedCh,
         let c = project.channels[chIdx]
         if (single) {
           promoteChannelToBars(c, nbars)
-          let cb = (c.patternBars !== null && c.patternBars !== undefined && Math.floor(c.patternBars) >= 1) ? Math.floor(c.patternBars) : 1
+          let cb = (c.patternBars !== null && Math.floor(c.patternBars) >= 1) ? Math.floor(c.patternBars) : 1
           let abs = absStep % (cb * 16)
           let idx = noteIdxAtStep(c, soloPitch, abs)
           if (idx >= 0) {
@@ -1072,7 +1072,7 @@ fn toggleGridOverlay(rt, chId, mapName) {
     return
   }
   let m = rt[mapName]
-  let wasOpen = m !== null && m !== undefined && m[chId] === true
+  let wasOpen = m !== null && m[chId] === true
   closeAllGridOverlays(rt)
   if (!wasOpen) {
     rt[mapName] = {}
@@ -1087,9 +1087,9 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
   let hasNotes = ch.pianoNotes && ch.pianoNotes.length > 0
   // A single-pitch channel sequences that one note inline; a multi-pitch melody opens the piano roll.
   let solo = singleNotePitch(ch)
-  let melodic = hasNotes && (solo === null || solo === undefined)
+  let melodic = hasNotes && (solo === null)
   // For the lit-cell check, single-note channels read note presence too (melodic logic).
-  let cellMelodic = hasNotes || (solo !== null && solo !== undefined)
+  let cellMelodic = hasNotes || (solo !== null)
   let cells = []
   let i = 0
   while (i < 16) {
@@ -1100,7 +1100,7 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
   // Per-bar root for stepped pitched channels (bass rolls) — shows the note changing as you page bars.
   // For a single-note channel, show that note in the gutter so you know what you're sequencing.
   let barPitch = null
-  if (solo !== null && solo !== undefined) {
+  if (solo !== null) {
     barPitch = sgNoteName(solo)
   } else if (ch.stepPitchByBar && viewBar < ch.stepPitchByBar.length) {
     barPitch = sgNoteName(ch.stepPitchByBar[viewBar])
@@ -1108,7 +1108,7 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
   let gid = ch.generatorId ? ch.generatorId : "basicOsc"
   ensureCoDjMeta(project)
   let meta = project.coDjMeta.tracks[ch.id]
-  let locked = meta !== null && meta !== undefined && meta.masterLock === true
+  let locked = meta !== null && meta.masterLock === true
   let rowCls = "sg-row " + deckClass(project, ch)
   if (selected) {
     rowCls = rowCls + " sg-row-sel"
@@ -1117,20 +1117,20 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
     rowCls = rowCls + " sg-row-exhausted"
   }
   let deckBadge = channelDeck(project, ch)
-  let expanded = rt !== null && rt !== undefined && rt.gridExpanded !== null && rt.gridExpanded !== undefined && rt.gridExpanded[ch.id] === true
+  let expanded = rt !== null && rt.gridExpanded !== null && rt.gridExpanded[ch.id] === true
   // Per-step locks only apply to pure boolean-STEP channels (single-note/melodic tracks play via the note
   // path, which carries its own velocity and ignores ch.steps locks) — so only offer the toggle there.
-  let stepChannel = !hasNotes && (solo === null || solo === undefined)
-  let locksOpen = rt !== null && rt !== undefined && rt.gridLocks !== null && rt.gridLocks !== undefined && rt.gridLocks[ch.id] === true
+  let stepChannel = !hasNotes && (solo === null)
+  let locksOpen = rt !== null && rt.gridLocks !== null && rt.gridLocks[ch.id] === true
   // Melodic / single-note channels (pianoNotes) get the SAME four locks via column-indexed piano lanes.
-  let pianoLocksOpen = rt !== null && rt !== undefined && rt.gridPianoLocks !== null && rt.gridPianoLocks !== undefined && rt.gridPianoLocks[ch.id] === true
+  let pianoLocksOpen = rt !== null && rt.gridPianoLocks !== null && rt.gridPianoLocks[ch.id] === true
   // Automation lane is offered for any channel whose (simple) generator exposes a sweepable param.
   let autoCapable = defaultAutoParam(ch.generatorId ? ch.generatorId : "basicOsc") !== null && defaultAutoParam(ch.generatorId ? ch.generatorId : "basicOsc") !== undefined
-  let autoOpen = rt !== null && rt !== undefined && rt.gridAuto !== null && rt.gridAuto !== undefined && rt.gridAuto[ch.id] === true
-  let euclidOpen = rt !== null && rt !== undefined && rt.gridEuclid !== null && rt.gridEuclid !== undefined && rt.gridEuclid[ch.id] === true
+  let autoOpen = rt !== null && rt.gridAuto !== null && rt.gridAuto[ch.id] === true
+  let euclidOpen = rt !== null && rt.gridEuclid !== null && rt.gridEuclid[ch.id] === true
   // Lyrics overlay — offered only for vocal generators (the only ones that voice the syllables).
   let isVocalCh = ch.generatorId === "formantVocal" || ch.generatorId === "ttsVocal" || ch.generatorId === "meSpeakVocal"
-  let lyricsOpen = rt !== null && rt !== undefined && rt.gridLyrics !== null && rt.gridLyrics !== undefined && rt.gridLyrics[ch.id] === true
+  let lyricsOpen = rt !== null && rt.gridLyrics !== null && rt.gridLyrics[ch.id] === true
   // Per-track presets (whole channel: instrument + pattern) for this row's own load/save icons.
   let trackPresetOpts = []
   let tpList = levelPresetList(project, "channel")
@@ -1291,7 +1291,7 @@ fn ChannelRowGrid(ch, chIdx, project, setProjectFromUI, selected, setSelectedCh,
 /** Direct-DOM playhead: highlight the active step column only when the VIEWED bar is the one playing,
  *  and mark which bar-pager button is currently sounding — all without a React re-render. */
 fn applyGridPlayhead(step, playing, gridBars, viewBar) {
-  if (globalThis.document === null || globalThis.document === undefined || globalThis.document.querySelectorAll === null || globalThis.document.querySelectorAll === undefined) {
+  if (globalThis.document === null || globalThis.document.querySelectorAll === null) {
     return
   }
   let prev = document.querySelectorAll(".sg-col-active")
@@ -1309,8 +1309,8 @@ fn applyGridPlayhead(step, playing, gridBars, viewBar) {
   if (!playing) {
     return
   }
-  let nbars = (gridBars !== null && gridBars !== undefined && gridBars >= 1) ? gridBars : 1
-  let vb = (viewBar !== null && viewBar !== undefined && viewBar >= 0) ? viewBar : 0
+  let nbars = (gridBars !== null && gridBars >= 1) ? gridBars : 1
+  let vb = (viewBar !== null && viewBar >= 0) ? viewBar : 0
   let playingBar = Math.floor(Math.floor(step) / 16) % nbars
   let colInBar = Math.floor(step) % 16
   // Mark the pager button for the sounding bar (so you see the progression move even off-screen).
@@ -1352,10 +1352,10 @@ fn rackRemoveBar(project, rt, setProjectFromUI) {
     return
   }
   setRackBars(project, cur - 1, false)
-  if (rt && rt.gridViewBar !== null && rt.gridViewBar !== undefined && rt.gridViewBar > cur - 2) {
+  if (rt && rt.gridViewBar !== null && rt.gridViewBar > cur - 2) {
     rt.gridViewBar = cur - 2
   }
-  if (rt && rt.gridViewBar !== null && rt.gridViewBar !== undefined && rt.gridViewBar < 0) {
+  if (rt && rt.gridViewBar !== null && rt.gridViewBar < 0) {
     rt.gridViewBar = 0
   }
   setProjectFromUI(project)
@@ -1374,7 +1374,7 @@ fn handleBarWheel(e, rt, gridBars) {
   if (amt === 0) {
     return
   }
-  let cur = rt.gridViewBar !== null && rt.gridViewBar !== undefined ? Math.floor(rt.gridViewBar) : 0
+  let cur = rt.gridViewBar !== null ? Math.floor(rt.gridViewBar) : 0
   let next = cur + (amt > 0 ? 1 : -1)
   if (next < 0) {
     next = 0
@@ -1411,7 +1411,7 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
   let swingUp = Math.round(Math.min(0.6, swingVal + 0.05) * 100) / 100
   // Scale lock — a global key constraint that folds every triggered melodic pitch onto the chosen scale at
   // play time (live: change it and the whole session conforms next step). Edits via rt.emit("scale", …).
-  let scaleActive = project !== null && project !== undefined && project.scaleRoot !== null && project.scaleRoot !== undefined && project.scaleMode !== null && project.scaleMode !== undefined && project.scaleMode !== "" && project.scaleMode !== "off"
+  let scaleActive = project !== null && project.scaleRoot !== null && project.scaleMode !== null && project.scaleMode !== "" && project.scaleMode !== "off"
   let scaleCurRoot = scaleActive ? Math.floor(project.scaleRoot) : 0
   let scaleCurMode = scaleActive ? project.scaleMode : "off"
   let scRootNames = scaleRootNames()
@@ -1431,7 +1431,7 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
     smi = smi + 1
   }
   let viewBar = 0
-  if (rt !== null && rt !== undefined && rt.gridViewBar !== null && rt.gridViewBar !== undefined) {
+  if (rt !== null && rt.gridViewBar !== null) {
     viewBar = Math.floor(rt.gridViewBar)
   }
   if (viewBar >= gridBars) {
@@ -1464,7 +1464,7 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
   let ci = 0
   while (ci < project.channels.length) {
     let ch = project.channels[ci]
-    if (activeDeck !== null && activeDeck !== undefined && channelDeck(project, ch) !== activeDeck) {
+    if (activeDeck !== null && channelDeck(project, ch) !== activeDeck) {
       ci = ci + 1
       continue
     }
@@ -1482,7 +1482,7 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
   let pti = 0
   while (pti < project.channels.length) {
     let pc = project.channels[pti]
-    if (rt !== null && rt !== undefined && rt.gridExpanded !== null && rt.gridExpanded !== undefined && rt.gridExpanded[pc.id] === true && (activeDeck === null || activeDeck === undefined || channelDeck(project, pc) === activeDeck)) {
+    if (rt !== null && rt.gridExpanded !== null && rt.gridExpanded[pc.id] === true && (activeDeck === null || channelDeck(project, pc) === activeDeck)) {
       let chIx = pti
       let prows = pianoRowsForChannel(project, pc, pti, rt, setProjectFromUI, viewBar, gridBars, (col) => { emitStepToggle(rt, project, chIx, col); if (rt.bumpGrid) { rt.bumpGrid() } })
       pianoTakeover = (
@@ -1505,17 +1505,17 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
   let lti = 0
   while (lti < project.channels.length) {
     let lc = project.channels[lti]
-    if (activeDeck === null || activeDeck === undefined || channelDeck(project, lc) === activeDeck) {
+    if (activeDeck === null || channelDeck(project, lc) === activeDeck) {
       let lIx = lti
-      let lLocks = rt !== null && rt !== undefined && rt.gridLocks !== null && rt.gridLocks !== undefined && rt.gridLocks[lc.id] === true
-      let lPiano = rt !== null && rt !== undefined && rt.gridPianoLocks !== null && rt.gridPianoLocks !== undefined && rt.gridPianoLocks[lc.id] === true
-      let lAuto = rt !== null && rt !== undefined && rt.gridAuto !== null && rt.gridAuto !== undefined && rt.gridAuto[lc.id] === true
+      let lLocks = rt !== null && rt.gridLocks !== null && rt.gridLocks[lc.id] === true
+      let lPiano = rt !== null && rt.gridPianoLocks !== null && rt.gridPianoLocks[lc.id] === true
+      let lAuto = rt !== null && rt.gridAuto !== null && rt.gridAuto[lc.id] === true
       if (lLocks || lPiano || lAuto) {
         let laneRows = []
         let laneTitle = ""
         if (lAuto) {
           let arow = autoLaneRow(project, lc, lIx, rt)
-          if (arow !== null && arow !== undefined) { laneRows.push(arow) }
+          if (arow !== null) { laneRows.push(arow) }
           laneTitle = lc.name + " · AUTOMATION"
         } else if (lPiano) {
           laneRows = pianoLockLanesForChannel(project, lc, lIx, rt, viewBar)
@@ -1544,7 +1544,7 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
   let eti = 0
   while (eti < project.channels.length) {
     let ec = project.channels[eti]
-    if (rt !== null && rt !== undefined && rt.gridEuclid !== null && rt.gridEuclid !== undefined && rt.gridEuclid[ec.id] === true && (activeDeck === null || activeDeck === undefined || channelDeck(project, ec) === activeDeck)) {
+    if (rt !== null && rt.gridEuclid !== null && rt.gridEuclid[ec.id] === true && (activeDeck === null || channelDeck(project, ec) === activeDeck)) {
       let eIx = eti
       euclidTakeover = (
         <div class="sg-piano-takeover">
@@ -1565,7 +1565,7 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
   let yti = 0
   while (yti < project.channels.length) {
     let yc = project.channels[yti]
-    if (rt !== null && rt !== undefined && rt.gridLyrics !== null && rt.gridLyrics !== undefined && rt.gridLyrics[yc.id] === true && (activeDeck === null || activeDeck === undefined || channelDeck(project, yc) === activeDeck)) {
+    if (rt !== null && rt.gridLyrics !== null && rt.gridLyrics[yc.id] === true && (activeDeck === null || channelDeck(project, yc) === activeDeck)) {
       let yIx = yti
       lyricsTakeover = (
         <div class="sg-piano-takeover">
@@ -1630,7 +1630,7 @@ export fn StepGridPanel(project, selectedCh, setProjectFromUI, setSelectedCh, rt
           placeholder: "···",
           options: moreOpts,
           onChange: (v) => {
-            if (rt && v !== null && v !== undefined && String(v).length > 0) {
+            if (rt && v !== null && String(v).length > 0) {
               rt.gridViewBar = Math.floor(Number(v))
               if (rt.bumpGrid) {
                 rt.bumpGrid()

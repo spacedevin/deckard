@@ -91,7 +91,7 @@ export fn applyDeckEq(project, deck) {
 
 // Linear 0..1 gain → dB string for the fader readout. Floors near-silence at -60 so we never print -Infinity.
 export fn gainToDb(g) {
-  if ((g === null || g === undefined) || g <= 0.001) {
+  if ((g === null) || g <= 0.001) {
     return "-60 dB"
   }
   let db = 20 * (Math.log(g) / Math.log(10))
@@ -147,7 +147,7 @@ export fn vertLeverEl(g, acc, onSet) {
 
 fn StemFader(entry, setProjectFromUI, touchMixer, project, rt, accentColor) {
   let ch = entry.ch
-  let g = ch.gain !== null && ch.gain !== undefined ? ch.gain : 0.85
+  let g = ch.gain !== null ? ch.gain : 0.85
   let acc = accentColor ? accentColor : "var(--deck-a)"
   fn onSet(p) {
     if (rt && rt.emit) {
@@ -211,7 +211,7 @@ export fn DeckJog(deck, rt) {
     let rot = currentRot
     let GAIN = 7
     let pid = e.pointerId
-    if (el.setPointerCapture && pid !== null && pid !== undefined) {
+    if (el.setPointerCapture && pid !== null) {
       try {
         el.setPointerCapture(pid)
       } catch (errc) {}
@@ -270,7 +270,7 @@ export fn DeckJog(deck, rt) {
       if (typeof window !== "undefined") {
         window.removeEventListener("blur", up)
       }
-      if (el.releasePointerCapture && pid !== null && pid !== undefined) {
+      if (el.releasePointerCapture && pid !== null) {
         try {
           el.releasePointerCapture(pid)
         } catch (errr) {}
@@ -306,7 +306,7 @@ fn holdBtn(label, cls, title, onDown, onUp) {
     }
     let el = e.currentTarget
     let pid = e.pointerId
-    if (el.setPointerCapture && pid !== null && pid !== undefined) {
+    if (el.setPointerCapture && pid !== null) {
       try {
         el.setPointerCapture(pid)
       } catch (errc) {}
@@ -535,7 +535,7 @@ export fn DeckMixer(project, setProjectFromUI, touchMixer, rt) {
       lo: de.lo,
       flt: de.flt,
       vol: typeof de.vol === "number" ? de.vol : 1,
-      cued: rt !== null && rt !== undefined && rt.cuedDecks !== null && rt.cuedDecks !== undefined && rt.cuedDecks[deck] === true,
+      cued: rt !== null && rt.cuedDecks !== null && rt.cuedDecks[deck] === true,
       active: deckEntries(project, deck).length > 0
     }
   }

@@ -47,7 +47,7 @@ export fn stepTriggers(project, rt, globalStep) {
     let usePiano = ch.pianoNotes
     // Bar count of the active pattern (channel patternBars in rack mode, or the clip's). Drives the
     // melodic span and the per-bar step pitch — NOT the step-rhythm length (see below).
-    let nbars = (ch.patternBars !== null && ch.patternBars !== undefined) && Math.floor(Number(ch.patternBars)) >= 1 ? Math.floor(Number(ch.patternBars)) : 1
+    let nbars = (ch.patternBars !== null) && Math.floor(Number(ch.patternBars)) >= 1 ? Math.floor(Number(ch.patternBars)) : 1
     let patSpan = nbars * 16
     if (pclip && !pclip.silent) {
       useSteps = pclip.steps
@@ -68,8 +68,8 @@ export fn stepTriggers(project, rt, globalStep) {
         let fires = noteStep >= 0 && noteStep < patSpan && stepInSpan === noteStep
         // PER-NOTE PROBABILITY: same seeded gate as steps so every client agrees. Seed by the note's BEAT
         // (bi*1000 + noteStep) — notes sharing a beat (a chord) roll together; reordering notes can't change it.
-        if (fires && (n.prob !== null && n.prob !== undefined) && n.prob < 0.999) {
-          let seed = project.songSeed !== null && project.songSeed !== undefined ? Math.floor(project.songSeed) : 0
+        if (fires && (n.prob !== null) && n.prob < 0.999) {
+          let seed = project.songSeed !== null ? Math.floor(project.songSeed) : 0
           if (stepRand01(globalStep, bi * 1000 + noteStep, seed) >= n.prob) {
             fires = false
           }
@@ -79,8 +79,8 @@ export fn stepTriggers(project, rt, globalStep) {
           let stepSec = sixteenthSeconds(project.bpm)
           // NUDGE = a micro-timing shift of a fraction of a STEP (16th), like the step lock. RATCHET = R
           // evenly-spaced sub-hits filling the NOTE's own duration (each shortened to sec/R).
-          let nudgeSec = (n.nudge !== null && n.nudge !== undefined ? n.nudge : 0) * stepSec
-          let ratchet = ((n.ratchet !== null && n.ratchet !== undefined) && n.ratchet >= 1) ? Math.floor(n.ratchet) : 1
+          let nudgeSec = (n.nudge !== null ? n.nudge : 0) * stepSec
+          let ratchet = ((n.ratchet !== null) && n.ratchet >= 1) ? Math.floor(n.ratchet) : 1
           if (ratchet > 8) {
             ratchet = 8
           }
@@ -107,10 +107,10 @@ export fn stepTriggers(project, rt, globalStep) {
       let rlen = (useSteps && useSteps.length >= 1) ? useSteps.length : 16
       let stepInRhythm = globalStep % rlen
       let st = (useSteps && stepInRhythm < useSteps.length) ? useSteps[stepInRhythm] : null
-      let fires = (st !== null && st !== undefined) && st.on
+      let fires = (st !== null) && st.on
       // PROBABILITY p-lock: a sub-1 chance gates the hit, seeded so every client agrees (see stepRand01).
-      if (fires && (st.prob !== null && st.prob !== undefined) && st.prob < 0.999) {
-        let seed = project.songSeed !== null && project.songSeed !== undefined ? Math.floor(project.songSeed) : 0
+      if (fires && (st.prob !== null) && st.prob < 0.999) {
+        let seed = project.songSeed !== null ? Math.floor(project.songSeed) : 0
         if (stepRand01(globalStep, bi, seed) >= st.prob) {
           fires = false
         }
@@ -127,8 +127,8 @@ export fn stepTriggers(project, rt, globalStep) {
         }
         // NUDGE p-lock: micro-timing as a fraction of a step (added to noteOffset → tWhen). RATCHET p-lock:
         // R evenly-spaced sub-hits filling the step (each shortened to dur/R so they don't overlap).
-        let nudgeSec = (st.nudge !== null && st.nudge !== undefined ? st.nudge : 0) * stepSec
-        let ratchet = ((st.ratchet !== null && st.ratchet !== undefined) && st.ratchet >= 1) ? Math.floor(st.ratchet) : 1
+        let nudgeSec = (st.nudge !== null ? st.nudge : 0) * stepSec
+        let ratchet = ((st.ratchet !== null) && st.ratchet >= 1) ? Math.floor(st.ratchet) : 1
         if (ratchet > 8) {
           ratchet = 8
         }
@@ -162,9 +162,9 @@ export fn renderDeckLoopToBuffer(project, deck, bars) {
   if (typeof OfflineAudioContext === "undefined" || !project || !project.channels) {
     return null
   }
-  let bpm = (project.bpm !== null && project.bpm !== undefined) && project.bpm > 0 ? project.bpm : 120
+  let bpm = (project.bpm !== null) && project.bpm > 0 ? project.bpm : 120
   let stepSec = 60 / bpm / 4
-  let nbars = (bars !== null && bars !== undefined) && Math.floor(Number(bars)) >= 1 ? Math.floor(Number(bars)) : 1
+  let nbars = (bars !== null) && Math.floor(Number(bars)) >= 1 ? Math.floor(Number(bars)) : 1
   let totalSteps = nbars * 16
   let sr = 44100
   let tailSec = 0.55
@@ -199,10 +199,10 @@ export fn renderDeckLoopToBuffer(project, deck, bars) {
     while (k < trigs.length) {
       let tr = trigs[k]
       let bus = buses[tr.busIndex]
-      if (bus !== null && bus !== undefined) {
+      if (bus !== null) {
         let ch = project.channels[tr.busIndex]
         let gch = generatorChannelAtBeat(project, ch, tr.beat)
-        let tWhen = tr.noteOffset !== null && tr.noteOffset !== undefined ? t + tr.noteOffset : t
+        let tWhen = tr.noteOffset !== null ? t + tr.noteOffset : t
         playHitAt(octx, bus, tWhen, tr.pitch, tr.vel, tr.durSec, gch, 0, tr.lyric)
       }
       k = k + 1
@@ -244,7 +244,7 @@ export fn transportTick(project, store, globalStep, rt, whenSec) {
   let ctx = store.ctx
   // Lookahead scheduler passes the EXACT audio-clock time this step should sound; legacy callers omit it
   // and fall back to a small fixed lookahead from "now".
-  let t = whenSec !== null && whenSec !== undefined ? Number(whenSec) : ctx.currentTime + 0.04
+  let t = whenSec !== null ? Number(whenSec) : ctx.currentTime + 0.04
   let bend = 0
   if (project.automation && project.automation.pitchBend && project.automation.pitchBend.length > 0) {
     let stepInBar = globalStep % 16
@@ -256,8 +256,8 @@ export fn transportTick(project, store, globalStep, rt, whenSec) {
   // during a normal play we record stepTriggers' output — that note stream IS the performance.
   let triggers
   if (rt && rt.tplReplaying && rt.tplReplayTriggers) {
-    let rel = Math.floor(globalStep) - Math.floor(rt.tplReplayStartStep !== null && rt.tplReplayStartStep !== undefined ? rt.tplReplayStartStep : 0)
-    triggers = rt.tplReplayTriggers[rel] !== null && rt.tplReplayTriggers[rel] !== undefined ? rt.tplReplayTriggers[rel] : []
+    let rel = Math.floor(globalStep) - Math.floor(rt.tplReplayStartStep !== null ? rt.tplReplayStartStep : 0)
+    triggers = rt.tplReplayTriggers[rel] !== null ? rt.tplReplayTriggers[rel] : []
     // Re-apply the taped performance controls for this step (4-way crossfader + per-deck FLT) — the ghost
     // reproduces the filter sweep + fader blend, not just the notes.
     if (rt.applyReplayControls) {
@@ -280,10 +280,10 @@ export fn transportTick(project, store, globalStep, rt, whenSec) {
     let bus = store.buses[tr.busIndex]
     // A replayed trigger can reference a channel the current project no longer has (e.g. the recording
     // owns more channels than the loaded header) — skip it rather than crash on a missing channel/bus.
-    if (ch !== null && ch !== undefined && bus !== null && bus !== undefined) {
+    if (ch !== null && bus !== null) {
       let gch = generatorChannelAtBeat(project, ch, tr.beat)
       // Chord notes can be offset in time (strum) or rippled (arpeggio); offset is seconds after the step.
-      let tWhen = tr.noteOffset !== null && tr.noteOffset !== undefined ? t + tr.noteOffset : t
+      let tWhen = tr.noteOffset !== null ? t + tr.noteOffset : t
       playHitAt(ctx, bus, tWhen, tr.pitch, tr.vel, tr.durSec, gch, bend, tr.lyric)
     }
     i = i + 1

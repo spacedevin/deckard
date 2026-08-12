@@ -23,7 +23,7 @@ export fn projectHasActorOwnedTracks(p) {
   let i = 0
   while (i < keys.length) {
     let o = tracks[keys[i]] ? tracks[keys[i]].ownerActorId : null
-    if (o !== null && o !== undefined && o !== "" && o !== "human") {
+    if (o !== null && o !== "" && o !== "human") {
       return true
     }
     i = i + 1
@@ -70,7 +70,7 @@ export fn projectHasActorPrefixedTracks(p, actorId) {
   if (!p || !Array.isArray(p.channels)) {
     return false
   }
-  let aid = actorId !== null && actorId !== undefined ? String(actorId) : ""
+  let aid = actorId !== null ? String(actorId) : ""
   if (aid.length === 0) {
     return false
   }
@@ -93,7 +93,7 @@ export fn rehomeJoinerChannels(np, sourceChannels, actorId) {
   if (!np || !Array.isArray(np.channels) || !Array.isArray(sourceChannels)) {
     return 0
   }
-  let aid = actorId !== null && actorId !== undefined ? String(actorId) : ""
+  let aid = actorId !== null ? String(actorId) : ""
   if (aid.length === 0 || sourceChannels.length === 0) {
     return 0
   }

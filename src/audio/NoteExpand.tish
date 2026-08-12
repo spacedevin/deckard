@@ -61,7 +61,7 @@ fn isOff(v) {
 /** Seconds of strum spread between successive chord notes (a guitar chord is gently strummed; keyboards
  *  play a block chord). Kept subtle — a wide spread reads as sloppy, not strummed. */
 export fn chordStrumDelta(ch) {
-  if (ch.strum !== null && ch.strum !== undefined) {
+  if (ch.strum !== null) {
     return ch.strum / 1000.0
   }
   if (ch.generatorId === "guitar") {
@@ -131,7 +131,7 @@ fn arpReorder(pitches, arp, basePitch) {
 /** Notes to actually sound for one trigger of `basePitch` on this channel: {pitch, offset, dur}. */
 export fn expandTriggerNotes(ch, basePitch, durSec, bpm) {
   let intervals = isOff(ch.chord) ? [0] : chordIntervals(ch.chord)
-  if ((ch.inversion !== null && ch.inversion !== undefined) && ch.inversion !== "root") {
+  if ((ch.inversion !== null) && ch.inversion !== "root") {
     intervals = applyInversion(intervals, ch.inversion)
   }
   let pitches = []

@@ -914,7 +914,7 @@ export fn graftRackOntoDeck(project, deckId, rackTpl, keepClips) {
     let mi = 0
     while (mi < project.channels.length) {
       let cid = project.channels[mi].id
-      if (project.coDjMeta.tracks[cid] !== null && project.coDjMeta.tracks[cid] !== undefined) {
+      if (project.coDjMeta.tracks[cid] !== null) {
         keptTracks[cid] = project.coDjMeta.tracks[cid]
       }
       mi = mi + 1
@@ -929,7 +929,7 @@ export fn graftRackOntoDeck(project, deckId, rackTpl, keepClips) {
     let ci = 0
     while (ci < project.channels.length) {
       let cid = project.channels[ci].id
-      newSlots.push((prevSlots[cid] !== null && prevSlots[cid] !== undefined) ? prevSlots[cid] : ((loadedSlots[cid] !== null && loadedSlots[cid] !== undefined) ? loadedSlots[cid] : []))
+      newSlots.push((prevSlots[cid] !== null) ? prevSlots[cid] : ((loadedSlots[cid] !== null) ? loadedSlots[cid] : []))
       ci = ci + 1
     }
     project.session.slots = newSlots
