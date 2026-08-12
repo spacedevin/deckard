@@ -119,8 +119,8 @@ export fn autoLaneValues(project, ch, param) {
   // filterCutoff is the CHANNEL filter (ch.filterCutoff), not a generatorParam — flat default reads it there.
   let cur = 0
   if (param === "filterCutoff") {
-    cur = ch.filterCutoff !== null && ch.filterCutoff !== undefined ? Number(ch.filterCutoff) : 12000
-  } else if (ch.generatorParams && ch.generatorParams[param] !== null && ch.generatorParams[param] !== undefined) {
+    cur = ch.filterCutoff !== null ? Number(ch.filterCutoff) : 12000
+  } else if (ch.generatorParams && ch.generatorParams[param] !== null) {
     cur = Number(ch.generatorParams[param])
   }
   let out = []

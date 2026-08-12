@@ -1,0 +1,64 @@
+import { test } from "tish:test"
+import assert from "node:assert/strict"
+import {
+  parseProgram
+} from '@spacedevin/deck'
+// Round-trip guard for the deck_mix deck directive (per-deck booth EQ + volume). Proves the centre DJ-mixer
+// strip — which had NO wire representation before — now serializes, parses, and re-applies identically, so it
+// can ride the host state.snapshot and a follower deck.put. Run: tish build --target js test/deckmix.tish ...
+import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
+import { emitProject, deckMixLine } from '../src/deckfile/Emit.tish'
+import { applyCoDjTplSource } from '../src/codj/Merge.tish'
+import { ensureDeckEq } from '../src/ui/deck/DeckMixer.tish'
+
+
+fn approx(a, b) {
+  let d = a - b
+  if (d < 0) { d = -d }
+  return d < 0.001
+}
+
+test("deckmix", () => {
+
+  let def = loadDefaultDeckardProject()
+  let p = def && def.project ? def.project : def
+  ensureDeckEq(p)
+
+  // ---- emit: default decks emit NO deck_mix line (minimal round-trip) ----
+  assert.ok(deckMixLine(p, "A") === "", "default deck A emits no deck_mix line")
+
+  // ---- set a non-default booth on deck A, emit, assert the line shape ----
+  p.deckEq["A"] = { hi: 6, mid: 0, lo: -3, flt: -0.5, vol: 0.3 }
+  let lineA = deckMixLine(p, "A")
+  assert.ok(lineA.indexOf("deck_mix A ") === 0, "deck A off-default emits a deck_mix line")
+  assert.ok(lineA.indexOf("vol 0.3") >= 0, "deck_mix A carries vol 0.3")
+  assert.ok(lineA.indexOf("hi 6") >= 0, "deck_mix A carries hi 6")
+
+  let full = emitProject(p)
+  assert.ok(full.indexOf("deck_mix A ") >= 0, "emitProject includes the deck_mix A line")
+
+  // ---- parse it back ----
+  let parsed = parseProgram(full)
+  assert.ok(parsed.deckMix !== null, "parser produced a deckMix map")
+  assert.ok(parsed.deckMix !== null && parsed.deckMix.A !== null && approx(Number(parsed.deckMix.A.vol), 0.3), "parser deckMix.A.vol === 0.3")
+  assert.ok(parsed.deckMix !== null && parsed.deckMix.A !== null && approx(Number(parsed.deckMix.A.lo), -3), "parser deckMix.A.lo === -3")
+  assert.ok(parsed.deckMix !== null && parsed.deckMix.A !== null && approx(Number(parsed.deckMix.A.flt), -0.5), "parser deckMix.A.flt === -0.5")
+
+  // ---- apply onto a FRESH project (master lane) and assert deckEq reconstructs ----
+  let def2 = loadDefaultDeckardProject()
+  let q = def2 && def2.project ? def2.project : def2
+  ensureDeckEq(q)
+  applyCoDjTplSource(q, full, "host-actor", "host-actor", 0, ["master_mixer"])
+  assert.ok(q.deckEq && q.deckEq.A && approx(Number(q.deckEq.A.vol), 0.3), "applied deckEq.A.vol reconstructs 0.3")
+  assert.ok(q.deckEq && q.deckEq.A && approx(Number(q.deckEq.A.hi), 6), "applied deckEq.A.hi reconstructs 6")
+  assert.ok(q.deckEq && q.deckEq.A && approx(Number(q.deckEq.A.lo), -3), "applied deckEq.A.lo reconstructs -3")
+
+  // ---- a NON-master lane must NOT apply deck_mix (it's master-gated, like the crossfader) ----
+  let def3 = loadDefaultDeckardProject()
+  let r = def3 && def3.project ? def3.project : def3
+  ensureDeckEq(r)
+  applyCoDjTplSource(r, full, "guest-actor", "guest-actor", 0, ["add_track"])
+  assert.ok(r.deckEq && r.deckEq.A && approx(Number(r.deckEq.A.vol), 1), "non-master lane does NOT apply deck_mix (vol stays 1)")
+
+  console.log("")
+})

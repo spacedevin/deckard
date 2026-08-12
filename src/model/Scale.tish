@@ -11,7 +11,7 @@ export { scaleIntervals, scaleRootNames, scaleModeNames, parseScaleRoot }
 // Snap one MIDI pitch onto the scale (nearest degree; ties round down so the key's character holds). A pitch
 // already in the scale is returned unchanged; octaves are preserved.
 export fn snapToScale(pitch, root, mode) {
-  if ((root === null || root === undefined) || root === undefined) {
+  if (root === null) {
     return pitch
   }
   let ivs = scaleIntervals(mode)
@@ -55,7 +55,7 @@ export fn snapToScale(pitch, root, mode) {
 }
 
 export fn projectScaleActive(project) {
-  return (project !== null && project !== undefined) && (project.scaleRoot !== null && project.scaleRoot !== undefined) && (project.scaleMode !== null && project.scaleMode !== undefined) && project.scaleMode !== "" && project.scaleMode !== "off"
+  return (project !== null) && (project.scaleRoot !== null) && (project.scaleMode !== null) && project.scaleMode !== "" && project.scaleMode !== "off"
 }
 
 export fn projectSnapPitch(project, pitch) {

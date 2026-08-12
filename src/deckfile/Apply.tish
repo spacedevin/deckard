@@ -181,12 +181,12 @@ export fn parseBoolish(s) {
 
 export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
   let hl = headerLoopBars
-  if (hl === undefined) {
+  if (hl === null) {
     hl = null
   }
   // `* N` header = PATTERN LENGTH in bars (the loop repeats forever). The finite loop CAP (play N bars
   // then go silent) is separate and comes only from a `loops N` body line.
-  let nbars = (hl !== null && hl !== undefined && hl >= 1) ? Math.floor(hl) : 1
+  let nbars = (hl !== null && hl >= 1) ? Math.floor(hl) : 1
   ch.patternBars = nbars
   ch.tplLoopBars = null
   let noteLines = []
@@ -469,10 +469,10 @@ export fn applyTrackBody(project, ch, body, genBlocks, errors, headerLoopBars) {
         durBeats: noteLines[ni].durBeats,
         pitch: noteLines[ni].pitch,
         vel: noteLines[ni].vel,
-        prob: noteLines[ni].prob !== null && noteLines[ni].prob !== undefined ? noteLines[ni].prob : 1,
-        ratchet: noteLines[ni].ratchet !== null && noteLines[ni].ratchet !== undefined ? noteLines[ni].ratchet : 1,
-        nudge: noteLines[ni].nudge !== null && noteLines[ni].nudge !== undefined ? noteLines[ni].nudge : 0,
-        lyric: noteLines[ni].lyric !== null && noteLines[ni].lyric !== undefined ? noteLines[ni].lyric : ""
+        prob: noteLines[ni].prob !== null ? noteLines[ni].prob : 1,
+        ratchet: noteLines[ni].ratchet !== null ? noteLines[ni].ratchet : 1,
+        nudge: noteLines[ni].nudge !== null ? noteLines[ni].nudge : 0,
+        lyric: noteLines[ni].lyric !== null ? noteLines[ni].lyric : ""
       })
       ni = ni + 1
     }
@@ -685,10 +685,10 @@ export fn applyClipPatternBody(ch, clip, body, errors) {
         durBeats: noteLines[ni].durBeats,
         pitch: noteLines[ni].pitch,
         vel: noteLines[ni].vel,
-        prob: noteLines[ni].prob !== null && noteLines[ni].prob !== undefined ? noteLines[ni].prob : 1,
-        ratchet: noteLines[ni].ratchet !== null && noteLines[ni].ratchet !== undefined ? noteLines[ni].ratchet : 1,
-        nudge: noteLines[ni].nudge !== null && noteLines[ni].nudge !== undefined ? noteLines[ni].nudge : 0,
-        lyric: noteLines[ni].lyric !== null && noteLines[ni].lyric !== undefined ? noteLines[ni].lyric : ""
+        prob: noteLines[ni].prob !== null ? noteLines[ni].prob : 1,
+        ratchet: noteLines[ni].ratchet !== null ? noteLines[ni].ratchet : 1,
+        nudge: noteLines[ni].nudge !== null ? noteLines[ni].nudge : 0,
+        lyric: noteLines[ni].lyric !== null ? noteLines[ni].lyric : ""
       })
       ni = ni + 1
     }
@@ -761,7 +761,7 @@ export fn applySessionClipBlocks(project, clipBlocks, errors) {
 
 export fn applySessionGrid(project, sceneCount, slots) {
   ensureProjectSession(project)
-  if (sceneCount !== null && sceneCount !== undefined) {
+  if (sceneCount !== null) {
     let sc = Math.floor(Number(sceneCount))
     if (sc >= 1 && sc === sc) {
       project.session.sceneCount = sc
@@ -1017,19 +1017,19 @@ export fn applyParsed(project, parsed) {
   if (parsed.bpm !== null && parsed.bpm >= 40 && parsed.bpm <= 300) {
     project.bpm = parsed.bpm
   }
-  if (parsed.launchQuant !== null && parsed.launchQuant !== undefined) {
+  if (parsed.launchQuant !== null) {
     let lq = Math.floor(Number(parsed.launchQuant))
     if (lq >= 1 && lq <= 256 && lq === lq) {
       project.launchQuant = lq
     }
   }
-  if (parsed.songSeed !== null && parsed.songSeed !== undefined) {
+  if (parsed.songSeed !== null) {
     let ss = Math.floor(Number(parsed.songSeed))
     if (ss === ss) {
       project.songSeed = ss
     }
   }
-  if (parsed.xfade !== null && parsed.xfade !== undefined) {
+  if (parsed.xfade !== null) {
     let cx = Number(parsed.xfade.x)
     let cy = Number(parsed.xfade.y)
     if (cx === cx) {
@@ -1039,16 +1039,16 @@ export fn applyParsed(project, parsed) {
       project.transportCrossfadeY = cy < 0 ? 0 : (cy > 1 ? 1 : cy)
     }
   }
-  if (parsed.mainDeck !== null && parsed.mainDeck !== undefined) {
+  if (parsed.mainDeck !== null) {
     project.transportMainDeck = parsed.mainDeck === "local" ? "local" : "live"
   }
-  if (parsed.swing !== null && parsed.swing !== undefined) {
+  if (parsed.swing !== null) {
     let sw = Number(parsed.swing)
     if (sw === sw) {
       project.swing = sw < 0 ? 0 : (sw > 1 ? 1 : sw)
     }
   }
-  if (parsed.scaleRoot !== null && parsed.scaleRoot !== undefined) {
+  if (parsed.scaleRoot !== null) {
     if (parsed.scaleRoot < 0 || parsed.scaleMode === "off") {
       project.scaleRoot = null
       project.scaleMode = null
@@ -1086,7 +1086,7 @@ export fn applyParsed(project, parsed) {
       ch.generatorParams = defaultParamsForGeneratorId(tb.generatorId)
     }
     let hdrLoop = tb.loopBars
-    if (hdrLoop === undefined) {
+    if (hdrLoop === null) {
       hdrLoop = null
     }
     applyTrackBody(project, ch, tb.body, tb.genBlocks, errs, hdrLoop)
@@ -1096,13 +1096,13 @@ export fn applyParsed(project, parsed) {
   applySessionClipBlocks(project, parsed.clipBlocks ? parsed.clipBlocks : [], errs)
   applySessionGrid(project, parsed.sessionSceneCount, parsed.sessionSlots ? parsed.sessionSlots : [])
   ensureProjectSession(project)
-  if (parsed.song !== null && parsed.song !== undefined) {
+  if (parsed.song !== null) {
     project.session.song = normalizeSongEntries(project, parsed.song)
   }
-  if (parsed.follow !== null && parsed.follow !== undefined) {
+  if (parsed.follow !== null) {
     project.session.follow = normalizeFollow(project, parsed.follow)
   }
-  if (parsed.masterMixTokens !== null && parsed.masterMixTokens !== undefined) {
+  if (parsed.masterMixTokens !== null) {
     applyMasterMixFromTokens(project, parsed.masterMixTokens)
   }
   if (parsed.actorMixRows && parsed.actorMixRows.length > 0) {

@@ -94,7 +94,7 @@ fn genericParamSpec(key, def) {
 
 /// Resolve the value a param currently shows: explicit override, else the macro's default.
 fn resolvedParamValue(mac, macroParams, key) {
-  if (macroParams && macroParams[key] !== undefined && macroParams[key] !== null) {
+  if (macroParams && macroParams[key] !== null) {
     return Number(macroParams[key])
   }
   return Number(mac.params[key])

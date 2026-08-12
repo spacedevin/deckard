@@ -89,7 +89,7 @@ export fn prClampZoomIx(ix) {
 
 export fn prCurrentZoomPx() {
   let ix = prUi.zoomIx
-  if (ix === undefined || ix === null) {
+  if (ix === null) {
     ix = 4
     prUi.zoomIx = 4
   }
@@ -98,7 +98,7 @@ export fn prCurrentZoomPx() {
 
 export fn prCurrentSnap() {
   let ix = prUi.zoomIx
-  if (ix === undefined || ix === null) {
+  if (ix === null) {
     ix = 4
   }
   return prZoomSnapAt(prClampZoomIx(ix))
@@ -113,7 +113,7 @@ export fn snapPianoBeat(b, snap) {
 
 export fn getPianoRollSnapLabel() {
   let ix = prUi.zoomIx
-  if (ix === undefined || ix === null) {
+  if (ix === null) {
     ix = 4
   }
   ix = prClampZoomIx(ix)
@@ -303,7 +303,7 @@ export fn attachPianoRoll(canvas, project, chIdx, setProject) {
   }
   prUi.ctx = { canvas: canvas, project: project, chIdx: chIdx, setProject: setProject }
   prUi.chIdx = chIdx
-  if (prUi.zoomIx === undefined || prUi.zoomIx === null) {
+  if (prUi.zoomIx === null) {
     prUi.zoomIx = 4
   }
   let ch = project.channels[chIdx]
@@ -489,7 +489,7 @@ fn prCanvasMouseMove(e) {
 fn prCanvasWheel(e) {
   e.preventDefault()
   let ix = prUi.zoomIx
-  if (ix === undefined || ix === null) {
+  if (ix === null) {
     ix = 4
   }
   if (e.deltaY > 0) {
@@ -835,7 +835,7 @@ export fn PianoRollCanvas(project, chIdx, setProject, dragRef) {
 }
 
 export fn PianoRollZoomBar(project, setProject) {
-  if (prUi.zoomIx === undefined || prUi.zoomIx === null) {
+  if (prUi.zoomIx === null) {
     prUi.zoomIx = 4
   }
   prClampZoomIx(prUi.zoomIx)
@@ -848,7 +848,7 @@ export fn PianoRollZoomBar(project, setProject) {
       title={"Zoom out (coarser grid)"}
       onclick={() => {
         let ix = prUi.zoomIx
-        if (ix === undefined || ix === null) {
+        if (ix === null) {
           ix = 4
         }
         ix = ix - 1
@@ -865,7 +865,7 @@ export fn PianoRollZoomBar(project, setProject) {
       title={"Zoom in (finer grid)"}
       onclick={() => {
         let ix = prUi.zoomIx
-        if (ix === undefined || ix === null) {
+        if (ix === null) {
           ix = 4
         }
         ix = ix + 1
@@ -896,7 +896,7 @@ export fn rackPianoPreviewSig(ch) {
 
 export fn pianoRollVisualSig(project, chIdx) {
   let z = prUi.zoomIx
-  if (z === undefined || z === null) {
+  if (z === null) {
     z = 4
   }
   let ch = project.channels[chIdx]

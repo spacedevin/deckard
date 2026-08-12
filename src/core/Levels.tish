@@ -84,7 +84,7 @@ export fn splitTplBlocks(tpl) {
       let head = firstToken(ln)
       cur = { head: head, header: ln, body: [], trackId: head === "track" ? trackIdOf(ln) : null }
       blocks.push(cur)
-    } else if ((cur !== null && cur !== undefined) && ln.length > 0) {
+    } else if ((cur !== null) && ln.length > 0) {
       cur.body.push(ln)
     }
     i = i + 1
@@ -169,7 +169,7 @@ export fn emitLevel(project, level, scope) {
     while (i < blocks.length) {
       if (blocks[i].head === "track") {
         let ch = findChannelById(project, blocks[i].trackId)
-        let dk = ch && (ch.deck !== null && ch.deck !== undefined) ? ch.deck : "live"
+        let dk = ch && (ch.deck !== null) ? ch.deck : "live"
         if (ch && dk === scope) {
           out = out + blockText(blocks[i]) + "\n"
         }

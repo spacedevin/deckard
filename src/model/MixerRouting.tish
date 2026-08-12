@@ -13,7 +13,7 @@ export fn channelActorLane(ch, project) {
   // host on Deck A; Deck B = every other contributor (you-as-follower + agents). When solo or when
   // YOU are the host, your locally-authored ("human") tracks are the host lane.
   let host = project.coDjHostActorId ? String(project.coDjHostActorId) : null
-  if (host === null || host === undefined) {
+  if (host === null) {
     return owner === "human" ? "local" : owner
   }
   if (owner === host) {
@@ -66,22 +66,22 @@ export fn ensureActorMixerEntries(project) {
       project.actorMixer[L] = defaultActorMixEntry()
     } else {
       let a = project.actorMixer[L]
-      if (a.gain === undefined || a.gain === null) {
+      if (a.gain === null) {
         a.gain = 1
       }
-      if (a.mute === undefined || a.mute === null) {
+      if (a.mute === null) {
         a.mute = false
       }
-      if (a.solo === undefined || a.solo === null) {
+      if (a.solo === null) {
         a.solo = false
       }
-      if (a.eqLo === undefined || a.eqLo === null) {
+      if (a.eqLo === null) {
         a.eqLo = 0
       }
-      if (a.eqMid === undefined || a.eqMid === null) {
+      if (a.eqMid === null) {
         a.eqMid = 0
       }
-      if (a.eqHi === undefined || a.eqHi === null) {
+      if (a.eqHi === null) {
         a.eqHi = 0
       }
     }
@@ -94,20 +94,20 @@ export fn ensureMasterMixer(project) {
     project.masterMixer = { eqLo: 0, eqMid: 0, eqHi: 0, compEnabled: true, reverbEnabled: true }
   } else {
     let m = project.masterMixer
-    if (m.eqLo === undefined || m.eqLo === null) {
+    if (m.eqLo === null) {
       m.eqLo = 0
     }
-    if (m.eqMid === undefined || m.eqMid === null) {
+    if (m.eqMid === null) {
       m.eqMid = 0
     }
-    if (m.eqHi === undefined || m.eqHi === null) {
+    if (m.eqHi === null) {
       m.eqHi = 0
     }
     // Master glue compressor + shared reverb send bus are on by default; these toggle them.
-    if (m.compEnabled === undefined || m.compEnabled === null) {
+    if (m.compEnabled === null) {
       m.compEnabled = true
     }
-    if (m.reverbEnabled === undefined || m.reverbEnabled === null) {
+    if (m.reverbEnabled === null) {
       m.reverbEnabled = true
     }
   }

@@ -1,0 +1,59 @@
+import { test } from "tish:test"
+import assert from "node:assert/strict"
+import {
+  parseProgram
+} from '@spacedevin/deck'
+// Regression: channel names with SPACES (e.g. "MOS 6581", "Tine EP", "GBA PCM" — the labels a picked voice
+// inherits) must round-trip through the deck parser, so gen/knob edit fragments land on the channel instead of
+// being silently dropped. The track-header grammar is `track <name> id <id> gen <genid>`; the name may be
+// multiple tokens, so the parser anchors on the `id <x> gen <y>` keywords rather than assuming name == toks[1].
+import { loadDefaultDeckardProject } from '../../src/model/ProjectLoad.tish'
+import { applyTplSource, findChannelById } from '../../src/deckfile/Apply.tish'
+import { fragmentForEdit } from '../../src/core/Edit.tish'
+
+test("multiword", () => {
+
+
+  // --- parseProgram handles multi-word names ---
+  let p1 = parseProgram("deck 1\nbpm 120\ntrack MOS 6581 id c0 gen c64sid\n  gen cutoff 1500 resonance 9\n")
+  assert.ok(p1.tracks.length === 1, "parse: multi-word name track is parsed (not dropped)")
+  assert.ok(p1.tracks.length === 1 && p1.tracks[0].name === "MOS 6581", "parse: multi-word name preserved verbatim")
+  assert.ok(p1.tracks.length === 1 && p1.tracks[0].id === "c0", "parse: id resolved after multi-word name")
+  assert.ok(p1.tracks.length === 1 && p1.tracks[0].generatorId === "c64sid", "parse: gen id resolved after multi-word name")
+
+  // --- single-word name still parses identically (no regression) ---
+  let p2 = parseProgram("deck 1\nbpm 120\ntrack Bass id c3 gen fm\n")
+  assert.ok(p2.tracks.length === 1 && p2.tracks[0].name === "Bass" && p2.tracks[0].id === "c3" && p2.tracks[0].rawGenId === "fm", "parse: single-word name unchanged")
+
+  // --- name containing tokens that look like keywords ("Gen") still anchors correctly ---
+  let p3 = parseProgram("deck 1\nbpm 120\ntrack Solid Gen Bass id c9 gen c64sid\n")
+  assert.ok(p3.tracks.length === 1 && p3.tracks[0].name === "Solid Gen Bass" && p3.tracks[0].id === "c9", "parse: name with keyword-like words anchors on real id/gen")
+
+  // --- loop count after a multi-word name ---
+  let p4 = parseProgram("deck 1\nbpm 120\ntrack Tine EP id c2 gen tine * 4\n")
+  assert.ok(p4.tracks.length === 1 && p4.tracks[0].name === "Tine EP" && p4.tracks[0].loopBars === 4, "parse: loopBars after multi-word name")
+
+  // --- END TO END: a knob edit (the exact runtime path) lands on a spaced-name channel ---
+  let proj = loadDefaultDeckardProject().project
+  let cid = proj.channels[0].id
+  // Make channel 0 a c64sid named "MOS 6581" (what picking MOS 6581 produces).
+  applyTplSource(proj, "track MOS 6581 id " + cid + " gen c64sid\n  gen cutoff 2000 resonance 5")
+  let ch = findChannelById(proj, cid)
+  assert.ok(ch !== null && ch.name === "MOS 6581" && ch.generatorId === "c64sid", "e2e: channel set to c64sid named 'MOS 6581'")
+  assert.ok(ch !== null && ch.generatorParams !== null && ch.generatorParams.cutoff === 2000, "e2e: initial cutoff present")
+  // The knob turns: runtime builds this exact fragment and applies it.
+  let frag = fragmentForEdit(proj, "track/" + cid + "/gen/cutoff", 1234)
+  assert.ok(frag.indexOf(" gen ") >= 0, "e2e: edit fragment carries the gen anchor")
+  applyTplSource(proj, frag)
+  let ch2 = findChannelById(proj, cid)
+  assert.ok(ch2 !== null && ch2.generatorParams.cutoff === 1234, "e2e: KNOB EDIT lands (cutoff 2000 -> 1234)")
+
+  // --- and a single-word channel knob edit still lands (control) ---
+  let cid2 = proj.channels[1].id
+  applyTplSource(proj, "track Bass id " + cid2 + " gen c64sid\n  gen cutoff 2000")
+  let fragB = fragmentForEdit(proj, "track/" + cid2 + "/gen/cutoff", 777)
+  applyTplSource(proj, fragB)
+  let chB = findChannelById(proj, cid2)
+  assert.ok(chB !== null && chB.generatorParams.cutoff === 777, "e2e: single-word channel knob edit still lands (777)")
+
+})

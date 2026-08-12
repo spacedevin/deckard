@@ -34,7 +34,7 @@ export fn coDjEffectiveGain(project, channelIdx) {
   let i = 0
   while (i < project.coDjOverlays.length) {
     let o = project.coDjOverlays[i]
-    if (o.channelId === ch.id && o.gain !== undefined && o.gain !== null) {
+    if (o.channelId === ch.id && o.gain !== null) {
       g = o.gain
     }
     i = i + 1

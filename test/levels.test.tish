@@ -1,0 +1,1258 @@
+import { test } from "tish:test"
+import assert from "node:assert/strict"
+import {
+  parsePatchGraph,
+  patchGraphToLines
+} from '../src/deckfile/PatchGraph.tish'
+// Level-snapshot tests — store/restore at every level (instrument, sequence, rack, deck, session, set).
+// Proves the "debug without clicking 9000 times" promise: snapshot a level → mutate → restore from the
+// snapshot → exact state returns. Each snapshot is plain deck, so it also doubles as a test fixture.
+// Run: tish build --target js test/levels.tish -o /tmp/lv.js && node /tmp/lv.js
+
+import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
+import { emptyProjectShell } from '../src/model/Project.tish'
+import { emitProject } from '../src/deckfile/Emit.tish'
+import { applyTplSource, findChannelById } from '../src/deckfile/Apply.tish'
+import { emitLevel, retargetTpl, splitTplBlocks, levelList } from '../src/core/Levels.tish'
+import { createStationPresets } from '../src/core/StationPresets.tish'
+import { createSetLibrary, emitSet, parseSet, loadSet, freeDecks, emitSetStream, parseSetStream, isStreamSet } from '../src/core/SetLibrary.tish'
+import { loadDeckSet, deckSetCatalog } from '../src/model/DeckSets.tish'
+import { channelDeck } from '../src/model/DeckRouting.tish'
+import { stepTriggers } from '../src/audio/Playback.tish'
+import { createAudioDeviceSettings } from '../src/core/AudioDeviceSettings.tish'
+import { applyCueRouting, applyChannelFilterAutomation } from '../src/audio/Engine.tish'
+import { levelPresetList, addLevelPreset, findLevelPreset, removeLevelPreset } from '../src/model/LevelPresets.tish'
+import { compileGeneratorToPatchLines, canCompileToPatch } from '../src/model/PatchCompile.tish'
+import { resolveExpr } from '../src/generators/Patch.tish'
+import { parseMidiBytes, ccKey, normalize01, createMidiController, midiTargetList, defaultMidiMappings } from '../src/midi/Midi.tish'
+import { fragmentForEdit } from '../src/core/Edit.tish'
+import { snapToScale, parseScaleRoot, scaleIntervals, projectSnapPitch } from '../src/model/Scale.tish'
+import { rotatePattern, euclidSteps, reseedSteps, mutateSteps, humanizeSteps, sprinkleProbability, cloneSteps16 } from '../src/model/Generative.tish'
+import { euclidNotes, reseedNotes, mutateNotes, humanizeNotes, sprinkleNoteProbability, notePitchForChannel, notesAfterFirstBar } from '../src/model/Generative.tish'
+import { defaultAutoParam, autoNorm, autoDenorm, autoLaneValues, channelAutoPoints } from '../src/model/AutoParams.tish'
+import { clonePianoNote } from '../src/model/Project.tish'
+import { noteLine } from '../src/deckfile/Emit.tish'
+import { generatorChannelAtBeat } from '../src/audio/ParamAtBeat.tish'
+
+test("levels", () => {
+
+
+  console.log("=== Level snapshots ===")
+
+  let p = loadDefaultDeckardProject().project
+  let ch0 = p.channels[0]
+  let T = ch0.id
+  let T2 = p.channels[1].id
+  let nameT2 = findChannelById(p, T2).name
+
+  // Give T a distinctive sound + pattern so we can see the slices.
+  applyTplSource(p, "deck 1\ntrack " + ch0.name + " id " + T + " gen basic_osc\n  fx cutoff 1234 drive 0.6\n  mix gain 0.33 pan 0 mute 0 solo 0 eq_lo 0 eq_mid 0 eq_hi 0\n  steps x . . . x . . . x . . . x . . .\n")
+
+  // ---- sound vs pattern split ----
+  let inst = emitLevel(p, "instrument", T)
+  let seq = emitLevel(p, "sequence", T)
+  assert.ok(inst.indexOf("cutoff 1234") >= 0, "instrument slice has the SOUND (cutoff)")
+  assert.ok(inst.indexOf("mix gain 0.33") >= 0, "instrument slice has the mix")
+  assert.ok(inst.indexOf("steps") < 0 && inst.indexOf("note ") < 0, "instrument slice has NO pattern (steps)")
+  assert.ok(seq.indexOf("steps x") >= 0, "sequence slice has the PATTERN (steps)")
+  assert.ok(seq.indexOf("cutoff") < 0 && seq.indexOf("mix ") < 0 && seq.indexOf("fx ") < 0, "sequence slice has NO sound (cutoff/mix/fx)")
+  assert.ok(inst.indexOf("deck 1") === 0 && seq.indexOf("deck 1") === 0, "instrument + sequence both standalone-applicable (tpl header)")
+
+  // ---- the debug-restore invariant: snapshot → mutate → restore ----
+  let instSnap = emitLevel(p, "instrument", T)
+  applyTplSource(p, "deck 1\ntrack " + ch0.name + " id " + T + " gen basic_osc\n  fx cutoff 8000\n")
+  assert.ok(Math.abs(findChannelById(p, T).filterCutoff - 8000) < 1e-6, "sound mutated away")
+  applyTplSource(p, instSnap)
+  assert.ok(Math.abs(findChannelById(p, T).filterCutoff - 1234) < 1e-6, "instrument RESTORE brings the sound back")
+
+  let seqSnap = emitLevel(p, "sequence", T)
+  applyTplSource(p, "deck 1\ntrack " + ch0.name + " id " + T + " gen basic_osc\n  steps . . . . . . . . . . . . . . . .\n")
+  assert.ok(findChannelById(p, T).steps[0].on === false, "pattern mutated away (step 0 off)")
+  applyTplSource(p, seqSnap)
+  assert.ok(findChannelById(p, T).steps[0].on === true, "sequence RESTORE brings the pattern back (step 0 on)")
+
+  // ---- retarget: load T's instrument onto a DIFFERENT channel, keeping that channel's identity ----
+  let retargeted = retargetTpl(emitLevel(p, "instrument", T), findChannelById(p, T2))
+  applyTplSource(p, retargeted)
+  assert.ok(Math.abs(findChannelById(p, T2).filterCutoff - 1234) < 1e-6, "retarget: T2 adopts T's sound (cutoff)")
+  assert.ok(findChannelById(p, T2).name === nameT2, "retarget: T2 keeps its own name")
+  assert.ok(findChannelById(p, T2).id === T2, "retarget: T2 keeps its own id")
+
+  // ---- rack: every channel's block; reload onto an empty project ----
+  let rackSnap = emitLevel(p, "rack", null)
+  let freshRack = emptyProjectShell()
+  applyTplSource(freshRack, rackSnap)
+  assert.ok(freshRack.channels.length === p.channels.length, "rack snapshot recreates every channel")
+  assert.ok((findChannelById(freshRack, T) !== null && findChannelById(freshRack, T) !== null) && Math.abs(findChannelById(freshRack, T).filterCutoff - 1234) < 1e-6, "rack snapshot carries sound (cutoff) for T")
+
+  // ---- deck: only the channels routed to that deck ----
+  applyTplSource(p, "deck 1\ntrack " + nameT2 + " id " + T2 + " gen basic_osc\n  deck B slot 0\n")
+  let deckB = emitLevel(p, "deck", "B")
+  assert.ok(deckB.indexOf("id " + T2) >= 0, "deck B snapshot includes the B-routed channel")
+  assert.ok(deckB.indexOf("id " + T) < 0, "deck B snapshot excludes a non-B channel")
+
+  // ---- session + set ----
+  let sess = emitLevel(p, "session", null)
+  assert.ok(sess.indexOf("session_scenes") >= 0, "session slice has session_scenes")
+  assert.ok(sess.indexOf("track ") < 0, "session slice has NO track blocks")
+  assert.ok(emitLevel(p, "set", null) === emitProject(p), "set level === full emitProject")
+
+  // ---- block splitter sanity ----
+  let blocks = splitTplBlocks(emitProject(p))
+  let trackBlocks = 0
+  let bi = 0
+  while (bi < blocks.length) {
+    if (blocks[bi].head === "track") {
+      trackBlocks = trackBlocks + 1
+    }
+    bi = bi + 1
+  }
+  assert.ok(trackBlocks === p.channels.length, "splitter finds one track block per channel")
+  assert.ok(levelList().length === 7, "levelList has all 7 levels")
+
+  console.log("=== Station presets (whole-workspace, global) ===")
+  let setMem = { v: null }
+  let setBe = { read: () => setMem.v, write: (s) => { setMem.v = s } }
+  let sets = createStationPresets(setBe)
+  assert.ok((sets.get("Default") !== null && sets.get("Default") !== null) && sets.get("Default").factory === true, "[station] built-in Default present")
+  assert.ok(sets.list().length === 1, "[station] list starts with just Default")
+  sets.save("MySet", "deck 1\nbpm 142\n")
+  assert.ok(sets.list().length === 2 && (sets.get("MySet") !== null && sets.get("MySet") !== null), "[station] save adds a user station")
+  assert.ok(sets.get("MySet").tpl.indexOf("bpm 142") >= 0, "[station] saved station tpl intact")
+  assert.ok(sets.remove("Default") === false, "[station] cannot remove the factory Default")
+  assert.ok(sets.remove("MySet") === true && sets.list().length === 1, "[station] can remove a user station")
+  // persistence + export/import
+  sets.save("Keep", "deck 1\nbpm 99\n")
+  let sets2 = createStationPresets(setBe)
+  assert.ok(sets2.get("Keep") !== null && sets2.get("Keep") !== null, "[station] persists across instances")
+  let setExp = sets.exportText("Keep")
+  assert.ok(setExp.indexOf("# deckard-station name=Keep") === 0, "[station] export carries name tag")
+  let sets3 = createStationPresets({ read: () => null, write: (s) => {} })
+  let setImp = sets3.importText(setExp, null)
+  assert.ok((setImp !== null) && setImp.name === "Keep" && setImp.tpl.indexOf("bpm 99") >= 0, "[station] import recovers the station")
+
+  console.log("=== Contextual level presets (sequence/rack/session, in-project) ===")
+  let lp = loadDefaultDeckardProject().project
+  assert.ok(levelPresetList(lp, "rack").length === 0, "[lp] starts empty")
+  addLevelPreset(lp, "rack", "r1", "deck 1\nbpm 100\n")
+  addLevelPreset(lp, "rack", "r2", "deck 1\nbpm 101\n")
+  assert.ok(levelPresetList(lp, "rack").length === 2, "[lp] add appends")
+  assert.ok((findLevelPreset(lp, "rack", "r2") !== null && findLevelPreset(lp, "rack", "r2") !== null) && findLevelPreset(lp, "rack", "r2").tpl.indexOf("bpm 101") >= 0, "[lp] find by name")
+  addLevelPreset(lp, "rack", "r1", "deck 1\nbpm 999\n")
+  assert.ok(levelPresetList(lp, "rack").length === 2 && findLevelPreset(lp, "rack", "r1").tpl.indexOf("bpm 999") >= 0, "[lp] save with same name upserts (no dupe)")
+  assert.ok(levelPresetList(lp, "sequence").length === 0 && levelPresetList(lp, "session").length === 0, "[lp] levels are independent")
+  assert.ok(removeLevelPreset(lp, "rack", "r1") === true && levelPresetList(lp, "rack").length === 1, "[lp] remove drops it")
+
+  console.log("=== Set library (player-delimited, TIME-aware) ===")
+  let setLib = createSetLibrary({ read: () => null, write: (s) => {} })
+  let cat = deckSetCatalog()
+  assert.ok(cat.length > 0 && setLib.list().length === cat.length, "[setlib] seeded from deck-set catalog (non-empty)")
+  let seeded = setLib.get(cat[0].id)
+  assert.ok((seeded !== null) && seeded.players === 1, "[setlib] a seeded set is 1 player")
+  let seededParsed = parseSet(seeded.tpl)
+  assert.ok(seededParsed.players.length === 1 && seededParsed.players[0].indexOf("track ") >= 0, "[setlib] seeded set parses to 1 player with tracks")
+
+  // Build a 2-player project (deck A + deck B) and capture it as a Set with an explicit arrangement (TIME).
+  let sp = loadDefaultDeckardProject().project
+  loadDeckSet(sp, "A", cat[0].id)
+  loadDeckSet(sp, "B", cat[1].id)
+  sp.session.song = [{ scene: 0, repeat: 1 }, { scene: 1, repeat: 2 }]
+  let setTpl = emitSet(sp, ["A", "B"])
+  let parsed = parseSet(setTpl)
+  assert.ok(parsed.players.length === 2, "[setlib] capture emits 2 players")
+  assert.ok(parsed.players[0].indexOf("track ") >= 0, "[setlib] player 0 has tracks")
+  assert.ok(parsed.players[1].indexOf("track ") >= 0, "[setlib] player 1 has tracks")
+  assert.ok(parsed.players[0].indexOf("  deck ") < 0, "[setlib] players are deck-agnostic (no deck route line)")
+  assert.ok(parsed.song.length === 2 && parsed.song[0] === "P1" && parsed.song[1] === "P2 x2", "[setlib] arrangement (song) survives")
+
+  // save → reload → re-parse keeps players + arrangement
+  let saved = setLib.save("MyJam", setTpl, 2)
+  assert.ok(saved.players === 2, "[setlib] save records player count")
+  let reparsed = parseSet(setLib.get("MyJam").tpl)
+  assert.ok(reparsed.players.length === 2 && reparsed.song.length === 2, "[setlib] saved set round-trips players + arrangement")
+
+  // export/import round-trip
+  let exp = setLib.exportText("MyJam")
+  assert.ok(exp.indexOf("# deckard-set name=MyJam players=2") === 0, "[setlib] export carries tag + player count")
+  let lib2 = createSetLibrary({ read: () => null, write: (s) => {} })
+  let imp = lib2.importText(exp, null)
+  assert.ok((imp !== null) && imp.name === "MyJam" && imp.players === 2, "[setlib] import recovers set with players")
+  let impParsed = parseSet(imp.tpl)
+  assert.ok(impParsed.players.length === 2 && impParsed.song.length === 2, "[setlib] imported set keeps 2 players + arrangement")
+
+  console.log("=== loadSet (deck / free-slots / ghost) ===")
+  // Default project occupies deck A only → B, C, D are free slots.
+  let fp = loadDefaultDeckardProject().project
+  let fd = freeDecks(fp)
+  assert.ok(fd.length === 3 && fd[0] === "B" && fd[1] === "C" && fd[2] === "D", "[loadset] default project occupies deck A only")
+
+  // Free-slot fill: the captured 2-player MyJam fills the next free decks (B, C), leaving D + keeping A.
+  let fillRes = loadSet(fp, { tpl: setTpl }, null)
+  assert.ok(fillRes.loaded === 2 && fillRes.decks[0] === "B" && fillRes.decks[1] === "C", "[loadset] free-slot fill loads 2 players onto B,C")
+  let fdAfter = freeDecks(fp)
+  assert.ok(fdAfter.length === 1 && fdAfter[0] === "D", "[loadset] B,C now occupied; D still free")
+  let hasB = false
+  let hasC = false
+  let fci = 0
+  while (fci < fp.channels.length) {
+    let dk = channelDeck(fp, fp.channels[fci])
+    if (dk === "B") {
+      hasB = true
+    }
+    if (dk === "C") {
+      hasC = true
+    }
+    fci = fci + 1
+  }
+  assert.ok(hasB && hasC, "[loadset] channels routed to decks B and C exist (ghosts)")
+  assert.ok(fp.session.song.length === 2 && fp.session.song[1].repeat === 2, "[loadset] arrangement restored (song)")
+
+  // Target-deck load: dropping a Set onto your own deck (A) replaces deck A with the Set's first player.
+  let tp = loadDefaultDeckardProject().project
+  let tgtRes = loadSet(tp, { tpl: setTpl }, "A")
+  assert.ok(tgtRes.loaded === 1 && tgtRes.decks[0] === "A", "[loadset] target-deck load reports deck A")
+  let aPrefixed = false
+  let tci = 0
+  while (tci < tp.channels.length) {
+    if (String(tp.channels[tci].id).indexOf("a_") === 0) {
+      aPrefixed = true
+    }
+    tci = tci + 1
+  }
+  assert.ok(aPrefixed && freeDecks(tp).length === 3, "[loadset] deck A now holds the Set's player (a_-prefixed ids)")
+
+  // All decks full → a Set can't load (listen-only).
+  let full = loadDefaultDeckardProject().project
+  loadDeckSet(full, "B", cat[0].id)
+  loadDeckSet(full, "C", cat[0].id)
+  loadDeckSet(full, "D", cat[0].id)
+  assert.ok(freeDecks(full).length === 0, "[loadset] all four decks occupied")
+  let none = loadSet(full, { tpl: setTpl }, null)
+  assert.ok(none.loaded === 0, "[loadset] no free slots → loaded 0 (listen-only)")
+
+  console.log("=== Recorded Set (what played — trigger tape) ===")
+  let tape = [
+    { step: 0, triggers: [{ busIndex: 0, pitch: 36, vel: 100, durSec: 0.12, beat: 0, noteOffset: 0 }] },
+    { step: 4, triggers: [{ busIndex: 1, pitch: 42, vel: 90, durSec: 0.1, beat: 1, noteOffset: 0 }, { busIndex: 0, pitch: 36, vel: 100, durSec: 0.12, beat: 1, noteOffset: 0 }] },
+    { step: 8, triggers: [{ busIndex: 2, pitch: 60, vel: 80, durSec: 0.25, beat: 2, noteOffset: 0.0125 }] }
+  ]
+  let headerTpl = emitProject(loadDefaultDeckardProject().project)
+  let streamTpl = emitSetStream(headerTpl, tape, "song")
+  assert.ok(isStreamSet(streamTpl), "[rec] isStreamSet true for a recorded Set")
+  assert.ok(!isStreamSet(setTpl), "[rec] isStreamSet false for a player Set")
+  let ps = parseSetStream(streamTpl)
+  assert.ok(ps.header.indexOf("deck 1") >= 0 && ps.header.indexOf("track ") >= 0 && ps.header.indexOf("# plays") < 0, "[rec] header round-trips (tpl + a track, no plays marker)")
+  assert.ok(ps.mode === "song", "[rec] play mode parsed")
+  assert.ok(ps.events.length === 3 && ps.events[0].step === 0 && ps.events[1].step === 4 && ps.events[2].step === 8, "[rec] all 3 played steps parsed")
+  assert.ok(ps.events[1].triggers.length === 2, "[rec] chord step keeps both triggers")
+  assert.ok(ps.events[0].triggers[0].busIndex === 0 && ps.events[0].triggers[0].pitch === 36 && Math.abs(ps.events[0].triggers[0].durSec - 0.12) < 1e-6, "[rec] trigger fields round-trip")
+  assert.ok(ps.events[2].triggers[0].busIndex === 2 && ps.events[2].triggers[0].pitch === 60 && Math.abs(ps.events[2].triggers[0].noteOffset - 0.0125) < 1e-6, "[rec] fractional fields (beat/offset) preserved")
+
+  // Performance controls (4-way crossfader + per-deck FLT) ride the tape per step and round-trip.
+  let ctlTape = [
+    { step: 0, triggers: [{ busIndex: 0, pitch: 36, vel: 100, durSec: 0.12, beat: 0, noteOffset: 0 }], ctl: { xf: 0.5, xfy: 0, fA: 0, fB: 0, fC: 0, fD: 0 } },
+    { step: 6, triggers: [], ctl: { xf: 0.25, xfy: 0.75, fA: -0.6, fB: 0, fC: 0.3, fD: 0 } }
+  ]
+  let ctlStream = emitSetStream(emitProject(loadDefaultDeckardProject().project), ctlTape, "song")
+  let ctlParsed = parseSetStream(ctlStream)
+  assert.ok(ctlParsed.events.length === 2 && ctlParsed.events[1].step === 6 && ctlParsed.events[1].triggers.length === 0, "[rec] control-only step (no notes, fader moved) is kept")
+  assert.ok((ctlParsed.events[1].ctl !== null && ctlParsed.events[1].ctl !== null) && Math.abs(ctlParsed.events[1].ctl.xf - 0.25) < 1e-6 && Math.abs(ctlParsed.events[1].ctl.xfy - 0.75) < 1e-6, "[rec] crossfader X/Y snapshot round-trips")
+  assert.ok((ctlParsed.events[1].ctl !== null && ctlParsed.events[1].ctl !== null) && Math.abs(ctlParsed.events[1].ctl.fA - (-0.6)) < 1e-6 && Math.abs(ctlParsed.events[1].ctl.fC - 0.3) < 1e-6, "[rec] per-deck FLT snapshot round-trips")
+  assert.ok(ps.events[0].ctl === null || ps.events[0].ctl === null, "[rec] old Sets without a control token still parse (ctl null)")
+
+  // Deck vinyl moves (cut/rev/brake/spin) ride the tape per step and round-trip → the ghost re-fires them.
+  let mvTape = [
+    { step: 0, triggers: [{ busIndex: 0, pitch: 36, vel: 100, durSec: 0.12, beat: 0, noteOffset: 0 }], ctl: null, moves: null },
+    { step: 4, triggers: [], ctl: null, moves: [{ deck: "C", move: "cut", on: true }, { deck: "C", move: "cut", on: false }] },
+    { step: 8, triggers: [], ctl: null, moves: [{ deck: "B", move: "spin", on: true }] }
+  ]
+  let mvStream = emitSetStream(emitProject(loadDefaultDeckardProject().project), mvTape, "song")
+  let mvParsed = parseSetStream(mvStream)
+  assert.ok(mvParsed.events.length === 3 && mvParsed.events[1].step === 4 && mvParsed.events[1].triggers.length === 0, "[rec] move-only step (no notes) is kept")
+  assert.ok((mvParsed.events[1].moves !== null && mvParsed.events[1].moves !== null) && mvParsed.events[1].moves.length === 2 && mvParsed.events[1].moves[0].deck === "C" && mvParsed.events[1].moves[0].move === "cut" && mvParsed.events[1].moves[0].on === true && mvParsed.events[1].moves[1].on === false, "[rec] deck moves round-trip (cut on+off)")
+  assert.ok((mvParsed.events[2].moves !== null && mvParsed.events[2].moves !== null) && mvParsed.events[2].moves[0].deck === "B" && mvParsed.events[2].moves[0].move === "spin" && mvParsed.events[2].moves[0].on === true, "[rec] spin one-shot round-trips (on defaults true)")
+  assert.ok(mvParsed.events[0].moves === null || mvParsed.events[0].moves === null, "[rec] a step with no moves parses moves null")
+
+  // End-to-end with the REAL engine: stepTriggers (what plays) → tape → Set → parse → replay map.
+  let rp = loadDefaultDeckardProject().project
+  rp.transportCrossfade = 0   // favour deck A so the default kit is audible in this headless config
+  rp.transportCrossfadeY = 0
+  let rt0 = { playMode: "sequence" }   // Sequence mode = play the rack pattern (what Play does on the rack)
+  let recTape = []
+  let s = 0
+  while (s < 16) {
+    let trg = stepTriggers(rp, rt0, s)
+    if (trg.length > 0) {
+      recTape.push({ step: s, triggers: trg })
+    }
+    s = s + 1
+  }
+  assert.ok(recTape.length > 0, "[rec] real engine fires notes across a bar (the default kit plays)")
+  let recSet = emitSetStream(emitProject(rp), recTape, "sequence")
+  let recParsed = parseSetStream(recSet)
+  assert.ok(recParsed.events.length === recTape.length, "[rec] played performance round-trips through a Set")
+  let rmap = {}
+  let rmi = 0
+  while (rmi < recParsed.events.length) {
+    rmap[recParsed.events[rmi].step] = recParsed.events[rmi].triggers
+    rmi = rmi + 1
+  }
+  let firstStep = recTape.length > 0 ? recTape[0].step : -1
+  assert.ok(recTape.length > 0 && (rmap[firstStep] !== null && rmap[firstStep] !== null) && rmap[firstStep].length === recTape[0].triggers.length, "[rec] replay map returns the triggers recorded for a step")
+  assert.ok(recTape.length > 0 && rmap[firstStep][0].busIndex === recTape[0].triggers[0].busIndex && rmap[firstStep][0].pitch === recTape[0].triggers[0].pitch, "[rec] a replayed note matches what actually played (bus + pitch)")
+
+  console.log("=== I/O Rack (audio device settings + cue routing) ===")
+  let devMem = { v: null }
+  let devBe = { read: () => devMem.v, write: (s) => { devMem.v = s } }
+  let devs = createAudioDeviceSettings(devBe)
+  assert.ok(devs.get().speakers === "" && devs.get().headphones === "" && Math.abs(devs.get().cueLevel - 0.9) < 1e-9, "[io] defaults are empty + cueLevel 0.9")
+  devs.save({ speakers: "spk-1", headphones: "hp-2" })
+  assert.ok(devs.get().speakers === "spk-1" && devs.get().headphones === "hp-2", "[io] save persists speakers + headphones")
+  devs.save({ cueLevel: 0.6 })
+  assert.ok(devs.get().speakers === "spk-1" && devs.get().headphones === "hp-2" && Math.abs(devs.get().cueLevel - 0.6) < 1e-9, "[io] partial save keeps prior fields")
+  let devs2 = createAudioDeviceSettings(devBe)
+  assert.ok(devs2.get().headphones === "hp-2", "[io] persists across instances")
+
+  // applyCueRouting: only the cued deck's channels get a non-zero cue send (pre-fader, via channelDeck).
+  let cp = loadDefaultDeckardProject().project   // 4 channels on deck A
+  loadDeckSet(cp, "B", deckSetCatalog()[0].id)   // + a rack on deck B
+  let mockStore = { cuedDecks: { A: false, B: true, C: false, D: false }, cueLevel: 0.9, cueSum: {}, buses: [] }
+  let bi2 = 0
+  while (bi2 < cp.channels.length) {
+    mockStore.buses.push({ cueSend: { gain: { value: -1 } } })
+    bi2 = bi2 + 1
+  }
+  applyCueRouting(cp, mockStore)
+  let aZero = true
+  let bCued = false
+  let ci3 = 0
+  while (ci3 < cp.channels.length) {
+    let dk = channelDeck(cp, cp.channels[ci3])
+    let v = mockStore.buses[ci3].cueSend.gain.value
+    if (dk === "A" && v !== 0) {
+      aZero = false
+    }
+    if (dk === "B" && Math.abs(v - 0.9) < 1e-9) {
+      bCued = true
+    }
+    ci3 = ci3 + 1
+  }
+  assert.ok(aZero && bCued, "[io] cue routes ONLY deck B to the headphones bus (deck A silent in cue)")
+
+  console.log("=== Patch compile (switch-to-Patch reduces every voice to a valid graph) ===")
+  // Structural guard: each generator that claims to compile to Patch must produce a graph that PARSES and is
+  // well-formed — every conn references a defined node (or out/reverb), every env targets a defined node with
+  // valid set/lin/exp segments, and there is at least one output. Catches typos / orphan node refs that would
+  // silently break the sound when a user clicks "Patch".
+  fn validatePatchVoice(lines) {
+    if (lines === null) {
+      return "compiled null"
+    }
+    let g = parsePatchGraph(lines)
+    if (!g.nodes || g.nodes.length === 0) {
+      return "no nodes"
+    }
+    let ids = {}
+    let i = 0
+    while (i < g.nodes.length) {
+      ids[g.nodes[i].id] = true
+      i = i + 1
+    }
+    let hasOut = false
+    let c = 0
+    while (c < g.conns.length) {
+      let cn = g.conns[c]
+      if (ids[cn.src] !== true) {
+        return "conn src undefined: " + String(cn.src)
+      }
+      if (cn.dst === "out") {
+        hasOut = true
+      } else if (cn.dst !== "reverb" && ids[cn.dst] !== true) {
+        return "conn dst undefined: " + String(cn.dst)
+      }
+      c = c + 1
+    }
+    if (!hasOut) {
+      return "no out connection"
+    }
+    let e = 0
+    while (e < g.envs.length) {
+      let en = g.envs[e]
+      if (ids[en.node] !== true) {
+        return "env node undefined: " + String(en.node)
+      }
+      if (!en.segs || en.segs.length === 0) {
+        return "env has no segments"
+      }
+      let s = 0
+      while (s < en.segs.length) {
+        let ty = en.segs[s].type
+        if (ty !== "set" && ty !== "lin" && ty !== "exp") {
+          return "bad env seg type: " + String(ty)
+        }
+        s = s + 1
+      }
+      e = e + 1
+    }
+    return ""
+  }
+
+  let patchVoices = ["basicOsc", "fmTone", "noiseBurst", "pad", "bell", "drumSynth", "guitar", "clap", "arco", "tine", "aether", "halo"]
+  let pvi = 0
+  while (pvi < patchVoices.length) {
+    let pvid = patchVoices[pvi]
+    let cl = compileGeneratorToPatchLines(pvid, {}, null)
+    let perr = validatePatchVoice(cl)
+    assert.ok(perr === "", "[patch] " + pvid + " compiles to a valid patch graph")
+    if (perr !== "") {
+      console.log("  -> " + pvid + ": " + perr)
+    }
+    pvi = pvi + 1
+  }
+  // Parameter-variation coverage for the rebuilt voices (the branches that add/drop nodes).
+  assert.ok(validatePatchVoice(compileGeneratorToPatchLines("aether", { tone: 0 }, null)) === "", "[patch] aether tone=0 (no 3rd harmonic) valid")
+  assert.ok(validatePatchVoice(compileGeneratorToPatchLines("halo", { lows: 0 }, null)) === "", "[patch] halo lows=0 (no body sub) valid")
+  assert.ok(validatePatchVoice(compileGeneratorToPatchLines("tine", { drive: 0.5 }, null)) === "", "[patch] tine drive=0 (no shaper) valid")
+  assert.ok(validatePatchVoice(compileGeneratorToPatchLines("guitar", { drive: 0 }, null)) === "", "[patch] guitar drive=0 (no shaper) valid")
+  assert.ok(validatePatchVoice(compileGeneratorToPatchLines("arco", { voice: "cello" }, null)) === "", "[patch] arco cello variation valid")
+  assert.ok(canCompileToPatch("tine") && canCompileToPatch("halo") && canCompileToPatch("aether") && canCompileToPatch("guitar") && canCompileToPatch("arco"), "[patch] canCompileToPatch covers all rebuilt voices")
+  // `rand` (per-note pitch jitter / humanize) parses, round-trips, and is emitted by the conversions.
+  let randG = parsePatchGraph(["osc o0 sawtooth note detune 5 rand 2.5", "osc lfo sine 5.5 rand 0.6", "conn o0 out 1"])
+  let randOsc = randG.nodes[0]
+  let randLfo = randG.nodes[1]
+  assert.ok(randOsc.detune === 5 && randOsc.rand === 2.5, "[patch] rand parses on a pitched osc (detune + rand)")
+  assert.ok(randLfo.freqMode === "fixed" && randLfo.fixedHz === 5.5 && randLfo.rand === 0.6, "[patch] rand parses on a fixed LFO")
+  let randRT = patchGraphToLines(randG)
+  assert.ok(String(randRT).indexOf("rand 2.5") >= 0 && String(randRT).indexOf("rand 0.6") >= 0, "[patch] rand round-trips through emit")
+
+  let aetherRand = compileGeneratorToPatchLines("aether", {}, null).join("\n")
+  assert.ok(aetherRand.indexOf(" rand 0.6") >= 0 && aetherRand.indexOf(" rand 0.4") >= 0, "[patch] aether conversion emits LFO rand jitter")
+  // `tone` folds in odd harmonics (3rd/5th/7th) so the Tone knob is an obvious mellow↔reedy sweep — guard the
+  // 5th + 7th partials so a future change can't silently flatten it back to a near-sine.
+  assert.ok(aetherRand.indexOf("osc oh3 sine note ratio 3") >= 0 && aetherRand.indexOf("osc oh5 sine note ratio 5") >= 0 && aetherRand.indexOf("osc oh7 sine note ratio 7") >= 0, "[patch] aether tone emits 3rd/5th/7th odd harmonics (dramatic Tone)")
+  // System features: pan node, shaper curve type, and note*vel expression composites.
+  let sysG = parsePatchGraph(["pan pL -0.6", "shaper sh1 amount 30 curve soft", "conn pL out 1"])
+  let panNd = sysG.nodes[0]
+  let shNd = sysG.nodes[1]
+  assert.ok(panNd.kind === "pan" && panNd.pos === -0.6, "[patch] pan node parses (kind + position)")
+  assert.ok(shNd.kind === "shaper" && shNd.amount === 30 && shNd.curve === "soft", "[patch] shaper curve type parses")
+  let sysRT = String(patchGraphToLines(sysG))
+  assert.ok(sysRT.indexOf("pan pL -0.6") >= 0 && sysRT.indexOf("curve soft") >= 0, "[patch] pan + shaper-curve round-trip through emit")
+  // Negative conn weight (anti-phase tremolo) survives parse.
+  let negG = parsePatchGraph(["osc lfo sine 5", "gain g1 1", "conn lfo g1.gain -0.15", "conn g1 out 1"])
+  assert.ok(negG.conns[0].vol === -0.15 && negG.conns[0].dstParam === "gain", "[patch] negative conn weight parses (anti-phase)")
+  // Tine now emits the full suitcase tremolo (two panned paths) + soft drive + velocity-scaled FM (note*vel).
+  let tineFull = compileGeneratorToPatchLines("tine", { drive: 0.4 }, null).join("\n")
+  assert.ok(tineFull.indexOf("pan pL -0.6") >= 0 && tineFull.indexOf("pan pR 0.6") >= 0, "[patch] tine emits stereo tremolo (two pan paths)")
+  assert.ok(tineFull.indexOf("curve soft") >= 0, "[patch] tine emits soft drive curve")
+  assert.ok(tineFull.indexOf("note*vel*") >= 0, "[patch] tine emits velocity-scaled FM spike (note*vel)")
+  // FM bark = velocity-decomposed: mf is the velocity-INDEPENDENT floor (note*<idx>, no vel), ms is the velocity
+  // spike. Both decay to a real FLOOR (2 exp segments) so the bark stays bright through the attack on hard hits.
+  assert.ok(tineFull.indexOf("env mfd.gain set 0 note*") >= 0 && tineFull.indexOf("env mfd.gain set 0 note*vel") < 0, "[patch] tine FM floor path is velocity-independent (no vel in mfd)")
+  let tineMsdLine = ""
+  let tineLn = tineFull.split("\n")
+  let tineLi = 0
+  while (tineLi < tineLn.length) {
+    if (tineLn[tineLi].indexOf("env msd.gain") === 0) { tineMsdLine = tineLn[tineLi] }
+    tineLi = tineLi + 1
+  }
+  // Two exp segments = peak→floor→fade (the spike decays to a real floor, not to ~0 — keeps the bark bright).
+  assert.ok(tineMsdLine.indexOf("note*vel*") >= 0 && tineMsdLine.indexOf("exp") >= 0 && tineMsdLine.indexOf("exp") !== tineMsdLine.lastIndexOf("exp"), "[patch] tine FM spike decays to a floor (two exp segments), not to ~0")
+  // `string` (Karplus-Strong plucked-string primitive) — the node kind that lets guitar reproduce faithfully.
+  let strG = parsePatchGraph(["string s1 note tone 0.7 damping 0.3 decay 0.8 mute 0.1", "conn s1 out 1"])
+  let strNd = strG.nodes[0]
+  assert.ok(strNd.kind === "string" && strNd.tone === 0.7 && strNd.damping === 0.3 && strNd.decay === 0.8 && strNd.mute === 0.1, "[patch] string node parses (kind + tone/damping/decay/mute)")
+  let strRT = patchGraphToLines(strG)
+  assert.ok(String(strRT).indexOf("string s1") >= 0 && String(strRT).indexOf("tone 0.7") >= 0 && String(strRT).indexOf("damping 0.3") >= 0 && String(strRT).indexOf("decay 0.8") >= 0 && String(strRT).indexOf("mute 0.1") >= 0, "[patch] string round-trips through emit (params preserved)")
+  // emit→parse→emit fixpoint — the node must survive a full round-trip or the sound is lost on the wire.
+  let strFixG = parsePatchGraph(strRT)
+  let strFixNd = strFixG.nodes[0]
+  assert.ok(strFixNd.kind === "string" && strFixNd.tone === 0.7 && strFixNd.decay === 0.8 && String(patchGraphToLines(strFixG)).indexOf("string s1") >= 0, "[patch] string parse/emit is a fixpoint")
+  // guitar now compiles to a REAL KS string (not a saw), a FLAT-TOP amp env (no exp double-decay), and a dur line.
+  let gtrC = compileGeneratorToPatchLines("guitar", {}, null).join("\n")
+  assert.ok(gtrC.indexOf("string s1") >= 0 && gtrC.indexOf("osc o1 sawtooth") < 0, "[patch] guitar compiles to a string node (not a saw approximation)")
+  assert.ok(gtrC.indexOf("exp") < 0 && gtrC.indexOf("lin 0.004 1") >= 0, "[patch] guitar amp env is flat-top (no exp double-decay)")
+  assert.ok(gtrC.indexOf("dur ") >= 0, "[patch] guitar emits dur = ringSec (KS ring not truncated)")
+  assert.ok(gtrC.indexOf("curve guitar") >= 0 && gtrC.indexOf("conn s1 sh1 1") >= 0, "[patch] guitar drive uses the guitar curve at full input gain")
+  assert.ok(gtrC.indexOf("conn a1 out 0.55") >= 0, "[patch] guitar out level carries v*0.7 (not the old quiet 0.42)")
+  // resolveExpr runs for EVERY patch env value at play time (not exercised by the structural graph tests), so
+  // verify the rewritten evaluator: all existing forms unchanged + the new product chains. (note=200, dur=2, v=0.8)
+  fn rxClose(a, b) { return Math.abs(a - b) < 0.0001 }
+  assert.ok(rxClose(resolveExpr("0.5", 200, 2, 0.8), 0.5), "[patch] resolveExpr: plain number")
+  assert.ok(rxClose(resolveExpr("-4.5", 200, 2, 0.8), -4.5), "[patch] resolveExpr: negative number")
+  assert.ok(rxClose(resolveExpr("note", 200, 2, 0.8), 200), "[patch] resolveExpr: note")
+  assert.ok(rxClose(resolveExpr("note*2", 200, 2, 0.8), 400), "[patch] resolveExpr: note*2")
+  assert.ok(rxClose(resolveExpr("note*0.425", 200, 2, 0.8), 85), "[patch] resolveExpr: note*0.425")
+  assert.ok(rxClose(resolveExpr("dur+0.34", 200, 2, 0.8), 2.34), "[patch] resolveExpr: dur+0.34")
+  assert.ok(rxClose(resolveExpr("dur-0.1", 200, 2, 0.8), 1.9), "[patch] resolveExpr: dur-0.1")
+  assert.ok(rxClose(resolveExpr("vel", 200, 2, 0.8), 0.8), "[patch] resolveExpr: vel")
+  assert.ok(rxClose(resolveExpr("vel*0.18", 200, 2, 0.8), 0.144), "[patch] resolveExpr: vel*0.18")
+  assert.ok(rxClose(resolveExpr("note*vel", 200, 2, 0.8), 160), "[patch] resolveExpr: note*vel (composite)")
+  assert.ok(rxClose(resolveExpr("note*vel*4.2", 200, 2, 0.8), 672), "[patch] resolveExpr: note*vel*4.2 (chain)")
+  assert.ok(rxClose(resolveExpr("0.5*vel", 200, 2, 0.8), 0.4), "[patch] resolveExpr: 0.5*vel (number-led)")
+  assert.ok(rxClose(resolveExpr("note*3", 200, 2, 0.8), 600), "[patch] resolveExpr: note*3 (3rd-harmonic glide)")
+  assert.ok(rxClose(resolveExpr("garbage", 200, 2, 0.8), 0), "[patch] resolveExpr: bad token → 0")
+  // max()/min() — the staccato hold clamp (short note dur=0.1 < 0.31 → holds to 0.31; long note dur=2 → stays 2).
+  assert.ok(rxClose(resolveExpr("max(dur,0.31)", 200, 0.1, 0.8), 0.31), "[patch] resolveExpr: max(dur,0.31) short note")
+  assert.ok(rxClose(resolveExpr("max(dur,0.31)", 200, 2, 0.8), 2), "[patch] resolveExpr: max(dur,0.31) long note")
+  assert.ok(rxClose(resolveExpr("max(dur,0.31)+0.24", 200, 0.1, 0.8), 0.55), "[patch] resolveExpr: max(dur,0.31)+0.24 (release end)")
+  assert.ok(rxClose(resolveExpr("min(0.48,max(dur,0.26))", 200, 0.1, 0.8), 0.26), "[patch] resolveExpr: min(0.48,max(dur,0.26)) nested short")
+  assert.ok(rxClose(resolveExpr("min(0.48,max(dur,0.26))", 200, 2, 0.8), 0.48), "[patch] resolveExpr: min(0.48,max(dur,0.26)) nested long")
+  assert.ok(rxClose(resolveExpr("min(dur,0.5)", 200, 2, 0.8), 0.5), "[patch] resolveExpr: min(dur,0.5)")
+
+  console.log("=== MIDI (parse + learn/map flow + persistence) ===")
+  let mNoteOn = parseMidiBytes([144, 60, 100])
+  assert.ok((mNoteOn !== null) && mNoteOn.kind === "noteOn" && mNoteOn.note === 60 && mNoteOn.velocity === 100 && mNoteOn.channel === 0, "[midi] parse noteOn")
+  let mNoteOn0 = parseMidiBytes([145, 60, 0])
+  assert.ok((mNoteOn0 !== null) && mNoteOn0.kind === "noteOff" && mNoteOn0.channel === 1, "[midi] parse noteOn vel 0 = noteOff")
+  let mNoteOff = parseMidiBytes([128, 64, 0])
+  assert.ok((mNoteOff !== null) && mNoteOff.kind === "noteOff" && mNoteOff.note === 64, "[midi] parse noteOff")
+  let mCc = parseMidiBytes([176, 7, 64])
+  assert.ok((mCc !== null) && mCc.kind === "cc" && mCc.controller === 7 && mCc.value === 64, "[midi] parse CC")
+  let mPb = parseMidiBytes([224, 0, 64])
+  assert.ok((mPb !== null) && mPb.kind === "pitchBend" && mPb.value14 === 8192, "[midi] parse pitchBend 14-bit")
+  assert.ok(parseMidiBytes([248]) === null && parseMidiBytes([240, 1, 2]) === null, "[midi] system messages ignored")
+  assert.ok(normalize01(0) === 0 && Math.abs(normalize01(127) - 1) < 1e-9 && Math.abs(normalize01(64) - (64 / 127)) < 1e-9, "[midi] normalize01 maps 0..127 → 0..1")
+  assert.ok(ccKey({ channel: 2, controller: 7 }) === "cc:2:7", "[midi] ccKey is stable per channel+controller")
+
+  // Learn → map → drive flow, with an injected backend (no localStorage) and captured callbacks.
+  let midiMem = { v: null }
+  let midiBe = { read: () => midiMem.v, write: (s) => { midiMem.v = s } }
+  let captured = { note: null, control: null, changes: 0 }
+  let ctl = createMidiController({
+    onNote: (n, v) => { captured.note = { n: n, v: v } },
+    onControl: (id, v01) => { captured.control = { id: id, v: v01 } },
+    onChange: () => { captured.changes = captured.changes + 1 },
+    backend: midiBe,
+    seedDefaults: false
+  })
+  ctl.feed([144, 60, 110])
+  assert.ok((captured.note !== null) && captured.note.n === 60 && captured.note.v === 110, "[midi] note-on routes to onNote")
+  ctl.setLearn(true)
+  ctl.feed([176, 7, 50])
+  assert.ok((ctl.state().pending !== null) && ctl.state().pending.controller === 7 && captured.control === null, "[midi] in learn mode a CC becomes pending (not a control)")
+  ctl.bindPending("bpm")
+  assert.ok(ctl.state().mappings["cc:0:7"] === "bpm" && ctl.state().pending === null, "[midi] bindPending stores the mapping + clears pending")
+  assert.ok((midiMem.v !== null) && midiMem.v.indexOf("bpm") >= 0, "[midi] mapping persisted to the backend")
+  ctl.setLearn(false)
+  ctl.feed([176, 7, 127])
+  assert.ok((captured.control !== null) && captured.control.id === "bpm" && Math.abs(captured.control.v - 1) < 1e-9, "[midi] a mapped CC drives onControl with normalized value")
+  // Persistence: a fresh controller on the same backend restores the mapping.
+  let ctl2 = createMidiController({ onControl: (id, v01) => {}, backend: midiBe, seedDefaults: false })
+  assert.ok(ctl2.state().mappings["cc:0:7"] === "bpm", "[midi] mappings persist across controller instances")
+  ctl.removeMapping("cc:0:7")
+  assert.ok(ctl.state().mappings["cc:0:7"] === null || ctl.state().mappings["cc:0:7"] === null, "[midi] removeMapping clears it")
+  // The mappable target list includes the globals, per-DECK booth EQ/vol (visible knobs), + per-track gains.
+  let mtl = midiTargetList(loadDefaultDeckardProject().project)
+  assert.ok(mtl.some(t => t.id === "bpm") && mtl.some(t => t.id === "xfade_x") && mtl.some(t => String(t.id).indexOf("track:") === 0), "[midi] target list has globals + per-track gains")
+  assert.ok(mtl.some(t => t.id === "deck:A:hi") && mtl.some(t => t.id === "deck:A:flt") && mtl.some(t => t.id === "deck:B:vol"), "[midi] target list exposes per-deck EQ/vol (visible booth knobs)")
+  assert.ok(!mtl.some(t => String(t.id).indexOf("master_") === 0), "[midi] target list no longer offers the master EQ (it has no on-screen control)")
+  // Defaults: a fresh machine (backend has never been written) seeds + persists a working layout; clearing stays clear.
+  let seedMem = { v: null }
+  let seedBe = { read: () => seedMem.v, write: (s) => { seedMem.v = s } }
+  let ctlSeed = createMidiController({ onControl: (id, v01) => {}, backend: seedBe })
+  assert.ok(ctlSeed.state().mappings["cc:0:16"] === "deck:A:hi" && ctlSeed.state().mappings["cc:0:8"] === "xfade_x", "[midi] first run seeds default mappings")
+  assert.ok((seedMem.v !== null) && seedMem.v.indexOf("deck:A:hi") >= 0, "[midi] seeded defaults are persisted")
+  let ctlSeed2 = createMidiController({ onControl: (id, v01) => {}, backend: seedBe })
+  assert.ok(Object.keys(ctlSeed2.state().mappings).length === Object.keys(defaultMidiMappings()).length, "[midi] a populated backend is NOT re-seeded (respects user edits)")
+
+  // ===================================================================================================
+  // Per-step PARAMETER LOCKS — velocity / probability / ratchet / nudge round-trip + the player's deterministic
+  // probability gate, ratchet sub-hit expansion, and nudge micro-timing offset.
+  // ===================================================================================================
+  console.log("")
+  console.log("=== Per-step parameter locks ===")
+
+  let pl = loadDefaultDeckardProject().project
+  let plC = pl.channels[0]
+  let plName = plC.name
+  let plId = plC.id
+
+  // Author p-locks via direct model mutation (what the UI does), then prove they round-trip through emit→apply.
+  plC.steps[0].on = true
+  plC.steps[4].on = true
+  plC.steps[8].on = true
+  plC.steps[12].on = true
+  plC.steps[0].vel = 120
+  plC.steps[4].vel = 70
+  plC.steps[4].prob = 0.5
+  plC.steps[8].ratchet = 3
+  plC.steps[12].nudge = 0.25
+  plC.steps[12].vel = 90
+
+  let plTpl = emitProject(pl)
+  assert.ok(plTpl.indexOf("step_vel ") >= 0, "[plock] emit includes step_vel lane when velocity deviates")
+  assert.ok(plTpl.indexOf("step_prob ") >= 0, "[plock] emit includes step_prob lane")
+  assert.ok(plTpl.indexOf("step_ratchet ") >= 0, "[plock] emit includes step_ratchet lane")
+  assert.ok(plTpl.indexOf("step_nudge ") >= 0, "[plock] emit includes step_nudge lane")
+
+  // A round-trip: re-apply the emitted deck onto a fresh project → the locks reappear exactly.
+  let pl2 = loadDefaultDeckardProject().project
+  applyTplSource(pl2, plTpl)
+  let c2 = findChannelById(pl2, plId)
+  assert.ok(c2.steps[0].vel === 120, "[plock] velocity round-trips (step 0 = 120)")
+  assert.ok(c2.steps[4].vel === 70, "[plock] velocity round-trips (step 4 = 70)")
+  assert.ok(Math.abs(c2.steps[4].prob - 0.5) < 1e-6, "[plock] probability round-trips (step 4 = 0.5)")
+  assert.ok(c2.steps[8].ratchet === 3, "[plock] ratchet round-trips (step 8 = 3)")
+  assert.ok(Math.abs(c2.steps[12].nudge - 0.25) < 1e-6, "[plock] nudge round-trips (step 12 = 0.25)")
+  assert.ok(Math.abs(c2.steps[0].prob - 1) < 1e-6, "[plock] non-locked steps keep defaults (step 0 prob = 1)")
+
+  // emitProject is idempotent with the locks present (the canonical-fold invariant).
+  assert.ok(emitProject(pl2) === plTpl, "[plock] emit is stable across a round-trip (byte-identical)")
+
+  // A clean pattern (no deviations) emits NO lanes — keeps default patterns terse.
+  let plClean = loadDefaultDeckardProject().project
+  let cleanTpl = emitProject(plClean)
+  assert.ok(cleanTpl.indexOf("step_vel") < 0, "[plock] a default-velocity pattern emits no step_vel lane")
+
+  // ---- player: deterministic probability gate (same seed+step ⇒ same fire/skip on every client) ----
+  // Build a single-channel project with one always-considered step at prob 0.5; sweep many bars and confirm
+  // the fire pattern is reproducible (two independent runs agree) and that prob 0 never fires / prob 1 always.
+  // Rack-pattern playback (monitor the editing buffer directly, no session arming) ⇒ rt.playMode "sequence".
+  let seqRt = { playMode: "sequence" }
+  let pp = emptyProjectShell()
+  pp.bpm = 120
+  pp.songSeed = 7
+  applyTplSource(pp, "deck 1\ntrack Coin id plk_coin gen basic_osc\n  step_pitch 60\n  steps x . . . . . . . . . . . . . . .\n  step_prob 0.5 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1\n")
+  fn firesAt(proj, g) {
+    let tg = stepTriggers(proj, seqRt, g)
+    let any = false
+    let i = 0
+    while (i < tg.length) {
+      if (tg[i].beat === g * 0.25) {
+        any = true
+      }
+      i = i + 1
+    }
+    return any
+  }
+  // Two independent passes over step 0 across 32 bars must agree (deterministic) and NOT be all-same (it's 50%).
+  let firedA = []
+  let firedB = []
+  let bar = 0
+  while (bar < 32) {
+    let g = bar * 16
+    firedA.push(firesAt(pp, g))
+    firedB.push(firesAt(pp, g))
+    bar = bar + 1
+  }
+  let agree = true
+  let mixed = false
+  let first = firedA[0]
+  let k = 0
+  while (k < firedA.length) {
+    if (firedA[k] !== firedB[k]) {
+      agree = false
+    }
+    if (firedA[k] !== first) {
+      mixed = true
+    }
+    k = k + 1
+  }
+  assert.ok(agree, "[plock] probability gate is DETERMINISTIC (two passes agree)")
+  assert.ok(mixed, "[plock] a 0.5 step both fires and skips across bars (not stuck)")
+
+  // prob 0 → never; prob 1 → always (over the same sweep).
+  let ppNever = emptyProjectShell()
+  ppNever.bpm = 120
+  applyTplSource(ppNever, "deck 1\ntrack N id plk_never gen basic_osc\n  step_pitch 60\n  steps x . . . . . . . . . . . . . . .\n  step_prob 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1\n")
+  let neverFired = false
+  let b2 = 0
+  while (b2 < 16) {
+    if (firesAt(ppNever, b2 * 16)) {
+      neverFired = true
+    }
+    b2 = b2 + 1
+  }
+  assert.ok(!neverFired, "[plock] prob 0 never fires")
+
+  // ---- player: ratchet expands to R evenly-spaced sub-hits within the step ----
+  let ppr = emptyProjectShell()
+  ppr.bpm = 120
+  applyTplSource(ppr, "deck 1\ntrack R id plk_rat gen basic_osc\n  step_pitch 60\n  steps x . . . . . . . . . . . . . . .\n  step_ratchet 4 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1\n")
+  let rtg = stepTriggers(ppr, seqRt, 0)
+  assert.ok(rtg.length === 4, "[plock] ratchet 4 → 4 sub-hits at step 0")
+  // They are evenly spaced by stepSec/4 (= 60/120/4/4 = 0.03125s) starting at offset 0.
+  let stepSec = 60 / 120 / 4
+  let okSpacing = rtg.length === 4
+  let ri = 0
+  while (ri < rtg.length) {
+    let want = ri * stepSec / 4
+    if (Math.abs(rtg[ri].noteOffset - want) > 1e-6) {
+      okSpacing = false
+    }
+    ri = ri + 1
+  }
+  assert.ok(okSpacing, "[plock] ratchet sub-hits are evenly spaced (stepSec/4 apart)")
+
+  // ---- player: nudge offsets the hit time by a fraction of a step ----
+  let ppn = emptyProjectShell()
+  ppn.bpm = 120
+  applyTplSource(ppn, "deck 1\ntrack Nu id plk_nudge gen basic_osc\n  step_pitch 60\n  steps x . . . . . . . . . . . . . . .\n  step_nudge 0.25 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n")
+  let ntg = stepTriggers(ppn, seqRt, 0)
+  assert.ok(ntg.length === 1 && Math.abs(ntg[0].noteOffset - stepSec * 0.25) < 1e-6, "[plock] nudge 0.25 shifts the hit by stepSec/4")
+
+  // ---- the UI's live-edit path: emit("track/<id>/pattern", stepsArray) → a complete gated pattern statement ----
+  let pe = loadDefaultDeckardProject().project
+  let peC = pe.channels[0]
+  // Build a fresh (non-mutating) steps array carrying a velocity + a probability lock, like the grid handler does.
+  let arr = []
+  let ai = 0
+  while (ai < 16) {
+    let s = peC.steps[ai]
+    arr.push({ on: s.on, vel: s.vel, prob: s.prob, ratchet: s.ratchet, nudge: s.nudge })
+    ai = ai + 1
+  }
+  arr[0].on = true
+  arr[0].vel = 64
+  arr[2].on = true
+  arr[2].prob = 0.25
+  let frag = fragmentForEdit(pe, "track/" + peC.id + "/pattern", arr)
+  assert.ok(frag.indexOf("\n  steps ") >= 0, "[plock] pattern fragment carries the steps line")
+  assert.ok(frag.indexOf("step_vel ") >= 0, "[plock] pattern fragment carries step_vel")
+  assert.ok(frag.indexOf("step_prob ") >= 0, "[plock] pattern fragment carries step_prob")
+  // Apply it onto a different project → the locks land on the channel.
+  let pe2 = loadDefaultDeckardProject().project
+  applyTplSource(pe2, "deck 1\n" + frag + "\n")
+  let pe2c = findChannelById(pe2, peC.id)
+  assert.ok(pe2c.steps[0].vel === 64, "[plock] pattern emit applies velocity (step 0 = 64)")
+  assert.ok(Math.abs(pe2c.steps[2].prob - 0.25) < 1e-6, "[plock] pattern emit applies probability (step 2 = 0.25)")
+  assert.ok(pe2c.steps[2].on === true, "[plock] pattern emit applies on/off (step 2 on)")
+
+  // Multi-bar preservation: a pattern edit on a 2-bar channel must NOT collapse it to 1 bar.
+  let pe3 = loadDefaultDeckardProject().project
+  let pe3c = pe3.channels[0]
+  pe3c.patternBars = 2
+  let frag3 = fragmentForEdit(pe3, "track/" + pe3c.id + "/pattern", arr)
+  assert.ok(frag3.indexOf(" * 2") >= 0, "[plock] pattern fragment preserves the `* N` loop for multi-bar channels")
+  applyTplSource(pe3, "deck 1\n" + frag3 + "\n")
+  assert.ok(findChannelById(pe3, pe3c.id).patternBars === 2, "[plock] multi-bar channel stays 2 bars after a pattern edit")
+
+  // ===================================================================================================
+  // SCALE LOCK — root parsing, snap math, deck round-trip, the player snap, and the edit address.
+  // ===================================================================================================
+  console.log("")
+  console.log("=== Scale lock ===")
+
+  assert.ok(parseScaleRoot("C") === 0 && parseScaleRoot("A") === 9 && parseScaleRoot("F#") === 6 && parseScaleRoot("Bb") === 10, "[scale] parseScaleRoot note names")
+  assert.ok(parseScaleRoot("0") === 0 && parseScaleRoot("7") === 7 && parseScaleRoot("11") === 11, "[scale] parseScaleRoot pitch-class numbers")
+  assert.ok((parseScaleRoot("zz") === null || parseScaleRoot("zz") === null) && (parseScaleRoot("13") === null || parseScaleRoot("13") === null), "[scale] parseScaleRoot rejects junk")
+
+  fn pitchInScale(pitch, root, mode) {
+    let ivs = scaleIntervals(mode)
+    let rel = ((Math.round(pitch) - root) % 12 + 12) % 12
+    let k = 0
+    while (k < ivs.length) {
+      if (ivs[k] === rel) {
+        return true
+      }
+      k = k + 1
+    }
+    return false
+  }
+
+  // C minor = C D Eb F G Ab Bb. A D#(63) is OUT → snaps to D(62) or E(64); nearest is D(62) [tie-down anyway].
+  assert.ok(snapToScale(62, 0, "minor") === 62, "[scale] in-scale pitch unchanged (C minor, D=62)")
+  let scSnap61 = snapToScale(61, 0, "minor")
+  assert.ok(scSnap61 === 60 || scSnap61 === 62, "[scale] out-of-scale snaps to nearest (C minor, 61→60 or 62)")
+  let scSnap73 = snapToScale(73, 0, "minor")
+  assert.ok(scSnap73 >= 71 && scSnap73 <= 75, "[scale] octave preserved (C minor, 73→ in [71..75])")
+  assert.ok(snapToScale(61, 0, "chromatic") === 61, "[scale] chromatic = no-op")
+  // Every snapped pitch is a scale degree.
+  let scAll12 = true
+  let scP12 = 60
+  while (scP12 < 72) {
+    if (!pitchInScale(snapToScale(scP12, 0, "major"), 0, "major")) {
+      scAll12 = false
+    }
+    scP12 = scP12 + 1
+  }
+  assert.ok(scAll12, "[scale] all 12 pitches land in C major")
+
+  // deck round-trip: emit → re-apply keeps the scale; `scale off` clears it.
+  let sc = loadDefaultDeckardProject().project
+  sc.scaleRoot = 9
+  sc.scaleMode = "dorian"
+  let scTpl = emitProject(sc)
+  assert.ok(scTpl.indexOf("scale A dorian") >= 0, "[scale] emit writes `scale A dorian`")
+  let sc2 = loadDefaultDeckardProject().project
+  applyTplSource(sc2, scTpl)
+  assert.ok(sc2.scaleRoot === 9 && sc2.scaleMode === "dorian", "[scale] round-trips root + mode")
+  applyTplSource(sc2, "deck 1\nscale off\n")
+  assert.ok((sc2.scaleRoot === null) && (sc2.scaleMode === null), "[scale] `scale off` clears the lock")
+  let scClean = emitProject(loadDefaultDeckardProject().project)
+  assert.ok(scClean.indexOf("scale ") < 0, "[scale] no scale line when inactive")
+
+  // projectSnapPitch honors the active lock (and is a no-op when off).
+  assert.ok(projectSnapPitch(loadDefaultDeckardProject().project, 61) === 61, "[scale] projectSnapPitch no-op when inactive")
+  let scP = loadDefaultDeckardProject().project
+  scP.scaleRoot = 0
+  scP.scaleMode = "minor"
+  assert.ok((scP.scaleRoot !== null) && projectSnapPitch(scP, 61) !== 61, "[scale] projectSnapPitch snaps when active")
+
+  // The player honors the lock: a melodic note off-scale comes out snapped.
+  let scPlay = emptyProjectShell()
+  scPlay.bpm = 120
+  scPlay.scaleRoot = 0
+  scPlay.scaleMode = "major"
+  applyTplSource(scPlay, "deck 1\ntrack Lead id sc_lead gen basic_osc\n  step_pitch 61\n  steps x . . . . . . . . . . . . . . .\n")
+  let scSeqRt = { playMode: "sequence" }
+  let scTrig = stepTriggers(scPlay, scSeqRt, 0)
+  assert.ok(scTrig.length >= 1 && pitchInScale(scTrig[0].pitch, 0, "major"), "[scale] player snaps the step pitch (61 → in C major)")
+
+  // Edit address: emit("scale", {root, mode}) / "off".
+  let scEd = loadDefaultDeckardProject().project
+  let scSetVal = { root: 3, mode: "phrygian" }
+  let scFrag = fragmentForEdit(scEd, "scale", scSetVal)
+  assert.ok(scFrag === "scale D# phrygian", "[scale] fragmentForEdit builds `scale D# phrygian`")
+  assert.ok(fragmentForEdit(scEd, "scale", "off") === "scale off", "[scale] fragmentForEdit off")
+
+  // ===================================================================================================
+  // GENERATIVE row mode — pure pattern transforms (seeded rng for determinism), emitted through the door.
+  // ===================================================================================================
+  console.log("")
+  console.log("=== Generative row mode ===")
+
+  // A deterministic LCG so the tests are reproducible (the UI passes Math.random; results are emitted concrete).
+  let genSeed = 99
+  fn genRng() {
+    genSeed = (genSeed * 1103515245 + 12345) % 2147483648
+    return genSeed / 2147483648
+  }
+  fn countOn(steps) {
+    let c = 0
+    let i = 0
+    while (i < steps.length) {
+      if (steps[i].on === true) {
+        c = c + 1
+      }
+      i = i + 1
+    }
+    return c
+  }
+
+  // euclidSteps: right hit count, 16 long, fresh objects with all lock fields.
+  let g4 = euclidSteps(4, 0, null)
+  assert.ok(g4.length === 16, "[gen] euclidSteps(4) → 16 steps")
+  assert.ok(countOn(g4) === 4, "[gen] euclidSteps(4) → 4 hits")
+  assert.ok(g4[0].prob === 1 && g4[0].ratchet === 1 && g4[0].nudge === 0, "[gen] euclidSteps step carries lock fields")
+  assert.ok(countOn(euclidSteps(0, 0, null)) === 0, "[gen] euclidSteps(0) clears (0 hits)")
+
+  // rotatePattern shifts.
+  let genRot = rotatePattern([true, false, false, false], 1)
+  assert.ok(genRot[1] === true && genRot[0] === false, "[gen] rotatePattern shifts by 1")
+
+  // euclidSteps preserves the prev array's locks on steps that stay on (here every step on → all kept).
+  let prevLocked = cloneSteps16(null)
+  prevLocked[0].vel = 55
+  let gKept = euclidSteps(16, 0, prevLocked)
+  assert.ok(gKept[0].vel === 55, "[gen] euclidSteps keeps prior lock where step stays on")
+
+  // reseed: deterministic with a seeded rng (two identical seeds → identical), density in 3..8.
+  genSeed = 99
+  let rs1 = reseedSteps(genRng, null)
+  genSeed = 99
+  let rs2 = reseedSteps(genRng, null)
+  let rsSame = rs1.length === rs2.length
+  let rk = 0
+  while (rk < rs1.length) {
+    if (rs1[rk].on !== rs2[rk].on || rs1[rk].vel !== rs2[rk].vel) {
+      rsSame = false
+    }
+    rk = rk + 1
+  }
+  assert.ok(rsSame, "[gen] reseed is deterministic for a fixed seed")
+  assert.ok(countOn(rs1) >= 3 && countOn(rs1) <= 8, "[gen] reseed density in 3..8")
+
+  // mutate: returns a fresh array (input untouched), changes at least one step.
+  let baseM = euclidSteps(4, 0, null)
+  let baseOnBefore = countOn(baseM)
+  genSeed = 7
+  let mut = mutateSteps(baseM, genRng, 0.25)
+  assert.ok(countOn(baseM) === baseOnBefore, "[gen] mutate does not mutate the input array")
+  let mutDiff = false
+  let mk = 0
+  while (mk < 16) {
+    if (mut[mk].on !== baseM[mk].on) {
+      mutDiff = true
+    }
+    mk = mk + 1
+  }
+  assert.ok(mutDiff, "[gen] mutate changes the pattern")
+
+  // humanize: only ON steps' velocity changes, stays in 1..127, off steps untouched.
+  let baseH = euclidSteps(8, 0, null)
+  genSeed = 3
+  let hum = humanizeSteps(baseH, genRng, 20)
+  let humOk = true
+  let hk = 0
+  while (hk < 16) {
+    if (hum[hk].on === true) {
+      if (hum[hk].vel < 1 || hum[hk].vel > 127) {
+        humOk = false
+      }
+    }
+    hk = hk + 1
+  }
+  assert.ok(humOk, "[gen] humanize velocities stay in 1..127")
+
+  // sprinkle: some off-beat ON steps get prob < 1; downbeats (every 4th) stay certain.
+  let baseP = euclidSteps(16, 0, null)
+  genSeed = 42
+  let spr = sprinkleProbability(baseP, genRng, 1)
+  assert.ok(spr[0].prob === 1 && spr[4].prob === 1 && spr[8].prob === 1 && spr[12].prob === 1, "[gen] sprinkle leaves downbeats certain")
+  let anyProb = false
+  let pk2 = 0
+  while (pk2 < 16) {
+    if (spr[pk2].prob < 1) {
+      anyProb = true
+    }
+    pk2 = pk2 + 1
+  }
+  assert.ok(anyProb, "[gen] sprinkle adds sub-1 probability to off-beats")
+
+  // The generated pattern round-trips through the pattern door (emit → apply keeps hits + locks).
+  let genProj = loadDefaultDeckardProject().project
+  let genCh = genProj.channels[0]
+  let genArr = sprinkleProbability(euclidSteps(5, 2, null), genRng, 1)
+  let genFrag = fragmentForEdit(genProj, "track/" + genCh.id + "/pattern", genArr)
+  let genProj2 = loadDefaultDeckardProject().project
+  applyTplSource(genProj2, "deck 1\n" + genFrag + "\n")
+  let genCh2 = findChannelById(genProj2, genCh.id)
+  assert.ok(countOn(genCh2.steps) === countOn(genArr), "[gen] generated pattern round-trips hit count")
+
+  // ---- NOTE generators (the toolbar working on MELODIC channels → authoring notes) ----
+  genSeed = 5
+  let gnE = euclidNotes(4, 0, 48)
+  assert.ok(gnE.length === 4 && gnE[0].pitch === 48 && gnE[0].vel === 100 && gnE[0].prob === 1 && gnE[0].ratchet === 1, "[gennote] euclidNotes hit count + pitch + lock fields")
+  assert.ok(notePitchForChannel({ pianoNotes: [{ pitch: 55, startBeat: 0, durBeats: 0.25, vel: 100 }] }) === 55 && notePitchForChannel({ pianoNotes: [], stepPitch: 41 }) === 41, "[gennote] notePitchForChannel uses first note then stepPitch")
+  // reseed deterministic for a fixed seed
+  genSeed = 5
+  let gnR1 = reseedNotes(genRng, 50)
+  genSeed = 5
+  let gnR2 = reseedNotes(genRng, 50)
+  let gnRsame = gnR1.length === gnR2.length
+  let gnk = 0
+  while (gnk < gnR1.length) {
+    if (gnR1[gnk].startBeat !== gnR2[gnk].startBeat || gnR1[gnk].vel !== gnR2[gnk].vel) {
+      gnRsame = false
+    }
+    gnk = gnk + 1
+  }
+  assert.ok(gnRsame && gnR1.length >= 3 && gnR1.length <= 8, "[gennote] reseedNotes deterministic for a fixed seed")
+  // humanize keeps note count + pitches, jitters vel in range
+  let gnBase = euclidNotes(8, 0, 60)
+  genSeed = 9
+  let gnH = humanizeNotes(gnBase, genRng, 20)
+  let gnHok = gnH.length === gnBase.length
+  let gnhi = 0
+  while (gnhi < gnH.length) {
+    if (gnH[gnhi].pitch !== gnBase[gnhi].pitch || gnH[gnhi].vel < 1 || gnH[gnhi].vel > 127) {
+      gnHok = false
+    }
+    gnhi = gnhi + 1
+  }
+  assert.ok(gnHok, "[gennote] humanizeNotes keeps notes/pitches, vel in range")
+  // sprinkle adds sub-1 prob to off-beat notes, downbeat stays certain
+  genSeed = 13
+  let gnS = sprinkleNoteProbability(euclidNotes(16, 0, 60), genRng, 1)
+  let gnDown = true
+  let gnAny = false
+  let gns = 0
+  while (gns < gnS.length) {
+    let col = Math.floor(gnS[gns].startBeat * 4 + 0.0001)
+    if (col % 4 === 0 && gnS[gns].prob < 1) {
+      gnDown = false
+    }
+    if (gnS[gns].prob < 1) {
+      gnAny = true
+    }
+    gns = gns + 1
+  }
+  assert.ok(gnDown && gnAny, "[gennote] sprinkleNoteProbability: downbeats certain, off-beats sprinkled")
+  // mutate preserves bars 2+ and changes bar 1; input untouched
+  let gnMulti = [{ startBeat: 0, durBeats: 0.25, pitch: 60, vel: 100, prob: 1, ratchet: 1, nudge: 0 }, { startBeat: 4, durBeats: 0.25, pitch: 62, vel: 100, prob: 1, ratchet: 1, nudge: 0 }]
+  genSeed = 21
+  let gnM = mutateNotes(gnMulti, genRng, 0.3, 60)
+  let gnKeptBar2 = false
+  let gnmi = 0
+  while (gnmi < gnM.length) {
+    if (Math.abs(gnM[gnmi].startBeat - 4) < 1e-6 && gnM[gnmi].pitch === 62) {
+      gnKeptBar2 = true
+    }
+    gnmi = gnmi + 1
+  }
+  assert.ok(gnKeptBar2, "[gennote] mutateNotes preserves bars 2+ (the beat-4 note survives)")
+  assert.ok(gnMulti.length === 2 && gnMulti[0].pitch === 60, "[gennote] mutateNotes does not mutate the input")
+  // notesAfterFirstBar filters
+  let gnLater = notesAfterFirstBar(gnMulti)
+  assert.ok(gnLater.length === 1 && Math.abs(gnLater[0].startBeat - 4) < 1e-6, "[gennote] notesAfterFirstBar keeps only startBeat>=4")
+  // the generated notes round-trip through the notes door
+  let gnP = emptyProjectShell()
+  applyTplSource(gnP, "deck 1\ntrack Lead id gn_lead gen basic_osc\n  note 60 0 0.25 v 100\n")
+  let gnCh = gnP.channels[0]
+  let gnNotes = euclidNotes(5, 0, 52)
+  let gnFrag = fragmentForEdit(gnP, "track/" + gnCh.id + "/notes", gnNotes)
+  let gnP2 = emptyProjectShell()
+  applyTplSource(gnP2, "deck 1\n" + gnFrag + "\n")
+  assert.ok(findChannelById(gnP2, gnCh.id).pianoNotes.length === 5 && findChannelById(gnP2, gnCh.id).pianoNotes[0].pitch === 52, "[gennote] generated notes round-trip through the notes door")
+
+  // ===================================================================================================
+  // DRAWABLE AUTOMATION LANES — value mapping, target selection, emit→apply round-trip, beat-accurate playback.
+  // ===================================================================================================
+  console.log("")
+  console.log("=== Automation lanes ===")
+
+  assert.ok((defaultAutoParam("pad") !== null && defaultAutoParam("pad") !== null) && defaultAutoParam("pad").key === "filterCutoff", "[auto] defaultAutoParam(any) = the universal filterCutoff")
+  assert.ok(defaultAutoParam("drumSynth") !== null && defaultAutoParam("drumSynth") !== null, "[auto] defaultAutoParam(drumSynth) is a param")
+  // patch/macro/deck voices ARE now automatable — via the universal channel filter cutoff (the deck-automation fix).
+  assert.ok((defaultAutoParam("patch") !== null && defaultAutoParam("patch") !== null) && defaultAutoParam("patch").key === "filterCutoff" && (defaultAutoParam("matrixFm") !== null && defaultAutoParam("matrixFm") !== null), "[auto] patch/macro voice gets the universal cutoff")
+
+  // Linear norm/denorm round-trips.
+  assert.ok(Math.abs(autoNorm(0.5, 0, 1, false) - 0.5) < 1e-9, "[auto] linear norm 0.5 of 0..1")
+  assert.ok(Math.abs(autoDenorm(autoNorm(0.3, 0, 1, false), 0, 1, false) - 0.3) < 1e-9, "[auto] linear denorm round-trip")
+  // Log mapping: midpoint of 150..9000 (log) is the geometric mean (~1162), NOT the arithmetic mean.
+  let logMid = autoDenorm(0.5, 150, 9000, true)
+  assert.ok(Math.abs(logMid - Math.sqrt(150 * 9000)) < 1, "[auto] log midpoint ≈ geometric mean")
+  assert.ok(Math.abs(autoDenorm(autoNorm(2200, 150, 9000, true), 150, 9000, true) - 2200) < 1, "[auto] log denorm round-trip")
+  assert.ok(autoNorm(99999, 150, 9000, true) === 1 && autoNorm(1, 150, 9000, true) === 0, "[auto] norm clamps out-of-range")
+
+  // Emit a 16-point cutoff curve through the edit door → apply → it lands as a paramAutomation + plays back.
+  let auP = loadDefaultDeckardProject().project
+  let auCh = auP.channels[0]
+  let curve = []
+  let ci2 = 0
+  while (ci2 < 16) {
+    curve.push(500 + ci2 * 200)
+    ci2 = ci2 + 1
+  }
+  let auFrag = fragmentForEdit(auP, "auto/" + auCh.id + "/cutoff", curve)
+  assert.ok(auFrag.indexOf("auto " + auCh.id + " gen cutoff") === 0, "[auto] fragment is an `auto … gen cutoff` block")
+  assert.ok(auFrag.indexOf("\n  0.25 700") >= 0, "[auto] fragment has a point at beat 0.25")
+  let auP2 = loadDefaultDeckardProject().project
+  applyTplSource(auP2, "deck 1\n" + auFrag + "\n")
+  let auPts = channelAutoPoints(auP2, auCh.id, "cutoff")
+  assert.ok((auPts !== null) && auPts.length === 16, "[auto] applied as a paramAutomation (16 points)")
+  let auCh2 = findChannelById(auP2, auCh.id)
+  let gAt0 = generatorChannelAtBeat(auP2, auCh2, 0)
+  let gAt1 = generatorChannelAtBeat(auP2, auCh2, 0.25)
+  assert.ok(Math.abs(gAt0.generatorParams.cutoff - 500) < 1e-6, "[auto] playback reads the curve at beat 0 (=500)")
+  assert.ok(Math.abs(gAt1.generatorParams.cutoff - 700) < 1e-6, "[auto] playback reads the curve at beat 0.25 (=700)")
+
+  // autoLaneValues reads it back as 16 step-aligned values (and is flat at the current value when no automation).
+  let auVals = autoLaneValues(auP2, auCh2, "cutoff")
+  assert.ok(auVals.length === 16 && Math.abs(auVals[1] - 700) < 1e-6, "[auto] autoLaneValues reads 16 values back")
+  let auFlat = autoLaneValues(loadDefaultDeckardProject().project, auCh, "cutoff")
+  assert.ok(auFlat.length === 16 && auFlat[0] === auFlat[15], "[auto] autoLaneValues flat (all equal) when no automation")
+
+  // Round-trips through emitProject (the auto block survives a full serialize→reapply).
+  let auEmit = emitProject(auP2)
+  assert.ok(auEmit.indexOf("auto " + auCh.id + " gen cutoff") >= 0, "[auto] emitProject includes the auto block")
+  let auP3 = loadDefaultDeckardProject().project
+  applyTplSource(auP3, auEmit)
+  assert.ok(channelAutoPoints(auP3, auCh.id, "cutoff") !== null && channelAutoPoints(auP3, auCh.id, "cutoff") !== null, "[auto] auto curve survives a full round-trip")
+
+  // ---- UNIVERSAL channel filter cutoff automation (works on ALL voices incl. patch/deck) ----
+  let fcP = loadDefaultDeckardProject().project
+  let fcCh = fcP.channels[0]
+  // author a cutoff ramp through the filterCutoff edit door
+  let fcCurve = []
+  let fcix = 0
+  while (fcix < 16) {
+    fcCurve.push(300 + fcix * 400)
+    fcix = fcix + 1
+  }
+  let fcFrag = fragmentForEdit(fcP, "auto/" + fcCh.id + "/filterCutoff", fcCurve)
+  assert.ok(fcFrag.indexOf("auto " + fcCh.id + " gen filter_cutoff") === 0, "[autofilt] door emits `auto … gen filter_cutoff`")
+  let fcP2 = loadDefaultDeckardProject().project
+  applyTplSource(fcP2, "deck 1\n" + fcFrag + "\n")
+  let fcPts = channelAutoPoints(fcP2, fcCh.id, "filterCutoff")
+  assert.ok((fcPts !== null) && fcPts.length === 16, "[autofilt] applies as a paramAutomation (param=filterCutoff, 16 pts)")
+  // the scheduler apply writes the channel filter node at the given beat (when=null → immediate .value)
+  let fakeFreq = { value: 0, setValueAtTime: (v, t) => {} }
+  let fakeStore = { buses: [{ filterNode: { frequency: fakeFreq } }] }
+  applyChannelFilterAutomation(fcP2, fakeStore, 0.25, null)
+  assert.ok(Math.abs(fakeFreq.value - 700) < 1e-6, "[autofilt] scheduler sets the channel filter at beat 0.25 (=700)")
+  // a non-automated channel is left untouched
+  let fakeFreq2 = { value: 1234, setValueAtTime: (v, t) => {} }
+  let fcClean = loadDefaultDeckardProject().project
+  applyChannelFilterAutomation(fcClean, { buses: [{ filterNode: { frequency: fakeFreq2 } }] }, 0.5, null)
+  assert.ok(fakeFreq2.value === 1234, "[autofilt] no automation → filter node untouched")
+
+  // ===================================================================================================
+  // PROJECTIONAL step toggle — a 1-bar grid click goes through the pattern door (broadcasts + round-trips),
+  // flipping ONLY the clicked step and preserving every other step's on/off + locks. Mirrors emitStepToggle.
+  // ===================================================================================================
+  console.log("")
+  console.log("=== Projectional step toggle ===")
+
+  let tgP = loadDefaultDeckardProject().project
+  let tgCh = tgP.channels[0]
+  // seed a known pattern + a couple of locks so we can prove they survive a toggle elsewhere.
+  tgCh.steps[0].on = true
+  tgCh.steps[0].vel = 111
+  tgCh.steps[2].on = true
+  tgCh.steps[2].prob = 0.5
+  tgCh.steps[5].on = false
+  fn buildToggleArr(ch, idx, forceOff) {
+    let arr = []
+    let i = 0
+    while (i < ch.steps.length) {
+      let s = ch.steps[i]
+      arr.push({ on: s.on === true, vel: (s.vel !== null) ? s.vel : 100, prob: (s.prob !== null) ? s.prob : 1, ratchet: (s.ratchet !== null) ? s.ratchet : 1, nudge: (s.nudge !== null) ? s.nudge : 0 })
+      i = i + 1
+    }
+    arr[idx].on = forceOff ? false : !(arr[idx].on === true)
+    return arr
+  }
+  // Toggle step 5 ON via the door.
+  let tgFrag = fragmentForEdit(tgP, "track/" + tgCh.id + "/pattern", buildToggleArr(tgCh, 5, false))
+  let tgP2 = loadDefaultDeckardProject().project
+  let tgC0 = tgP2.channels[0]
+  tgC0.steps[0].on = true
+  tgC0.steps[0].vel = 111
+  tgC0.steps[2].on = true
+  tgC0.steps[2].prob = 0.5
+  applyTplSource(tgP2, "deck 1\n" + tgFrag + "\n")
+  let tgAfter = findChannelById(tgP2, tgCh.id)
+  assert.ok(tgAfter.steps[5].on === true, "[toggle] clicked step flips on (step 5)")
+  assert.ok(tgAfter.steps[0].on === true, "[toggle] other steps unchanged (step 0 still on)")
+  assert.ok(tgAfter.steps[0].vel === 111, "[toggle] velocity lock preserved (step 0 = 111)")
+  assert.ok(Math.abs(tgAfter.steps[2].prob - 0.5) < 1e-6, "[toggle] probability lock preserved (step 2 = 0.5)")
+  // Right-click clear forces off even if already off (idempotent).
+  let tgClr = fragmentForEdit(tgP, "track/" + tgCh.id + "/pattern", buildToggleArr(tgCh, 0, true))
+  let tgP3 = loadDefaultDeckardProject().project
+  applyTplSource(tgP3, "deck 1\n" + tgClr + "\n")
+  assert.ok(findChannelById(tgP3, tgCh.id).steps[0].on === false, "[toggle] clear forces a step off")
+
+  // MULTI-BAR: a bar-1 pattern edit (what the paint-drag emits after a deck load bumps gridBars) must preserve
+  // bars 2+. This is why the paint-drag is gated on absStep<16, NOT on nbars<=1 (which broke paint after a deck load).
+  let mbP = emptyProjectShell()
+  applyTplSource(mbP, "deck 1\ntrack D id mb_d gen basic_osc * 2\n  steps x . . . . . . . . . . . . . . .\n")
+  let mbCh = findChannelById(mbP, "mb_d")
+  while (mbCh.steps.length < 32) {
+    mbCh.steps.push({ on: false, vel: 100, prob: 1, ratchet: 1, nudge: 0 })
+  }
+  mbCh.steps[16].on = true
+  mbCh.patternBars = 2
+  let mbArr = []
+  let mbi = 0
+  while (mbi < mbCh.steps.length) {
+    let s = mbCh.steps[mbi]
+    mbArr.push({ on: s.on === true, vel: s.vel, prob: s.prob, ratchet: s.ratchet, nudge: s.nudge })
+    mbi = mbi + 1
+  }
+  mbArr[4].on = true
+  applyTplSource(mbP, "deck 1\n" + fragmentForEdit(mbP, "track/mb_d/pattern", mbArr) + "\n")
+  let mbAfter = findChannelById(mbP, "mb_d")
+  assert.ok(mbAfter.steps[4].on === true, "[toggle] multi-bar: bar-1 edit applies (step 4 on)")
+  assert.ok(mbAfter.steps.length === 32 && mbAfter.steps[16].on === true && mbAfter.patternBars === 2, "[toggle] multi-bar: bar-1 edit PRESERVES bar 2 (step 16 still on, 32 steps)")
+
+  // ===================================================================================================
+  // PER-NOTE LOCKS on piano-roll notes — model clone, inline grammar round-trip, seeded player gate, the
+  // track/<id>/notes edit door.
+  // ===================================================================================================
+  console.log("")
+  console.log("=== Piano-note parameter locks ===")
+
+  // clonePianoNote carries the locks (and defaults legacy notes).
+  let pnClone = clonePianoNote({ startBeat: 1, durBeats: 0.5, pitch: 64, vel: 90, prob: 0.5, ratchet: 3, nudge: 0.25 })
+  assert.ok(pnClone.prob === 0.5 && pnClone.ratchet === 3 && Math.abs(pnClone.nudge - 0.25) < 1e-9 && pnClone.vel === 90, "[pnote] clonePianoNote preserves locks")
+  let pnLegacy = clonePianoNote({ startBeat: 0, durBeats: 0.25, pitch: 60, vel: 100 })
+  assert.ok(pnLegacy.prob === 1 && pnLegacy.ratchet === 1 && pnLegacy.nudge === 0, "[pnote] clonePianoNote defaults legacy notes (1/1/0)")
+
+  // Grammar: parse the inline p/r/n tokens.
+  let pnP = emptyProjectShell()
+  pnP.bpm = 120
+  applyTplSource(pnP, "deck 1\ntrack Lead id pn_lead gen basic_osc\n  note 60 0 0.5 v 90 p 0.5 r 3 n 0.25\n  note 64 1 0.5 v 100\n")
+  let pnCh = pnP.channels[0]
+  assert.ok(pnCh.pianoNotes[0].prob === 0.5 && pnCh.pianoNotes[0].ratchet === 3 && Math.abs(pnCh.pianoNotes[0].nudge - 0.25) < 1e-6, "[pnote] parse: note 0 carries prob/ratchet/nudge")
+  assert.ok(pnCh.pianoNotes[1].prob === 1 && pnCh.pianoNotes[1].ratchet === 1 && pnCh.pianoNotes[1].nudge === 0, "[pnote] parse: plain note defaults (1/1/0)")
+
+  // Emit: locks ride inline only when non-default; plain note stays bare.
+  let pnTpl = emitProject(pnP)
+  assert.ok(pnTpl.indexOf("v 90 p 0.5 r 3 n 0.25") >= 0, "[pnote] emit writes inline locks (p 0.5 r 3 n 0.25)")
+  assert.ok(pnTpl.indexOf("note 64 1 0.5 v 100\n") >= 0, "[pnote] emit leaves a default note bare (no p/r/n)")
+  assert.ok(noteLine({ pitch: 60, startBeat: 0, durBeats: 0.25, vel: 100, prob: 1, ratchet: 1, nudge: 0 }).indexOf(" p ") < 0, "[pnote] noteLine helper omits defaults")
+  // Round-trip: re-apply keeps the locks.
+  let pnP2 = emptyProjectShell()
+  applyTplSource(pnP2, pnTpl)
+  assert.ok(pnP2.channels[0].pianoNotes[0].prob === 0.5 && pnP2.channels[0].pianoNotes[0].ratchet === 3, "[pnote] round-trips the locks")
+  assert.ok(emitProject(pnP2) === pnTpl, "[pnote] emit is stable across round-trip")
+
+  // Player: the piano branch honors prob/ratchet/nudge (seeded so peers agree).
+  let pnSeqRt = { playMode: "sequence" }
+  let pnStepSec = 60 / 120 / 4
+  // ratchet 4 at step 0 → 4 sub-hits, evenly spaced by sec/4 (note dur 0.5 beat = 0.25s; /4 = 0.0625s).
+  let pnRat = emptyProjectShell()
+  pnRat.bpm = 120
+  applyTplSource(pnRat, "deck 1\ntrack R id pn_rat gen basic_osc\n  note 60 0 0.5 v 100 r 4\n")
+  let pnRatTrig = stepTriggers(pnRat, pnSeqRt, 0)
+  assert.ok(pnRatTrig.length === 4, "[pnote] player: ratchet 4 → 4 sub-hits")
+  let pnNoteSec = (0.5 * 60) / 120
+  let pnRatOk = pnRatTrig.length === 4
+  let pri = 0
+  while (pri < pnRatTrig.length) {
+    if (Math.abs(pnRatTrig[pri].noteOffset - (pri * pnNoteSec / 4)) > 1e-6) {
+      pnRatOk = false
+    }
+    pri = pri + 1
+  }
+  assert.ok(pnRatOk, "[pnote] player: ratchet sub-hits evenly spaced over the note")
+  // nudge 0.25 → offset shifts by stepSec/4.
+  let pnNud = emptyProjectShell()
+  pnNud.bpm = 120
+  applyTplSource(pnNud, "deck 1\ntrack N id pn_nud gen basic_osc\n  note 60 0 0.5 v 100 n 0.25\n")
+  let pnNudTrig = stepTriggers(pnNud, pnSeqRt, 0)
+  assert.ok(pnNudTrig.length === 1 && Math.abs(pnNudTrig[0].noteOffset - pnStepSec * 0.25) < 1e-6, "[pnote] player: nudge shifts by stepSec/4")
+  // prob 0 → never fires (seeded gate); prob 1 → always.
+  let pnPrb = emptyProjectShell()
+  pnPrb.bpm = 120
+  applyTplSource(pnPrb, "deck 1\ntrack P id pn_prb gen basic_osc\n  note 60 0 0.5 v 100 p 0\n")
+  let pnNeverFired = false
+  let pnb = 0
+  while (pnb < 16) {
+    if (stepTriggers(pnPrb, pnSeqRt, pnb * 16).length > 0) {
+      pnNeverFired = true
+    }
+    pnb = pnb + 1
+  }
+  assert.ok(!pnNeverFired, "[pnote] player: prob 0 note never fires")
+
+  // Edit door: track/<id>/notes re-emits the whole note array (broadcasts + round-trips).
+  let pnEdP = emptyProjectShell()
+  applyTplSource(pnEdP, "deck 1\ntrack L id pn_ed gen basic_osc\n  note 60 0 0.25 v 100\n  note 62 1 0.25 v 100\n")
+  let pnEdCh = pnEdP.channels[0]
+  // build the cloned array with note 0's prob set (what emitNoteLock does)
+  let pnArr = []
+  let pae = 0
+  while (pae < pnEdCh.pianoNotes.length) {
+    let nn = pnEdCh.pianoNotes[pae]
+    pnArr.push({ startBeat: nn.startBeat, durBeats: nn.durBeats, pitch: nn.pitch, vel: nn.vel, prob: pae === 0 ? 0.25 : 1, ratchet: 1, nudge: 0 })
+    pae = pae + 1
+  }
+  let pnFrag = fragmentForEdit(pnEdP, "track/" + pnEdCh.id + "/notes", pnArr)
+  assert.ok(pnFrag.indexOf("note 60 0 0.25 v 100 p 0.25") >= 0 && pnFrag.indexOf("note 62 1 0.25 v 100") >= 0, "[pnote] notes fragment has both note lines")
+  let pnEdP2 = emptyProjectShell()
+  applyTplSource(pnEdP2, "deck 1\n" + pnFrag + "\n")
+  let pnEdCh2 = findChannelById(pnEdP2, pnEdCh.id)
+  assert.ok(pnEdCh2.pianoNotes.length === 2 && Math.abs(pnEdCh2.pianoNotes[0].prob - 0.25) < 1e-6, "[pnote] notes door round-trips (note 0 prob 0.25, both notes kept)")
+
+  // DELETE the LAST note: the notes door emits an EMPTY array → `notes_clear` → apply must clear pianoNotes
+  // (an empty note set otherwise reads as a mix-only edit that leaves notes intact). Critical bug from review.
+  let pnDelP = emptyProjectShell()
+  applyTplSource(pnDelP, "deck 1\ntrack One id pn_del gen basic_osc\n  note 60 0 0.25 v 100\n")
+  let pnDelCh = pnDelP.channels[0]
+  assert.ok(pnDelCh.pianoNotes.length === 1, "[pnote] setup: one note present")
+  let pnDelFrag = fragmentForEdit(pnDelP, "track/" + pnDelCh.id + "/notes", [])
+  assert.ok(pnDelFrag.indexOf("notes_clear") >= 0, "[pnote] empty notes fragment emits notes_clear")
+  applyTplSource(pnDelP, "deck 1\n" + pnDelFrag + "\n")
+  assert.ok(findChannelById(pnDelP, pnDelCh.id).pianoNotes.length === 0, "[pnote] delete last note actually clears pianoNotes")
+  // A mix-only edit (no note lines, NO notes_clear) must NOT wipe existing notes.
+  let pnKeepP = emptyProjectShell()
+  applyTplSource(pnKeepP, "deck 1\ntrack Two id pn_keep gen basic_osc\n  note 60 0 0.25 v 100\n")
+  applyTplSource(pnKeepP, "deck 1\ntrack Two id pn_keep gen basic_osc\n  mix gain 0.5\n")
+  assert.ok(findChannelById(pnKeepP, "pn_keep").pianoNotes.length === 1, "[pnote] a mix-only edit leaves notes intact (no accidental wipe)")
+
+  console.log("")
+})

@@ -18,7 +18,7 @@ fn fmtVal(v, step) {
     return String(Math.round(v))
   }
   let decs = 0
-  if (step !== null && step !== undefined && step % 1 !== 0) {
+  if (step !== null && step % 1 !== 0) {
     let strStep = String(step)
     let parts = strStep.split(".")
     if (parts.length > 1) {

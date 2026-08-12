@@ -34,11 +34,11 @@ fn aetherClamp01(x) {
 
 export fn playAether(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let p = ch.generatorParams ? ch.generatorParams : {}
-  let glide = aetherClamp01(p.glide !== null && p.glide !== undefined ? p.glide : 0.4)
-  let waver = aetherClamp01(p.waver !== null && p.waver !== undefined ? p.waver : 0.5)
-  let tone = aetherClamp01(p.tone !== null && p.tone !== undefined ? p.tone : 0.3)
-  let swell = aetherClamp01(p.swell !== null && p.swell !== undefined ? p.swell : 0.45)
-  let air = aetherClamp01(p.air !== null && p.air !== undefined ? p.air : 0.25)
+  let glide = aetherClamp01(p.glide !== null ? p.glide : 0.4)
+  let waver = aetherClamp01(p.waver !== null ? p.waver : 0.5)
+  let tone = aetherClamp01(p.tone !== null ? p.tone : 0.3)
+  let swell = aetherClamp01(p.swell !== null ? p.swell : 0.45)
+  let air = aetherClamp01(p.air !== null ? p.air : 0.25)
 
   let hz = midiToHz(midi + bendSemis)
   if (hz < 8) { hz = 8 }

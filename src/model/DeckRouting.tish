@@ -65,7 +65,7 @@ export fn channelPlayerIndex(project, ch) {
   // SOLO / pre-session: no shared roster, so an explicit deck slot (loadDeckSet / manual deck handoff) is the
   // canonical assignment; otherwise the local lane decides (Deck A = local, anything else = Deck B).
   if (!Array.isArray(players) || players.length <= 1) {
-    if (ch.deckSlot !== null && ch.deckSlot !== undefined) {
+    if (ch.deckSlot !== null) {
       let s = Math.floor(Number(ch.deckSlot))
       if (s >= 0 && s <= 3 && s === s) {
         return s
@@ -80,7 +80,7 @@ export fn channelPlayerIndex(project, ch) {
   // Unclaimed / host-owned tracks live on the HOST's deck on EVERY client — NOT the local viewer's. (The
   // old code remapped "human" → coDjSelfActorId, which made the SAME channel a different colour per client.
   // Ownership/order is canonical; the viewer is irrelevant.)
-  if (owner === "human" && project.coDjHostActorId !== null && project.coDjHostActorId !== undefined && project.coDjHostActorId !== "") {
+  if (owner === "human" && project.coDjHostActorId !== null && project.coDjHostActorId !== "") {
     owner = String(project.coDjHostActorId)
   }
   let oi = -1
@@ -100,7 +100,7 @@ export fn channelPlayerIndex(project, ch) {
   if (oi === 0) {
     // Host / unclaimed: the host may legitimately stage content across decks B/C/D (loadDeckSet, pre-handoff,
     // before the Merge-to-Deck-A prompt), so honour an explicit deck slot here.
-    if (ch.deckSlot !== null && ch.deckSlot !== undefined) {
+    if (ch.deckSlot !== null) {
       let s = Math.floor(Number(ch.deckSlot))
       if (s >= 0 && s <= 3 && s === s) {
         return s
@@ -153,7 +153,7 @@ export fn channelDeckRow(project, ch) {
 // (EQ bands -12..12 dB, FLT -1..1, vol 0..1). Pure data write — the receiver recomputes the per-channel eq via
 // applyDeckEq afterward. Shared by applyParsed (snapshot load) and applyCoDjTplSource (deck.put / incremental).
 export fn applyDeckMixParsed(project, deckMix) {
-  if (!project || deckMix === null || deckMix === undefined) {
+  if (!project || deckMix === null) {
     return
   }
   if (!project.deckEq) {
@@ -164,7 +164,7 @@ export fn applyDeckMixParsed(project, deckMix) {
   while (i < decks.length) {
     let dk = decks[i]
     let src = deckMix[dk]
-    if (src !== null && src !== undefined) {
+    if (src !== null) {
       let de = project.deckEq[dk]
       if (!de) {
         de = { hi: 0, mid: 0, lo: 0, flt: 0, vol: 1 }

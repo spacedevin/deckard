@@ -37,11 +37,11 @@ let mfmCableListenersWired = false
 
 fn drawMfmCables() {
   mfmCableDrawPending = false
-  if (typeof globalThis === "undefined" || (globalThis.document === null || globalThis.document === undefined)) { return }
+  if (typeof globalThis === "undefined" || (globalThis.document === null)) { return }
   let doc = globalThis.document
   let host = doc.getElementById("mfm-cable-host")
   let svg = doc.getElementById("mfm-cables")
-  if ((host === null || host === undefined) || (svg === null || svg === undefined)) { return }
+  if ((host === null) || (svg === null)) { return }
   let hr = host.getBoundingClientRect()
   let parts = ""
   // Draw routing cables (op/filter → filter/out)
@@ -54,7 +54,7 @@ fn drawMfmCables() {
     let dstElId = dk === "out" ? "mfm-sink-out" : "mfm-flt-" + rt.dstId
     let srcEl = doc.getElementById(srcElId)
     let dstEl = doc.getElementById(dstElId)
-    if (srcEl !== null && srcEl !== undefined && dstEl !== null && dstEl !== undefined) {
+    if (srcEl !== null && dstEl !== null) {
       let sr = srcEl.getBoundingClientRect()
       let dr = dstEl.getBoundingClientRect()
       let x1 = sr.right - hr.left
@@ -72,7 +72,7 @@ fn drawMfmCables() {
     let mm = mfmCableModMatrix[mi]
     let srcEl = doc.getElementById("mfm-op-" + mm.src)
     let dstEl = doc.getElementById("mfm-op-" + mm.dst)
-    if (srcEl !== null && srcEl !== undefined && dstEl !== null && dstEl !== undefined) {
+    if (srcEl !== null && dstEl !== null) {
       let sr = srcEl.getBoundingClientRect()
       let dr = dstEl.getBoundingClientRect()
       let x1 = sr.right - hr.left
@@ -101,7 +101,7 @@ fn wireMfmCableListeners() {
   mfmCableListenersWired = true
   globalThis.addEventListener("resize", scheduleMfmCableDraw)
   globalThis.addEventListener("scroll", scheduleMfmCableDraw, true)
-  if (globalThis.document !== null && globalThis.document !== undefined && typeof globalThis.document.addEventListener === "function") {
+  if (globalThis.document !== null && typeof globalThis.document.addEventListener === "function") {
     globalThis.document.addEventListener("visibilitychange", scheduleMfmCableDraw)
   }
 }
@@ -303,10 +303,10 @@ fn matrixFlowStrip(g, opIds, filterIds, reachOut, filterReach) {
   let mi = 0
   while (mi < mods.length) {
     let md = mods[mi]
-    let amt = md.amount !== null && md.amount !== undefined ? md.amount : 0
+    let amt = md.amount !== null ? md.amount : 0
     let sx = nodeX["op:" + md.src]
     let dx = nodeX["op:" + md.dst]
-    if (amt > 0.0001 && sx !== null && sx !== undefined && dx !== null && dx !== undefined && md.src !== md.dst) {
+    if (amt > 0.0001 && sx !== null && dx !== null && md.src !== md.dst) {
       let x1 = sx + boxW / 2
       let x2 = dx + boxW / 2
       let lift = 18 + Math.abs(x2 - x1) * 0.16
@@ -325,7 +325,7 @@ fn matrixFlowStrip(g, opIds, filterIds, reachOut, filterReach) {
     let r = routes[ri]
     let sKey = (r.srcKind === "filter" ? "f:" : "op:") + r.srcId
     let dKey = r.dstKind === "out" ? "out" : ("f:" + r.dstId)
-    if (nodeX[sKey] !== null && nodeX[sKey] !== undefined && nodeX[dKey] !== null && nodeX[dKey] !== undefined) {
+    if (nodeX[sKey] !== null && nodeX[dKey] !== null) {
       let x1 = nodeX[sKey] + boxW / 2
       let x2 = nodeX[dKey] + boxW / 2
       let dip = 16 + Math.abs(x2 - x1) * 0.1
@@ -416,14 +416,14 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
   // Unique per-gesture coalesce token (on rt, shared with the patch editor) → each gesture is its OWN undo step
   // (not one giant per-channel step).
   fn nextGenToken() {
-    if ((rt === null || rt === undefined)) {
+    if ((rt === null)) {
       return "0"
     }
-    rt._genTokenSeq = (rt._genTokenSeq !== null && rt._genTokenSeq !== undefined ? rt._genTokenSeq : 0) + 1
+    rt._genTokenSeq = (rt._genTokenSeq !== null ? rt._genTokenSeq : 0) + 1
     return String(rt._genTokenSeq)
   }
   fn broadcastFor(chId, inv) {
-    if ((rt === null || rt === undefined)) {
+    if ((rt === null)) {
       return
     }
     let fwd = emitInstrumentModuleTpl(project, chId, "gen")
@@ -439,17 +439,17 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
   // silently cancel another's. If a DIFFERENT edit is already pending on this channel, flush it first rather
   // than drop it. Within one drag every commit shares the frozen snapshot, so prev.inv === inv → just re-defer.
   fn scheduleBroadcast(chId, inv) {
-    if ((rt === null || rt === undefined) || typeof setTimeout === "undefined") {
+    if ((rt === null) || typeof setTimeout === "undefined") {
       if (tplMirrorFlush) {
         tplMirrorFlush()
       }
       return
     }
-    if ((rt._mtxPending === null || rt._mtxPending === undefined)) {
+    if ((rt._mtxPending === null)) {
       rt._mtxPending = {}
     }
     let prev = rt._mtxPending[chId]
-    if (prev !== null && prev !== undefined && prev.timer !== null && prev.timer !== undefined) {
+    if (prev !== null && prev.timer !== null) {
       clearTimeout(prev.timer)
       if (prev.inv !== inv) {
         broadcastFor(chId, prev.inv)
@@ -470,13 +470,13 @@ export fn MatrixFmPanel(ch, project, setProject, tplMirrorFlush, mayEdit, rt) {
       return
     }
     // Capture the inverse (pre-edit block) synchronously, BEFORE setProject re-syncs the snapshot.
-    let inv = (rt !== null && rt !== undefined && rt._genSnap !== null && rt._genSnap !== undefined) ? rt._genSnap[ch.id] : null
+    let inv = (rt !== null && rt._genSnap !== null) ? rt._genSnap[ch.id] : null
     syncMatrixFmSpecFromGraph(spec)
     setProject(project)
     scheduleBroadcast(ch.id, inv)
   }
   let mfmOwner = "another player"
-  if (project.coDjMeta && project.coDjMeta.tracks && project.coDjMeta.tracks[ch.id] && project.coDjMeta.tracks[ch.id].ownerActorId !== null && project.coDjMeta.tracks[ch.id].ownerActorId !== undefined) {
+  if (project.coDjMeta && project.coDjMeta.tracks && project.coDjMeta.tracks[ch.id] && project.coDjMeta.tracks[ch.id].ownerActorId !== null) {
     mfmOwner = String(project.coDjMeta.tracks[ch.id].ownerActorId)
   }
 

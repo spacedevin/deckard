@@ -1,9 +1,9 @@
 export fn playCymbal(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let gp = ch.generatorParams ? ch.generatorParams : {}
-  let tune = (gp.tune !== null && gp.tune !== undefined) ? gp.tune : 300
-  let metallic = (gp.metallic !== null && gp.metallic !== undefined) ? gp.metallic : 0.8
-  let decay = (gp.decay !== null && gp.decay !== undefined) ? gp.decay : 0.4
-  let highpass = (gp.highpass !== null && gp.highpass !== undefined) ? gp.highpass : 7000
+  let tune = (gp.tune !== null) ? gp.tune : 300
+  let metallic = (gp.metallic !== null) ? gp.metallic : 0.8
+  let decay = (gp.decay !== null) ? gp.decay : 0.4
+  let highpass = (gp.highpass !== null) ? gp.highpass : 7000
 
   let v = vel / 127
   if (v < 0) v = 0

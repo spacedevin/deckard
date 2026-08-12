@@ -54,14 +54,14 @@ fn clapBurst(ctx, bus, noiseBuf, when, center, q, hp, level, decaySec) {
 
 export fn playClap(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let p = ch.generatorParams ? ch.generatorParams : {}
-  let hands = clapClampInt(p.hands !== null && p.hands !== undefined ? p.hands : 3, 1, 12)
-  let spread = clapClamp01(p.spread !== null && p.spread !== undefined ? p.spread : 0.4)
-  let size = clapClamp01(p.size !== null && p.size !== undefined ? p.size : 0.5)
-  let tone = clapClamp01(p.tone !== null && p.tone !== undefined ? p.tone : 0.5)
-  let claps = clapClampInt(p.claps !== null && p.claps !== undefined ? p.claps : 1, 1, 4)
-  let gap = clapClamp01(p.gap !== null && p.gap !== undefined ? p.gap : 0.35)
-  let tail = clapClamp01(p.tail !== null && p.tail !== undefined ? p.tail : 0.4)
-  let body = clapClamp01(p.body !== null && p.body !== undefined ? p.body : 0.2)
+  let hands = clapClampInt(p.hands !== null ? p.hands : 3, 1, 12)
+  let spread = clapClamp01(p.spread !== null ? p.spread : 0.4)
+  let size = clapClamp01(p.size !== null ? p.size : 0.5)
+  let tone = clapClamp01(p.tone !== null ? p.tone : 0.5)
+  let claps = clapClampInt(p.claps !== null ? p.claps : 1, 1, 4)
+  let gap = clapClamp01(p.gap !== null ? p.gap : 0.35)
+  let tail = clapClamp01(p.tail !== null ? p.tail : 0.4)
+  let body = clapClamp01(p.body !== null ? p.body : 0.2)
   let v = vel / 127
   if (v < 0) { v = 0 }
   if (v > 1) { v = 1 }

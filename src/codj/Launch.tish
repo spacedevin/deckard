@@ -33,7 +33,7 @@ export fn launchSceneDirective(sceneIdx) {
 
 export fn launchClipDirective(trackId, clipId) {
   let cid = clipId
-  if (cid === null || cid === undefined || cid === "") {
+  if (cid === null || cid === "") {
     cid = "-"
   }
   return "@ launch clip " + String(trackId) + " " + String(cid)
@@ -68,7 +68,7 @@ export fn cueDirective(target) {
 
 /** Commit your cue to the SHARED main (optionally a specific scene). Master/owner gated. */
 export fn throwDirective(sceneIdx) {
-  if (sceneIdx === null || sceneIdx === undefined) {
+  if (sceneIdx === null) {
     return "@ throw"
   }
   return "@ throw " + String(Math.floor(Number(sceneIdx)))
@@ -132,7 +132,7 @@ export fn isLaunchDirective(line) {
 /** A PRIVATE directive must never leave this machine (cue/preview are local-only). Used by the
  *  broadcast tap (step 5/6) to drop these from the out stream. */
 export fn isPrivateDirective(line) {
-  if (line === null || line === undefined) {
+  if (line === null) {
     return false
   }
   let verb = directiveVerb(line)
@@ -227,7 +227,7 @@ export fn applyLaunchDirective(project, rt, line, actorId, skillIds) {
     if (clipId === "-" || clipId === ".") {
       // Release: this track follows the current song scene again.
       rt.trackOverrides[tix] = null
-      let scene = rt.songScene !== null && rt.songScene !== undefined ? rt.songScene : (rt.sessionActiveScene !== null && rt.sessionActiveScene !== undefined ? rt.sessionActiveScene : 0)
+      let scene = rt.songScene !== null ? rt.songScene : (rt.sessionActiveScene !== null ? rt.sessionActiveScene : 0)
       rt.sessionArmedClipIds[tix] = sceneSlotClipId(project, scene, tix)
       return true
     }
@@ -283,7 +283,7 @@ export fn applyLaunchDirective(project, rt, line, actorId, skillIds) {
     if (!laneCanMaster(actorId, skillIds)) {
       return true
     }
-    let scene = toks.length >= 3 ? Math.floor(Number(toks[2])) : (rt.cueScene !== null && rt.cueScene !== undefined ? Math.floor(Number(rt.cueScene)) : -1)
+    let scene = toks.length >= 3 ? Math.floor(Number(toks[2])) : (rt.cueScene !== null ? Math.floor(Number(rt.cueScene)) : -1)
     let sc2 = Math.floor(Number(project.session.sceneCount))
     if (scene >= 0 && scene < sc2 && scene === scene && rt.onThrowScene) {
       rt.onThrowScene(scene)
@@ -345,7 +345,7 @@ export fn applyLaunchDirective(project, rt, line, actorId, skillIds) {
  * project lines (returned for the normal master-gated project merge). Returns the leftover source.
  */
 export fn applyLaunchLinesFromSource(project, rt, source, actorId, skillIds) {
-  if (source === null || source === undefined) {
+  if (source === null) {
     return ""
   }
   let lines = String(source).split("\n")

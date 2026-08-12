@@ -44,7 +44,7 @@ export fn CodeDebugView(project, setProject, tplText, setTplText, rt, dock) {
           cur = rt.tplTextarea.value
         }
       }
-      if (cur === null || cur === undefined) {
+      if (cur === null) {
         cur = ""
       }
       if (cur.length > 0 && !cur.endsWith("\n")) {
@@ -101,7 +101,7 @@ export fn CodeDebugView(project, setProject, tplText, setTplText, rt, dock) {
     if (rt && rt.tplTextarea) {
       return rt.tplTextarea.value
     }
-    if (tplText === null || tplText === undefined) {
+    if (tplText === null) {
       return ""
     }
     return tplText
@@ -286,7 +286,7 @@ export fn CodeDebugView(project, setProject, tplText, setTplText, rt, dock) {
           {"Sync from project"}
         </button>
       </div>
-      {tplErr !== null && tplErr !== undefined && tplErr.length > 0 ? <pre class="code-debug-errors">{tplErr}</pre> : null}
+      {tplErr !== null && tplErr.length > 0 ? <pre class="code-debug-errors">{tplErr}</pre> : null}
     </section>
   )
 }

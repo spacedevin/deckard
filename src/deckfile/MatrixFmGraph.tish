@@ -54,18 +54,18 @@ fn parseEnvSegment(toks, start) {
 fn normalizeOpDef(raw) {
   let w = raw.wave ? String(raw.wave).toLowerCase() : "sine"
   if (w === "noise") {
-    return { wave: "noise", ratio: raw.ratio !== null && raw.ratio !== undefined ? raw.ratio : 1 }
+    return { wave: "noise", ratio: raw.ratio !== null ? raw.ratio : 1 }
   }
   return {
     wave: (w ? String(w).toLowerCase() : "sine"),
-    ratio: raw.ratio !== null && raw.ratio !== undefined && raw.ratio > 0 ? raw.ratio : 1
+    ratio: raw.ratio !== null && raw.ratio > 0 ? raw.ratio : 1
   }
 }
 
 fn normalizeFilterDef(raw) {
   let t = raw.type ? String(raw.type).toLowerCase() : "lp12"
-  let co = raw.cutoff !== null && raw.cutoff !== undefined ? raw.cutoff : 8000
-  let rq = raw.res !== null && raw.res !== undefined ? raw.res : raw.q !== null && raw.q !== undefined ? raw.q : 0.7
+  let co = raw.cutoff !== null ? raw.cutoff : 8000
+  let rq = raw.res !== null ? raw.res : raw.q !== null ? raw.q : 0.7
   return { type: t, cutoff: co, res: rq }
 }
 
@@ -195,20 +195,20 @@ fn envOpLine(oid, e) {
   if (!e) {
     return ""
   }
-  if ((e.a === null || e.a === undefined) && (e.d === null || e.d === undefined) && (e.s === null || e.s === undefined) && (e.r === null || e.r === undefined)) {
+  if ((e.a === null) && (e.d === null) && (e.s === null) && (e.r === null)) {
     return ""
   }
   let s = "env op " + oid
-  if (e.a !== null && e.a !== undefined) {
+  if (e.a !== null) {
     s = s + " a " + formatTplFloat(e.a)
   }
-  if (e.d !== null && e.d !== undefined) {
+  if (e.d !== null) {
     s = s + " d " + formatTplFloat(e.d)
   }
-  if (e.s !== null && e.s !== undefined) {
+  if (e.s !== null) {
     s = s + " s " + formatTplFloat(e.s)
   }
-  if (e.r !== null && e.r !== undefined) {
+  if (e.r !== null) {
     s = s + " r " + formatTplFloat(e.r)
   }
   return s
@@ -218,23 +218,23 @@ fn envFilterLine(fid, e) {
   if (!e) {
     return ""
   }
-  if ((e.a === null || e.a === undefined) && (e.d === null || e.d === undefined) && (e.s === null || e.s === undefined) && (e.r === null || e.r === undefined) && (e.amount === null || e.amount === undefined)) {
+  if ((e.a === null) && (e.d === null) && (e.s === null) && (e.r === null) && (e.amount === null)) {
     return ""
   }
   let s = "env filter " + fid
-  if (e.a !== null && e.a !== undefined) {
+  if (e.a !== null) {
     s = s + " a " + formatTplFloat(e.a)
   }
-  if (e.d !== null && e.d !== undefined) {
+  if (e.d !== null) {
     s = s + " d " + formatTplFloat(e.d)
   }
-  if (e.s !== null && e.s !== undefined) {
+  if (e.s !== null) {
     s = s + " s " + formatTplFloat(e.s)
   }
-  if (e.r !== null && e.r !== undefined) {
+  if (e.r !== null) {
     s = s + " r " + formatTplFloat(e.r)
   }
-  if (e.amount !== null && e.amount !== undefined) {
+  if (e.amount !== null) {
     s = s + " amount " + formatTplFloat(e.amount)
   }
   return s

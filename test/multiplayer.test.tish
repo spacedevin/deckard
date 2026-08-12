@@ -1,0 +1,420 @@
+import { test } from "tish:test"
+import assert from "node:assert/strict"
+// MULTIPLAYER CONVERGENCE TESTS — the architecture's central invariant.
+//
+// "Anything changed in the UI of a host or guest must be viewable AND playable by every client via deck,
+//  so all peers see and hear EXACTLY the same thing."
+//
+// Why this is fully testable headlessly: the UI is a pure deck client. Every edit becomes a deck fragment
+// that flows through ONE gated ingest into the fold (project). Audio + visuals are pure projections of
+// that fold. So if two peers' folds are byte-identical (emitProject equal), they necessarily render the
+// same screen and schedule the same notes. We assert fold-identity after replaying each peer's broadcast
+// into the others — exactly what the real network does.
+//
+// Run: tish build --target js test/multiplayer.tish -o /tmp/mp.js && node /tmp/mp.js
+
+import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
+import { emitProject } from '../src/deckfile/Emit.tish'
+import { findChannelById } from '../src/deckfile/Apply.tish'
+import { collectActorLanes } from '../src/model/MixerRouting.tish'
+import { createIngest } from '../src/core/Ingest.tish'
+import { createEditor } from '../src/core/Edit.tish'
+import { isPrivateDirective, launchSceneDirective, transportPlayDirective, transportPreviewDirective, cueDirective, throwDirective } from '../src/codj/Launch.tish'
+import { setTrackOwner } from '../src/codj/CoDjMeta.tish'
+import { ensureProjectSession } from '../src/model/Session.tish'
+import { stepTriggers } from '../src/audio/Playback.tish'
+import { findChannelById as findCh2 } from '../src/deckfile/Apply.tish'
+import { channelDeckColor, channelPlayerIndex } from '../src/model/DeckRouting.tish'
+
+test("multiplayer", () => {
+
+
+  // ---- a simulated peer (its own fold + ingest + editor + outbound wire) ----
+  fn makePeer(actorId, skills) {
+    let project = loadDefaultDeckardProject().project
+    ensureProjectSession(project)
+    let store = { project: project, runtime: {} }
+    let ing = createIngest(store)
+    let wire = []
+    ing.onOut((frag, kind) => {
+      wire.push({ frag: frag, kind: kind })
+    })
+    let ctx = { actorId: actorId, skillIds: skills, perfStep: 0 }
+    let editor = createEditor(store, ing.ingest, () => ctx)
+    return { project: project, store: store, ingest: ing, editor: editor, wire: wire, ctx: ctx, sent: 0 }
+  }
+
+  // Deliver `author`'s new broadcast fragments to every other peer (the hub fan-out). Then mark all peers
+  // caught up so received-and-echoed fragments are never re-broadcast (peers don't echo what they receive).
+  fn deliver(net, author) {
+    while (author.sent < author.wire.length) {
+      let frag = author.wire[author.sent].frag
+      let pj = 0
+      while (pj < net.length) {
+        if (net[pj] !== author) {
+          net[pj].ingest.ingest(frag, author.ctx)
+        }
+        pj = pj + 1
+      }
+      author.sent = author.sent + 1
+    }
+    let k = 0
+    while (k < net.length) {
+      net[k].sent = net[k].wire.length
+      k = k + 1
+    }
+  }
+
+  // All peers' folds byte-identical?  (emitProject is the canonical serialization → same deck = same render
+  // = same audio.)
+  fn allConverged(net) {
+    let base = emitProject(net[0].project)
+    let i = 1
+    while (i < net.length) {
+      if (emitProject(net[i].project) !== base) {
+        return false
+      }
+      i = i + 1
+    }
+    return true
+  }
+
+  // Emit a document edit on `author`, fan it out, and assert every peer converged.
+  fn doc(net, author, addr, val, name) {
+    author.editor.emit(addr, val)
+    deliver(net, author)
+    assert.ok(allConverged(net), "[doc] " + name + " → all peers identical")
+  }
+
+  console.log("=== Multiplayer convergence ===")
+
+  // A 3-peer session: host (master, owns the default tracks) + two guests.
+  let host = makePeer("human", ["master_mixer"])
+  let g1 = makePeer("human", ["master_mixer"])  // receives host's stream as authored by "human"
+  let g2 = makePeer("human", ["master_mixer"])
+  let net = [host, g1, g2]
+
+  assert.ok(allConverged(net), "[init] all 3 peers start identical")
+
+  let T = host.project.channels[0].id
+  let T2 = host.project.channels[1].id
+  let lane = collectActorLanes(host.project)[0]
+
+  // ---- 1. Every GLOBAL control propagates ----
+  doc(net, host, "bpm", 137, "bpm")
+  doc(net, host, "launch_quant", 8, "launch_quant")
+  doc(net, host, "swing", 0.3, "swing")
+  doc(net, host, "xfade", [0.2, 0.8], "xfade")
+  doc(net, host, "main_deck", "local", "main_deck")
+  assert.ok(g1.project.bpm === 137, "[doc] global bpm landed on guest")
+  assert.ok(Math.abs(g2.project.transportCrossfade - 0.2) < 1e-6 && Math.abs(g2.project.transportCrossfadeY - 0.8) < 1e-6, "[doc] global xfade landed on guest")
+  assert.ok(Math.abs(g1.project.swing - 0.3) < 1e-6, "[doc] global swing landed on guest")
+  assert.ok(g2.project.transportMainDeck === "local", "[doc] global main_deck landed on guest")
+
+  // ---- 2. Master + actor mixer ----
+  doc(net, host, "master/eq_lo", 3, "master eq_lo")
+  doc(net, host, "master/eq_mid", -2, "master eq_mid")
+  doc(net, host, "master/eq_hi", 1.5, "master eq_hi")
+  doc(net, host, "actor/" + lane + "/gain", 0.6, "actor gain")
+  doc(net, host, "actor/" + lane + "/eq_lo", 2, "actor eq_lo")
+  doc(net, host, "actor/" + lane + "/mute", true, "actor mute")
+  doc(net, host, "actor/" + lane + "/solo", true, "actor solo")
+
+  // ---- 3. Per-track mixer ----
+  doc(net, host, "track/" + T + "/mix/gain", 0.42, "track gain")
+  doc(net, host, "track/" + T + "/mix/pan", -0.3, "track pan")
+  doc(net, host, "track/" + T + "/mix/eq_lo", 2, "track eq_lo")
+  doc(net, host, "track/" + T + "/mix/eq_mid", -1, "track eq_mid")
+  doc(net, host, "track/" + T + "/mix/eq_hi", 1, "track eq_hi")
+  doc(net, host, "track/" + T + "/mix/mute", true, "track mute")
+  doc(net, host, "track/" + T + "/mix/solo", true, "track solo")
+  assert.ok(Math.abs(findChannelById(g1.project, T).gain - 0.42) < 1e-6, "[doc] track gain landed on guest")
+  assert.ok(Math.abs(findChannelById(g2.project, T).pan - (-0.3)) < 1e-6, "[doc] track pan landed on guest")
+
+  // ---- 4. Per-track FX ----
+  doc(net, host, "track/" + T + "/fx/reverb", 0.5, "fx reverb")
+  doc(net, host, "track/" + T + "/fx/drive", 0.4, "fx drive")
+  doc(net, host, "track/" + T + "/fx/cutoff", 3000, "fx cutoff")
+  doc(net, host, "track/" + T + "/fx/res", 4, "fx res")
+  doc(net, host, "track/" + T + "/fx/lfo_rate", 8, "fx lfo_rate")
+  doc(net, host, "track/" + T + "/fx/lfo_depth", 1200, "fx lfo_depth")
+  assert.ok(Math.abs(findChannelById(g1.project, T).filterCutoff - 3000) < 1e-6, "[doc] fx cutoff landed on guest")
+
+  // ---- 5. Voice / generator / envelope ----
+  doc(net, host, "track/" + T + "/voice/octave", 1, "voice octave")
+  doc(net, host, "track/" + T + "/voice/arp", "up", "voice arp")
+  doc(net, host, "track/" + T + "/voice/chord", "minor", "voice chord")
+  doc(net, host, "track/" + T + "/gen_type", "basicOsc", "gen_type")
+  doc(net, host, "track/" + T + "/gen/waveform", "square", "gen waveform")
+  doc(net, host, "track/" + T + "/adsr", { a: 0.02, d: 0.5, s: 0.6, r: 0.8 }, "adsr")
+  assert.ok(findChannelById(g1.project, T).generatorId === "basicOsc", "[doc] gen_type landed on guest")
+  assert.ok(findChannelById(g2.project, T).generatorParams.waveform === "square", "[doc] gen waveform landed on guest")
+  assert.ok(Math.abs(findChannelById(g1.project, T).generatorParams.attack - 0.02) < 1e-6, "[doc] adsr landed on guest")
+
+  // ---- 6. Deck routing + step pattern ----
+  doc(net, host, "track/" + T + "/deck", { deck: "B", slot: 1 }, "deck routing")
+  let pat = []
+  let si = 0
+  while (si < 16) {
+    pat.push(si % 4 === 0)
+    si = si + 1
+  }
+  doc(net, host, "track/" + T + "/steps", pat, "steps pattern")
+  assert.ok(findChannelById(g1.project, T).deck === "B", "[doc] deck routing landed on guest")
+  assert.ok(findChannelById(g2.project, T).steps[0].on === true && findChannelById(g2.project, T).steps[1].on === false, "[doc] steps pattern landed on guest")
+
+  // ---- 7. A GUEST edits a track IT owns → host + other guest converge (bidirectional) ----
+  setTrackOwner(host.project, T2, "guest2", "guest2")
+  setTrackOwner(g1.project, T2, "guest2", "guest2")
+  setTrackOwner(g2.project, T2, "guest2", "guest2")
+  // g2 now acts as guest2. Mutate the ctx object IN PLACE (the editor closure holds this same object).
+  g2.ctx.actorId = "guest2"
+  g2.ctx.skillIds = []
+  doc(net, g2, "track/" + T2 + "/mix/gain", 0.77, "guest edits own track")
+  assert.ok(Math.abs(findChannelById(host.project, T2).gain - 0.77) < 1e-6, "[doc] guest's edit reached host")
+  assert.ok(Math.abs(findChannelById(g1.project, T2).gain - 0.77) < 1e-6, "[doc] guest's edit reached other guest")
+
+  console.log("=== Authority (gating is identical for everyone) ===")
+
+  // A non-master guest cannot change a GLOBAL — denied locally and identically on receipt, so no divergence.
+  // non-master guest emits bpm against its own fold:
+  let gp = makePeer("guest2", [])
+  let gpBpm = gp.project.bpm
+  gp.editor.emit("bpm", 200)
+  assert.ok(gp.project.bpm === gpBpm, "[auth] non-master guest cannot change bpm (own fold unchanged)")
+  // scale & swing are master-scope too (global key / groove change the whole session) — a non-master lane is denied.
+  let gpScale = makePeer("guest3", [])
+  let gpScaleMode = gpScale.project.scaleMode
+  gpScale.editor.emit("scale", { root: 2, mode: "minor" })
+  assert.ok(gpScale.project.scaleMode === gpScaleMode, "[auth] non-master guest cannot change scale (own fold unchanged)")
+  let gpSwing = makePeer("guest4", [])
+  let gpSwingV = gpSwing.project.swing !== null ? gpSwing.project.swing : 0
+  gpSwing.editor.emit("swing", 0.42)
+  assert.ok(Math.abs((gpSwing.project.swing !== null ? gpSwing.project.swing : 0) - gpSwingV) < 1e-6, "[auth] non-master guest cannot change swing (own fold unchanged)")
+  // non-owner guest cannot edit a track it does not own:
+  let gOther = makePeer("guest9", [])
+  let gGain = findChannelById(gOther.project, T).gain
+  gOther.editor.emit("track/" + T + "/mix/gain", 0.01, "blocked")
+  assert.ok(Math.abs(findChannelById(gOther.project, T).gain - gGain) < 1e-6, "[auth] non-owner guest cannot edit another's track")
+
+  console.log("=== Privacy (cue / preview never leave the originating peer) ===")
+
+  let priv = makePeer("human", ["master_mixer"])
+  let wireLenBefore = priv.wire.length
+  priv.editor.directive(cueDirective(0))
+  assert.ok(priv.wire.length === wireLenBefore, "[priv] @ cue is NOT broadcast")
+  priv.editor.directive(transportPreviewDirective())
+  assert.ok(priv.wire.length === wireLenBefore, "[priv] @ transport preview is NOT broadcast")
+  assert.ok(isPrivateDirective(cueDirective(0)) === true, "[priv] isPrivateDirective classifies cue")
+  assert.ok(isPrivateDirective(transportPreviewDirective()) === true, "[priv] isPrivateDirective classifies preview")
+  // ...but a non-private directive DOES broadcast:
+  priv.editor.directive(throwDirective(0))
+  assert.ok(priv.wire.length === wireLenBefore + 1, "[priv] @ throw IS broadcast")
+
+  console.log("=== Control directives propagate arming to all peers ===")
+
+  let h2 = makePeer("human", ["master_mixer"])
+  let c1 = makePeer("human", ["master_mixer"])
+  let cnet = [h2, c1]
+  let sc = Math.floor(Number(h2.project.session.sceneCount))
+  if (sc >= 1) {
+    h2.editor.directive(launchSceneDirective(0))
+    deliver(cnet, h2)
+    assert.ok(h2.store.runtime.songScene === 0, "[ctrl] launch scene → host arms scene 0")
+    assert.ok(c1.store.runtime.songScene === 0, "[ctrl] launch scene → guest arms the SAME scene")
+    assert.ok(JSON.stringify(h2.store.runtime.sessionArmedClipIds) === JSON.stringify(c1.store.runtime.sessionArmedClipIds), "[ctrl] launch scene → armed clips converge")
+  } else {
+    assert.ok(true, "[ctrl] (skipped — no scenes in default project)")
+  }
+
+  // Full round-trip integrity: a heavily-edited host re-serializes to deck that a fresh peer can replay back
+  // to the identical fold (viewable + playable from scratch — the "join mid-session" path).
+  let joinSrc = emitProject(host.project)
+  let joiner = loadDefaultDeckardProject().project
+  ensureProjectSession(joiner)
+  let jStore = { project: joiner, runtime: {} }
+  let jIng = createIngest(jStore)
+  jIng.ingest(joinSrc, { actorId: "human", skillIds: ["master_mixer"], perfStep: 0 })
+  assert.ok(emitProject(joiner) === emitProject(host.project), "[join] a fresh peer replaying the host's deck reaches the identical fold")
+
+  console.log("=== REALISTIC live session: host plays, guest contributes, both hear 100% identical ===")
+  // The acceptance test. host (master) is playing; guest OWNS one track and contributes to it mid-flight.
+  // At EVERY played step we assert (a) both folds are byte-identical and (b) the exact set of notes that
+  // SOUND is identical — stepTriggers() is the pure note-selection the audio engine maps to oscillators, so
+  // identical triggers == identical audio. arp/chord state advances inside it, proving the performance
+  // runtime stays in lockstep too, not just the document.
+  let H = makePeer("human", ["master_mixer"])
+  let G = makePeer("guestA", [])
+  let live = [H, G]
+  H.store.runtime.playMode = "sequence"   // both monitor the rack (ch.steps) on the shared clock
+  G.store.runtime.playMode = "sequence"
+  let GTRACK = H.project.channels[1].id    // the track the guest owns + contributes to
+  let HDRUM = H.project.channels[0].id     // a host-owned track
+  setTrackOwner(H.project, GTRACK, "guestA", "guestA")
+  setTrackOwner(G.project, GTRACK, "guestA", "guestA")
+
+  fn fp(triggers) {
+    let parts = []
+    let i = 0
+    while (i < triggers.length) {
+      parts.push(String(triggers[i].busIndex) + ":" + String(triggers[i].pitch) + ":" + String(triggers[i].vel))
+      i = i + 1
+    }
+    parts.sort()
+    return parts.join("|")
+  }
+
+  let foldMismatches = 0
+  let soundMismatches = 0
+  let sawGuestTrackAfterContribution = false
+  let onPat = [true, false, false, false, true, false, false, false, true, false, false, false, true, false, false, false]
+  let drumPat = [true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false]
+  let step = 0
+  while (step < 64) {
+    // Contributions land between steps (as a real edit would, before the next step is scheduled).
+    if (step === 16) {
+      // GUEST contributes to ITS track: an arpeggiated minor chord + a 4-on-the-floor pattern.
+      G.editor.emit("track/" + GTRACK + "/voice/chord", "minor")
+      G.editor.emit("track/" + GTRACK + "/voice/arp", "up")
+      G.editor.emit("track/" + GTRACK + "/steps", onPat)
+      deliver(live, G)
+    }
+    if (step === 32) {
+      // HOST contributes: changes a drum pattern.
+      H.editor.emit("track/" + HDRUM + "/steps", drumPat)
+      deliver(live, H)
+    }
+    if (step === 40) {
+      // GUEST tries to edit a HOST-owned track — must be DENIED on both, so sync is never broken.
+      G.editor.emit("track/" + HDRUM + "/mix/gain", 0.01)
+      deliver(live, G)
+    }
+    if (step === 48) {
+      // GUEST contributes again: its own track's gain.
+      G.editor.emit("track/" + GTRACK + "/mix/gain", 0.5)
+      deliver(live, G)
+    }
+
+    if (emitProject(H.project) !== emitProject(G.project)) {
+      foldMismatches = foldMismatches + 1
+    }
+    let tH = stepTriggers(H.project, H.store.runtime, step)
+    let tG = stepTriggers(G.project, G.store.runtime, step)
+    if (fp(tH) !== fp(tG)) {
+      soundMismatches = soundMismatches + 1
+    }
+    if (step > 16) {
+      let k = 0
+      while (k < tH.length) {
+        if (tH[k].busIndex === 1) {
+          sawGuestTrackAfterContribution = true
+        }
+        k = k + 1
+      }
+    }
+    step = step + 1
+  }
+
+  assert.ok(foldMismatches === 0, "[live] folds byte-identical at every one of 64 steps")
+  assert.ok(soundMismatches === 0, "[live] host & guest schedule the EXACT same notes at every step (hear identical)")
+  assert.ok(sawGuestTrackAfterContribution === true, "[live] the guest's contribution is actually audible on both")
+  // Authority held during live play: the guest's attempt to edit a host track never landed anywhere.
+  assert.ok(Math.abs(findCh2(H.project, HDRUM).gain - findCh2(G.project, HDRUM).gain) < 1e-9 && Math.abs(findCh2(H.project, HDRUM).gain - 0.01) > 1e-9, "[live] guest could NOT alter the host-owned track (gain unchanged)")
+
+  console.log("=== Deck colour is CANONICAL: same channel = same colour on host & guest ===")
+  // The real 2-client situation: identical shared roster + host id, but DIFFERENT coDjSelfActorId per
+  // client. The deck/colour of every channel must be identical on both — it's a function of order/owner,
+  // never of who's viewing. (Regression guard for the viewer-relative colour bug.)
+  let cpA = loadDefaultDeckardProject().project   // host's view
+  let cpB = loadDefaultDeckardProject().project   // guest's view
+  let roster = ["host-1", "guest-1"]
+  cpA.coDjPlayers = roster
+  cpB.coDjPlayers = roster
+  cpA.coDjHostActorId = "host-1"
+  cpB.coDjHostActorId = "host-1"
+  cpA.coDjSelfActorId = "host-1"
+  cpB.coDjSelfActorId = "guest-1"
+  let ownedId = cpA.channels[1].id
+  setTrackOwner(cpA, ownedId, "guest-1", "guest-1")
+  setTrackOwner(cpB, ownedId, "guest-1", "guest-1")
+  let colourMismatch = 0
+  let idxMismatch = 0
+  let ci2 = 0
+  while (ci2 < cpA.channels.length) {
+    if (channelDeckColor(cpA, cpA.channels[ci2]) !== channelDeckColor(cpB, cpB.channels[ci2])) {
+      colourMismatch = colourMismatch + 1
+    }
+    if (channelPlayerIndex(cpA, cpA.channels[ci2]) !== channelPlayerIndex(cpB, cpB.channels[ci2])) {
+      idxMismatch = idxMismatch + 1
+    }
+    ci2 = ci2 + 1
+  }
+  assert.ok(colourMismatch === 0, "[color] every channel has the SAME deck colour on host & guest")
+  assert.ok(idxMismatch === 0, "[color] every channel has the SAME player index on host & guest")
+  assert.ok(channelDeckColor(cpA, cpA.channels[0]) === "a" && channelDeckColor(cpB, cpB.channels[0]) === "a", "[color] unclaimed channel = host deck A on BOTH")
+  assert.ok(channelDeckColor(cpA, cpA.channels[1]) === "b" && channelDeckColor(cpB, cpB.channels[1]) === "b", "[color] guest-owned channel = deck B on BOTH (by roster order)")
+
+  console.log("=== Multi-bar rack playback: sequence mode plays ALL bars, not just bar 1 ===")
+  let mbp = loadDefaultDeckardProject().project
+  let mbrt = { playMode: "sequence" }
+  let mbch = mbp.channels[0]
+  mbch.patternBars = 2
+  mbch.pianoNotes = []
+  let steps32 = []
+  let z = 0
+  while (z < 32) {
+    steps32.push({ on: z === 20, vel: 100 })   // single hit in BAR 2 (step 20)
+    z = z + 1
+  }
+  mbch.steps = steps32
+  fn ch0FiresAt(step) {
+    let trg = stepTriggers(mbp, mbrt, step)
+    let i = 0
+    while (i < trg.length) {
+      if (trg[i].busIndex === 0) {
+        return true
+      }
+      i = i + 1
+    }
+    return false
+  }
+  assert.ok(ch0FiresAt(20) === true, "[multibar] BAR-2 hit (step 20) fires")
+  assert.ok(ch0FiresAt(4) === false, "[multibar] bar-1 empty step (4) does NOT fire ch0")
+  assert.ok(ch0FiresAt(52) === true, "[multibar] loops at 2 bars: step 52 (=20 mod 32) fires")
+  assert.ok(ch0FiresAt(36) === false, "[multibar] step 36 (=4 mod 32, empty) does NOT fire")
+
+  // The "Nebula Pulse bass" case: a 16-step rhythm that LOOPS every bar, with a different pitch per bar
+  // (step_pitch ... bar). The rhythm must sound in every bar, at the right per-bar pitch.
+  let pbp = loadDefaultDeckardProject().project
+  let pbrt = { playMode: "sequence" }
+  let pbch = pbp.channels[0]
+  pbch.patternBars = 4
+  pbch.pianoNotes = []
+  pbch.stepPitch = 36
+  pbch.stepPitchByBar = [36, 34, 32, 34]
+  let s16 = []
+  let q = 0
+  while (q < 16) {
+    s16.push({ on: q === 0, vel: 100 })   // one hit per bar (step 0)
+    q = q + 1
+  }
+  pbch.steps = s16
+  fn ch0PitchAt(step) {
+    let trg = stepTriggers(pbp, pbrt, step)
+    let i = 0
+    while (i < trg.length) {
+      if (trg[i].busIndex === 0) {
+        return trg[i].pitch
+      }
+      i = i + 1
+    }
+    return -1
+  }
+  assert.ok(ch0PitchAt(0) === 36, "[barpitch] bar 0 plays at pitch 36")
+  assert.ok(ch0PitchAt(16) === 34, "[barpitch] bar 1 plays (rhythm loops) at pitch 34")
+  assert.ok(ch0PitchAt(32) === 32, "[barpitch] bar 2 plays at pitch 32")
+  assert.ok(ch0PitchAt(48) === 34, "[barpitch] bar 3 plays at pitch 34")
+  assert.ok(ch0PitchAt(64) === 36, "[barpitch] bar 4 wraps to bar 0 (pitch 36)")
+
+  console.log("")
+})

@@ -98,3 +98,9 @@ Build locally with `npm run build:docs` (also runs as part of `build:static` / `
 ## Upstream Tish changes
 
 Deckard relies on Tish’s **`new`** support for the JS target (`new AudioContext()`, `new Uint8Array(n)`). Use a `tish` build that includes the `new` expression in the compiler.
+
+<!-- tish-test-dogfood -->
+## Testing
+
+- `npm test` — **JS-emit** suites (`tish build --target js` + node) plus the architecture ratchet. This is the browser-DAW contract.
+- `npm run test:tish` — native `tish test` on `test/*.test.tish` (language-semantics). **Currently blocked** on the Tish VM because product sources still reference JS `undefined` (works under emit+node). Keep the JS leg; do not treat VM pass/fail as emit parity.

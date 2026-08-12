@@ -1083,19 +1083,19 @@ fn cableOpacityAttr(hovering, touched) {
 
 fn drawPatchCables() {
   cableDrawPending = false
-  if (typeof globalThis === "undefined" || (globalThis.document === null || globalThis.document === undefined) || typeof globalThis.document.getElementById !== "function") {
+  if (typeof globalThis === "undefined" || (globalThis.document === null) || typeof globalThis.document.getElementById !== "function") {
     return
   }
   let doc = globalThis.document
   let host = doc.getElementById("patch-cable-host")
   let svg = doc.getElementById("patch-cables")
-  if ((host === null || host === undefined) || (svg === null || svg === undefined)) {
+  if ((host === null) || (svg === null)) {
     return
   }
   let hr = host.getBoundingClientRect()
   let editMode = cableState.editMode === true
   // Decode the hover focus once. Hover dim/highlight is EDIT-MODE ONLY — in View the cables are static.
-  let hovering = editMode && cableHover !== null && cableHover !== undefined
+  let hovering = editMode && cableHover !== null
   let hoverKind = null
   let hoverId = null
   if (hovering) {
@@ -1119,7 +1119,7 @@ fn drawPatchCables() {
     } else {
       dstEl = doc.getElementById("pmnode-" + String(cn.dst))
     }
-    if (srcEl !== null && srcEl !== undefined && dstEl !== null && dstEl !== undefined) {
+    if (srcEl !== null && dstEl !== null) {
       let sr = srcEl.getBoundingClientRect()
       let dr = dstEl.getBoundingClientRect()
       let x1 = sr.right - hr.left
@@ -1145,7 +1145,7 @@ fn drawPatchCables() {
     if (editMode) {
       let envEl = doc.getElementById("pmenv-" + String(ei))
       let tgtEl = doc.getElementById("pmnode-" + String(en.node))
-      if (envEl !== null && envEl !== undefined && tgtEl !== null && tgtEl !== undefined) {
+      if (envEl !== null && tgtEl !== null) {
         let er = envEl.getBoundingClientRect()
         let tr = tgtEl.getBoundingClientRect()
         let ex1 = er.right - hr.left
@@ -1188,7 +1188,7 @@ fn wirePatchCableListeners() {
   globalThis.addEventListener("scroll", scheduleCableDraw, true)
   // rAF is paused while the tab is hidden, so a panel rendered in the background hasn't drawn yet — redraw
   // when it becomes visible.
-  if (globalThis.document !== null && globalThis.document !== undefined && typeof globalThis.document.addEventListener === "function") {
+  if (globalThis.document !== null && typeof globalThis.document.addEventListener === "function") {
     globalThis.document.addEventListener("visibilitychange", scheduleCableDraw)
   }
 }
@@ -1197,7 +1197,7 @@ fn wirePatchCableListeners() {
 fn trackOwnerName(project, channelId) {
   if (project.coDjMeta && project.coDjMeta.tracks && project.coDjMeta.tracks[channelId]) {
     let o = project.coDjMeta.tracks[channelId].ownerActorId
-    if (o !== null && o !== undefined && String(o).length > 0) {
+    if (o !== null && String(o).length > 0) {
       return String(o)
     }
   }
@@ -1265,7 +1265,7 @@ export fn PatchGraphPanel(ch, project, setProject, rt, mayEdit) {
     let fwd = emitInstrumentModuleTpl(project, ch.id, "gen")
     if (rt && rt.directiveUndoable) {
       // Unique per-gesture token → each edit is its own undo step (not one coarse per-channel step).
-      if ((rt._genTokenSeq === null || rt._genTokenSeq === undefined)) {
+      if ((rt._genTokenSeq === null)) {
         rt._genTokenSeq = 0
       }
       rt._genTokenSeq = rt._genTokenSeq + 1
@@ -1286,7 +1286,7 @@ export fn PatchGraphPanel(ch, project, setProject, rt, mayEdit) {
       let ci = g.conns.length - 1
       while (ci >= 0 && !spliced) {
         let cn = g.conns[ci]
-        if (cn.dst === "out" && ((cn.dstParam === null || cn.dstParam === undefined) || cn.dstParam === "")) {
+        if (cn.dst === "out" && ((cn.dstParam === null) || cn.dstParam === "")) {
           // Reroute: source → newNode instead of source → out
           cn.dst = newId
           cn.dstParam = null
@@ -1314,9 +1314,9 @@ export fn PatchGraphPanel(ch, project, setProject, rt, mayEdit) {
   // View ↔ Edit: default to a clean read-only flow (cards + cables, no route dropdowns/× / palette); Edit
   // reveals the wiring chrome. A non-owner is always in View (canEdit gates it). The mode is a transient view
   // pref on rt (not the document). The chrome is hidden via the root `patch-view`/`patch-edit` class in CSS.
-  let editMode = canEdit && rt !== null && rt !== undefined && rt.patchEditMode === true
+  let editMode = canEdit && rt !== null && rt.patchEditMode === true
   fn setPatchEditMode(on) {
-    if (rt !== null && rt !== undefined) {
+    if (rt !== null) {
       rt.patchEditMode = on
     }
     setProject(project)
@@ -1350,7 +1350,7 @@ export fn PatchGraphPanel(ch, project, setProject, rt, mayEdit) {
 
   let orphans = orphanConnRows(g, edit)
 
-  let durIsSet = g.dur !== null && g.dur !== undefined
+  let durIsSet = g.dur !== null
   let durVal = durIsSet ? Number(g.dur) : 0.5
   let ownerName = trackOwnerName(project, ch.id)
 

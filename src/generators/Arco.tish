@@ -47,11 +47,11 @@ fn arcoFormant(ctx, freq, q, gainDb) {
 export fn playArco(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let p = ch.generatorParams ? ch.generatorParams : {}
   let voice = p.voice ? p.voice : "violin"
-  let pressure = arcoClamp01(p.pressure !== null && p.pressure !== undefined ? p.pressure : 0.5)
-  let bow = arcoClamp01(p.bow !== null && p.bow !== undefined ? p.bow : 0.4)
-  let vibrato = arcoClamp01(p.vibrato !== null && p.vibrato !== undefined ? p.vibrato : 0.35)
-  let rosin = arcoClamp01(p.rosin !== null && p.rosin !== undefined ? p.rosin : 0.3)
-  let body = arcoClamp01(p.body !== null && p.body !== undefined ? p.body : 0.6)
+  let pressure = arcoClamp01(p.pressure !== null ? p.pressure : 0.5)
+  let bow = arcoClamp01(p.bow !== null ? p.bow : 0.4)
+  let vibrato = arcoClamp01(p.vibrato !== null ? p.vibrato : 0.35)
+  let rosin = arcoClamp01(p.rosin !== null ? p.rosin : 0.3)
+  let body = arcoClamp01(p.body !== null ? p.body : 0.6)
   let prof = arcoVoiceProfile(voice)
 
   let hz = midiToHz(midi + bendSemis)

@@ -87,22 +87,22 @@ export fn migrateProjectGenerators(project) {
   let mx = 0
   while (mx < project.channels.length) {
     let ch = project.channels[mx]
-    if (ch.eqLo === undefined || ch.eqLo === null) {
+    if (ch.eqLo === null) {
       ch.eqLo = 0
     }
-    if (ch.eqMid === undefined || ch.eqMid === null) {
+    if (ch.eqMid === null) {
       ch.eqMid = 0
     }
-    if (ch.eqHi === undefined || ch.eqHi === null) {
+    if (ch.eqHi === null) {
       ch.eqHi = 0
     }
-    if (ch.actorLane === undefined || ch.actorLane === null) {
+    if (ch.actorLane === null) {
       ch.actorLane = ""
     }
-    if (ch.tplLoopBars === undefined) {
+    if (ch.tplLoopBars === null) {
       ch.tplLoopBars = null
     }
-    if (ch.deck === undefined || ch.deck === null || ch.deck === "") {
+    if (ch.deck === null || ch.deck === "") {
       ch.deck = "live"
     }
     mx = mx + 1

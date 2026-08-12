@@ -180,25 +180,25 @@ export fn playNes2a03(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let type = gp.type ? gp.type : "pulse"
   let duty = gp.duty ? String(gp.duty) : "50"
   let envMode = gp.envMode ? gp.envMode : "decay"
-  let vol = (gp.vol !== null && gp.vol !== undefined) ? gp.vol : 10
-  let sweep = (gp.sweep !== null && gp.sweep !== undefined) ? gp.sweep : 0
+  let vol = (gp.vol !== null) ? gp.vol : 10
+  let sweep = (gp.sweep !== null) ? gp.sweep : 0
   if (type !== "pulse") {
     sweep = 0
   }
   let noiseMode = gp.noiseMode ? gp.noiseMode : "long"
 
-  let attack = (gp.attack !== null && gp.attack !== undefined) ? gp.attack : 0
-  let decay = (gp.decay !== null && gp.decay !== undefined) ? gp.decay : 0
-  let sustain = (gp.sustain !== null && gp.sustain !== undefined) ? gp.sustain : 15
-  let release = (gp.release !== null && gp.release !== undefined) ? gp.release : 0
+  let attack = (gp.attack !== null) ? gp.attack : 0
+  let decay = (gp.decay !== null) ? gp.decay : 0
+  let sustain = (gp.sustain !== null) ? gp.sustain : 15
+  let release = (gp.release !== null) ? gp.release : 0
 
-  let vibRate = (gp.vibRate !== null && gp.vibRate !== undefined) ? gp.vibRate : 0
-  let vibAmt = (gp.vibAmt !== null && gp.vibAmt !== undefined) ? gp.vibAmt : 0
-  let arpRate = (gp.arpRate !== null && gp.arpRate !== undefined) ? gp.arpRate : 0
-  let arpSemis = (gp.arpSemis !== null && gp.arpSemis !== undefined) ? gp.arpSemis : 0
+  let vibRate = (gp.vibRate !== null) ? gp.vibRate : 0
+  let vibAmt = (gp.vibAmt !== null) ? gp.vibAmt : 0
+  let arpRate = (gp.arpRate !== null) ? gp.arpRate : 0
+  let arpSemis = (gp.arpSemis !== null) ? gp.arpSemis : 0
 
-  let pitchDrop = (gp.pitchDrop !== null && gp.pitchDrop !== undefined) ? gp.pitchDrop : 0
-  let pitchDec = (gp.pitchDec !== null && gp.pitchDec !== undefined) ? gp.pitchDec : 0.05
+  let pitchDrop = (gp.pitchDrop !== null) ? gp.pitchDrop : 0
+  let pitchDec = (gp.pitchDec !== null) ? gp.pitchDec : 0.05
   let dpcmSample = gp.dpcmSample ? gp.dpcmSample : "kick"
 
   let f0 = 440 * Math.pow(2, (midi + bendSemis - 69) / 12)

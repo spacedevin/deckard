@@ -77,7 +77,7 @@ export fn playMeSpeakVocal(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
   }
 
   let p = ch.generatorParams
-  let voicePath = p && (p.voice !== null && p.voice !== undefined) ? p.voice : "en/en-us"
+  let voicePath = p && (p.voice !== null) ? p.voice : "en/en-us"
   
   if (!loadedVoices[voicePath]) {
     loadedVoices[voicePath] = "loading"
@@ -97,11 +97,11 @@ export fn playMeSpeakVocal(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
     l = "beep"
   }
 
-  let basePitch = p && (p.pitch !== null && p.pitch !== undefined) ? p.pitch : 50
-  let baseSpeed = p && (p.speed !== null && p.speed !== undefined) ? p.speed : 175
-  let wordgap = p && (p.wordgap !== null && p.wordgap !== undefined) ? p.wordgap : 0
-  let variant = p && (p.variant !== null && p.variant !== undefined) ? p.variant : "m1"
-  let amplitude = p && (p.amplitude !== null && p.amplitude !== undefined) ? p.amplitude : 100
+  let basePitch = p && (p.pitch !== null) ? p.pitch : 50
+  let baseSpeed = p && (p.speed !== null) ? p.speed : 175
+  let wordgap = p && (p.wordgap !== null) ? p.wordgap : 0
+  let variant = p && (p.variant !== null) ? p.variant : "m1"
+  let amplitude = p && (p.amplitude !== null) ? p.amplitude : 100
 
   // Track the MIDI pitch. Base pitch is centered around C4 (MIDI 60).
   let n = Math.floor(midi + bendSemis)

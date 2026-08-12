@@ -44,11 +44,11 @@ fn tineDriveCurve(amount) {
 
 export fn playTine(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let p = ch.generatorParams ? ch.generatorParams : {}
-  let bark = tineClamp01(p.bark !== null && p.bark !== undefined ? p.bark : 0.55)
-  let tine = tineClamp01(p.tine !== null && p.tine !== undefined ? p.tine : 0.6)
-  let tremolo = tineClamp01(p.tremolo !== null && p.tremolo !== undefined ? p.tremolo : 0.35)
-  let decay = tineClamp01(p.decay !== null && p.decay !== undefined ? p.decay : 0.5)
-  let drive = tineClamp01(p.drive !== null && p.drive !== undefined ? p.drive : 0.2)
+  let bark = tineClamp01(p.bark !== null ? p.bark : 0.55)
+  let tine = tineClamp01(p.tine !== null ? p.tine : 0.6)
+  let tremolo = tineClamp01(p.tremolo !== null ? p.tremolo : 0.35)
+  let decay = tineClamp01(p.decay !== null ? p.decay : 0.5)
+  let drive = tineClamp01(p.drive !== null ? p.drive : 0.2)
 
   let hz = midiToHz(midi + bendSemis)
   if (hz < 8) { hz = 8 }

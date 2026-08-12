@@ -12,7 +12,7 @@ export fn MidiPanel(controller, project, midiGen) {
   }
   let st = controller.state()
   let enabled = st.supported === true || st.inputs.length > 0
-  let connected = st.connectedId !== null && st.connectedId !== undefined && st.connectedId !== ""
+  let connected = st.connectedId !== null && st.connectedId !== ""
 
   // The footer is just a single MIDI button. Not enabled → click requests Web MIDI. Enabled → click toggles a
   // popover (above the button) that holds the input picker + LEARN + the current mappings.

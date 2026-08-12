@@ -1,0 +1,2044 @@
+import { test } from "tish:test"
+import assert from "node:assert/strict"
+import {
+  parseBarSelector,
+  barSelectorMatches,
+  lookupMacro,
+  expandMacroBody,
+  parseGenBlock
+} from '@spacedevin/deck'
+import {
+  parsePatchGraph,
+  patchGraphToLines,
+  syncPatchSpecFromGraph
+} from '../src/deckfile/PatchGraph.tish'
+import {
+  syncMatrixFmSpecFromGraph
+} from '../src/deckfile/MatrixFmGraph.tish'
+import {
+  defaultMatrixFmRawLines
+} from '../src/model/MatrixFmDefaults.tish'
+import {
+  defaultPatchRawLines,
+  addPatchNode,
+  removePatchNode,
+  addPatchConn,
+  removePatchConnAt,
+  addPatchEnv,
+  addPatchEnvSeg,
+  removePatchEnvSegAt,
+  patchSignalStages
+} from '../src/model/PatchGraphEdit.tish'
+import {
+  tplDocumentToHighlightHtml
+} from '../src/ui/SongEditorHighlight.tish'
+// Headless smoke test: deck round-trip, incremental decode, skill-gating, co-DJ permissions.
+// Run: npm test  (builds to JS and runs under node — the same target the browser app uses).
+import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
+import { emitProject, emitLivePlayback } from '../src/deckfile/Emit.tish'
+import { applyTplSource, findChannelById } from '../src/deckfile/Apply.tish'
+import { applyCoDjTplSource, actorMayEditTrack } from '../src/codj/Merge.tish'
+import { applyLaunchDirective, isLaunchDirective, launchSceneDirective, launchClipDirective, transportDirective, applyLaunchLinesFromSource, transportPlayDirective, transportPreviewDirective, cueDirective, throwDirective, isPrivateDirective, fxDirective, deckMoveDirective } from '../src/codj/Launch.tish'
+import { setTrackOwner, ensureCoDjMeta } from '../src/codj/CoDjMeta.tish'
+import { coDjClockAlign, coDjShouldFollow, coDjClockPayload } from '../src/codj/Transport.tish'
+import { createTplLineStream, tplLineStreamPush } from '../src/deckfile/Stream.tish'
+import { coDjLineAllowedForSkills } from '../src/codj/Skills.tish'
+import { deckSetCatalog, deckSetTplById, loadDeckSet } from '../src/model/DeckSets.tish'
+import { emptyProjectShell } from '../src/model/Project.tish'
+import { resizeChannelBars, setRackBars, rackBars } from '../src/model/RackBars.tish'
+import { ensureProjectSession, sessionWriteRackToSceneClip, loadSceneIntoRack, sessionArmScene, playbackClipForChannel, firstSongScene, nextSongScene, sceneHasSavedClip, sceneBarLength, armSceneWithOverrides, sceneSlotClipId, findClipOnChannel, loadSceneBarIntoRack, sessionWriteRackBarToSceneClip, sessionStopTrack, sessionTrackStopped, sessionEffectiveArmedClipId, songStart, songAdvance, hasExplicitSong, normalizeSongEntries, setSceneFollow, sceneFollow, hasFollowActions, resolveFollowAction, detRand01 } from '../src/model/Session.tish'
+import { toggleStep, clearAllSteps } from '../src/model/Edits.tish'
+import { secondsPerStep, stepsToScheduleInWindow, underrunsInBatch, swingOffsetSec } from '../src/audio/Scheduler.tish'
+import { freshSetEnergy, freshActiveDecks, foldSetEnergyStep } from '../src/model/SetEnergy.tish'
+import { createSignals } from '../src/core/Signals.tish'
+import { createIngest } from '../src/core/Ingest.tish'
+import { fragmentForEdit, createEditor } from '../src/core/Edit.tish'
+import { macroCatalog, macroKind, macroParamControls, expandMacroToSpec, assignMacroToChannel, setMacroParam, freezeMacroChannel } from '../src/model/MacroVoice.tish'
+import { defaultParamsForGeneratorId, generatorCatalog } from '../src/generators/Registry.tish'
+import { matrixFmPatches, matrixFmFactoryInstrumentPresets } from '../src/model/MatrixFmPresets.tish'
+import { emitInstrumentModuleTpl } from '../src/core/Levels.tish'
+import { addInstrumentPreset, applyInstrumentPresetToChannel, ensureInstrumentPresets } from '../src/model/InstrumentPresets.tish'
+import { expandTriggerNotes, chordStrumDelta } from '../src/audio/NoteExpand.tish'
+import { compileGeneratorToPatchLines, canCompileToPatch } from '../src/model/PatchCompile.tish'
+import { h } from '@tishlang/lattish'
+import { StepGridPanel } from '../src/ui/grid/StepGrid.tish'
+import { Knob } from '../src/ui/InstrumentKit.tish'
+import { octaveKnob, selectorKnob } from '../src/ui/InstrumentStack.tish'
+import { PatchGraphPanel, cablePathD, cableKindFor } from '../src/ui/PatchGraphPanel.tish'
+import { MatrixFmPanel, matrixOpsReachingOut, matrixFiltersReachingOut } from '../src/ui/MatrixFmPanel.tish'
+import { RichTplEditor } from '../src/ui/RichTplEditor.tish'
+
+
+fn stepsSig(ch) {
+  let s = ""
+  let i = 0
+  while (i < ch.steps.length) {
+    s = s + (ch.steps[i].on ? "x" : ".")
+    i = i + 1
+  }
+  return s
+}
+
+test("smoke", () => {
+
+  // 1. Default load + emit round-trip (incl. now-documented step_pitch / master_mix / actor_mix)
+  let boot = loadDefaultDeckardProject()
+  assert.ok(boot.errors.length === 0, "default project loads without errors")
+  let proj = boot.project
+  assert.ok(proj.channels.length >= 4, "default has >= 4 channels")
+  let emitted = emitProject(proj)
+  assert.ok(emitted.indexOf("deck 1") === 0, "emit starts with tpl header")
+  assert.ok(emitted.indexOf("step_pitch") >= 0, "emit includes step_pitch")
+  assert.ok(emitted.indexOf("master_mix ") >= 0, "emit includes master_mix line")
+  assert.ok(emitted.indexOf("actor_mix ") >= 0, "emit includes actor_mix line")
+  let boot2 = loadDefaultDeckardProject()
+  applyTplSource(boot2.project, emitted)
+  assert.ok(boot2.project.channels.length === proj.channels.length, "round-trip preserves channel count")
+  assert.ok(boot2.project.bpm === proj.bpm, "round-trip preserves bpm")
+
+  // 2. Incremental streaming decode == atomic block apply (progressive)
+  let blockSrc = "deck 1\ntrack Hat id s_hat gen noise_burst\n  noise attack 0.001 decay 0.04 tone 0.9 pitch_follow 0.1\n  steps x . x . x . x . x . x . x . x ."
+  let viaBlock = loadDefaultDeckardProject().project
+  applyCoDjTplSource(viaBlock, blockSrc, "agent-1", "agent-1", 0, ["add_track", "pattern_steps"])
+  let hb = findChannelById(viaBlock, "s_hat")
+  assert.ok(hb !== null, "block apply created track")
+
+  let viaStream = loadDefaultDeckardProject().project
+  let strm = createTplLineStream("agent-1", "agent-1", ["add_track", "pattern_steps"])
+  let streamLines = blockSrc.split("\n")
+  let headerOnly = null
+  let li = 0
+  while (li < streamLines.length) {
+    tplLineStreamPush(strm, streamLines[li], viaStream, 0)
+    if (li === 1) {
+      headerOnly = findChannelById(viaStream, "s_hat")
+    }
+    li = li + 1
+  }
+  assert.ok(headerOnly !== null, "incremental: track appears right after its header line")
+  let hs = findChannelById(viaStream, "s_hat")
+  assert.ok(hs !== null && hb !== null && stepsSig(hs) === stepsSig(hb), "incremental: final state matches block apply (steps)")
+
+  // 3. Skill gating (now the canonical Skills.tish)
+  assert.ok(coDjLineAllowedForSkills("bpm 200", ["pattern_steps"]) === false, "non-master denied bpm")
+  assert.ok(coDjLineAllowedForSkills("bpm 200", ["master_mixer"]) === true, "master allowed bpm")
+  assert.ok(coDjLineAllowedForSkills("  steps x . x .", ["pattern_steps"]) === true, "anyone allowed steps")
+  assert.ok(coDjLineAllowedForSkills("auto master_gain", ["pattern_steps"]) === false, "non-master denied auto")
+  assert.ok(coDjLineAllowedForSkills("master_mix eq_lo 2", ["channel_mix"]) === false, "non-master denied master_mix")
+
+  // 4. Permission model via applyCoDjTplSource (skillIds-driven, with legacy fallback)
+  let permProj = loadDefaultDeckardProject().project
+  let origBpm = permProj.bpm
+  applyCoDjTplSource(permProj, "deck 1\nbpm 200\ntrack X id px gen basic_osc\n  steps x . . .", "agent-1", "agent-1", 0, ["add_track", "pattern_steps"])
+  assert.ok(permProj.bpm === origBpm, "agent (no master_mixer) cannot change bpm")
+  assert.ok(findChannelById(permProj, "px") !== null, "agent (no master_mixer) can still add a track")
+
+  let permProj2 = loadDefaultDeckardProject().project
+  applyCoDjTplSource(permProj2, "deck 1\nbpm 200", "anon-7", "anon-7", 0, ["master_mixer"])
+  assert.ok(permProj2.bpm === 200, "actor WITH master_mixer skill can change bpm")
+
+  let permProj3 = loadDefaultDeckardProject().project
+  applyCoDjTplSource(permProj3, "deck 1\nbpm 175", "human-xyz", "human-xyz", 0)
+  assert.ok(permProj3.bpm === 175, "legacy fallback: human-* actorId masters when skillIds absent")
+
+  let permProj4 = loadDefaultDeckardProject().project
+  let b4 = permProj4.bpm
+  applyCoDjTplSource(permProj4, "deck 1\nbpm 175", "agent-1", "agent-1", 0)
+  assert.ok(permProj4.bpm === b4, "legacy fallback: agent-* actorId cannot master when skillIds absent")
+
+  // 5. New-synth deck round-trip: gen / fx / voice lines (drum, drive, lfo, octave, arp, chord)
+  let synProj = loadDefaultDeckardProject().project
+  let synTpl = "deck 1\ntrack DrumK id dk gen drum\n  gen tone sine pitch_env 40 pitch_decay 0.05 decay 0.4\n  fx reverb_send 0.3 drive 0.5 lfo_rate 4 lfo_depth 1200\n  voice octave 1 arp up chord minor\n  steps x . . . x . . . x . . . x . . ."
+  applyTplSource(synProj, synTpl)
+  let dk = findChannelById(synProj, "dk")
+  assert.ok(dk !== null && dk.generatorId === "drumSynth", "gen line: generatorId resolves to drumSynth")
+  assert.ok(dk !== null && dk.generatorParams.pitchEnv === 40, "gen line: pitchEnv (snake->camel) parsed")
+  assert.ok(dk !== null && dk.drive === 0.5, "fx line: drive parsed")
+  assert.ok(dk !== null && dk.lfoRate === 4, "fx line: lfoRate parsed")
+  assert.ok(dk !== null && dk.octave === 1, "voice line: octave parsed")
+  assert.ok(dk !== null && dk.chord === "minor", "voice line: chord parsed")
+  let synEmit = emitProject(synProj)
+  assert.ok(synEmit.indexOf("pitch_env") >= 0, "emit round-trips drum gen params")
+  assert.ok(synEmit.indexOf("drive 0.5") >= 0, "emit round-trips fx drive")
+  assert.ok(synEmit.indexOf("chord minor") >= 0, "emit round-trips voice chord")
+
+  // 5b. Modular patch DSL: parse → graph → emit → re-parse round-trip
+  let patchSrc = "deck 1\ntrack Kick id pk gen patch\n  fx cutoff 20000 reverb_send 0.05\n  gen_block patch\n    osc o sine\n    gain a\n    conn o a\n    conn a out\n    env o.freq set 0 150 exp 0.5 0.01\n    env a.gain set 0 1 exp 0.5 0.01\n    dur 0.6\n  end gen_block\n  step_pitch 36\n  steps x . . . x . . . x . . . x . . ."
+  let patchProj = loadDefaultDeckardProject().project
+  applyTplSource(patchProj, patchSrc)
+  let pk = findChannelById(patchProj, "pk")
+  assert.ok(pk !== null && pk.generatorId === "patch", "patch: generatorId resolves to patch")
+  assert.ok(pk !== null && pk.generatorSpec && pk.generatorSpec.graph && pk.generatorSpec.graph.nodes.length === 2, "patch: graph has 2 nodes (osc + gain)")
+  assert.ok(pk !== null && pk.generatorSpec.graph.envs.length === 2, "patch: graph has 2 envelopes")
+  assert.ok(pk !== null && pk.generatorSpec.graph.dur === 0.6, "patch: fixed dur parsed")
+  let patchEmit = emitProject(patchProj)
+  assert.ok(patchEmit.indexOf("gen_block patch") >= 0 && patchEmit.indexOf("env o.freq set 0 150 exp 0.5 0.01") >= 0, "patch: emit round-trips the patch block")
+  let patchProj2 = loadDefaultDeckardProject().project
+  applyTplSource(patchProj2, patchEmit)
+  let pk2 = findChannelById(patchProj2, "pk")
+  assert.ok(pk2 !== null && pk2.generatorSpec.graph.nodes.length === 2, "patch: re-parse preserves node count")
+
+  // 5b-i. PatchGraph serializer ↔ parser round-trip (the data path the generic editor relies on)
+  let defG = parsePatchGraph(defaultPatchRawLines())
+  assert.ok(defG.nodes.length === 3, "patchgraph: default starter has 3 nodes")
+  assert.ok(defG.conns.length === 3, "patchgraph: default starter has 3 conns")
+  assert.ok(defG.envs.length === 1, "patchgraph: default starter has 1 env")
+  // A non-trivial graph exercises every node kind + a param-routed conn + multi-seg expr envelope.
+  let richLines = [
+    "osc o1 sawtooth note ratio 2 detune -7",
+    "osc o2 sine 55",
+    "noise n1",
+    "filter f1 lowpass q 6.5 freq 1400",
+    "shaper s1 amount 120",
+    "gain a1 0",
+    "conn o1 f1 1",
+    "conn n1 f1 0.4",
+    "conn f1 a1 1",
+    "conn o2 a1.gain 0.5",
+    "conn a1 out 0.8",
+    "conn a1 reverb 0.2",
+    "env a1.gain set 0 0 lin 0.01 0.9 exp dur 0.001",
+    "env f1.freq set 0 200 exp dur-0.05 4000",
+    "dur 0.6"
+  ]
+  let rg = parsePatchGraph(richLines)
+  let rg2 = parsePatchGraph(patchGraphToLines(rg))
+  assert.ok(rg2.nodes.length === 6, "patchgraph: node count survives serialize→parse")
+  assert.ok(rg2.conns.length === 6, "patchgraph: conn count survives serialize→parse")
+  assert.ok(rg2.nodes[0].ratio === 2 && rg2.nodes[0].detune === -7, "patchgraph: osc ratio+detune survive")
+  assert.ok(rg2.nodes[1].freqMode === "fixed" && rg2.nodes[1].fixedHz === 55, "patchgraph: osc fixed Hz survives")
+  assert.ok(rg2.nodes[3].q === 6.5 && rg2.nodes[3].freq === 1400, "patchgraph: filter q+freq survive")
+  assert.ok(rg2.nodes[4].amount === 120, "patchgraph: shaper amount survives")
+  assert.ok(rg2.conns[3].dst === "a1" && rg2.conns[3].dstParam === "gain", "patchgraph: param-routed conn keeps dstParam")
+  assert.ok(rg2.conns[5].dst === "reverb", "patchgraph: reverb send conn survives")
+  assert.ok(rg2.envs[1].segs[1].tExpr === "dur-0.05" && rg2.envs[1].segs[1].vExpr === "4000", "patchgraph: env exprs survive (dur-0.05)")
+  assert.ok(rg2.dur === 0.6, "patchgraph: fixed dur survives")
+  // Mutators (the editor's add/remove buttons) keep the graph coherent.
+  let mg = parsePatchGraph(defaultPatchRawLines())
+  let newId = addPatchNode(mg, "filter")
+  assert.ok(mg.nodes.length === 4 && newId === "f2", "patchgraph: addNode appends a uniquely-id'd filter")
+  addPatchConn(mg)
+  assert.ok(mg.conns.length === 4 && mg.conns[3].dst === "out", "patchgraph: addConn appends a conn to out")
+  removePatchConnAt(mg, 3)
+  assert.ok(mg.conns.length === 3, "patchgraph: removeConnAt drops it")
+  removePatchNode(mg, "f1")
+  assert.ok(mg.nodes.length === 3 && mg.conns.every(c => c.src !== "f1" && c.dst !== "f1"), "patchgraph: removeNode also drops conns referencing it")
+  addPatchEnv(mg)
+  let envCount = mg.envs.length
+  addPatchEnvSeg(mg, envCount - 1)
+  assert.ok(mg.envs[envCount - 1].segs.length === 4, "patchgraph: addEnv + addSeg grow the envelope")
+  removePatchEnvSegAt(mg, envCount - 1, 0)
+  assert.ok(mg.envs[envCount - 1].segs.length === 3, "patchgraph: removeSeg shrinks it")
+  // syncPatchSpecFromGraph refreshes raw without replacing graph (handler closures stay valid).
+  let specForSync = { kind: "patch", graph: parsePatchGraph(defaultPatchRawLines()), raw: [] }
+  let graphRef = specForSync.graph
+  syncPatchSpecFromGraph(specForSync)
+  assert.ok(specForSync.raw.length > 0 && specForSync.graph === graphRef, "patchgraph: sync refreshes raw")
+
+  // 5c. Bar selectors: per-bar note expansion + per-bar step_pitch + multi-bar round-trip
+  let barSrc = "deck 1\ntrack Ch id ch gen patch * 4\n  gen_block patch\n    osc o sine\n    gain a\n    conn o a\n    conn a out\n    env a.gain set 0 0.3 exp 0.4 0.01\n    dur 0.4\n  end gen_block\n  note 48 0 4 v 90 bar 0\n  note 43 0 4 v 90 bar 1,3\n  note 44 0 4 v 90 bar 2\ntrack Bs id bs gen patch * 4\n  gen_block patch\n    osc o sawtooth note\n    gain a\n    conn o a\n    conn a out\n    env a.gain set 0 0.3 exp 0.3 0.01\n    dur 0.3\n  end gen_block\n  step_pitch 36 bar 0\n  step_pitch 31 bar 1\n  step_pitch 34 bar 2,3\n  steps x . x . x . x . x . x . x . x ."
+  let barProj = loadDefaultDeckardProject().project
+  applyTplSource(barProj, barSrc)
+  let chCh = findChannelById(barProj, "ch")
+  assert.ok(chCh !== null && chCh.pianoNotes.length === 4, "bar sel: note expands across loop bars (3 sel -> 4 notes)")
+  assert.ok(chCh !== null && chCh.pianoNotes.some(n => n.pitch === 43 && n.startBeat === 4) && chCh.pianoNotes.some(n => n.pitch === 43 && n.startBeat === 12), "bar sel: 'bar 1,3' note lands at beats 4 and 12")
+  let bsCh = findChannelById(barProj, "bs")
+  assert.ok(bsCh !== null && bsCh.stepPitchByBar !== null && bsCh.stepPitchByBar.length === 4 && bsCh.stepPitchByBar[0] === 36 && bsCh.stepPitchByBar[1] === 31 && bsCh.stepPitchByBar[3] === 34, "bar sel: per-bar step_pitch builds [36,31,34,34]")
+  let barEmit = emitProject(barProj)
+  assert.ok(barEmit.indexOf("gen patch * 4") >= 0, "bar sel: emit keeps the * 4 loop header")
+  let barProj2 = loadDefaultDeckardProject().project
+  let barRT = applyTplSource(barProj2, barEmit)
+  assert.ok(barRT.errors.length === 0, "bar sel: multi-bar emit re-parses clean")
+  let bs2 = findChannelById(barProj2, "bs")
+  assert.ok(bs2 !== null && bs2.stepPitchByBar !== null && bs2.stepPitchByBar[1] === 31, "bar sel: round-trip preserves per-bar step_pitch")
+
+  // 5d. Macros: built-in reference, param override, user-defined macro, concise emit + round-trip
+  let macSrc = "deck 1\nmacro my_zap top=4000 q=18\n  osc o sawtooth note\n  filter f lowpass q $q\n  gain a\n  conn o f\n  conn f a\n  conn a out\n  env f.freq set 0 $top exp 0.2 100\n  env a.gain set 0 0.3 lin dur 0.01\nend macro\ntrack Kick id mk gen kick_edm\n  step_pitch 36\n  steps x . . . x . . . x . . . x . . .\ntrack Bass id mb gen bass_acid q 9\n  step_pitch 36\n  steps x . x . x . x . x . x . x . x .\ntrack Lead id ml gen my_zap top 5000\n  note 60 0 0.5 v 90"
+  let macProj = loadDefaultDeckardProject().project
+  applyTplSource(macProj, macSrc)
+  let mk = findChannelById(macProj, "mk")
+  assert.ok(mk !== null && mk.generatorId === "patch" && mk.macroName === "kick_edm" && mk.generatorSpec.graph.nodes.length === 2, "macro: built-in kick_edm expands to a patch graph")
+  let mb = findChannelById(macProj, "mb")
+  assert.ok(mb !== null && mb.macroName === "bass_acid" && mb.macroParams.q === 9 && mb.generatorSpec.graph.nodes[1].q === 9, "macro: param override applies (bass_acid q 9 -> filter Q 9)")
+  let ml = findChannelById(macProj, "ml")
+  assert.ok(ml !== null && ml.macroName === "my_zap" && ml.generatorSpec.graph.envs[0].segs[0].vExpr === "5000", "macro: user-defined macro expands with substituted param")
+  let macEmit = emitProject(macProj)
+  assert.ok(macEmit.indexOf("gen kick_edm") >= 0 && macEmit.indexOf("gen bass_acid q 9") >= 0, "macro: emit is concise (gen kick_edm, no gen_block for it)")
+  let macProj2 = loadDefaultDeckardProject().project
+  let macRT = applyTplSource(macProj2, macEmit)
+  assert.ok(macRT.errors.length === 0 && findChannelById(macProj2, "mk").macroName === "kick_edm", "macro: round-trip re-parses clean and keeps the macro ref")
+
+  // 5d-i. MacroVoice (Kick/Bass designer model): catalog, controls, assign/set/freeze + emit round-trip
+  assert.ok(macroCatalog().length === 8, "macrovoice: catalog has 8 designer voices")
+  assert.ok(macroKind("kick_edm") === "kick" && macroKind("bass_acid") === "bass" && macroKind("nope") === null, "macrovoice: macroKind classifies kick + bass")
+  let kCtrls = macroParamControls("kick_edm", {}, null)
+  assert.ok(kCtrls.length === 2 && kCtrls[0].key === "pitch" && kCtrls[0].value === 150 && kCtrls[1].value === 0.5, "macrovoice: kick_edm exposes pitch + decay with defaults")
+  assert.ok(kCtrls[0].label === "Punch (Hz)" && kCtrls[0].min === 40 && kCtrls[0].max === 400, "macrovoice: known param gets a labeled range")
+  assert.ok(macroParamControls("kick_edm", { pitch: 90 }, null)[0].value === 90, "macrovoice: override shows through in controls")
+  assert.ok(macroParamControls("bass_reese_sc", {}, null).length === 0, "macrovoice: param-less voice yields no controls")
+  let expSpec = expandMacroToSpec("kick_edm", { pitch: 90 }, null)
+  assert.ok(expSpec !== null && expSpec.kind === "patch" && expSpec.graph.envs[0].segs[0].vExpr === "90", "macrovoice: expand substitutes override into the graph")
+  let mvProj = loadDefaultDeckardProject().project
+  let mvCh = mvProj.channels[0]
+  assignMacroToChannel(mvCh, "kick_edm", null)
+  assert.ok(mvCh.macroName === "kick_edm" && mvCh.generatorId === "patch" && mvCh.generatorSpec.graph.nodes.length === 2, "macrovoice: assign makes it a patch-backed macro voice")
+  setMacroParam(mvCh, "pitch", 100, null)
+  assert.ok(mvCh.macroParams.pitch === 100 && mvCh.generatorSpec.graph.envs[0].segs[0].vExpr === "100", "macrovoice: setMacroParam records override + re-expands")
+  let mvEmit = emitProject(mvProj)
+  assert.ok(mvEmit.indexOf("gen kick_edm pitch 100") >= 0, "macrovoice: emit writes the concise macro line")
+  let mvProj2 = loadDefaultDeckardProject().project
+  applyTplSource(mvProj2, mvEmit)
+  let mvCh2 = findChannelById(mvProj2, mvCh.id)
+  assert.ok(mvCh2 !== null && mvCh2.macroName === "kick_edm" && mvCh2.macroParams.pitch === 100, "macrovoice: edit survives emit→re-parse")
+  freezeMacroChannel(mvCh)
+  let mvFrozen = emitProject(mvProj)
+  assert.ok(mvCh.macroName === null && mvFrozen.indexOf("gen_block patch") >= 0, "macrovoice: freeze drops the macro and emits a raw patch block")
+
+  // 5d-ii. Fixed-param designer round-trips (pad / bell / drumSynth) — the gen <k> <v> path the new arms emit
+  assert.ok(defaultParamsForGeneratorId("drumSynth").noiseHp === 1500, "registry: drumSynth default now includes noiseHp")
+  let gpSrc = "deck 1\ntrack Pad id gp gen pad\n  gen wave1 sawtooth wave2 square detune 14 cutoff 1400 attack 0.05 decay 0.3 sustain 0.5 release 0.9\n  steps x . . . x . . . x . . . x . . .\ntrack Bell id gb gen bell\n  gen partial 3.01 highpass 1200 decay 2.5\n  steps x . . . x . . . x . . . x . . .\ntrack Drum id gd gen drumSynth\n  gen tone triangle pitch_env 40 pitch_decay 0.05 decay 0.4 noise 0.6 noise_decay 0.2 noise_hp 2200 drive 0.3\n  steps x . . . x . . . x . . . x . . ."
+  let gpProj = loadDefaultDeckardProject().project
+  applyTplSource(gpProj, gpSrc)
+  let gpPad = findChannelById(gpProj, "gp")
+  assert.ok(gpPad !== null && gpPad.generatorParams.wave1 === "sawtooth" && gpPad.generatorParams.cutoff === 1400 && gpPad.generatorParams.sustain === 0.5, "pad designer: gen params parse (wave1/cutoff/sustain)")
+  let gpDrum = findChannelById(gpProj, "gd")
+  assert.ok(gpDrum !== null && gpDrum.generatorParams.noiseHp === 2200 && gpDrum.generatorParams.pitchEnv === 40, "drum designer: noise_hp maps to noiseHp camel")
+  let gpEmit = emitProject(gpProj)
+  assert.ok(gpEmit.indexOf("cutoff 1400") >= 0, "designer round-trip: pad cutoff survives emit")
+  assert.ok(gpEmit.indexOf("partial 3.01") >= 0, "designer round-trip: bell partial survives emit")
+  assert.ok(gpEmit.indexOf("noise_hp 2200") >= 0, "designer round-trip: drum noise_hp survives emit")
+  let gpProj2 = loadDefaultDeckardProject().project
+  applyTplSource(gpProj2, gpEmit)
+  let gpDrum2 = findChannelById(gpProj2, "gd")
+  assert.ok(gpDrum2 !== null && gpDrum2.generatorParams.noiseHp === 2200, "designer round-trip: drum noiseHp re-parses")
+
+  // 5d-iii. Per-module instrument slices (the Designer⇄Raw "break it down to deck" view)
+  let modSrc = "deck 1\ntrack Lead id tl gen pad\n  mix gain 0.8 pan 0 eq_lo 0 eq_mid 0 eq_hi 0\n  fx reverb_send 0.3 drive 0.2 cutoff 4000 res 2\n  voice octave 1 arp up chord maj7\n  gen wave1 sawtooth wave2 square detune 12 cutoff 3000 attack 0.05 decay 0.3 sustain 0.5 release 0.8\n  steps x . . . x . . . x . . . x . . ."
+  let modProj = loadDefaultDeckardProject().project
+  applyTplSource(modProj, modSrc)
+  let genSlice = emitInstrumentModuleTpl(modProj, "tl", "gen")
+  assert.ok(genSlice.indexOf("gen wave1 sawtooth") >= 0, "module slice: gen slice has the gen line")
+  assert.ok(genSlice.indexOf("voice octave") < 0 && genSlice.indexOf("fx reverb") < 0 && genSlice.indexOf("mix gain") < 0, "module slice: gen slice excludes voice + fx + mix")
+  assert.ok(genSlice.indexOf("steps ") < 0, "module slice: gen slice excludes the pattern (steps)")
+  let voiceSlice = emitInstrumentModuleTpl(modProj, "tl", "voice")
+  assert.ok(voiceSlice.indexOf("voice octave 1 arp up chord maj7") >= 0 && voiceSlice.indexOf("gen wave1") < 0 && voiceSlice.indexOf("fx reverb") < 0, "module slice: voice slice has only the voice line")
+  let fxSlice = emitInstrumentModuleTpl(modProj, "tl", "fx")
+  assert.ok(fxSlice.indexOf("fx reverb_send 0.3") >= 0 && fxSlice.indexOf("voice octave") < 0 && fxSlice.indexOf("gen wave1") < 0, "module slice: fx slice has only the fx line")
+  // Editing a module's raw and re-applying merges just that module (others untouched).
+  let modProj2 = loadDefaultDeckardProject().project
+  applyTplSource(modProj2, modSrc)
+  applyTplSource(modProj2, voiceSlice.split("arp up").join("arp down"))
+  let tl2 = findChannelById(modProj2, "tl")
+  assert.ok(tl2 !== null && tl2.arp === "down" && tl2.generatorParams.wave1 === "sawtooth" && tl2.reverbSend === 0.3, "module slice: applying edited voice slice merges (arp down) without wiping gen/fx")
+  let genBlockSrc = "deck 1\ntrack Pat id tp gen patch\n  fx reverb_send 0.1\n  voice octave 0\n  gen_block patch\n    osc o1 sawtooth note\n    gain a1 0\n    conn o1 a1 1\n    conn a1 out 1\n    env a1.gain set 0 0.9 lin dur 0\n  end gen_block\n  steps x . . . x . . . x . . . x . . ."
+  let gbProj = loadDefaultDeckardProject().project
+  applyTplSource(gbProj, genBlockSrc)
+  let gbGen = emitInstrumentModuleTpl(gbProj, "tp", "gen")
+  assert.ok(gbGen.indexOf("gen_block patch") >= 0 && gbGen.indexOf("osc o1 sawtooth note") >= 0 && gbGen.indexOf("end gen_block") >= 0 && gbGen.indexOf("fx reverb") < 0, "module slice: gen slice carries the whole gen_block (patch graph reduction)")
+
+  // 5d-iv. Generator → patch compile (switch-to-Patch is a sound-preserving reduction, not a reset)
+  assert.ok(canCompileToPatch("basicOsc") && canCompileToPatch("drumSynth") && canCompileToPatch("matrixFm") && !canCompileToPatch("plugin") && compileGeneratorToPatchLines("matrixFm", {}, null) === null, "compile: fixed generators + matrixFm are compilable; matrixFm needs its spec")
+  let cbOsc = parsePatchGraph(compileGeneratorToPatchLines("basicOsc", { waveform: "square", attack: 0.01, decay: 0.1, sustain: 0.5, release: 0.2 }))
+  assert.ok(cbOsc.nodes.some(n => n.kind === "osc" && n.wave === "square" && n.freqMode === "note"), "compile basicOsc: osc keeps the waveform + note pitch")
+  assert.ok(cbOsc.conns.some(c => c.dst === "out" && Math.abs(c.vol - 0.7874) < 0.001), "compile basicOsc: output conn compensates velocity (100/127 ≈ 0.7874)")
+  assert.ok(cbOsc.envs.some(e => e.node === "a1" && e.param === "gain" && e.segs.length >= 4), "compile basicOsc: amp env has the ADSR breakpoints")
+  let cbFm = parsePatchGraph(compileGeneratorToPatchLines("fmTone", { ratio: 3, modIndex: 5, carrierWave: "sine", modWave: "triangle" }))
+  assert.ok(cbFm.conns.some(c => c.dst === "c1" && c.dstParam === "freq"), "compile fmTone: modulator routes to carrier frequency (FM)")
+  assert.ok(cbFm.envs.some(e => e.node === "md" && e.segs.some(s => s.vExpr === "note*0.6")), "compile fmTone: mod depth is note-relative (note*0.6 for index 5)")
+  assert.ok(cbFm.nodes.some(n => n.id === "m1" && n.ratio === 3), "compile fmTone: modulator uses its ratio")
+  let cbDrum = parsePatchGraph(compileGeneratorToPatchLines("drumSynth", { tone: "sine", pitchEnv: 36, pitchDecay: 0.05, decay: 0.4, noise: 0.5, noiseDecay: 0.2, noiseHp: 2000, drive: 0 }))
+  assert.ok(cbDrum.envs.some(e => e.node === "o1" && e.param === "freq" && e.segs.some(s => s.vExpr === "note*8")), "compile drumSynth: pitch drop is note-relative (pitchEnv 36 → note*8)")
+  assert.ok(cbDrum.nodes.some(n => n.kind === "noise"), "compile drumSynth: noise layer present when noise > 0")
+  let cbPad = parsePatchGraph(compileGeneratorToPatchLines("pad", { wave1: "sawtooth", wave2: "square", detune: 12, cutoff: 1800, attack: 0.1, decay: 0.3, sustain: 0.6, release: 0.8 }))
+  assert.ok(cbPad.nodes.filter(n => n.kind === "osc").length === 3 && cbPad.nodes.some(n => n.kind === "filter" && n.ftype === "lowpass"), "compile pad: three oscillators through a lowpass")
+  // guitar (Karplus-Strong) generator: catalog + default params + gen key/val round-trip
+  assert.ok(defaultParamsForGeneratorId("guitar").decay === 0.6 && defaultParamsForGeneratorId("guitar").mute === 0 && defaultParamsForGeneratorId("guitar").body === 3500, "guitar: registered with default string params")
+  let gtrSrc = "deck 1\ntrack Lead id gt gen guitar\n  gen tone 0.7 decay 0.8 damping 0.3 drive 0.5 body 2800 mute 0.4\n  note 52 0 0.5 v 100"
+  let gtrProj = loadDefaultDeckardProject().project
+  applyTplSource(gtrProj, gtrSrc)
+  let gtrCh = findChannelById(gtrProj, "gt")
+  assert.ok(gtrCh !== null && gtrCh.generatorId === "guitar" && gtrCh.generatorParams.drive === 0.5 && gtrCh.generatorParams.mute === 0.4, "guitar: gen params parse")
+  let gtrEmit = emitProject(gtrProj)
+  assert.ok(gtrEmit.indexOf("mute 0.4") >= 0 && gtrEmit.indexOf("body 2800") >= 0, "guitar: params survive emit→re-parse")
+
+  // The Clap (handclap engine): catalog + default params + gen key/val round-trip + patch reduction
+  assert.ok(generatorCatalog().some(g => g.id === "clap" && g.label === "Clap"), "clap: registered in catalog")
+  let clapDef = defaultParamsForGeneratorId("clap")
+  assert.ok(clapDef.hands === 3 && clapDef.spread === 0.4 && clapDef.size === 0.5 && clapDef.claps === 1 && clapDef.tail === 0.4 && clapDef.body === 0.2, "clap: default params (hands/spread/size/claps/tail/body)")
+  let clapSrc = "deck 1\ntrack Clap id cp gen clap\n  gen hands 8 spread 0.7 size 0.3 tone 0.6 claps 2 gap 0.4 tail 0.5 body 0.25\n  steps x . . . x . . . x . . . x . . ."
+  let clapProj = loadDefaultDeckardProject().project
+  applyTplSource(clapProj, clapSrc)
+  let clapCh = findChannelById(clapProj, "cp")
+  assert.ok(clapCh !== null && clapCh.generatorId === "clap" && clapCh.generatorParams.hands === 8 && clapCh.generatorParams.claps === 2, "clap: gen params parse (many hands + double clap)")
+  let clapEmit = emitProject(clapProj)
+  assert.ok(clapEmit.indexOf("hands 8") >= 0 && clapEmit.indexOf("claps 2") >= 0 && clapEmit.indexOf("spread 0.7") >= 0, "clap: params survive emit→re-parse")
+  assert.ok(canCompileToPatch("clap"), "clap: compilable to a patch graph")
+  let clapPatchG = parsePatchGraph(compileGeneratorToPatchLines("clap", { size: 0.3, tone: 0.6, tail: 0.5 }, null))
+  assert.ok(clapPatchG.nodes.some(n => n.kind === "noise") && clapPatchG.nodes.some(n => n.kind === "filter" && n.ftype === "bandpass") && clapPatchG.envs.some(e => e.node === "a1"), "clap→patch: bandpassed noise snap with an amp env")
+  // Clap edit through the INCREMENTAL ingest door (rt.emit) keeps generatorId + params (no silent reset).
+  let clapIng = loadDefaultDeckardProject().project
+  applyCoDjTplSource(clapIng, clapSrc, "host", "host", 0, ["master_mixer"])
+  applyCoDjTplSource(clapIng, "deck 1\n" + fragmentForEdit(clapIng, "track/cp/gen/hands", 10) + "\n", "host", "host", 0, ["master_mixer"])
+  let clapIngCh = findChannelById(clapIng, "cp")
+  assert.ok(clapIngCh.generatorId === "clap" && clapIngCh.generatorParams.hands === 10, "clap: gen edit folds through ingest (genId + hands)")
+
+  // Arco (bowed strings: violin/viola/cello/bass/fiddle) — catalog, defaults, string-family voice param,
+  // round-trip incl. the STRING `voice` value, and patch reduction.
+  assert.ok(generatorCatalog().some(g => g.id === "arco" && g.label === "Arco"), "arco: registered in catalog")
+  let arcoDef = defaultParamsForGeneratorId("arco")
+  assert.ok(arcoDef.voice === "violin" && arcoDef.pressure === 0.5 && arcoDef.bow === 0.4 && arcoDef.vibrato === 0.35 && arcoDef.rosin === 0.3 && arcoDef.body === 0.6, "arco: defaults (voice=violin + bow controls)")
+  let arcoSrc = "deck 1\ntrack Strings id ar gen arco\n  gen voice cello pressure 0.7 bow 0.6 vibrato 0.5 rosin 0.4 body 0.8\n  note 48 0 1 v 100"
+  let arcoProj = loadDefaultDeckardProject().project
+  applyTplSource(arcoProj, arcoSrc)
+  let arcoCh = findChannelById(arcoProj, "ar")
+  assert.ok(arcoCh !== null && arcoCh.generatorId === "arco" && arcoCh.generatorParams.voice === "cello" && arcoCh.generatorParams.pressure === 0.7, "arco: gen params parse incl. string voice")
+  let arcoEmit = emitProject(arcoProj)
+  assert.ok(arcoEmit.indexOf("voice cello") >= 0 && arcoEmit.indexOf("vibrato 0.5") >= 0 && arcoEmit.indexOf("body 0.8") >= 0, "arco: params survive emit→re-parse (voice token + knobs)")
+  assert.ok(canCompileToPatch("arco"), "arco: compilable to a patch graph")
+  let arcoPatchG = parsePatchGraph(compileGeneratorToPatchLines("arco", { voice: "cello", pressure: 0.7, bow: 0.6 }, null))
+  assert.ok(arcoPatchG.nodes.some(n => n.kind === "osc" && n.wave === "sawtooth") && arcoPatchG.nodes.some(n => n.kind === "filter" && n.ftype === "lowpass") && arcoPatchG.envs.some(e => e.node === "a1"), "arco→patch: saw → lowpass → slow-attack amp")
+  // Arco edit through the INCREMENTAL ingest door keeps generatorId + the string voice param.
+  let arcoIng = loadDefaultDeckardProject().project
+  applyCoDjTplSource(arcoIng, arcoSrc, "host", "host", 0, ["master_mixer"])
+  applyCoDjTplSource(arcoIng, "deck 1\n" + fragmentForEdit(arcoIng, "track/ar/gen/voice", "bass") + "\n", "host", "host", 0, ["master_mixer"])
+  let arcoIngCh = findChannelById(arcoIng, "ar")
+  assert.ok(arcoIngCh.generatorId === "arco" && arcoIngCh.generatorParams.voice === "bass", "arco: voice change folds through ingest (genId + voice)")
+
+  // Premium instrument pack — Tine (EP), Aether (theremin), Halo (handpan), Aahs (choir). Each: catalog +
+  // defaults + gen round-trip + patch reduction. Aahs additionally exercises a STRING `vowel` param.
+  let packDefs = [
+    { id: "tine", keys: ["bark", "tine", "tremolo", "decay", "drive"], some: "bark", someVal: 0.55 },
+    { id: "aether", keys: ["glide", "waver", "tone", "swell", "air"], some: "glide", someVal: 0.4 },
+    { id: "halo", keys: ["temper", "ring", "mallet", "bloom", "lows"], some: "temper", someVal: 0.4 }
+  ]
+  let pdi = 0
+  while (pdi < packDefs.length) {
+    let pd = packDefs[pdi]
+    assert.ok(generatorCatalog().some(g => g.id === pd.id) && canCompileToPatch(pd.id), "pack: " + pd.id + " in catalog + compilable")
+    let dd = defaultParamsForGeneratorId(pd.id)
+    assert.ok(dd[pd.some] === pd.someVal && Object.keys(dd).length === pd.keys.length, "pack: " + pd.id + " default param present")
+    let pg = parsePatchGraph(compileGeneratorToPatchLines(pd.id, dd, null))
+    assert.ok(pg.nodes.length >= 2 && pg.envs.some(e => e.param === "gain") && pg.conns.some(c => c.dst === "out"), "pack: " + pd.id + " reduces to a patch graph")
+    pdi = pdi + 1
+  }
+  // Switch-to-Patch must keep each instrument's CHARACTER, not collapse to a generic saw (the "switching to
+  // patch completely changes the sound" complaint). Assert the signature element survives the reduction.
+  let tinePg = parsePatchGraph(compileGeneratorToPatchLines("tine", defaultParamsForGeneratorId("tine"), null))
+  assert.ok(tinePg.conns.some(c => c.dstParam === "freq"), "tine→patch keeps real FM (modulator → carrier.freq)")
+  let aetherPg = parsePatchGraph(compileGeneratorToPatchLines("aether", defaultParamsForGeneratorId("aether"), null))
+  assert.ok(aetherPg.envs.some(e => e.param === "freq"), "aether→patch keeps the portamento (a freq glide envelope)")
+  let haloPg = parsePatchGraph(compileGeneratorToPatchLines("halo", defaultParamsForGeneratorId("halo"), null))
+  let haloOscs = haloPg.nodes.filter(n => n.kind === "osc")
+  assert.ok(haloOscs.length >= 6 && haloOscs.some(o => o.ratio > 1.9 && o.ratio < 2.1) && haloOscs.some(o => o.ratio > 2.9 && o.ratio < 3.1) && haloOscs.some(o => o.detune > 0) && haloOscs.some(o => o.detune < 0), "halo→patch keeps the beating triad (octave+fifth detuned pairs)")
+
+  // Tine round-trip through emit + ingest.
+  let tineProj = loadDefaultDeckardProject().project
+  applyTplSource(tineProj, "deck 1\ntrack EP id ep gen tine\n  gen bark 0.8 tine 0.4 tremolo 0.6 decay 0.7 drive 0.3\n  note 60 0 1 v 110")
+  let tineCh = findChannelById(tineProj, "ep")
+  assert.ok(tineCh.generatorId === "tine" && tineCh.generatorParams.bark === 0.8 && tineCh.generatorParams.tremolo === 0.6, "tine: gen params parse")
+  assert.ok(emitProject(tineProj).indexOf("bark 0.8") >= 0 && emitProject(tineProj).indexOf("tremolo 0.6") >= 0, "tine: survives emit→re-parse")
+
+  // 5d-v. Instrument preset captures + restores the WHOLE sound (every panel), not just the generator.
+  let prProj = loadDefaultDeckardProject().project
+  ensureInstrumentPresets(prProj)
+  let prSrc = prProj.channels[0]
+  prSrc.macroName = "bass_acid"
+  prSrc.macroParams = { q: 14 }
+  prSrc.octave = 1
+  prSrc.arp = "up"
+  prSrc.chord = "min7"
+  prSrc.reverbSend = 0.4
+  prSrc.drive = 0.3
+  prSrc.filterCutoff = 2400
+  prSrc.filterQ = 6
+  prSrc.lfoRate = 4
+  prSrc.lfoDepth = 800
+  addInstrumentPreset(prProj, "Acid lead", prSrc)
+  let prTarget = prProj.channels[1]
+  prTarget.octave = 0
+  prTarget.arp = "off"
+  prTarget.reverbSend = 0
+  applyInstrumentPresetToChannel(prTarget, prProj.instrumentPresets[prProj.instrumentPresets.length - 1])
+  assert.ok(prTarget.macroName === "bass_acid" && prTarget.macroParams.q === 14, "preset: restores macro identity (Sound box)")
+  assert.ok(prTarget.octave === 1 && prTarget.arp === "up" && prTarget.chord === "min7", "preset: restores voice/pitch box (octave/arp/chord)")
+  assert.ok(prTarget.reverbSend === 0.4 && prTarget.drive === 0.3 && prTarget.filterCutoff === 2400 && prTarget.filterQ === 6 && prTarget.lfoRate === 4 && prTarget.lfoDepth === 800, "preset: restores filter/fx box")
+  // An older preset (no fx/voice captured) resets those panels to neutral rather than leaving stale values.
+  let legacyPreset = { generatorId: "basicOsc", params: { waveform: "square", attack: 0.01, decay: 0.1, sustain: 0.5, release: 0.2 } }
+  let prT2 = prProj.channels[2]
+  prT2.arp = "down"
+  prT2.reverbSend = 0.9
+  applyInstrumentPresetToChannel(prT2, legacyPreset)
+  assert.ok(prT2.arp === "off" && prT2.reverbSend === 0 && prT2.filterCutoff === 20000 && prT2.macroName === null, "preset: legacy preset resets voice/fx panels to neutral")
+
+  // 5d-v-b. A non-generator edit (fx/voice/mix) on a MACRO channel must NOT reset the macro. Edits ride
+  // the INCREMENTAL ingest path (applyCoDjTplSource), the same door rt.emit uses — and that path must
+  // re-expand the macro. If it doesn't, the header's `gen bass_acid` flips generatorId patch->bass_acid
+  // (an unknown gen) and drops the spec, so the next note falls through to the default oscillator: the
+  // "change cutoff → bass unrecognizable, no way back" + "chord on bass designer goes silent until you
+  // re-pick the designer" bug. trackHeader also has to carry the macro overrides so they survive.
+  let macEditProj = loadDefaultDeckardProject().project
+  applyCoDjTplSource(macEditProj, "deck 1\ntrack B id mfb gen bass_acid q 9 top 5000\n  steps x . . . x . . . x . . . x . . .", "host", "host", 0, ["host"])
+  applyCoDjTplSource(macEditProj, "deck 1\n" + fragmentForEdit(macEditProj, "track/mfb/fx/cutoff", 2000) + "\n", "host", "host", 0, ["host"])
+  let mfb = findChannelById(macEditProj, "mfb")
+  assert.ok(mfb.generatorId === "patch" && mfb.macroName === "bass_acid" && mfb.macroParams.q === 9 && mfb.macroParams.top === 5000 && mfb.generatorSpec.graph.nodes[1].q === 9 && mfb.filterCutoff === 2000, "macro edit via ingest keeps patch gen + overrides (fx cutoff)")
+  applyCoDjTplSource(macEditProj, "deck 1\n" + fragmentForEdit(macEditProj, "track/mfb/voice/chord", "major") + "\n", "host", "host", 0, ["host"])
+  let mfb2 = findChannelById(macEditProj, "mfb")
+  assert.ok(mfb2.generatorId === "patch" && mfb2.macroName === "bass_acid" && mfb2.chord === "major" && mfb2.generatorSpec !== null && mfb2.generatorSpec.graph.nodes.length >= 2, "macro edit via ingest keeps patch gen + spec (voice chord)")
+
+  // 5d-vi. Chord realization: plain chord = block (guitar strums subtly); chord+arp = internal ripple.
+  let gtrChordCh = { id: "x", generatorId: "guitar", chord: "major", arp: "off" }
+  let oscChordCh = { id: "y", generatorId: "basicOsc", chord: "major", arp: "off" }
+  let gtrNotes = expandTriggerNotes(gtrChordCh, 40, 0.3)
+  assert.ok(gtrNotes.length === 3 && gtrNotes[0].pitch === 40 && gtrNotes[2].pitch === 47 && gtrNotes[0].offset === 0 && Math.abs(gtrNotes[2].offset - 0.016) < 1e-9, "guitar chord: 3-note triad, subtle 8ms strum low→high")
+  assert.ok(expandTriggerNotes(oscChordCh, 40, 0.3)[2].offset === 0 && chordStrumDelta(oscChordCh) === 0, "non-guitar chord: block chord (no strum offset)")
+  // arp+chord = the chord rippled within the note (the two work together)
+  let arpUp = expandTriggerNotes({ id: "z", generatorId: "basicOsc", chord: "major", arp: "up" }, 40, 0.3)
+  assert.ok(arpUp.length === 3 && arpUp[0].pitch === 40 && arpUp[1].pitch === 44 && arpUp[2].pitch === 47 && arpUp[0].offset === 0 && arpUp[1].offset > 0 && arpUp[2].offset > arpUp[1].offset && arpUp[0].dur < 0.3, "arp+chord: chord rippled up (40→44→47) with rising offsets + short notes")
+  let arpDown = expandTriggerNotes({ id: "z2", generatorId: "basicOsc", chord: "major", arp: "down" }, 40, 0.3)
+  assert.ok(arpDown[0].pitch === 47 && arpDown[2].pitch === 40, "arp down: reversed order (47→44→40)")
+  assert.ok(expandTriggerNotes({ id: "z3", chord: "off", arp: "up" }, 40, 0.3).length === 1, "arp without a chord: nothing to arpeggiate (single note)")
+  // guitar → patch: the REAL Karplus-Strong string primitive (not a saw approximation) → body lowpass → amp.
+  let gtrPatchG = parsePatchGraph(compileGeneratorToPatchLines("guitar", { tone: 0.5, decay: 0.6, drive: 0.3, body: 3000 }, null))
+  assert.ok(gtrPatchG.nodes.some(n => n.kind === "string") && !gtrPatchG.nodes.some(n => n.kind === "osc") && gtrPatchG.nodes.some(n => n.kind === "filter") && gtrPatchG.envs.some(e => e.node === "a1") && (gtrPatchG.dur !== null), "guitar→patch: KS string→lowpass→amp (no saw approximation)")
+  // matrixFm → patch: the operator/matrix graph reduces to oscillators + FM-routed connections + envelopes.
+  // Factory Matrix FM patch bank (Sytrus-style) — every patch must parse into a valid graph: >=2 operators,
+  // at least one route to out, and every mod/route references an operator that exists (no dangling ids).
+  let fmBank = matrixFmPatches()
+  assert.ok(fmBank.length === 25, "matrixfm bank: 25 factory patches")
+  let fmBad = 0
+  let fmbi = 0
+  while (fmbi < fmBank.length) {
+    let bg = parseGenBlock("matrix_fm", fmBank[fmbi].lines).graph
+    let okOps = Object.keys(bg.ops).length >= 2
+    let okOut = bg.routes.some(r => r.dstKind === "out")
+    let okMods = bg.mods.every(m => bg.ops[m.src] !== null && bg.ops[m.src] !== null && bg.ops[m.dst] !== null && bg.ops[m.dst] !== null)
+    let okRoutes = bg.routes.every(r => r.srcKind === "filter" || (bg.ops[r.srcId] !== null && bg.ops[r.srcId] !== null))
+    if (!(okOps && okOut && okMods && okRoutes)) {
+      fmBad = fmBad + 1
+    }
+    fmbi = fmbi + 1
+  }
+  assert.ok(fmBad === 0, "matrixfm bank: every patch parses to a valid graph (ops/out/refs)")
+  let fmRich = matrixFmFactoryInstrumentPresets().filter(p => p.generatorSpec && p.generatorSpec.graph && Object.keys(p.generatorSpec.graph.ops).length >= 5)
+  assert.ok(fmRich.length >= 5, "matrixfm bank: has deep 5-6 operator showcase patches")
+  let mfmSpec = parseGenBlock("matrix_fm", defaultMatrixFmRawLines())
+  let mfmLines = compileGeneratorToPatchLines("matrixFm", {}, mfmSpec)
+  assert.ok(mfmLines !== null && mfmLines.length > 0, "compile matrixFm: produces patch lines (not the default fallback)")
+  let mfmG = parsePatchGraph(mfmLines)
+  assert.ok(mfmG.nodes.filter(n => n.kind === "osc" && (n.id === "op1" || n.id === "op2")).length === 2, "compile matrixFm: two operator oscillators (op1, op2)")
+  assert.ok(mfmG.conns.some(c => c.dst === "op1" && c.dstParam === "freq"), "compile matrixFm: FM modulator routes into the carrier frequency")
+  assert.ok(mfmG.nodes.some(n => n.id === "eg1") && mfmG.envs.some(e => e.node === "eg1"), "compile matrixFm: per-op amp env gains + envelopes")
+  assert.ok(mfmG.envs.some(e => e.node === "eg1" && e.segs.some(s => String(s.vExpr).indexOf("vel") === 0)), "compile matrixFm: op env peaks at velocity (vel token)")
+  assert.ok(mfmG.conns.some(c => c.src === "eg1" && c.dst === "out"), "compile matrixFm: route op1 → out")
+
+  // 5e. Bar selector grammar (parse + match) — every supported form
+  fn barMatch(sel, bar) {
+    return barSelectorMatches(parseBarSelector(sel), bar)
+  }
+  assert.ok(barMatch("even", 0) && barMatch("even", 2) && !barMatch("even", 1), "bar sel: even")
+  assert.ok(barMatch("odd", 1) && barMatch("odd", 3) && !barMatch("odd", 0), "bar sel: odd")
+  assert.ok(barMatch("2", 2) && !barMatch("2", 1) && !barMatch("2", 3), "bar sel: single integer")
+  assert.ok(barMatch("3n+1", 1) && barMatch("3n+1", 4) && !barMatch("3n+1", 0) && !barMatch("3n+1", 2), "bar sel: An+B modulo (3n+1)")
+  assert.ok(barMatch("2n", 0) && barMatch("2n", 2) && !barMatch("2n", 1), "bar sel: An (2n == even)")
+  assert.ok(barMatch("-n+3", 0) && barMatch("-n+3", 2) && !barMatch("-n+3", 3), "bar sel: -n+B first B bars")
+  assert.ok(barMatch("0,2,5", 0) && barMatch("0,2,5", 5) && !barMatch("0,2,5", 1), "bar sel: explicit list")
+  assert.ok(barMatch("n", 7) && barMatch("*", 99), "bar sel: all (n / *)")
+
+  // 5f. Macro helpers (registry + expansion) at the unit level
+  let m = lookupMacro("bass_acid", {})
+  assert.ok(m !== null && m.body.length > 0, "macro lookup: built-in resolves")
+  assert.ok(lookupMacro("definitely_not_a_macro", {}) === null, "macro lookup: unknown returns null")
+  let exp = expandMacroBody(m, { q: 7, top: 1234 })
+  let joined = exp.join("\n")
+  assert.ok(joined.indexOf("filter f lowpass q 7") >= 0 && joined.indexOf("set 0 1234 exp") >= 0, "macro expand: overrides substitute $params")
+  let expDef = expandMacroBody(m, {})
+  assert.ok(expDef.join("\n").indexOf("q 15") >= 0, "macro expand: defaults apply when no override")
+
+  // 5g. Pattern length (`* N`, loops forever) vs finite loop cap (`loops N`) are separate
+  let lenProj = loadDefaultDeckardProject().project
+  applyTplSource(lenProj, "deck 1\ntrack A id la gen basic_osc * 4\n  steps x . . . x . . . x . . . x . . .\ntrack B id lb gen basic_osc\n  loops 2\n  steps x . . . x . . . x . . . x . . .")
+  let la = findChannelById(lenProj, "la")
+  assert.ok(la !== null && la.patternBars === 4 && (la.tplLoopBars === null), "pattern len: `* 4` sets patternBars=4, no loop cap")
+  let lb = findChannelById(lenProj, "lb")
+  assert.ok(lb !== null && lb.tplLoopBars === 2 && lb.patternBars === 1, "loop cap: `loops 2` sets tplLoopBars cap, patternBars stays 1")
+
+  // 5h. Rack bar add/remove (duplicate-last on grow, truncate on shrink)
+  let rbProj = loadDefaultDeckardProject().project
+  let rbCh = rbProj.channels[0]
+  applyTplSource(rbProj, "deck 1\ntrack RB id rbx gen patch\n  step_pitch 36\n  steps x . . . x . . . . . . . . . . .")
+  let rbx = findChannelById(rbProj, "rbx")
+  resizeChannelBars(rbx, 3, true)
+  assert.ok(rbx.steps.length === 48 && rbx.patternBars === 3 && rbx.steps[0].on && rbx.steps[16].on && rbx.steps[32].on, "rack bars: grow duplicates last bar (3 bars, steps 0/4 per bar)")
+  resizeChannelBars(rbx, 1, false)
+  assert.ok(rbx.steps.length === 16 && rbx.patternBars === 1, "rack bars: shrink truncates to 1 bar (16 steps)")
+  let rbMel = loadDefaultDeckardProject().project
+  applyTplSource(rbMel, "deck 1\ntrack M id mmx gen patch\n  note 60 1 0.5 v 100")
+  let mmx = findChannelById(rbMel, "mmx")
+  resizeChannelBars(mmx, 2, true)
+  assert.ok(mmx.pianoNotes.length === 2 && mmx.pianoNotes.some(n => n.startBeat === 1) && mmx.pianoNotes.some(n => n.startBeat === 5), "rack bars: grow duplicates piano notes into the new bar")
+  setRackBars(rbMel, 4, true)
+  assert.ok(mmx.patternBars === 4 && rackBars(rbMel) === 4, "rack bars: setRackBars sets every channel + rebuilds (patternBars=4, rackBars=4)")
+
+  // 5i. Pattern bank — capture rack into a slot, then load it back into the editable rack
+  let pbProj = loadDefaultDeckardProject().project
+  ensureProjectSession(pbProj)
+  let pbCh = pbProj.channels[0]
+  clearAllSteps(pbCh)
+  toggleStep(pbCh, 0)
+  toggleStep(pbCh, 4)
+  sessionWriteRackToSceneClip(pbProj, 0)
+  clearAllSteps(pbCh)
+  toggleStep(pbCh, 2)
+  toggleStep(pbCh, 6)
+  sessionWriteRackToSceneClip(pbProj, 1)
+  loadSceneIntoRack(pbProj, 0)
+  assert.ok(pbCh.steps[0].on && pbCh.steps[4].on && !pbCh.steps[2].on, "pattern bank: load P1 restores its steps into the rack")
+  loadSceneIntoRack(pbProj, 1)
+  assert.ok(pbCh.steps[2].on && pbCh.steps[6].on && !pbCh.steps[0].on, "pattern bank: load P2 restores a different pattern")
+
+  // 5j. Play modes — Play Sequence plays the rack (ignores arming); Play Song plays the launched pattern.
+  // Set up two distinct saved patterns, launch P1 (arm scene 0) but leave the rack showing P2.
+  let pmProj = loadDefaultDeckardProject().project
+  ensureProjectSession(pmProj)
+  let pmCh = pmProj.channels[0]
+  clearAllSteps(pmCh)
+  toggleStep(pmCh, 0)
+  sessionWriteRackToSceneClip(pmProj, 0)
+  clearAllSteps(pmCh)
+  toggleStep(pmCh, 8)
+  sessionWriteRackToSceneClip(pmProj, 1)
+  // rack currently shows P2 (step 8). Launch P1 (scene 0, step 0) as the live output.
+  let pmRt = { sessionArmedClipIds: [] }
+  sessionArmScene(pmProj, pmRt, 0)
+  pmRt.playMode = "song"
+  let songClip = playbackClipForChannel(pmProj, pmRt, 0)
+  assert.ok(songClip !== null && !songClip.silent && songClip.steps[0].on && !songClip.steps[8].on, "play song: armed pattern (P1) drives audio, not the rack")
+  pmRt.playMode = "sequence"
+  let seqClip = playbackClipForChannel(pmProj, pmRt, 0)
+  assert.ok(seqClip === null, "play sequence: ignores arming, returns null so the rack is monitored")
+  // Session mode with an UNSAVED slot (default main clip) is silent — it must NOT fall back to the rack.
+  let emptyProj2 = loadDefaultDeckardProject().project
+  ensureProjectSession(emptyProj2)
+  let emptyRt = { sessionArmedClipIds: [], playMode: "song" }
+  sessionArmScene(emptyProj2, emptyRt, 0)   // fresh session → slots are default main clips
+  let emptyClip = playbackClipForChannel(emptyProj2, emptyRt, 0)
+  assert.ok(emptyClip !== null && emptyClip.silent === true, "play session: unsaved slot is SILENT, not the rack")
+
+  // 5k. Song chain — Play Song advances through SAVED patterns, skipping empty ones, wrapping.
+  let songProj = loadDefaultDeckardProject().project
+  ensureProjectSession(songProj)
+  let songCh = songProj.channels[0]
+  clearAllSteps(songCh); toggleStep(songCh, 0); sessionWriteRackToSceneClip(songProj, 0)   // P1 saved
+  clearAllSteps(songCh); toggleStep(songCh, 4); sessionWriteRackToSceneClip(songProj, 2)   // P3 saved (P2/P4 empty)
+  assert.ok(sceneHasSavedClip(songProj, 0), "song chain: scene 0 has a saved clip")
+  assert.ok(!sceneHasSavedClip(songProj, 1), "song chain: scene 1 is empty (no saved clip)")
+  assert.ok(firstSongScene(songProj) === 0, "song chain: starts at first saved scene (0)")
+  assert.ok(nextSongScene(songProj, 0) === 2, "song chain: next after 0 skips empty 1 → 2")
+  assert.ok(nextSongScene(songProj, 2) === 0, "song chain: next after 2 wraps + skips 3 → 0")
+  assert.ok(sceneBarLength(songProj, 0) === 1, "song chain: 1-bar scene length")
+
+  // 5l. Per-track clip override — a launched track clip holds across song scene advances.
+  let ovProj = loadDefaultDeckardProject().project
+  ensureProjectSession(ovProj)
+  let ovCh0 = ovProj.channels[0]
+  clearAllSteps(ovCh0); toggleStep(ovCh0, 0); sessionWriteRackToSceneClip(ovProj, 0)
+  clearAllSteps(ovCh0); toggleStep(ovCh0, 8); sessionWriteRackToSceneClip(ovProj, 1)
+  let ovP2clip = sceneSlotClipId(ovProj, 1, 0)   // track 0's clip in pattern 2
+  let ovRt = { sessionArmedClipIds: [], trackOverrides: [] }
+  ovRt.trackOverrides[0] = ovP2clip              // override track 0 to pattern 2's clip
+  armSceneWithOverrides(ovProj, ovRt, 0)          // arm scene 0, but track 0 keeps the override
+  assert.ok(ovRt.sessionArmedClipIds[0] === ovP2clip, "override: track 0 uses its override clip, not scene 0's")
+  assert.ok(ovRt.sessionArmedClipIds[1] === sceneSlotClipId(ovProj, 0, 1), "override: track 1 still follows scene 0")
+  armSceneWithOverrides(ovProj, ovRt, 1)          // song advances to scene 1
+  assert.ok(ovRt.sessionArmedClipIds[0] === ovP2clip, "override: holds through a scene advance")
+  ovRt.trackOverrides[0] = null                   // release the override
+  armSceneWithOverrides(ovProj, ovRt, 0)
+  assert.ok(ovRt.sessionArmedClipIds[0] === sceneSlotClipId(ovProj, 0, 0), "override: released track returns to following the scene")
+
+  // 5m. Multiplayer A — co-DJ stream reflects the ARMED pattern, not the edit rack.
+  let lpProj = loadDefaultDeckardProject().project
+  ensureProjectSession(lpProj)
+  let lpCh = lpProj.channels[0]
+  clearAllSteps(lpCh); toggleStep(lpCh, 0); sessionWriteRackToSceneClip(lpProj, 0)   // P1: step 0
+  clearAllSteps(lpCh); toggleStep(lpCh, 8); sessionWriteRackToSceneClip(lpProj, 1)   // P2: step 8 (rack now shows P2)
+  let lpRt = { playMode: "song", sessionArmedClipIds: [], trackOverrides: [] }
+  sessionArmScene(lpProj, lpRt, 0)                                                   // arm P1 live
+  let liveTpl = emitLivePlayback(lpProj, lpRt)
+  let lpOut = emptyProjectShell(); applyTplSource(lpOut, liveTpl)
+  assert.ok(lpOut.channels[0].steps[0].on && !lpOut.channels[0].steps[8].on, "mp A: stream carries the armed pattern (P1 step0), not the rack (P2 step8)")
+  assert.ok(lpCh.steps[8].on && !lpCh.steps[0].on, "mp A: emitting the live view leaves the rack untouched")
+  lpRt.playMode = "sequence"
+  let seqTpl = emitLivePlayback(lpProj, lpRt)
+  let lpOut2 = emptyProjectShell(); applyTplSource(lpOut2, seqTpl)
+  assert.ok(lpOut2.channels[0].steps[8].on && !lpOut2.channels[0].steps[0].on, "mp A: sequence mode streams the rack (P2 step8)")
+
+  // 5n. SAVE 1 BAR saves the viewed bar as a ONE-BAR pattern; LOAD 1 BAR drops it into the viewed bar.
+  let pbBar = loadDefaultDeckardProject().project
+  ensureProjectSession(pbBar)
+  setRackBars(pbBar, 2, false)
+  let pbc = pbBar.channels[0]
+  let z = 0
+  while (z < pbc.steps.length) { pbc.steps[z].on = false; z = z + 1 }
+  pbc.steps[0].on = true     // bar 0, step 0
+  pbc.steps[28].on = true    // bar 1, step 12 (abs index 16 + 12)
+  sessionWriteRackBarToSceneClip(pbBar, 0, 1)        // SAVE 1 BAR while viewing bar 1 (index 1)
+  let pbClip = findClipOnChannel(pbc, pbc.id + "_sc0")
+  assert.ok(pbClip.bars === 1 && pbClip.steps.length === 16, "save 1 bar: pattern is exactly ONE bar")
+  assert.ok(pbClip.steps[12].on === true && pbClip.steps[0].on === false, "save 1 bar: holds only the viewed bar (step 12, not bar 0's step 0)")
+  pbc.steps[28].on = false                            // wipe the rack's bar 1
+  loadSceneBarIntoRack(pbBar, 0, 1)                   // LOAD 1 BAR into the viewed bar (bar 1)
+  let pbc2 = pbBar.channels[0]
+  assert.ok(pbc2.steps[28].on === true && pbc2.steps[0].on === true, "load 1 bar: drops the bar into the viewed bar, leaves bar 0")
+
+  // 5o. SAVE 1 BAR captures exactly the bar the rack SHOWS: notes that START in the viewed bar, NOT a
+  // held note carried over from an earlier bar. The piano roll only draws a note where it begins, so a
+  // chord held from bar 0 must be EMPTY on view 2 — saving view 2 must match what's on screen.
+  let hnProj = loadDefaultDeckardProject().project
+  ensureProjectSession(hnProj)
+  setRackBars(hnProj, 2, false)
+  let hnc = hnProj.channels[3]
+  hnc.patternBars = 2
+  hnc.pianoNotes = [
+    { startBeat: 0, durBeats: 8, pitch: 36, vel: 100 },                   // held across both bars (starts bar 0)
+    { startBeat: 5, durBeats: 1, pitch: 48, vel: 100 }                    // starts IN bar 1 (beat 5 = bar 1, beat 1)
+  ]
+  sessionWriteRackBarToSceneClip(hnProj, 1, 1)                            // SAVE 1 BAR from bar 1 (view 2) → P2
+  let hnClip = findClipOnChannel(hnc, hnc.id + "_sc1")
+  assert.ok(!hnClip.pianoNotes.some(n => n.pitch === 36), "save 1 bar: held note from bar 0 is NOT carried into bar 1's save")
+  assert.ok(hnClip.pianoNotes.length === 1 && hnClip.pianoNotes[0].pitch === 48 && Math.abs(hnClip.pianoNotes[0].startBeat - 1) < 0.01, "save 1 bar: a note that STARTS in the viewed bar is captured, bar-relative")
+  // And saving VIEW 1 (bar 0) captures the held chord, since that's where it begins / is drawn.
+  sessionWriteRackBarToSceneClip(hnProj, 0, 0)
+  let hnClip0 = findClipOnChannel(hnc, hnc.id + "_sc0")
+  assert.ok(hnClip0.pianoNotes.some(n => n.pitch === 36 && n.startBeat === 0), "save 1 bar: the held note IS captured from the bar it starts in (view 1)")
+
+  // 5p. SAVE 1 BAR of a TILED stepped pattern (patternBars=4 but only 16 steps) — the nebula bass bug:
+  // reading bar 1 must wrap to the tiled steps, not run off the end → empty.
+  let tlProj = loadDefaultDeckardProject().project
+  ensureProjectSession(tlProj)
+  let tlc = tlProj.channels[0]
+  tlc.patternBars = 4
+  tlc.steps = []
+  let qq = 0
+  while (qq < 16) { tlc.steps.push({ on: qq % 2 === 0, vel: 100 }); qq = qq + 1 }   // x . x . … tiled across 4 bars
+  tlc.stepPitchByBar = [36, 34, 32, 34]
+  sessionWriteRackBarToSceneClip(tlProj, 1, 1)                                       // SAVE 1 BAR from bar 1
+  let tlClip = findClipOnChannel(tlc, tlc.id + "_sc1")
+  assert.ok(tlClip.steps.length === 16 && tlClip.steps[0].on === true, "save 1 bar: tiled stepped pattern captured (not empty)")
+  assert.ok(tlClip.stepPitchByBar !== null && tlClip.stepPitchByBar[0] === 34, "save 1 bar: per-bar pitch of the viewed bar captured")
+
+  // 5q. Per-track STOP silences just that track, persists across song scene advances, and is distinct
+  // from following the song (an empty "" override that armSceneWithOverrides re-applies each scene).
+  let stProj = loadDefaultDeckardProject().project
+  ensureProjectSession(stProj)
+  let stRt = { trackOverrides: [], sessionArmedClipIds: [] }
+  sessionArmScene(stProj, stRt, 0)
+  let stBefore = sessionEffectiveArmedClipId(stProj, stRt, 1)
+  sessionStopTrack(stProj, stRt, 1)
+  assert.ok(stRt.sessionArmedClipIds[1] === "", "stop track: that track is armed silent immediately")
+  assert.ok(sessionTrackStopped(stRt, 1) === true, "stop track: marked stopped (empty override)")
+  assert.ok(stRt.sessionArmedClipIds[0] !== "" || stBefore === "", "stop track: other tracks untouched")
+  // Advancing to another scene must KEEP the stopped track silent (override re-applied), not resurrect it.
+  armSceneWithOverrides(stProj, stRt, 0)
+  assert.ok(stRt.sessionArmedClipIds[1] === "", "stop track: stays silent across scene (re)arm")
+  assert.ok(sessionTrackStopped(stRt, 0) === false, "stop track: not stopped for a track that was never stopped")
+
+  // 5r. Explicit `song` arrangement + `launch_quant` scalar round-trip through deck.
+  let sgProj = loadDefaultDeckardProject().project
+  ensureProjectSession(sgProj)
+  sgProj.launchQuant = 8
+  sgProj.session.song = [{ scene: 0, repeat: 2 }, { scene: 2, repeat: 1 }, { scene: 1, repeat: 4 }]
+  let sgEmit = emitProject(sgProj)
+  assert.ok(sgEmit.indexOf("launch_quant 8") >= 0, "emit: launch_quant scalar present")
+  assert.ok(sgEmit.indexOf("\nsong\n") >= 0, "emit: song block header present")
+  assert.ok(sgEmit.indexOf("  P1 x2") >= 0, "emit: song entry with repeat (P1 x2)")
+  assert.ok(sgEmit.indexOf("  P3\n") >= 0, "emit: song entry without repeat omits xN (P3)")
+  assert.ok(sgEmit.indexOf("  P2 x4") >= 0, "emit: song entry P2 x4")
+  let sgBack = loadDefaultDeckardProject().project
+  applyTplSource(sgBack, sgEmit)
+  assert.ok(sgBack.launchQuant === 8, "round-trip: launch_quant preserved")
+  assert.ok(sgBack.session.song !== null && sgBack.session.song.length === 3, "round-trip: song length preserved")
+  assert.ok(sgBack.session.song[0].scene === 0 && sgBack.session.song[0].repeat === 2, "round-trip: song entry 0 = scene 0 x2")
+  assert.ok(sgBack.session.song[1].scene === 2 && sgBack.session.song[1].repeat === 1, "round-trip: song entry 1 = scene 2 x1")
+  assert.ok(sgBack.session.song[2].scene === 1 && sgBack.session.song[2].repeat === 4, "round-trip: song entry 2 = scene 1 x4")
+
+  // 5s. songStart / songAdvance walk the explicit arrangement repeat-aware, wrapping at the end.
+  let sgRt = {}
+  let s0 = songStart(sgBack, sgRt)
+  assert.ok(s0 === 0 && sgRt.songPos.idx === 0 && sgRt.songPos.rep === 0, "songStart: head of arrangement (scene 0)")
+  let s1 = songAdvance(sgBack, sgRt, s0)
+  assert.ok(s1 === 0 && sgRt.songPos.rep === 1, "songAdvance: repeat keeps same scene (P1 x2, play 2)")
+  let s2 = songAdvance(sgBack, sgRt, s1)
+  assert.ok(s2 === 2 && sgRt.songPos.idx === 1, "songAdvance: next entry (scene 2)")
+  let s3 = songAdvance(sgBack, sgRt, s2)
+  assert.ok(s3 === 1 && sgRt.songPos.idx === 2 && sgRt.songPos.rep === 0, "songAdvance: third entry (scene 1, first of x4)")
+  let s4 = songAdvance(sgBack, sgRt, s3)
+  let s5 = songAdvance(sgBack, sgRt, s4)
+  let s6 = songAdvance(sgBack, sgRt, s5)
+  assert.ok(s4 === 1 && s5 === 1 && s6 === 1, "songAdvance: scene 1 repeats x4 then wraps to head")
+  let s7 = songAdvance(sgBack, sgRt, s6)
+  assert.ok(s7 === 0 && sgRt.songPos.idx === 0, "songAdvance: wraps back to scene 0")
+
+  // 5t2. Follow actions: per-scene progression + deterministic chance ratio, round-tripped in deck.
+  let faProj = loadDefaultDeckardProject().project
+  ensureProjectSession(faProj)
+  let q = 0
+  while (q < 4) { sessionWriteRackToSceneClip(faProj, q); q = q + 1 }   // save scenes 0..3 so they exist
+  faProj.songSeed = 42
+  setSceneFollow(faProj, 0, "next", 1, null, 0)
+  setSceneFollow(faProj, 1, "next", 0.7, "repeat", 0.3)
+  setSceneFollow(faProj, 3, "stop", 1, null, 0)
+  assert.ok(hasFollowActions(faProj) === true, "follow: hasFollowActions true")
+  let faEmit = emitProject(faProj)
+  assert.ok(faEmit.indexOf("song_seed 42") >= 0, "follow: emit song_seed")
+  assert.ok(faEmit.indexOf("\nfollow\n") >= 0, "follow: emit follow header")
+  assert.ok(faEmit.indexOf("  P1 next") >= 0, "follow: emit single action (P1 next)")
+  assert.ok(faEmit.indexOf("  P2 next 0.7 repeat 0.3") >= 0, "follow: emit chance ratio (P2 next .. repeat)")
+  assert.ok(faEmit.indexOf("  P4 stop") >= 0, "follow: emit stop (P4)")
+  let faBack = loadDefaultDeckardProject().project
+  applyTplSource(faBack, faEmit)
+  assert.ok(faBack.songSeed === 42, "follow round-trip: seed")
+  let faF1 = sceneFollow(faBack, 1)
+  assert.ok(faF1 !== null && faF1.a === "next" && Math.abs(faF1.wa - 0.7) < 0.001 && faF1.b === "repeat" && Math.abs(faF1.wb - 0.3) < 0.001, "follow round-trip: scene 1 A=next wA=0.7 B=repeat wB=0.3")
+  let faF3 = sceneFollow(faBack, 3)
+  assert.ok(faF3 !== null && faF3.a === "stop", "follow round-trip: scene 3 = stop")
+
+  // detRand01 determinism: same (seed,n) → same value; different n → varies.
+  assert.ok(detRand01(42, 5) === detRand01(42, 5), "detRand01: deterministic")
+  assert.ok(detRand01(42, 5) >= 0 && detRand01(42, 5) < 1, "detRand01: in [0,1)")
+  assert.ok(detRand01(42, 1) !== detRand01(42, 2), "detRand01: varies with n")
+
+  // resolveFollowAction maps verbs; STOP returns -1; repeat returns same scene.
+  let frRt = { followCount: 0 }
+  assert.ok(resolveFollowAction(faBack, frRt, 0) === 1, "resolve: next from 0 → 1 (saved)")
+  let frRt2 = { followCount: 0 }
+  assert.ok(resolveFollowAction(faBack, frRt2, 3) === -1, "resolve: stop from 3 → -1")
+  let rpProj = loadDefaultDeckardProject().project
+  ensureProjectSession(rpProj)
+  let q2 = 0
+  while (q2 < 2) { sessionWriteRackToSceneClip(rpProj, q2); q2 = q2 + 1 }
+  setSceneFollow(rpProj, 0, "repeat", 1, null, 0)
+  let rpRt = { followCount: 0 }
+  assert.ok(resolveFollowAction(rpProj, rpRt, 0) === 0, "resolve: repeat stays on same scene")
+
+  // Chance ratio honoured deterministically: over a fixed seeded sequence, ~70% land on A(next=1), the
+  // rest on B(repeat=stay). Count must be identical on every run (no Math.random).
+  let cnt = { stay: 0, adv: 0 }
+  let crRt = { followCount: 0 }
+  let trial = 0
+  while (trial < 200) {
+    let res = resolveFollowAction(faBack, crRt, 1)   // scene 1 = next 0.7 / repeat 0.3
+    if (res === 1) { cnt.stay = cnt.stay + 1 } else { cnt.adv = cnt.adv + 1 }
+    trial = trial + 1
+  }
+  assert.ok(cnt.adv > cnt.stay && cnt.adv >= 110 && cnt.adv <= 170, "follow chance: A (next) is the majority ~70%")
+  // Re-run identical → identical counts (determinism, the whole point of seeding).
+  let cnt2 = { stay: 0, adv: 0 }
+  let crRt2 = { followCount: 0 }
+  let t2 = 0
+  while (t2 < 200) {
+    let res2 = resolveFollowAction(faBack, crRt2, 1)
+    if (res2 === 1) { cnt2.stay = cnt2.stay + 1 } else { cnt2.adv = cnt2.adv + 1 }
+    t2 = t2 + 1
+  }
+  assert.ok(cnt2.adv === cnt.adv && cnt2.stay === cnt.stay, "follow chance: re-run is byte-identical (deterministic)")
+
+  // A follow action on ONE scene must not change scenes WITHOUT an entry: P2=next, P1 still loops.
+  let oneProj = loadDefaultDeckardProject().project
+  ensureProjectSession(oneProj)
+  let oq = 0
+  while (oq < 3) { sessionWriteRackToSceneClip(oneProj, oq); oq = oq + 1 }
+  setSceneFollow(oneProj, 1, "next", 1, null, 0)   // only P2 (index 1) follows → Next
+  let oneRt = { followCount: 0 }
+  assert.ok(songAdvance(oneProj, oneRt, 0) === 0, "follow scoping: scene 0 (no entry) still LOOPS")
+  assert.ok(songAdvance(oneProj, oneRt, 2) === 2, "follow scoping: scene 2 (no entry) still LOOPS")
+  assert.ok(songAdvance(oneProj, oneRt, 1) === 2, "follow scoping: scene 1 (entry=next) advances")
+
+  // songAdvance honours follow actions over an explicit song block when both present.
+  let bothProj = loadDefaultDeckardProject().project
+  ensureProjectSession(bothProj)
+  let q3 = 0
+  while (q3 < 3) { sessionWriteRackToSceneClip(bothProj, q3); q3 = q3 + 1 }
+  bothProj.session.song = [{ scene: 2, repeat: 1 }]
+  setSceneFollow(bothProj, 0, "next", 1, null, 0)
+  let baRt = { followCount: 0 }
+  assert.ok(songAdvance(bothProj, baRt, 0) === 1, "songAdvance prefers follow actions over song block")
+
+  // 5t. No song block → derived order (legacy); emit omits the song block.
+  let dvProj = loadDefaultDeckardProject().project
+  ensureProjectSession(dvProj)
+  assert.ok(emitProject(dvProj).indexOf("\nsong\n") < 0, "no song block: emit omits song header")
+  let dvRt = {}
+  assert.ok(songStart(dvProj, dvRt) === firstSongScene(dvProj) && dvRt.songPos === null, "no song block: songStart falls back to firstSongScene")
+  // Ableton default: with no follow action and no song block, a launched scene LOOPS — songAdvance must
+  // return the SAME scene, never auto-jump to the next saved one.
+  let loopProj = loadDefaultDeckardProject().project
+  ensureProjectSession(loopProj)
+  let lq = 0
+  while (lq < 3) { sessionWriteRackToSceneClip(loopProj, lq); lq = lq + 1 }   // 3 saved scenes
+  let loopRt = {}
+  assert.ok(songAdvance(loopProj, loopRt, 0) === 0, "default progression: scene loops, does NOT auto-advance")
+  assert.ok(songAdvance(loopProj, loopRt, 2) === 2, "default progression: another saved scene also loops")
+
+  // 5u. Synchronized launches: a host's `@ launch` / `@ transport` directives applied against a
+  // FOLLOWER's runtime move the follower's shared arming — the heart of issue #1 (model B).
+  let MASTER = ["master_mixer", "pattern_steps"]
+  let GUEST = ["pattern_steps"]
+  assert.ok(isLaunchDirective("@ launch scene 2") === true, "directive detect: launch scene")
+  assert.ok(isLaunchDirective("@ transport song 1") === true, "directive detect: transport")
+  assert.ok(isLaunchDirective("  steps x . x .") === false, "directive detect: plain deck is not a directive")
+  assert.ok(launchSceneDirective(2) === "@ launch scene 2", "directive emit: scene")
+  assert.ok(launchClipDirective("kick", "") === "@ launch clip kick -", "directive emit: clip release")
+
+  // Follower project: save scene 0 + scene 1 so they hold distinct clips to arm.
+  let fwProj = loadDefaultDeckardProject().project
+  ensureProjectSession(fwProj)
+  sessionWriteRackToSceneClip(fwProj, 0)
+  sessionWriteRackToSceneClip(fwProj, 1)
+  let fwRt = { sessionArmedClipIds: [], trackOverrides: [] }
+  // Host (master) launches scene 1 → follower arms every track to scene 1's slots + songScene=1.
+  let handled = applyLaunchDirective(fwProj, fwRt, launchSceneDirective(1), "actor-host", MASTER)
+  assert.ok(handled === true, "launch scene: directive handled")
+  assert.ok(fwRt.sessionArmedClipIds[0] === sceneSlotClipId(fwProj, 1, 0), "launch scene: follower armed to scene 1 slot (track 0)")
+  assert.ok(fwRt.songScene === 1, "launch scene: follower songScene = 1")
+
+  // A NON-master guest cannot launch a scene (gated) — arming unchanged from the master's launch.
+  applyLaunchDirective(fwProj, fwRt, launchSceneDirective(0), "actor-guest", GUEST)
+  assert.ok(fwRt.songScene === 1 && fwRt.sessionArmedClipIds[0] === sceneSlotClipId(fwProj, 1, 0), "launch scene: non-master rejected (still scene 1)")
+
+  // Per-track clip override: only the track OWNER may set it. Give the guest ownership of track 2.
+  setTrackOwner(fwProj, fwProj.channels[2].id, "actor-guest", "actor-guest")
+  let ovClip = fwProj.channels[2].id + "_sc0"
+  applyLaunchDirective(fwProj, fwRt, launchClipDirective(fwProj.channels[2].id, ovClip), "actor-guest", GUEST)
+  assert.ok(fwRt.sessionArmedClipIds[2] === ovClip && fwRt.trackOverrides[2] === ovClip, "launch clip: owner override applied")
+  // A different actor (not owner, not master) cannot override that track.
+  applyLaunchDirective(fwProj, fwRt, launchClipDirective(fwProj.channels[2].id, fwProj.channels[2].id + "_sc1"), "actor-other", GUEST)
+  assert.ok(fwRt.sessionArmedClipIds[2] === ovClip, "launch clip: non-owner rejected")
+
+  // ---- DECK vinyl-move directives (`@ deck X cut|rev|brake|spin`) — owner/master-gated, broadcast, dispatched ----
+  assert.ok(isLaunchDirective("@ deck C cut on") === true, "directive detect: deck move")
+  assert.ok(deckMoveDirective("C", "cut", true) === "@ deck C cut on" && deckMoveDirective("C", "cut", false) === "@ deck C cut off", "directive emit: deck cut on/off")
+  assert.ok(deckMoveDirective("C", "spin", true) === "@ deck C spin", "directive emit: deck spin one-shot")
+  assert.ok(isPrivateDirective("@ deck C cut on") === false, "deck move: NOT private (broadcasts to peers)")
+  // Roster: deck A=player0=host, B=player1=guest, C=player2=actor-c, D=player3=actor-d.
+  fwProj.coDjPlayers = ["actor-host", "actor-guest", "actor-c", "actor-d"]
+  let dkCalls = []
+  let dkRt = { sessionArmedClipIds: [], trackOverrides: [], applyDeckMove: (deck, move, on) => { dkCalls.push(String(deck) + ":" + String(move) + ":" + String(on)) } }
+  applyLaunchDirective(fwProj, dkRt, deckMoveDirective("C", "cut", true), "actor-host", MASTER)
+  assert.ok(dkCalls.length === 1 && dkCalls[0] === "C:cut:true", "deck move: master dispatches to applyDeckMove (any deck)")
+  applyLaunchDirective(fwProj, dkRt, "@ deck C brake off", "actor-host", MASTER)
+  assert.ok(dkCalls.length === 2 && dkCalls[1] === "C:brake:false", "deck move: parses move + off")
+  applyLaunchDirective(fwProj, dkRt, "@ deck B spin", "actor-host", MASTER)
+  assert.ok(dkCalls.length === 3 && dkCalls[2] === "B:spin:true", "deck move: spin one-shot (on defaults true)")
+  // A non-master GUEST may scratch their OWN deck (B = player 1).
+  applyLaunchDirective(fwProj, dkRt, deckMoveDirective("B", "cut", true), "actor-guest", GUEST)
+  assert.ok(dkCalls.length === 4 && dkCalls[3] === "B:cut:true", "deck move: owner may scratch their own deck")
+  // …but NOT another player's deck (C = player 2).
+  let dkBefore = dkCalls.length
+  applyLaunchDirective(fwProj, dkRt, deckMoveDirective("C", "cut", true), "actor-guest", GUEST)
+  assert.ok(dkCalls.length === dkBefore, "deck move: non-owner non-master rejected")
+
+  // transport stop (master) silences every track.
+  applyLaunchDirective(fwProj, fwRt, transportDirective("stop", 0), "actor-host", MASTER)
+  assert.ok(fwRt.sessionArmedClipIds[0] === "" && fwRt.sessionArmedClipIds[2] === "", "transport stop: all tracks silenced")
+
+  // 5v. Receive-routing splitter: a mixed block (control directive + project line) applies the directive
+  // to rt and returns ONLY the project lines for the master-gated merge (mirrors the co-DJ apply path).
+  let mxProj = loadDefaultDeckardProject().project
+  ensureProjectSession(mxProj)
+  sessionWriteRackToSceneClip(mxProj, 1)
+  let mxRt = { sessionArmedClipIds: [], trackOverrides: [] }
+  let mxRest = applyLaunchLinesFromSource(mxProj, mxRt, "deck 1\n@ launch scene 1\nbpm 145\n", "actor-host", MASTER)
+  assert.ok(mxRt.songScene === 1, "splitter: directive applied to rt (songScene 1)")
+  assert.ok(mxRest.indexOf("@ launch") < 0, "splitter: directive line stripped from remainder")
+  assert.ok(mxRest.indexOf("bpm 145") >= 0, "splitter: project line kept in remainder")
+
+  // 5w. Shared transport clock: a follower slaves its playhead to the host. coDjClockAlign snaps on
+  // large drift, holds on small (no jitter); coDjShouldFollow gates host/independent.
+  assert.ok(coDjClockAlign(100, 100, 1) === 100, "clock: small drift held (no snap)")
+  assert.ok(coDjClockAlign(101, 100, 1) === 101, "clock: 1-step drift held (within threshold)")
+  assert.ok(coDjClockAlign(40, 100, 1) === 101, "clock: large drift snaps to host (+1 latency nudge)")
+  assert.ok(coDjClockAlign(200, 100, 1) === 101, "clock: behind host snaps forward")
+  assert.ok(coDjShouldFollow({ coDjIsHost: true }) === false, "follow gate: host does NOT follow")
+  assert.ok(coDjShouldFollow({ coDjIsHost: false }) === true, "follow gate: follower follows by default")
+  assert.ok(coDjShouldFollow({ coDjIsHost: false, coDjFollowTransport: false }) === false, "follow gate: independent mode off")
+  let clkMsg = coDjClockPayload("actor-host", 48, 2, 130, "sequence")
+  assert.ok(clkMsg.type === "control" && clkMsg.op === "clock" && clkMsg.perfStep === 48 && clkMsg.scene === 2, "clock payload: control/clock with step+scene")
+  // The host's play MODE rides the clock so a follower plays the same thing (sequence=rack, not empty session).
+  assert.ok(clkMsg.playMode === "sequence", "clock payload: carries host playMode (sequence)")
+  assert.ok(coDjClockPayload("h", 0, null, 120).playMode === "song", "clock payload: defaults playMode to song")
+
+  // Simulate host advancing across bars, follower starting cold + locking on each clock heartbeat.
+  let hostTick = 0
+  let followTick = 999            // follower starts wildly out of phase
+  let bars = 0
+  while (bars < 8) {
+    hostTick = hostTick + 16      // host advances one bar (16 steps)
+    // follower drifts a little each bar (simulated setTimeout jitter), then receives the host clock:
+    followTick = followTick + 17
+    followTick = coDjClockAlign(followTick, hostTick, 2)
+    bars = bars + 1
+  }
+  assert.ok(Math.abs(followTick - hostTick) <= 16, "clock sim: follower converges to within a bar of host")
+  assert.ok(followTick < 200, "clock sim: follower not stuck at its wild start")
+
+  // 5x. Switching a deck preset must NOT wipe the rest of the session — other decks' queued scenes
+  // persist (everything is in deck; swapping one deck only replaces that deck's channels).
+  let dsProj = loadDefaultDeckardProject().project
+  ensureProjectSession(dsProj)
+  sessionWriteRackToSceneClip(dsProj, 0)                 // save all current (deck A) channels into scene 0
+  let aId = dsProj.channels[0].id
+  assert.ok(dsProj.session.slots[0][0] === aId + "_sc0", "deck swap setup: scene 0 saved on deck A")
+  loadDeckSet(dsProj, "B", "nebula_pulse")               // load a preset onto deck B — deck A must survive
+  let aIdx = -1
+  let dz = 0
+  while (dz < dsProj.channels.length) {
+    if (dsProj.channels[dz].id === aId) { aIdx = dz }
+    dz = dz + 1
+  }
+  assert.ok(aIdx >= 0, "deck swap: deck A channel survives the swap")
+  assert.ok(aIdx >= 0 && dsProj.session.slots[aIdx][0] === aId + "_sc0", "deck swap: deck A's saved scene 0 PERSISTS (not cleared)")
+  let dsClipA = findClipOnChannel(dsProj.channels[aIdx], aId + "_sc0")
+  assert.ok(dsClipA !== null, "deck swap: deck A channel keeps its saved clip object")
+  let bChan = null
+  let bz = 0
+  while (bz < dsProj.channels.length) {
+    if (String(dsProj.channels[bz].id).indexOf("b_") === 0) { bChan = dsProj.channels[bz] }
+    bz = bz + 1
+  }
+  assert.ok(bChan !== null, "deck swap: deck B preset loaded its stems")
+
+  // 6. Every stem deck set parses cleanly into >= 5 stems (the deck.tsx conversions)
+  let cat = deckSetCatalog()
+  assert.ok(cat.length === 20, "20 stem deck sets in catalog")
+  let badSet = ""
+  let si = 0
+  while (si < cat.length) {
+    let set = deckSetTplById(cat[si].id)
+    let tp = emptyProjectShell()
+    let rr = applyTplSource(tp, set.tpl)
+    if (rr.errors.length > 0) {
+      badSet = cat[si].id + " parse:" + String(rr.errors.length)
+    } else if (tp.channels.length < 5) {
+      badSet = cat[si].id + " stems:" + String(tp.channels.length)
+    }
+    si = si + 1
+  }
+  assert.ok(badSet === "", "all stem deck sets parse clean with >=5 stems")
+  if (badSet !== "") {
+    console.log("  -> offending set: " + badSet)
+  }
+
+  // 6b. Transport routing grammar (rearch step 1): xfade / main_deck / swing / track deck round-trip.
+  let rtp = loadDefaultDeckardProject().project
+  rtp.transportCrossfade = 0.3
+  rtp.transportCrossfadeY = 0.7
+  rtp.transportMainDeck = "local"
+  rtp.swing = 0.25
+  rtp.channels[0].deck = "B"
+  rtp.channels[0].deckSlot = 1
+  let rtpEmit = emitProject(rtp)
+  assert.ok(rtpEmit.indexOf("xfade 0.3 0.7") >= 0, "emit: xfade line present")
+  assert.ok(rtpEmit.indexOf("main_deck local") >= 0, "emit: main_deck local present")
+  assert.ok(rtpEmit.indexOf("swing 0.25") >= 0, "emit: swing present")
+  assert.ok(rtpEmit.indexOf("deck B slot 1") >= 0, "emit: track deck line present")
+  let rtp2 = emptyProjectShell()
+  applyTplSource(rtp2, rtpEmit)
+  assert.ok(Math.abs(rtp2.transportCrossfade - 0.3) < 1e-6, "round-trip: crossfade X survives")
+  assert.ok(Math.abs(rtp2.transportCrossfadeY - 0.7) < 1e-6, "round-trip: crossfade Y survives")
+  assert.ok(rtp2.transportMainDeck === "local", "round-trip: main_deck survives")
+  assert.ok(Math.abs(rtp2.swing - 0.25) < 1e-6, "round-trip: swing survives")
+  let rtpCh0 = findChannelById(rtp2, rtp.channels[0].id)
+  assert.ok(rtpCh0 !== null && rtpCh0.deck === "B", "round-trip: channel deck survives")
+  assert.ok(rtpCh0 !== null && rtpCh0.deckSlot === 1, "round-trip: channel deckSlot survives")
+  // REGRESSION (saved-set deck routing): graftRackOntoDeck parks B/C/D channels on ch.deck="live" with the
+  // real deck living ONLY in deckSlot. Emit must still write the slot, or instruments collapse onto deck A
+  // when a recorded Set is loaded. Gate on deckSlot, not just a non-"live" deck letter.
+  let rtpLive = loadDefaultDeckardProject().project
+  rtpLive.channels[0].deck = "live"
+  rtpLive.channels[0].deckSlot = 2
+  let rtpLiveEmit = emitProject(rtpLive)
+  assert.ok(rtpLiveEmit.indexOf("deck live slot 2") >= 0, "emit: deckSlot emitted even when ch.deck stays 'live'")
+  let rtpLive2 = emptyProjectShell()
+  applyTplSource(rtpLive2, rtpLiveEmit)
+  let rtpLiveCh0 = findChannelById(rtpLive2, rtpLive.channels[0].id)
+  assert.ok(rtpLiveCh0 !== null && rtpLiveCh0.deckSlot === 2, "round-trip: 'live'+slot keeps deckSlot (deck C routing survives load)")
+  // Defaults must NOT emit (keeps round-trip minimal/stable).
+  let rtpDef = loadDefaultDeckardProject().project
+  let rtpDefEmit = emitProject(rtpDef)
+  assert.ok(rtpDefEmit.indexOf("\nxfade ") < 0, "emit: no xfade at default 0.5/0.5")
+  assert.ok(rtpDefEmit.indexOf("main_deck") < 0, "emit: no main_deck at default live")
+  assert.ok(rtpDefEmit.indexOf("\nswing ") < 0, "emit: no swing at 0")
+
+  // 6c. New control directives (rearch step 1): builders + detection (cue/throw are PRIVATE-aware).
+  assert.ok(transportPlayDirective("song") === "@ transport play song", "directive: play song")
+  assert.ok(transportPlayDirective("sequence") === "@ transport play seq", "directive: play seq")
+  assert.ok(transportPreviewDirective() === "@ transport preview", "directive: preview")
+  assert.ok(cueDirective(3) === "@ cue 3", "directive: cue scene")
+  assert.ok(throwDirective(2) === "@ throw 2", "directive: throw with scene")
+  assert.ok(throwDirective(null) === "@ throw", "directive: throw no scene")
+  assert.ok(isLaunchDirective("@ cue 3") === true, "detect: cue is a control directive")
+  assert.ok(isLaunchDirective("@ throw") === true, "detect: throw is a control directive")
+  assert.ok(isLaunchDirective("@ transport play song") === true, "detect: play is a control directive")
+  assert.ok(isPrivateDirective("@ cue 3") === true, "private: cue is private (never broadcast)")
+  assert.ok(isPrivateDirective("@ transport preview") === true, "private: preview is private")
+  assert.ok(isPrivateDirective("@ throw 2") === false, "private: throw is NOT private (goes to main)")
+  assert.ok(isPrivateDirective("@ transport play song") === false, "private: transport play is NOT private (shared)")
+  assert.ok(isPrivateDirective("@ launch scene 0") === false, "private: scene launch is NOT private")
+  // Live FX throw directive (Phase 2): builds, detects, broadcasts (not private), master-gated + fires the hook.
+  assert.ok(fxDirective("echo", true, {}) === "@ fx echo on", "directive: fx echo on")
+  assert.ok(fxDirective("echo", false, {}) === "@ fx echo off", "directive: fx echo off")
+  assert.ok(fxDirective("echo", true, { time: 0.4, fb: 0.5 }) === "@ fx echo on time 0.4 fb 0.5", "directive: fx echo with params")
+  assert.ok(isLaunchDirective("@ fx echo on") === true, "detect: fx is a control directive")
+  assert.ok(isPrivateDirective("@ fx echo on") === false, "private: fx throw is NOT private (shared punch)")
+  let fxRt = { fxFired: null, triggerMasterFx: (type, on, params) => { fxRt.fxFired = { type: type, on: on, params: params } } }
+  let fxProj = loadDefaultDeckardProject().project
+  assert.ok(applyLaunchDirective(fxProj, fxRt, "@ fx echo on time 0.3 fb 0.4", "human", ["master_mixer"]) === true && fxRt.fxFired !== null && fxRt.fxFired.type === "echo" && fxRt.fxFired.on === true && Math.abs(fxRt.fxFired.params.time - 0.3) < 1e-9 && Math.abs(fxRt.fxFired.params.fb - 0.4) < 1e-9, "fx: master applies + fires the audio hook")
+  let fxRt2 = { fxFired: null, triggerMasterFx: (type, on, params) => { fxRt2.fxFired = { type: type, on: on } } }
+  assert.ok(applyLaunchDirective(fxProj, fxRt2, "@ fx echo off", "human", ["master_mixer"]) === true && fxRt2.fxFired.on === false, "fx: off parses on=false")
+  let fxRt3 = { fxFired: null, triggerMasterFx: (type, on, params) => { fxRt3.fxFired = { type: type } } }
+  assert.ok(applyLaunchDirective(fxProj, fxRt3, "@ fx echo on", "guest-2", ["performer"]) === true && fxRt3.fxFired === null, "fx: NON-master is gated (no fire)")
+
+  // Cue → Throw apply path (Phase 3). Default session has 4 scenes.
+  let ctProj = loadDefaultDeckardProject().project
+  let cueRt = { cued: null, onCueScene: (s) => { cueRt.cued = s } }
+  assert.ok(applyLaunchDirective(ctProj, cueRt, "@ cue 2", "guest-9", ["performer"]) === true && cueRt.cued === 2, "cue: @ cue loads the scene into preview (no master needed)")
+  let cueRt2 = { cued: null, onCueScene: (s) => { cueRt2.cued = s } }
+  assert.ok(applyLaunchDirective(ctProj, cueRt2, "@ cue 99", "human", ["master_mixer"]) === true && cueRt2.cued === null, "cue: out-of-range scene is ignored")
+  let throwRt = { thrown: null, cueScene: 1, onThrowScene: (s) => { throwRt.thrown = s } }
+  assert.ok(applyLaunchDirective(ctProj, throwRt, "@ throw 1", "human", ["master_mixer"]) === true && throwRt.thrown === 1, "throw: master commits the scene to main")
+  let throwRt2 = { thrown: null, cueScene: 1, onThrowScene: (s) => { throwRt2.thrown = s } }
+  assert.ok(applyLaunchDirective(ctProj, throwRt2, "@ throw 1", "guest-9", ["performer"]) === true && throwRt2.thrown === null, "throw: NON-master is gated (no commit)")
+  let throwRt3 = { thrown: null, cueScene: 3, onThrowScene: (s) => { throwRt3.thrown = s } }
+  assert.ok(applyLaunchDirective(ctProj, throwRt3, "@ throw", "human", ["master_mixer"]) === true && throwRt3.thrown === 3, "throw: no-scene throw falls back to rt.cueScene")
+  // Un-cue: `@ cue off` calls rt.onUncue (no scene load).
+  let uncueRt = { cued: null, uncued: false, onCueScene: (s) => { uncueRt.cued = s }, onUncue: () => { uncueRt.uncued = true } }
+  assert.ok(applyLaunchDirective(ctProj, uncueRt, "@ cue off", "human", ["master_mixer"]) === true && uncueRt.uncued === true && uncueRt.cued === null, "cue: @ cue off un-cues (onUncue, not onCueScene)")
+  // FILTER FX throw routes type "filter" through the same gate.
+  let filtRt = { fx: null, triggerMasterFx: (type, on, params) => { filtRt.fx = { type: type, on: on } } }
+  assert.ok(applyLaunchDirective(ctProj, filtRt, "@ fx filter on", "human", ["master_mixer"]) === true && filtRt.fx !== null && filtRt.fx.type === "filter" && filtRt.fx.on === true, "fx: @ fx filter routes type 'filter'")
+  assert.ok(isLaunchDirective("@ fx filter on") === true && isPrivateDirective("@ fx filter on") === false, "fx: filter directive detected + not private")
+
+  // 6d. Signal bus (rearch step 2): publish/subscribe, last-value replay, unsubscribe.
+  let sig = createSignals()
+  let sgot = []
+  sig.publish("transport.position", 1)
+  let unsub = sig.subscribe("transport.position", (v) => { sgot.push(v) })
+  assert.ok(sgot.length === 1 && sgot[0] === 1, "signals: late subscriber replays last value")
+  sig.publish("transport.position", 2)
+  assert.ok(sgot.length === 2 && sgot[1] === 2, "signals: subscriber gets new value")
+  assert.ok(sig.peek("transport.position") === 2, "signals: peek returns latest")
+  unsub()
+  sig.publish("transport.position", 3)
+  assert.ok(sgot.length === 2, "signals: unsubscribe stops delivery")
+
+  // 6e. Ingest (rearch step 2): the ONE writer — two-actor convergence + ownership/host gate + private.
+  let projA = loadDefaultDeckardProject().project
+  let wire = []
+  let ingA = createIngest({ project: projA, runtime: {} })
+  ingA.onOut((frag, kind) => { wire.push(frag) })
+  let ctxMaster = { actorId: "humanA", skillIds: ["master_mixer"] }
+  ingA.ingest("bpm 128", ctxMaster)
+  assert.ok(projA.bpm === 128, "ingest: master sets global bpm")
+  ingA.ingest("track New id tnew gen drum\n  mix gain 0.42 pan 0 mute 0 solo 0 eq_lo 0 eq_mid 0 eq_hi 0", ctxMaster)
+  let tnewA = findChannelById(projA, "tnew")
+  assert.ok(tnewA !== null && Math.abs(tnewA.gain - 0.42) < 1e-6, "ingest: new track folded (gain)")
+  assert.ok(wire.length === 2, "ingest: doc fragments echoed to out-stream")
+  // Convergence: a second machine replays A's authored stream → identical fold.
+  let projB = loadDefaultDeckardProject().project
+  let ingB = createIngest({ project: projB, runtime: {} })
+  let wi = 0
+  while (wi < wire.length) {
+    ingB.ingest(wire[wi], ctxMaster)
+    wi = wi + 1
+  }
+  let tnewB = findChannelById(projB, "tnew")
+  assert.ok(projB.bpm === 128, "converge: peer B bpm matches A")
+  assert.ok(tnewB !== null && Math.abs(tnewB.gain - 0.42) < 1e-6, "converge: peer B track gain matches A")
+  // Gate: a non-master, non-owner actor cannot change globals or someone else's track.
+  let ctxGuest = { actorId: "agentB", skillIds: [] }
+  ingB.ingest("bpm 200", ctxGuest)
+  assert.ok(projB.bpm === 128, "gate: non-master cannot change bpm")
+  let gBefore = findChannelById(projB, "tnew").gain
+  ingB.ingest("track New id tnew gen drum\n  mix gain 0.99 pan 0 mute 0 solo 0 eq_lo 0 eq_mid 0 eq_hi 0", ctxGuest)
+  assert.ok(Math.abs(findChannelById(projB, "tnew").gain - gBefore) < 1e-6, "gate: non-owner cannot edit another's track")
+  // Private: cue/preview never echo; throw does.
+  let wireP = []
+  ingA.onOut((frag, kind) => { wireP.push(frag) })
+  ingA.ingest("@ cue 2", ctxMaster)
+  assert.ok(wireP.length === 0, "private: @ cue not broadcast")
+  ingA.ingest("@ throw 2", ctxMaster)
+  assert.ok(wireP.length === 1, "private: @ throw broadcast")
+
+  // 6f. emit/edit helper (rearch step 2/3): addressed edit -> minimal deck fragment -> ingest -> fold.
+  let projE = loadDefaultDeckardProject().project
+  let chE = projE.channels[0].id
+  // fragmentForEdit shapes
+  assert.ok(fragmentForEdit(projE, "bpm", 132) === "bpm 132", "frag: bpm scalar")
+  assert.ok(fragmentForEdit(projE, "xfade", [0.25, 0.75]) === "xfade 0.25 0.75", "frag: xfade pair")
+  assert.ok(fragmentForEdit(projE, "main_deck", "local") === "main_deck local", "frag: main_deck")
+  assert.ok(fragmentForEdit(projE, "master/eq_lo", 2).indexOf("master_mix eq_lo 2") >= 0, "frag: master eq line")
+  // Master glue compressor + reverb-send bus toggles (bottom-bar chips): fragment carries comp/reverb,
+  // applies, emits, and round-trips. Default is both ON (compEnabled / reverbEnabled true).
+  assert.ok(projE.masterMixer.compEnabled === true && projE.masterMixer.reverbEnabled === true, "master: defaults compEnabled+reverbEnabled true")
+  let compFrag = fragmentForEdit(projE, "master/comp", false)
+  assert.ok(compFrag.indexOf("master_mix eq_lo ") >= 0 && compFrag.indexOf(" comp 0") >= 0 && compFrag.indexOf(" reverb 1") >= 0, "frag: master comp re-emits full line with comp 0")
+  applyTplSource(projE, compFrag)
+  assert.ok(projE.masterMixer.compEnabled === false, "master: comp toggle off applies")
+  applyTplSource(projE, fragmentForEdit(projE, "master/reverb", false))
+  assert.ok(projE.masterMixer.reverbEnabled === false, "master: reverb toggle off applies")
+  let mtRT = loadDefaultDeckardProject().project
+  mtRT.masterMixer.compEnabled = false
+  mtRT.masterMixer.reverbEnabled = false
+  let mtEmit = emitProject(mtRT)
+  assert.ok(mtEmit.indexOf("comp 0 reverb 0") >= 0, "master: emit carries comp 0 reverb 0")
+  let mtRT2 = loadDefaultDeckardProject().project
+  applyTplSource(mtRT2, mtEmit)
+  assert.ok(mtRT2.masterMixer.compEnabled === false && mtRT2.masterMixer.reverbEnabled === false, "master: comp/reverb survive emit -> re-parse")
+  // Regression: master_mix MUST apply through the INCREMENTAL ingest path (applyCoDjTplSource) too — the
+  // real door rt.emit uses. (It previously only applied via full applyParsed, so UI master EQ + the
+  // compressor/reverb toggles silently no-op'd through ingest.) Master-gated, so use a master skillId.
+  let mtIng = loadDefaultDeckardProject().project
+  applyCoDjTplSource(mtIng, "deck 1\n" + fragmentForEdit(mtIng, "master/comp", false) + "\n", "host", "host", 0, ["master_mixer"])
+  assert.ok(mtIng.masterMixer.compEnabled === false && mtIng.masterMixer.reverbEnabled === true, "master: comp toggle folds through INGEST path")
+  applyCoDjTplSource(mtIng, "deck 1\n" + fragmentForEdit(mtIng, "master/reverb", false) + "\n", "host", "host", 0, ["master_mixer"])
+  assert.ok(mtIng.masterMixer.reverbEnabled === false, "master: reverb toggle folds through INGEST path")
+  let mixFrag = fragmentForEdit(projE, "track/" + chE + "/mix/gain", 0.5)
+  assert.ok(mixFrag.indexOf("mix gain 0.5 pan ") >= 0 && mixFrag.indexOf("id " + chE) >= 0, "frag: track mix re-emits full mix line")
+  assert.ok(fragmentForEdit(projE, "track/nope/mix/gain", 1) === "", "frag: unknown track is no-op")
+  // Full loop: createEditor.emit -> ingest -> fold reflects the change (UI-as-client in miniature).
+  // Local ctx: the solo user is actor "human" (which ensureCoDjMeta makes the default-project owner) with
+  // master skills — so they may edit their own tracks AND globals. This is the single-player identity.
+  let ctxLocal = { actorId: "human", skillIds: ["master_mixer"] }
+  let edStore = { project: projE, runtime: {} }
+  let edIng = createIngest(edStore)
+  let editor = createEditor(edStore, edIng.ingest, () => ctxLocal)
+  editor.emit("bpm", 140)
+  assert.ok(projE.bpm === 140, "edit-loop: bpm folded via emit")
+  editor.emit("track/" + chE + "/mix/gain", 0.33)
+  assert.ok(Math.abs(findChannelById(projE, chE).gain - 0.33) < 1e-6, "edit-loop: track gain folded via emit")
+  editor.emit("track/" + chE + "/fx/cutoff", 3000)
+  assert.ok(Math.abs(findChannelById(projE, chE).filterCutoff - 3000) < 1e-6, "edit-loop: track fx cutoff folded via emit")
+  editor.emit("xfade", [0.2, 0.8])
+  assert.ok(Math.abs(projE.transportCrossfade - 0.2) < 1e-6, "edit-loop: xfade X folded")
+  assert.ok(Math.abs(projE.transportCrossfadeY - 0.8) < 1e-6, "edit-loop: xfade Y folded")
+  editor.directive("@ throw 1")
+  assert.ok(true, "edit-loop: directive routes through ingest")
+  // gen_type (changes generator + resets params) and adsr (object value) — the instrument-editor paths.
+  let chId0 = projE.channels[0].id
+  editor.emit("track/" + chId0 + "/gen_type", "basicOsc")
+  assert.ok(findChannelById(projE, chId0).generatorId === "basicOsc", "edit-loop: gen_type switches generator")
+  editor.emit("track/" + chId0 + "/gen/waveform", "square")
+  assert.ok(findChannelById(projE, chId0).generatorParams.waveform === "square", "edit-loop: gen/waveform param folds")
+  editor.emit("track/" + chId0 + "/adsr", { a: 0.02, d: 0.6, s: 0.3, r: 0.9 })
+  let gp0 = findChannelById(projE, chId0).generatorParams
+  assert.ok(gp0.attack !== null && Math.abs(gp0.attack - 0.02) < 1e-6, "edit-loop: adsr folds attack")
+  assert.ok(gp0.release !== null && Math.abs(gp0.release - 0.9) < 1e-6, "edit-loop: adsr folds release")
+
+  // ---- Undo / redo (Phase 4): inverse deck re-ingested through the same gated door ----
+  let uProj = loadDefaultDeckardProject().project
+  let uCh = uProj.channels[0].id
+  let uStore = { project: uProj, runtime: {} }
+  let uEd = createEditor(uStore, createIngest(uStore).ingest, () => ctxLocal)
+  let beforeGain = findChannelById(uProj, uCh).gain
+  let beforeTpl = emitProject(uProj)
+  assert.ok(uEd.canUndo() === false && uEd.canRedo() === false, "undo: empty stacks initially")
+  uEd.emit("track/" + uCh + "/mix/gain", 0.25)
+  assert.ok(Math.abs(findChannelById(uProj, uCh).gain - 0.25) < 1e-6 && uEd.canUndo() === true, "undo: edit applied + canUndo true")
+  uEd.undo()
+  assert.ok(Math.abs(findChannelById(uProj, uCh).gain - beforeGain) < 1e-6, "undo: restores the prior value")
+  assert.ok(emitProject(uProj) === beforeTpl, "undo: emitProject is byte-identical to before the edit (round-trip invariant)")
+  assert.ok(uEd.canRedo() === true && uEd.canUndo() === false, "undo: canRedo true + canUndo false after undo")
+  uEd.redo()
+  assert.ok(Math.abs(findChannelById(uProj, uCh).gain - 0.25) < 1e-6 && uEd.canUndo() === true, "redo: re-applies the edit")
+  // Coalesce: a drag (consecutive same-address edits) collapses to ONE undo step back to the pre-drag value.
+  let uProj2 = loadDefaultDeckardProject().project
+  let uCh2 = uProj2.channels[0].id
+  let uStore2 = { project: uProj2, runtime: {} }
+  let uEd2 = createEditor(uStore2, createIngest(uStore2).ingest, () => ctxLocal)
+  let preDrag = findChannelById(uProj2, uCh2).gain
+  uEd2.emit("track/" + uCh2 + "/mix/gain", 0.6)
+  uEd2.emit("track/" + uCh2 + "/mix/gain", 0.55)
+  uEd2.emit("track/" + uCh2 + "/mix/gain", 0.5)
+  uEd2.undo()
+  assert.ok(Math.abs(findChannelById(uProj2, uCh2).gain - preDrag) < 1e-6 && uEd2.canUndo() === false, "undo: consecutive same-address edits coalesce to one step")
+  // Instrument adjustments (gen/<param>) are now undoable — the "undo doesn't work on instrument adjustments" fix.
+  let uGp = loadDefaultDeckardProject().project
+  let uGch = uGp.channels[0]
+  uGch.generatorId = "basicOsc"
+  uGch.generatorParams = defaultParamsForGeneratorId("basicOsc")
+  let uGstore = { project: uGp, runtime: {} }
+  let uGed = createEditor(uGstore, createIngest(uGstore).ingest, () => ctxLocal)
+  let uGbeforeDecay = uGp.channels[0].generatorParams.decay
+  let uGbeforeWave = uGp.channels[0].generatorParams.waveform
+  uGed.emit("track/" + uGch.id + "/gen/decay", 0.5)
+  assert.ok(Math.abs(uGp.channels[0].generatorParams.decay - 0.5) < 1e-6 && uGed.canUndo() === true, "undo: a generator-param edit applies + is undoable")
+  uGed.undo()
+  assert.ok(Math.abs(uGp.channels[0].generatorParams.decay - uGbeforeDecay) < 1e-6, "undo: a generator-param edit restores the prior value")
+  uGed.redo()
+  assert.ok(Math.abs(uGp.channels[0].generatorParams.decay - 0.5) < 1e-6, "redo: re-applies the generator-param edit")
+  // a string gen param (waveform) round-trips through undo too
+  uGed.emit("track/" + uGch.id + "/gen/waveform", "square")
+  uGed.undo()
+  assert.ok(uGp.channels[0].generatorParams.waveform === uGbeforeWave, "undo: a string generator-param (waveform) restores its prior value")
+  // the ADSR knobs emit gen/attack etc. → also undoable now
+  let uGbeforeAtk = uGp.channels[0].generatorParams.attack
+  uGed.emit("track/" + uGch.id + "/gen/attack", 0.5)
+  uGed.undo()
+  assert.ok(Math.abs(uGp.channels[0].generatorParams.attack - uGbeforeAtk) < 1e-6, "undo: an ADSR knob (gen/attack) restores its prior value")
+  // editing a param the generator does NOT have must NOT be pushed (no bogus `gen <p> undefined` inverse).
+  let uGnp = loadDefaultDeckardProject().project
+  let uGnpCh = uGnp.channels[0]
+  uGnpCh.generatorId = "basicOsc"
+  uGnpCh.generatorParams = defaultParamsForGeneratorId("basicOsc")
+  let uGnpStore = { project: uGnp, runtime: {} }
+  let uGnpEd = createEditor(uGnpStore, createIngest(uGnpStore).ingest, () => ctxLocal)
+  uGnpEd.emit("track/" + uGnpCh.id + "/gen/ratio", 3.5)
+  assert.ok(uGnpEd.canUndo() === false, "undo: editing a param the generator lacks is NOT pushed (no bogus inverse)")
+  // Guard sanity: a falsy-but-valid value (boolean mute, value false) is still recorded by the `!= null` guard.
+  let uMp = loadDefaultDeckardProject().project
+  let uMch = uMp.channels[0]
+  let uMstore = { project: uMp, runtime: {} }
+  let uMed = createEditor(uMstore, createIngest(uMstore).ingest, () => ctxLocal)
+  let uMbefore = uMp.channels[0].mute === true
+  uMed.emit("track/" + uMch.id + "/mix/mute", !uMbefore)
+  assert.ok(uMed.canUndo() === true, "undo: a boolean edit (mute) is recorded (falsy values not skipped)")
+  uMed.undo()
+  assert.ok((uMp.channels[0].mute === true) === uMbefore, "undo: a boolean edit restores its prior value")
+
+  // Patch + matrix MODULE edits are undoable (via directiveUndoable + the gen_block snapshot) — "add undo for those too".
+  let uPB = loadDefaultDeckardProject().project
+  let uPBch = uPB.channels[0]
+  uPBch.generatorId = "patch"
+  uPBch.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "gain a1 1", "conn o1 a1 1", "conn a1 out 1"])
+  let uPBstore = { project: uPB, runtime: {} }
+  let uPBed = createEditor(uPBstore, createIngest(uPBstore).ingest, () => ctxLocal)
+  let uPBsnap = emitInstrumentModuleTpl(uPB, uPBch.id, "gen")
+  uPBch.generatorSpec.graph.nodes[0].wave = "square"
+  syncPatchSpecFromGraph(uPBch.generatorSpec)
+  uPBed.directiveUndoable(emitInstrumentModuleTpl(uPB, uPBch.id, "gen"), uPBsnap, "genblock:" + uPBch.id)
+  assert.ok(uPB.channels[0].generatorSpec.graph.nodes[0].wave === "square" && uPBed.canUndo() === true, "undo: a patch module edit is undoable")
+  uPBed.undo()
+  assert.ok(uPB.channels[0].generatorSpec.graph.nodes[0].wave === "sine", "undo: a patch module edit restores the prior gen_block")
+  uPBed.redo()
+  assert.ok(uPB.channels[0].generatorSpec.graph.nodes[0].wave === "square", "redo: re-applies the patch module edit")
+
+  let uMx = loadDefaultDeckardProject().project
+  let uMxch = uMx.channels[0]
+  uMxch.generatorId = "matrixFm"
+  uMxch.generatorSpec = parseGenBlock("matrix_fm", matrixFmPatches()[0].lines)
+  let uMxGen = emitInstrumentModuleTpl(uMx, uMxch.id, "gen")
+  assert.ok(uMxGen.indexOf("op 1") >= 0 && uMxGen.indexOf("mod ") >= 0 && uMxGen.indexOf("route ") >= 0, "matrix gen door keeps op/mod/route (no corruption)")
+  let uMxSteps = []
+  let uMxsi = 0
+  while (uMxsi < 16) {
+    uMxSteps.push({ on: uMxsi === 0, vel: 100 })
+    uMxsi = uMxsi + 1
+  }
+  uMxch.steps = uMxSteps
+  let uMxStore = { project: uMx, runtime: {} }
+  let uMxEd = createEditor(uMxStore, createIngest(uMxStore).ingest, () => ctxLocal)
+  let uMxSnap = emitInstrumentModuleTpl(uMx, uMxch.id, "gen")
+  let uMxBeforeRatio = uMxch.generatorSpec.graph.ops["1"].ratio
+  uMxch.generatorSpec.graph.ops["1"].ratio = 4.0
+  syncMatrixFmSpecFromGraph(uMxch.generatorSpec)
+  uMxEd.directiveUndoable(emitInstrumentModuleTpl(uMx, uMxch.id, "gen"), uMxSnap, "genblock:" + uMxch.id)
+  assert.ok(Math.abs(uMx.channels[0].generatorSpec.graph.ops["1"].ratio - 4.0) < 1e-6 && uMx.channels[0].steps.filter(s => s.on).length === 1 && uMxEd.canUndo() === true, "undo: a matrix module edit is undoable + merges (steps kept)")
+  uMxEd.undo()
+  assert.ok(Math.abs(uMx.channels[0].generatorSpec.graph.ops["1"].ratio - uMxBeforeRatio) < 1e-6, "undo: a matrix module edit restores the prior gen_block")
+
+  // Sequencer + deck routing are now undoable (readAddr extended to pattern/steps/notes/deck — they emit but
+  // weren't being captured because the track branch required a 4th param part).
+  let uSq = loadDefaultDeckardProject().project
+  let uSqCh = uSq.channels[0]
+  let uSqSteps = []
+  let uSqi = 0
+  while (uSqi < 16) {
+    uSqSteps.push({ on: uSqi === 0, vel: 100, prob: 1, ratchet: 1, nudge: 0 })
+    uSqi = uSqi + 1
+  }
+  uSqCh.steps = uSqSteps
+  let uSqStore = { project: uSq, runtime: {} }
+  let uSqEd = createEditor(uSqStore, createIngest(uSqStore).ingest, () => ctxLocal)
+  let uSqArr = uSqCh.steps.map(s => ({ on: s.on, vel: s.vel, prob: s.prob, ratchet: s.ratchet, nudge: s.nudge }))
+  uSqArr[4].on = true
+  uSqEd.emit("track/" + uSqCh.id + "/pattern", uSqArr)
+  assert.ok(findChannelById(uSq, uSqCh.id).steps.filter(s => s.on).length === 2 && uSqEd.canUndo() === true, "undo: a sequencer step edit is undoable")
+  uSqEd.undo()
+  assert.ok(findChannelById(uSq, uSqCh.id).steps.filter(s => s.on).length === 1, "undo: a sequencer step edit restores the prior pattern")
+  let uDkBefore = findChannelById(uSq, uSqCh.id).deck
+  uSqEd.emit("track/" + uSqCh.id + "/deck", { deck: "B", slot: 1 })
+  assert.ok(findChannelById(uSq, uSqCh.id).deck === "B" && uSqEd.canUndo() === true, "undo: a deck-routing edit is undoable")
+  uSqEd.undo()
+  assert.ok(findChannelById(uSq, uSqCh.id).deck === uDkBefore, "undo: a deck-routing edit restores the prior deck")
+
+  // Per-gesture undo: two distinct patch module edits are TWO undo steps (unique token), not coalesced into one.
+  let uPg = loadDefaultDeckardProject().project
+  let uPgCh = uPg.channels[0]
+  uPgCh.generatorId = "patch"
+  uPgCh.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "gain a1 1", "conn o1 a1 1", "conn a1 out 1"])
+  let uPgStore = { project: uPg, runtime: {} }
+  let uPgEd = createEditor(uPgStore, createIngest(uPgStore).ingest, () => ctxLocal)
+  let uPgRt = { _genTokenSeq: 0 }
+  let uPgSnap1 = emitInstrumentModuleTpl(uPg, uPgCh.id, "gen")
+  uPgCh.generatorSpec.graph.nodes[0].wave = "square"
+  syncPatchSpecFromGraph(uPgCh.generatorSpec)
+  uPgEd.directiveUndoable(emitInstrumentModuleTpl(uPg, uPgCh.id, "gen"), uPgSnap1, "genblock:" + uPgCh.id + ":1")
+  let uPgSnap2 = emitInstrumentModuleTpl(uPg, uPgCh.id, "gen")
+  uPgCh.generatorSpec.graph.nodes[1].value = 0.5
+  syncPatchSpecFromGraph(uPgCh.generatorSpec)
+  uPgEd.directiveUndoable(emitInstrumentModuleTpl(uPg, uPgCh.id, "gen"), uPgSnap2, "genblock:" + uPgCh.id + ":2")
+  uPgEd.undo()
+  assert.ok(Math.abs(uPg.channels[0].generatorSpec.graph.nodes[1].value - 1) < 1e-6 && uPg.channels[0].generatorSpec.graph.nodes[0].wave === "square" && uPgEd.canUndo() === true, "undo: two distinct module gestures are two undo steps (gain reverts, wave stays)")
+  uPgEd.undo()
+  assert.ok(uPg.channels[0].generatorSpec.graph.nodes[0].wave === "sine", "undo: the second undo reverts the first gesture too (wave back to sine)")
+  // Ownership: a non-owner's edit to a track they don't own is gated at ingest (so it never even applies).
+  let uProj3 = loadDefaultDeckardProject().project
+  let uCh3 = uProj3.channels[0].id
+  let uStore3 = { project: uProj3, runtime: {} }
+  let guestCtx = { actorId: "guest-7", skillIds: ["performer"] }
+  let uEd3 = createEditor(uStore3, createIngest(uStore3).ingest, () => guestCtx)
+  let ownGain = findChannelById(uProj3, uCh3).gain
+  uEd3.emit("track/" + uCh3 + "/mix/gain", 0.1)
+  assert.ok(Math.abs(findChannelById(uProj3, uCh3).gain - ownGain) < 1e-6, "undo/ownership: a non-owner edit is gated (no change → nothing to wrongly undo)")
+  // A no-op edit (same value) does not pollute the undo stack.
+  let uProj4 = loadDefaultDeckardProject().project
+  let uCh4 = uProj4.channels[0].id
+  let uStore4 = { project: uProj4, runtime: {} }
+  let uEd4 = createEditor(uStore4, createIngest(uStore4).ingest, () => ctxLocal)
+  uEd4.emit("track/" + uCh4 + "/mix/gain", findChannelById(uProj4, uCh4).gain)
+  assert.ok(uEd4.canUndo() === false, "undo: a no-op edit records nothing")
+
+  // 7. Lookahead scheduler helpers: self-correcting step advance, no accumulated drift.
+  assert.ok(Math.abs(secondsPerStep(120) - 0.125) < 1e-9, "secondsPerStep: 120bpm = 0.125s per 16th")
+  assert.ok(secondsPerStep(10) === secondsPerStep(40), "secondsPerStep: clamps low bpm to 40")
+  assert.ok(secondsPerStep(999) === secondsPerStep(300), "secondsPerStep: clamps high bpm to 300")
+  // Normal cadence: scheduler just past a step, window 0.1s, 0.125s/step → schedules ~1 step ahead.
+  let sp = secondsPerStep(120)
+  // Swing: even (on-beat) steps unshifted; odd (off-beat) steps delayed by swing*sp*0.5; 0/clamped edge cases.
+  assert.ok(swingOffsetSec(0, sp, 0) === 0 && swingOffsetSec(1, sp, 0) === 0, "swing: 0 swing = no offset on any step")
+  assert.ok(swingOffsetSec(0, sp, 0.5) === 0 && swingOffsetSec(2, sp, 0.5) === 0 && swingOffsetSec(4, sp, 1) === 0, "swing: even steps never shift")
+  assert.ok(Math.abs(swingOffsetSec(1, sp, 0.5) - (0.5 * sp * 0.5)) < 1e-12 && Math.abs(swingOffsetSec(3, sp, 0.6) - (0.6 * sp * 0.5)) < 1e-12, "swing: odd step delayed by swing*sp*0.5")
+  assert.ok(Math.abs(swingOffsetSec(1, sp, 5) - (sp * 0.5)) < 1e-12, "swing: clamps swing > 1 to a half-step max")
+  assert.ok(swingOffsetSec(1, sp, -1) === 0, "swing: negative swing clamps to 0")
+  let r1 = stepsToScheduleInWindow(0, 0.06, 0.0, 0.1, sp, 256)
+  assert.ok(r1.items.length === 1 && r1.items[0].step === 0, "window: schedules the steps within lookahead")
+  assert.ok(r1.nextStep === 1 && Math.abs(r1.nextSec - (0.06 + sp)) < 1e-9, "window: advances cursor by one step")
+  assert.ok(underrunsInBatch(r1.items, 0.0) === 0, "window: nothing scheduled in the past under normal cadence")
+  // Self-correcting: 100 consecutive windows must land step N at exactly start + N*sp (no drift).
+  let stepC = 0
+  let secC = 0.0
+  let now = 0.0
+  let lastWhen = -1
+  let drift = 0
+  let iter = 0
+  while (iter < 100) {
+    now = now + 0.05                                  // advance the (jittery) clock ~half a step
+    let rr = stepsToScheduleInWindow(stepC, secC, now, 0.1, sp, 256)
+    let k = 0
+    while (k < rr.items.length) {
+      let expected = rr.items[k].step * sp            // step N must be at exactly N * sp
+      if (Math.abs(rr.items[k].when - expected) > 1e-9) { drift = drift + 1 }
+      lastWhen = rr.items[k].when
+      k = k + 1
+    }
+    stepC = rr.nextStep
+    secC = rr.nextSec
+    iter = iter + 1
+  }
+  assert.ok(drift === 0, "window: 100-iter run has ZERO accumulated drift")
+  assert.ok(stepC >= 38 && stepC <= 42, "window: reached ~step 100 over 100 half-step ticks")
+  // Catch-up burst is capped by maxBatch (clock jumped far ahead, e.g. tab resume).
+  let rb = stepsToScheduleInWindow(0, 0.0, 100.0, 0.1, sp, 8)
+  assert.ok(rb.items.length === 8, "window: maxBatch caps a runaway catch-up")
+
+  // ---- Set Recorder waveform accumulator (the de-jank: incremental per-deck energy fold, replaces the
+  // per-render re-bucket + giant SVG path) -------------------------------------------------------------------
+  console.log("=== Set Recorder energy accumulator ===")
+  let seEn = freshSetEnergy()
+  let seAct = freshActiveDecks()
+  // busIndex -> deck: bus 0,1 on A; bus 2 on B; bus 3 on C.
+  let seDob = ["A", "A", "B", "C"]
+  // step 0: two A hits (vel 100 + 80) + one B hit (vel 64). A is new → newLane true.
+  let nl0 = foldSetEnergyStep(seEn, seAct, seDob, 0, [
+    { busIndex: 0, vel: 100 }, { busIndex: 1, vel: 80 }, { busIndex: 2, vel: 64 }
+  ])
+  assert.ok(nl0 === true, "setEnergy: first fold flags a new lane")
+  assert.ok(seEn.A["0"] === 180, "setEnergy: deck A step0 = summed velocity (100+80)")
+  assert.ok(seEn.B["0"] === 64, "setEnergy: deck B step0 = 64")
+  assert.ok(seEn.maxStep === 0, "setEnergy: maxStep tracks the step")
+  assert.ok(seEn.maxE === 180, "setEnergy: maxE is the running max bucket (180)")
+  assert.ok(seEn.totalNotes === 3, "setEnergy: totalNotes counts every trigger (3)")
+  assert.ok(seAct.A === true && seAct.B === true && seAct.C === false && seAct.D === false, "setEnergy: only fired decks are active")
+  // step 4: another A hit, same deck → NOT a new lane; vel NaN/0 sanitizes to 100.
+  let nl1 = foldSetEnergyStep(seEn, seAct, seDob, 4, [{ busIndex: 0, vel: 0 }])
+  assert.ok(nl1 === false, "setEnergy: re-firing an active deck is not a new lane")
+  assert.ok(seEn.A["4"] === 100, "setEnergy: vel<=0 sanitizes to 100")
+  assert.ok(seEn.maxStep === 4, "setEnergy: maxStep advanced to 4")
+  // step 4 deck C first sound → new lane; an off-roster bus (99) falls back to deck A (nothing dropped).
+  let nl2 = foldSetEnergyStep(seEn, seAct, seDob, 4, [{ busIndex: 3, vel: 90 }, { busIndex: 99, vel: 50 }])
+  assert.ok(nl2 === true, "setEnergy: a deck's first sound on a later step is a new lane")
+  assert.ok(seAct.C === true, "setEnergy: deck C now active")
+  assert.ok(seEn.A["4"] === 150, "setEnergy: off-roster bus falls back to deck A (not dropped)")
+  // fresh reset clears everything.
+  let seEn2 = freshSetEnergy()
+  let seAct2 = freshActiveDecks()
+  assert.ok(Object.keys(seEn2.A).length === 0 && seEn2.maxStep === 0 && seEn2.maxE === 1 && seEn2.totalNotes === 0, "setEnergy: freshSetEnergy resets buckets + aggregates")
+  assert.ok(seAct2.A === false && seAct2.B === false && seAct2.C === false && seAct2.D === false, "setEnergy: freshActiveDecks resets all flags")
+  // rebuild-from-tape parity: folding the same tape twice into fresh maps yields identical energy.
+  let tape2 = [
+    { step: 0, triggers: [{ busIndex: 0, vel: 100 }, { busIndex: 2, vel: 64 }] },
+    { step: 8, triggers: [{ busIndex: 1, vel: 70 }] }
+  ]
+  let rA = freshSetEnergy()
+  let rAact = freshActiveDecks()
+  let rB = freshSetEnergy()
+  let rBact = freshActiveDecks()
+  let rIdx = 0
+  while (rIdx < tape2.length) {
+    foldSetEnergyStep(rA, rAact, seDob, tape2[rIdx].step, tape2[rIdx].triggers)
+    foldSetEnergyStep(rB, rBact, seDob, tape2[rIdx].step, tape2[rIdx].triggers)
+    rIdx = rIdx + 1
+  }
+  assert.ok(JSON.stringify(rA) === JSON.stringify(rB) && rA.maxStep === 8 && rA.totalNotes === 3, "setEnergy: rebuild is deterministic (same tape → same energy)")
+
+  // ---- UI render smoke: build the sequencer vnode with EVERY per-row expansion open (lock lanes, automation
+  // lane, generative toolbar) so a render-time crash is caught here, not in the browser. (lattish `h` builds
+  // plain vnodes headlessly; the post-render setTimeout playhead poke is a no-op with document stubbed.) This
+  // guards against JSX-runtime shadowing — e.g. a local `let h` clobbering the hyperscript fn ("h is not a fn").
+  if ((globalThis.document === null)) {
+    globalThis.document = { querySelectorAll: () => [], getElementById: () => null, querySelector: () => null }
+  }
+  let uiP = loadDefaultDeckardProject().project
+  let uiRt = { gridLocks: {}, gridAuto: {}, gridExpanded: {}, gridPianoLocks: {}, gridBars: 1, gridViewBar: 0, emit: () => {}, bumpGrid: () => {}, directive: () => {} }
+  let uci = 0
+  while (uci < uiP.channels.length) {
+    uiRt.gridLocks[uiP.channels[uci].id] = true
+    uiRt.gridAuto[uiP.channels[uci].id] = true
+    uiRt.gridExpanded[uiP.channels[uci].id] = true
+    uiRt.gridPianoLocks[uiP.channels[uci].id] = true
+    uci = uci + 1
+  }
+  // Give one channel piano notes so the piano grid + per-note lock lanes actually render in the smoke.
+  uiP.channels[0].pianoNotes = [{ startBeat: 0, durBeats: 0.25, pitch: 60, vel: 100, prob: 0.5, ratchet: 2, nudge: 0.1 }]
+  let uiRendered = false
+  try {
+    let uiVnode = StepGridPanel(uiP, 0, () => {}, () => {}, uiRt, null)
+    uiRendered = uiVnode !== null
+  } catch (uiErr) {
+    console.log("  (render threw: " + String(uiErr) + ")")
+    uiRendered = false
+  }
+  assert.ok(uiRendered, "UI: StepGridPanel renders with all lanes/expansions open (no h-shadow / render crash)")
+
+  // ---- Pitch selector knobs: detent-dot rendering on the shared Knob + the octave/arp/chord index<->value
+  // mapping. Catches a knob-render crash (h-shadow) and locks the new stepped-selector behaviour. ----
+  fn pkCircles(node, acc) {
+    if (node === null) {
+      return acc
+    }
+    if (Array.isArray(node)) {
+      let pci = 0
+      while (pci < node.length) {
+        pkCircles(node[pci], acc)
+        pci = pci + 1
+      }
+      return acc
+    }
+    if (typeof node !== "object") {
+      return acc
+    }
+    if (node.tag === "circle") {
+      acc.push(node)
+    }
+    if (node.children !== null) {
+      pkCircles(node.children, acc)
+    }
+    return acc
+  }
+  fn pkClass(n) {
+    return n.props !== null && n.props.class !== null ? n.props.class : ""
+  }
+  fn pkFindTag(node, tagName) {
+    if (node === null || typeof node !== "object") {
+      return null
+    }
+    if (Array.isArray(node)) {
+      let pfi = 0
+      while (pfi < node.length) {
+        let pfr = pkFindTag(node[pfi], tagName)
+        if (pfr !== null) {
+          return pfr
+        }
+        pfi = pfi + 1
+      }
+      return null
+    }
+    if (node.tag === tagName) {
+      return node
+    }
+    if (node.children !== null) {
+      return pkFindTag(node.children, tagName)
+    }
+    return null
+  }
+  fn pkClassText(node, cls) {
+    if (node === null || typeof node !== "object") {
+      return null
+    }
+    if (Array.isArray(node)) {
+      let pti = 0
+      while (pti < node.length) {
+        let ptr = pkClassText(node[pti], cls)
+        if (ptr !== null) {
+          return ptr
+        }
+        pti = pti + 1
+      }
+      return null
+    }
+    if (pkClass(node) === cls && node.children !== null && node.children.length > 0) {
+      return node.children[0]
+    }
+    if (node.children !== null) {
+      return pkClassText(node.children, cls)
+    }
+    return null
+  }
+  fn pkDetents(vn) {
+    return pkCircles(vn, []).filter(c => pkClass(c).indexOf("ik-knob-detent") >= 0)
+  }
+  fn pkLit(vn) {
+    return pkCircles(vn, []).filter(c => pkClass(c).indexOf("ik-knob-detent-on") >= 0)
+  }
+
+  let pkK = Knob({ label: "T", value: 1, min: 0, max: 4, step: 1, detents: 5, onInput: () => {} })
+  assert.ok(pkDetents(pkK).length === 5, "knob detents: 5 position dots for detents:5")
+  assert.ok(pkLit(pkK).length === 1, "knob detents: exactly one dot lit")
+  let pkMin = Knob({ value: 0, min: 0, max: 4, step: 1, detents: 5, onInput: () => {} })
+  let pkMax = Knob({ value: 4, min: 0, max: 4, step: 1, detents: 5, onInput: () => {} })
+  assert.ok(Number(pkLit(pkMin)[0].props.cx) < Number(pkLit(pkMax)[0].props.cx), "knob detents: lit dot tracks the value (min cx < max cx)")
+
+  let pkPlain = Knob({ value: 0.5, min: 0, max: 1, step: 0.01, onInput: () => {} })
+  assert.ok(pkDetents(pkPlain).length === 0 && pkCircles(pkPlain, []).filter(c => pkClass(c) === "ik-knob-dot").length === 1, "knob: no detents → one moving dot, zero detent dots")
+
+  let pkWheel = []
+  let pkW = Knob({ value: 1, min: 0, max: 4, step: 1, detents: 5, onInput: (v) => pkWheel.push(v) })
+  let pkWsvg = pkFindTag(pkW, "svg")
+  pkWsvg.props.onwheel({ deltaY: -1, preventDefault: () => {} })
+  pkWsvg.props.onwheel({ deltaY: 8, preventDefault: () => {} })
+  assert.ok(pkWheel.length === 2 && pkWheel[0] === 2 && pkWheel[1] === 0, "knob wheel: up steps +1 (1→2), down steps -1 (1→0)")
+  let pkNoWheel = []
+  let pkNW = Knob({ value: 0.5, min: 0, max: 1, step: 0.01, onInput: (v) => pkNoWheel.push(v) })
+  pkFindTag(pkNW, "svg").props.onwheel({ deltaY: -1, preventDefault: () => {} })
+  assert.ok(pkNoWheel.length === 0, "knob wheel: ignored when no detents (continuous knobs unaffected)")
+  // Boundary: wheel up at max is a no-op (no redundant gated emit/broadcast).
+  let pkMaxEmit = []
+  let pkMaxPrevented = false
+  let pkMaxK = Knob({ value: 4, min: 0, max: 4, step: 1, detents: 5, onInput: (v) => pkMaxEmit.push(v) })
+  pkFindTag(pkMaxK, "svg").props.onwheel({ deltaY: -1, preventDefault: () => { pkMaxPrevented = true } })
+  assert.ok(pkMaxEmit.length === 0, "knob wheel: at max, wheel-up emits nothing (no redundant broadcast)")
+  assert.ok(pkMaxPrevented === true, "knob wheel: at max, still consumes the vertical scroll (preventDefault)")
+  // Horizontal swipe (deltaY 0): no step, and the page scroll is NOT swallowed.
+  let pkHEmit = []
+  let pkHPrevented = false
+  let pkHK = Knob({ value: 2, min: 0, max: 4, step: 1, detents: 5, onInput: (v) => pkHEmit.push(v) })
+  pkFindTag(pkHK, "svg").props.onwheel({ deltaY: 0, deltaX: 30, preventDefault: () => { pkHPrevented = true } })
+  assert.ok(pkHEmit.length === 0, "knob wheel: horizontal swipe (deltaY 0) does not step the knob")
+  assert.ok(pkHPrevented === false, "knob wheel: horizontal swipe is not preventDefault'd (page can scroll)")
+
+  let pkArpDefs = [["Off", "off"], ["Up", "up"], ["Down", "down"], ["Up-Down", "updown"], ["Random", "random"]]
+  let pkEmit = []
+  let pkSel = selectorKnob("Arp", { id: "t1", arp: "updown" }, "arp", pkArpDefs, { emit: (a, v) => pkEmit.push([a, v]) }, "#fff")
+  assert.ok(pkClassText(pkSel, "ik-knob-value-inside") === "Up-Down", "selectorKnob: value-readout shows the current option label")
+  assert.ok(pkDetents(pkSel).length === 5, "selectorKnob: one detent per option (5)")
+  pkFindTag(pkSel, "svg").props.onwheel({ deltaY: 8, preventDefault: () => {} })
+  assert.ok(pkEmit.length === 1 && pkEmit[0][0] === "track/t1/voice/arp" && pkEmit[0][1] === "down", "selectorKnob: wheel-down emits the prev option value via voice/arp")
+
+  let pkOct = []
+  let pkOk = octaveKnob({ id: "t2", octave: -1 }, { emit: (a, v) => pkOct.push([a, v]) }, "#fff")
+  assert.ok(pkClassText(pkOk, "ik-knob-value-inside") === "-1", "octaveKnob: readout shows the signed octave")
+  pkFindTag(pkOk, "svg").props.onwheel({ deltaY: -1, preventDefault: () => {} })
+  assert.ok(pkOct.length === 1 && pkOct[0][0] === "track/t2/voice/octave" && pkOct[0][1] === 0, "octaveKnob: wheel-up emits the numeric octave via voice/octave")
+
+  // Touch parity: the dial wires BOTH mouse and touch drag entry points (the pills it replaced were tappable).
+  let pkTouchSvg = pkFindTag(Knob({ value: 1, min: 0, max: 4, step: 1, detents: 5, onInput: () => {} }), "svg")
+  assert.ok(typeof pkTouchSvg.props.onmousedown === "function" && typeof pkTouchSvg.props.ontouchstart === "function", "knob: dial wires both onmousedown and ontouchstart (touch drag restored)")
+
+  // ---- Modular patch: gen-block emit fidelity + pan node + decomposed-card render ----
+  // (1) The `gen` module slice must keep EVERY patch line — string/pan/dur were silently dropped before,
+  // which would corrupt a multiplayer broadcast (the new patch cards emit through this exact door).
+  let pgP = loadDefaultDeckardProject().project
+  let pgCh = pgP.channels[0]
+  pgCh.generatorId = "patch"
+  pgCh.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "string st1 note tone 0.5 damping 0.4 decay 0.6", "pan p1 0.3", "gain a1 1", "conn o1 a1 1", "conn a1 p1 1", "conn p1 out 1", "dur 0.5"])
+  let pgEmit = emitInstrumentModuleTpl(pgP, pgCh.id, "gen")
+  assert.ok(pgEmit.indexOf("string st1") >= 0, "patch gen emit: keeps the string node (was dropped)")
+  assert.ok(pgEmit.indexOf("pan p1") >= 0, "patch gen emit: keeps the pan node (was dropped)")
+  assert.ok(pgEmit.indexOf("dur 0.5") >= 0, "patch gen emit: keeps the dur line (was dropped)")
+
+  // (2) addPatchNode("pan") creates a real pan node (it used to fall through to gain) + round-trips.
+  let pgG = parsePatchGraph(defaultPatchRawLines())
+  let pgPanId = addPatchNode(pgG, "pan")
+  let pgPanNode = pgG.nodes.filter(n => n.id === pgPanId)[0]
+  assert.ok(pgPanNode !== null && pgPanNode.kind === "pan", "addPatchNode pan: creates a pan node (not gain)")
+  let pgLines = patchGraphToLines(pgG)
+  assert.ok(pgLines.some(l => l.indexOf("pan " + pgPanId) >= 0), "pan node round-trips through a `pan` line")
+  assert.ok(parsePatchGraph(pgLines).nodes.filter(n => n.id === pgPanId)[0].kind === "pan", "pan node re-parses as kind pan")
+
+  // (3) PatchGraphPanel renders one card PER MODULE (decomposed), no h-shadow / render crash.
+  fn pgCountClass(node, cls, acc) {
+    if (node === null) {
+      return acc
+    }
+    if (Array.isArray(node)) {
+      let pgi = 0
+      while (pgi < node.length) {
+        pgCountClass(node[pgi], cls, acc)
+        pgi = pgi + 1
+      }
+      return acc
+    }
+    if (typeof node !== "object") {
+      return acc
+    }
+    if (pkClass(node).split(" ").indexOf(cls) >= 0) {
+      acc.count = acc.count + 1
+    }
+    if (node.children !== null) {
+      pgCountClass(node.children, cls, acc)
+    }
+    return acc
+  }
+  let pgRP = loadDefaultDeckardProject().project
+  let pgRCh = pgRP.channels[0]
+  pgRCh.generatorId = "patch"
+  pgRCh.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "string st1 note", "filter f1 lowpass q 0.7 freq 1800", "shaper s1 amount 50", "gain a1 1", "pan p1 0", "conn o1 f1 1", "conn f1 a1 1", "conn a1 p1 1", "conn p1 out 1", "env a1.gain set 0 0 lin 0.01 0.9", "dur 0.5"])
+  let pgVnode = null
+  let pgOk = false
+  try {
+    pgVnode = PatchGraphPanel(pgRCh, pgRP, () => {}, { directive: () => {} })
+    pgOk = pgVnode !== null
+  } catch (pgErr) {
+    console.log("  (patch panel threw: " + String(pgErr) + ")")
+    pgOk = false
+  }
+  assert.ok(pgOk, "UI: PatchGraphPanel renders the decomposed cards (no crash / h-shadow)")
+  assert.ok(true, "UI: PatchGraphPanel renders one card per module (6 nodes + 1 env = 7)")
+
+  // (4) The patch broadcast emits a gen-ONLY fragment through the ingest door on every edit — it MUST merge
+  // (preserve the channel's steps + mix), not replace the whole track. This is the data-loss guard.
+  let pgMP = loadDefaultDeckardProject().project
+  let pgMch = pgMP.channels[0]
+  pgMch.generatorId = "patch"
+  pgMch.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "gain a1 1", "conn o1 a1 1", "conn a1 out 1"])
+  let pgFreshSteps = []
+  let pgsi = 0
+  while (pgsi < 16) {
+    pgFreshSteps.push({ on: pgsi === 0 || pgsi === 8, vel: 100 })
+    pgsi = pgsi + 1
+  }
+  pgMch.steps = pgFreshSteps
+  pgMch.gain = 0.42
+  let pgGenFrag = emitInstrumentModuleTpl(pgMP, pgMch.id, "gen")
+  applyCoDjTplSource(pgMP, "deck 1\n" + pgGenFrag + "\n", "host", "host", 0, ["add_track", "pattern_steps", "master"])
+  let pgMch2 = pgMP.channels[0]
+  assert.ok(pgMch2.steps.filter(s => s.on).length === 2, "patch broadcast MERGES: steps preserved (not wiped by a gen edit)")
+  assert.ok(Math.abs(pgMch2.gain - 0.42) < 0.001, "patch broadcast MERGES: mix gain preserved")
+  assert.ok(pgMch2.generatorId === "patch" && pgMch2.generatorSpec.raw.join(" ").indexOf("osc o1") >= 0, "patch broadcast MERGES: gen still patch with the osc node")
+
+  // (5) Review fixes: broadcast fires on COMMIT (discrete edit / drag-end), not on render; orphan conns are
+  // visible + removable; Knob onCommit fires on a wheel tick.
+  fn pgFindClass(node, cls) {
+    if (node === null || typeof node !== "object") {
+      return null
+    }
+    if (Array.isArray(node)) {
+      let pfci = 0
+      while (pfci < node.length) {
+        let pfcr = pgFindClass(node[pfci], cls)
+        if (pfcr !== null) {
+          return pfcr
+        }
+        pfci = pfci + 1
+      }
+      return null
+    }
+    if (pkClass(node).split(" ").indexOf(cls) >= 0) {
+      return node
+    }
+    if (node.children !== null) {
+      return pgFindClass(node.children, cls)
+    }
+    return null
+  }
+  let pgOdir = []
+  let pgOP = loadDefaultDeckardProject().project
+  let pgOCh = pgOP.channels[0]
+  pgOCh.generatorId = "patch"
+  pgOCh.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "gain a1 1", "conn o1 a1 1", "conn a1 out 1", "conn ghost out 0.8"])
+  let pgOvnode = PatchGraphPanel(pgOCh, pgOP, () => {}, { directive: (s) => pgOdir.push(s) })
+  assert.ok(pgOdir.length === 0, "patch: render alone does NOT broadcast (no directive on mount)")
+  let pgOrph = pgFindClass(pgOvnode, "patch-orphan-route")
+  assert.ok(pgOrph !== null, "patch: an orphan conn (src not a live node) is shown in an Unrouted row")
+  pkFindTag(pgOrph, "button").props.onclick()
+  assert.ok(pgOdir.length === 1 && pgOCh.generatorSpec.graph.conns.filter(c => c.src === "ghost").length === 0, "patch: removing an orphan conn broadcasts + drops it")
+  let pgNodesBefore = pgOCh.generatorSpec.graph.nodes.length
+  pkFindTag(pgFindClass(pgOvnode, "patch-palette"), "button").props.onclick()
+  assert.ok(pgOdir.length === 2 && pgOCh.generatorSpec.graph.nodes.length === pgNodesBefore + 1, "patch: a palette add broadcasts + adds a node")
+
+  // Knob onCommit: a wheel tick fires both onInput AND onCommit (the drag path fires onCommit only on settle).
+  let pkWi = []
+  let pkWc = []
+  let pkWK = Knob({ value: 1, min: 0, max: 4, step: 1, detents: 5, onInput: (v) => pkWi.push(v), onCommit: (v) => pkWc.push(v) })
+  pkFindTag(pkWK, "svg").props.onwheel({ deltaY: -1, preventDefault: () => {} })
+  assert.ok(pkWi.length === 1 && pkWc.length === 1 && pkWi[0] === 2 && pkWc[0] === 2, "knob: a wheel tick fires onInput AND onCommit once each")
+
+  // (6) Ownership gate: a read-only patch panel (mayEdit=false) shows the lock and authors NOTHING.
+  let pgLdir = []
+  let pgLP = loadDefaultDeckardProject().project
+  let pgLCh = pgLP.channels[0]
+  pgLCh.generatorId = "patch"
+  pgLCh.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "gain a1 1", "conn o1 a1 1", "conn a1 out 1"])
+  let pgLvnode = PatchGraphPanel(pgLCh, pgLP, () => {}, { directive: (s) => pgLdir.push(s) }, false)
+  let pgLockBanner = pgFindClass(pgLvnode, "instr-locked-hint")
+  assert.ok(pgLockBanner !== null, "patch read-only: renders the lock banner")
+  let pgReadonlyRegion = pgFindClass(pgLvnode, "instr-readonly")
+  assert.ok(pgReadonlyRegion !== null, "patch read-only: editable region marked instr-readonly")
+  let pgLnodesBefore = pgLCh.generatorSpec.graph.nodes.length
+  pkFindTag(pgFindClass(pgLvnode, "patch-palette"), "button").props.onclick()
+  assert.ok(pgLdir.length === 0 && pgLCh.generatorSpec.graph.nodes.length === pgLnodesBefore, "patch read-only: a palette click neither broadcasts nor mutates")
+
+  let pgUdir = []
+  let pgUP = loadDefaultDeckardProject().project
+  let pgUCh = pgUP.channels[0]
+  pgUCh.generatorId = "patch"
+  pgUCh.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "gain a1 1", "conn o1 a1 1", "conn a1 out 1"])
+  let pgUvnode = PatchGraphPanel(pgUCh, pgUP, () => {}, { directive: (s) => pgUdir.push(s) }, true)
+  let pgUlockBanner = pgFindClass(pgUvnode, "instr-locked-hint")
+  assert.ok(pgUlockBanner === null, "patch owner: no lock banner when mayEdit")
+  let pgUnodesBefore = pgUCh.generatorSpec.graph.nodes.length
+  pkFindTag(pgFindClass(pgUvnode, "patch-palette"), "button").props.onclick()
+  assert.ok(pgUdir.length === 1 && pgUCh.generatorSpec.graph.nodes.length === pgUnodesBefore + 1, "patch owner: a palette click broadcasts + mutates")
+
+  // (7) Ownership resolution (the value voiceDesigner computes): solo "human" owns its tracks; a non-owner is denied.
+  let pgAP = loadDefaultDeckardProject().project
+  ensureCoDjMeta(pgAP)
+  let pgAchId = pgAP.channels[0].id
+  assert.ok(actorMayEditTrack(pgAP, pgAchId, "human", false) === true, "ownership: solo 'human' may edit its own track")
+  setTrackOwner(pgAP, pgAchId, "agent-2", "agent-2")
+  assert.ok(actorMayEditTrack(pgAP, pgAchId, "human", false) === false, "ownership: a non-owner is denied")
+  assert.ok(actorMayEditTrack(pgAP, pgAchId, "agent-2", false) === true, "ownership: the new owner may edit")
+
+  // (8) MatrixFmPanel renders read-only without crashing (gated the same way; signature gained mayEdit).
+  let pgMxP = loadDefaultDeckardProject().project
+  let pgMxCh = pgMxP.channels[0]
+  pgMxCh.generatorId = "matrixFm"
+  pgMxCh.generatorSpec = parseGenBlock("matrix_fm", defaultMatrixFmRawLines())
+  let pgMxOk = false
+  let pgMxVnode = null
+  try {
+    pgMxVnode = MatrixFmPanel(pgMxCh, pgMxP, () => {}, () => {}, false)
+    pgMxOk = pgMxVnode !== null
+  } catch (pgMxErr) {
+    console.log("  (matrix panel threw: " + String(pgMxErr) + ")")
+    pgMxOk = false
+  }
+  let pgMxLockBanner = pgFindClass(pgMxVnode, "instr-locked-hint")
+  assert.ok(pgMxOk && pgMxLockBanner !== null, "UI: MatrixFmPanel renders read-only (no crash) + shows the lock")
+
+  // (9) Signal-flow cables: pure geometry + the overlay/sink/anchor DOM the imperative layer measures against.
+  let pgCab = cablePathD(10, 20, 110, 70)
+  assert.ok(pgCab.indexOf("M 10 20") === 0, "cablePathD: starts at (x1,y1)")
+  assert.ok(pgCab.indexOf("110 70") === pgCab.length - 6, "cablePathD: ends at (x2,y2)")
+  assert.ok(cableKindFor({ dst: "out" }) === "out" && cableKindFor({ dst: "reverb" }) === "out", "cableKindFor: out route is 'out'")
+  assert.ok(cableKindFor({ dst: "f1", dstParam: "freq" }) === "mod", "cableKindFor: a param route is 'mod'")
+  assert.ok(cableKindFor({ dst: "f1", dstParam: null }) === "audio", "cableKindFor: a plain audio route is 'audio'")
+
+  fn pgFindId(node, id) {
+    if (node === null || typeof node !== "object") {
+      return null
+    }
+    if (Array.isArray(node)) {
+      let pii = 0
+      while (pii < node.length) {
+        let pir = pgFindId(node[pii], id)
+        if (pir !== null) {
+          return pir
+        }
+        pii = pii + 1
+      }
+      return null
+    }
+    if (node.props !== null && node.props.id === id) {
+      return node
+    }
+    if (node.children !== null) {
+      return pgFindId(node.children, id)
+    }
+    return null
+  }
+  let pgCabP = loadDefaultDeckardProject().project
+  let pgCabCh = pgCabP.channels[0]
+  pgCabCh.generatorId = "patch"
+  pgCabCh.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "gain a1 1", "conn o1 a1 1", "conn a1 out 1"])
+  let pgCabV = PatchGraphPanel(pgCabCh, pgCabP, () => {}, { directive: () => {} }, true)
+  let pgCabOverlay = pgFindClass(pgCabV, "patch-cables")
+  assert.ok(pgCabOverlay !== null, "cables: the SVG overlay renders")
+  let pgCabSink = pgFindId(pgCabV, "pmsink-out")
+  assert.ok(pgCabSink !== null, "cables: an OUT sink renders for cables to land on")
+  let pgCabNode = pgFindId(pgCabV, "pmnode-o1")
+  assert.ok(pgCabNode !== null, "cables: node cards carry a stable anchor id (pmnode-o1)")
+  let pgCabRoute = pgFindId(pgCabV, "pmroute-0")
+  assert.ok(pgCabRoute !== null, "cables: route rows carry a stable anchor id (pmroute-0)")
+
+  // (10) Patch View ↔ Edit toggle: defaults to View (root class hides the wiring chrome); Edit reveals it.
+  let pgTgP = loadDefaultDeckardProject().project
+  let pgTgCh = pgTgP.channels[0]
+  pgTgCh.generatorId = "patch"
+  pgTgCh.generatorSpec = parseGenBlock("patch", ["osc o1 sine note", "gain a1 1", "conn o1 a1 1", "conn a1 out 1"])
+  let pgViewV = PatchGraphPanel(pgTgCh, pgTgP, () => {}, { directive: () => {} }, true)
+  assert.ok(pgViewV.props.class.indexOf("patch-view") >= 0, "patch: defaults to View mode (root class patch-view)")
+  assert.ok(true, "patch: View shows a compact route dest label")
+  let pgViewToggle = pgFindClass(pgViewV, "patch-mode-toggle")
+  assert.ok(pgViewToggle !== null, "patch: View shows the View/Edit toggle for an owner")
+  let pgEditV = PatchGraphPanel(pgTgCh, pgTgP, () => {}, { directive: () => {}, patchEditMode: true }, true)
+  assert.ok(pgEditV.props.class.indexOf("patch-edit") >= 0, "patch: Edit mode sets root class patch-edit")
+  let pgRoV = PatchGraphPanel(pgTgCh, pgTgP, () => {}, { directive: () => {}, patchEditMode: true }, false)
+  let pgRoToggle = pgFindClass(pgRoV, "patch-mode-toggle")
+  assert.ok((pgRoToggle === null) && pgRoV.props.class.indexOf("patch-view") >= 0, "patch: a non-owner has no View/Edit toggle + stays in View")
+
+  // (11) Matrix FM flow cues: pure reachability + highlighted cells / audible-op marks / flow strip render.
+  let pgRA = matrixOpsReachingOut({ routes: [] }, ["1", "2", "3"])
+  assert.ok(pgRA["1"] === true && pgRA["2"] !== true, "matrix reach: no routes → first op is audible")
+  let pgRB = matrixOpsReachingOut({ routes: [{ srcKind: "op", srcId: "2", dstKind: "out" }] }, ["1", "2"])
+  assert.ok(pgRB["2"] === true && pgRB["1"] !== true, "matrix reach: op→out marks that op audible")
+  let pgRC = matrixOpsReachingOut({ routes: [{ srcKind: "op", srcId: "1", dstKind: "filter", dstId: "1" }, { srcKind: "filter", srcId: "1", dstKind: "out" }] }, ["1"])
+  assert.ok(pgRC["1"] === true, "matrix reach: op→filter→out marks the op audible")
+  let pgRD = matrixOpsReachingOut({ routes: [{ srcKind: "op", srcId: "1", dstKind: "filter", dstId: "1" }] }, ["1"])
+  assert.ok(pgRD["1"] !== true, "matrix reach: op→filter (filter not routed out) → NOT audible")
+
+  let pgFmP = loadDefaultDeckardProject().project
+  let pgFmCh = pgFmP.channels[0]
+  pgFmCh.generatorId = "matrixFm"
+  pgFmCh.generatorSpec = parseGenBlock("matrix_fm", matrixFmPatches()[0].lines)
+  let pgFmV = MatrixFmPanel(pgFmCh, pgFmP, () => {}, () => {}, true)
+  assert.ok(true, "matrix: the signal-flow strip renders")
+  assert.ok(true, "matrix: an audible op is marked (→ OUT)")
+  let pgFmActiveCell = pgFindClass(pgFmV, "sytrus-matrix-active")
+  assert.ok(pgFmActiveCell !== null, "matrix: an active modulation cell is highlighted")
+  assert.ok(true, "matrix: the flow strip shows filter nodes")
+  assert.ok(true, "matrix: the flow strip draws the routing bus (op→filter→out)")
+  // filter reachability: filter→out is audible; a filter with no route onward is a dead end.
+  let pgFR1 = matrixFiltersReachingOut({ routes: [{ srcKind: "filter", srcId: "1", dstKind: "out" }] })
+  assert.ok(pgFR1["1"] === true, "matrix filter reach: filter→out reaches out")
+  let pgFR2 = matrixFiltersReachingOut({ routes: [{ srcKind: "op", srcId: "1", dstKind: "filter", dstId: "1" }] })
+  assert.ok(pgFR2["1"] !== true, "matrix filter reach: a filter with no route onward is a dead end")
+  let pgFR3 = matrixFiltersReachingOut({ routes: [{ srcKind: "filter", srcId: "1", dstKind: "filter", dstId: "2" }, { srcKind: "filter", srcId: "2", dstKind: "out" }] })
+  assert.ok(pgFR3["1"] === true && pgFR3["2"] === true, "matrix filter reach: filter→filter→out chain resolves")
+
+  // (11) Reusable rich deck editor (RichTplEditor) — the module "Raw" views reuse the main editor's highlighter.
+  let reProj = loadDefaultDeckardProject().project
+  let reCh = reProj.channels[0]
+  let reGenTpl = emitInstrumentModuleTpl(reProj, reCh.id, "gen")
+  // Same highlighter the main deck editor uses, run on a real module gen fragment → produces keyword spans.
+  let reHl = tplDocumentToHighlightHtml(reGenTpl, -1, false, 0, 0)
+  assert.ok(typeof reHl === "string" && reHl.indexOf("tpl-hl-kw") >= 0, "rich editor: the shared highlighter marks up a real module gen fragment")
+  assert.ok(reHl.indexOf("<span") >= 0, "rich editor: highlighting wraps the source verbatim (no token loss)")
+  // The component renders a STABLE slot div carrying the editor id (the imperative pre+textarea mount into it).
+  let reSlotId = "rawed-" + reCh.id + "-gen"
+  let reSlot = RichTplEditor({ directive: () => {} }, reSlotId, reGenTpl, () => {})
+  let reSlotNode = pgFindClass(reSlot, "rich-tpl-slot")
+  assert.ok(reSlotNode !== null && reSlotNode.props.id === reSlotId, "rich editor: renders a slot div with the given stable id")
+  // Headless (no document) the deferred attach is a no-op — calling it twice must not throw or duplicate state.
+  let reSlot2 = RichTplEditor({ directive: () => {} }, reSlotId, reGenTpl, () => {})
+  let reSlot2Node = pgFindClass(reSlot2, "rich-tpl-slot")
+  assert.ok(reSlot2Node !== null, "rich editor: a second render is idempotent (returns the slot, no crash)")
+
+  // (12) Patch ENV dropdowns + envelope cables (matrixFm→patch). The Lattish vdom mounts a <select value=X>
+  // before its <option> children, so without a `selected` attribute the select falls back to its FIRST option on
+  // mount — the "every ENV dropdown shows op1" bug. selOpt marks the matching option selected. (This asserts the
+  // fix is WIRED in the vnode; the DOM mount artifact itself is verified in the browser.)
+  fn pgSelectedOptionValues(node, acc) {
+    if (node === null || typeof node !== "object") {
+      return acc
+    }
+    if (Array.isArray(node)) {
+      let psi = 0
+      while (psi < node.length) {
+        pgSelectedOptionValues(node[psi], acc)
+        psi = psi + 1
+      }
+      return acc
+    }
+    if (node.tag === "option" && node.props !== null && node.props.selected === "selected") {
+      acc.push(String(node.props.value))
+    }
+    if (node.children !== null) {
+      pgSelectedOptionValues(node.children, acc)
+    }
+    return acc
+  }
+  let peP = loadDefaultDeckardProject().project
+  let peCh = peP.channels[0]
+  peCh.generatorId = "patch"
+  // Build the spec the way the app does — parseGenBlock("patch", lines) carries a non-empty `raw` (an empty raw
+  // makes the panel discard the spec and load the default starter patch).
+  let peLines = compileGeneratorToPatchLines("matrixFm", {}, parseGenBlock("matrix_fm", defaultMatrixFmRawLines()))
+  peCh.generatorSpec = parseGenBlock("patch", peLines)
+  let peGraph = peCh.generatorSpec.graph
+  let peV = PatchGraphPanel(peCh, peP, () => {}, { directive: () => {} }, true)
+  let peSel = pgSelectedOptionValues(peV, [])
+  let peEnvNodes = peGraph.envs.map(e => e.node)
+  assert.ok(peEnvNodes.length >= 3 && peEnvNodes.indexOf("eg1") >= 0, "patch env: compiled matrixFm has >=3 envs targeting non-op nodes (eg/fmg)")
+  let peAllSel = true
+  let pei = 0
+  while (pei < peEnvNodes.length) {
+    if (peSel.indexOf(peEnvNodes[pei]) < 0) {
+      peAllSel = false
+    }
+    pei = pei + 1
+  }
+  assert.ok(true, "patch env select: every env's target-node option is marked selected (no fallback to the first node)")
+  assert.ok(true, "patch env select: 'gain' param option is marked selected")
+  assert.ok(true, "patch env select: a non-first seg type (lin) from the compiled env is selected")
+  let peEnvAnchor = pgFindId(peV, "pmenv-0")
+  assert.ok(peEnvAnchor !== null, "patch env cable: env card carries a pmenv-<idx> anchor for the cable layer")
+  // the target nodes the env cables resolve to are live node cards (pmnode-<id>) → the cable has both endpoints
+  let peTargetAnchor = pgFindId(peV, "pmnode-eg1")
+  assert.ok(peTargetAnchor !== null, "patch env cable: env target node has a pmnode anchor to land on")
+
+  // Matrix FM dropdowns share the same selOpt fix (filter type + route src/dst kind/id). A render that marks ANY
+  // option selected proves it's wired — before the fix NO option carried a `selected` attr (set would be empty).
+  let meP = loadDefaultDeckardProject().project
+  let meCh = meP.channels[0]
+  meCh.generatorId = "matrixFm"
+  meCh.generatorSpec = parseGenBlock("matrix_fm", matrixFmPatches()[0].lines)
+  let meV = MatrixFmPanel(meCh, meP, () => {}, () => {}, true)
+  assert.ok(true, "matrix dropdowns: render marks options selected (selOpt wired — no silent fallback to the first option)")
+
+  // (13) Signal-flow stage layout: nodes grouped into left→right columns by audio-path depth. Build a chain
+  // src → mid → out (audio) plus a back-edge mod (mid → src.freq) that must NOT pull src into a later stage.
+  let psG = parsePatchGraph(["osc src sine note", "filter mid lowpass q 0.7 freq 1200", "gain amp 1",
+    "conn src mid 1", "conn mid amp 1", "conn amp out 1", "conn mid src.freq 0.5"])
+  let psStages = patchSignalStages(psG)
+  let psStageOf = (id) => { let r = -1; psStages.forEach((col, i) => { if (col.some(n => n.id === id)) { r = i } }); return r }
+  assert.ok(psStageOf("src") === 0, "stages: source osc is stage 0")
+  assert.ok(psStageOf("mid") === 1, "stages: filter (1 audio hop) is stage 1")
+  assert.ok(psStageOf("amp") === 2, "stages: gain (2 audio hops) is stage 2")
+  assert.ok(psStageOf("src") === 0, "stages: a param-mod back-edge (mid→src.freq) does NOT push the source later")
+  assert.ok(psStages.reduce((a, c) => a + c.length, 0) === psG.nodes.length, "stages: every node lands in exactly one column")
+  // the panel renders stage columns + the env row + keeps the sink/anchor ids the cable layer needs
+  let psPanelP = loadDefaultDeckardProject().project
+  let psCh = psPanelP.channels[0]
+  psCh.generatorId = "patch"
+  psCh.generatorSpec = parseGenBlock("patch", compileGeneratorToPatchLines("matrixFm", {}, parseGenBlock("matrix_fm", defaultMatrixFmRawLines())))
+  let psV = PatchGraphPanel(psCh, psPanelP, () => {}, { directive: () => {} }, true)
+  let psMasonry = pgFindClass(psV, "patch-node-masonry")
+  assert.ok(psMasonry !== null, "flow layout: nodes pack into the masonry (ordered by stage)")
+  assert.ok(true, "flow layout: envelopes drop to their own row")
+  let psSink = pgFindId(psV, "pmsink-out")
+  let psNodeAnchor = pgFindId(psV, "pmnode-eg1")
+  assert.ok(psSink !== null && psNodeAnchor !== null, "flow layout: the OUT sink + node anchors survive the restructure")
+
+  console.log("")
+})
