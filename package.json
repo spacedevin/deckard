@@ -36,11 +36,11 @@
   },
   "packageManager": "pnpm@9.15.4",
   "dependencies": {
+    "@spacedevin/deck": "^1.5.3",
     "@tishlang/lattish": "^4.0.2",
     "@tishlang/tish": "^3.7.1",
     "@vercel/og": "^0.11.1",
-    "mespeak": "^2.0.2",
-    "@spacedevin/deck": "^1.3.0"
+    "mespeak": "^2.0.2"
   },
   "devDependencies": {
     "@types/react": "^19.2.18",
