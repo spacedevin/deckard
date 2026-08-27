@@ -1012,8 +1012,50 @@ export fn applyActorMixRows(project, rows) {
   }
 }
 
+/// Point every channel at the table its `wave_shape` names, or at nothing if it names a built-in
+/// shape. Runs after each apply — a UI knob turn arrives as a one-track `.deck` fragment through the
+/// same path, so this is also what keeps the binding current when the shape is changed by hand.
+fn bindWaveTables(project) {
+  let tables = project.waveTables
+  let i = 0
+  while (i < project.channels.length) {
+    let ch = project.channels[i]
+    ch.waveTable = null
+    if (tables && ch.generatorParams) {
+      let name = ch.generatorParams.waveShape
+      if (name !== null && name !== undefined) {
+        let t = tables[String(name)]
+        if (t) {
+          ch.waveTable = t.levels
+        }
+      }
+    }
+    i = i + 1
+  }
+}
+
 export fn applyParsed(project, parsed) {
   let errs = parsed.errors
+  // A project saved before wavetables existed has no map; a `.deck` with no `wave` lines still needs
+  // one so `bindWaveTables` has something to miss against.
+  if (!project.waveTables) {
+    project.waveTables = {}
+  }
+  // `wave <name> …` — the language resolves both the hex and `harmonics` spellings to 32 levels, so
+  // there is nothing to validate here; a malformed line is already in `parsed.errors`.
+  if (parsed.waves) {
+    let wi = 0
+    while (wi < parsed.waves.length) {
+      let w = parsed.waves[wi]
+      project.waveTables[String(w.name)] = {
+        mode: w.mode,
+        harmonics: w.harmonics,
+        hex: w.hex,
+        levels: w.levels
+      }
+      wi = wi + 1
+    }
+  }
   if (parsed.bpm !== null && parsed.bpm >= 40 && parsed.bpm <= 300) {
     project.bpm = parsed.bpm
   }
@@ -1109,6 +1151,7 @@ export fn applyParsed(project, parsed) {
     applyActorMixRows(project, parsed.actorMixRows)
   }
   applyAutos(project, parsed.autos)
+  bindWaveTables(project)
   return { errors: errs }
 }
 

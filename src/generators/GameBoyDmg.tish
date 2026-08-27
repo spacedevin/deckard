@@ -67,6 +67,20 @@ fn getDmgLfsrBuffer(ctx, mode) {
   return buf
 }
 
+/// A named `wave` table: 32 four-bit levels straight into a buffer. Levels are 0..15 about a 7.5
+/// rest line, which is exactly what wave RAM holds, so no quantization step is needed — they are
+/// already on the 16-level grid the built-in shapes get rounded onto.
+fn getNamedWaveBuffer(ctx, levels) {
+  let buf = ctx.createBuffer(1, 32, ctx.sampleRate)
+  let data = buf.getChannelData(0)
+  let i = 0
+  while (i < 32) {
+    data[i] = levels[i] / 7.5 - 1
+    i = i + 1
+  }
+  return buf
+}
+
 fn getDmgWaveBuffer(ctx, shape) {
   let buf = ctx.createBuffer(1, 32, ctx.sampleRate)
   let data = buf.getChannelData(0)
@@ -149,7 +163,8 @@ export fn playGameBoyDmg(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   src.loop = true
 
   if (isWave) {
-    src.buffer = getDmgWaveBuffer(ctx, waveShape)
+    // A named table wins over the built-in shapes — the same order the GBA bake uses.
+    src.buffer = ch.waveTable ? getNamedWaveBuffer(ctx, ch.waveTable) : getDmgWaveBuffer(ctx, waveShape)
   } else if (isNoise) {
     src.buffer = getDmgLfsrBuffer(ctx, noiseMode === "short" ? 7 : 15)
   } else {

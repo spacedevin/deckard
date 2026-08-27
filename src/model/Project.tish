@@ -187,6 +187,10 @@ export fn emptyProjectShell() {
     transportCrossfadeY: 0.5,
     swing: 0,
     channels: [],
+    // Named PSG wavetables from `wave` lines, by name: { mode, harmonics, hex, levels }. `levels` is
+    // 32 four-bit values whichever spelling wrote them; the rest is kept so emit can write the
+    // source form back instead of flattening a `harmonics` line to hex.
+    waveTables: {},
     instrumentPresets: instrumentPresets,
     automation: {
       pitchBend: [{ beat: 0, value: 0 }, { beat: 4, value: 0 }],

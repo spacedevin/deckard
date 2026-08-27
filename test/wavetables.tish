@@ -1,0 +1,45 @@
+import { emptyProjectShell } from '../src/model/Project.tish'
+import { applyTplSource } from '../src/deckfile/Apply.tish'
+import { emitProject } from '../src/deckfile/Emit.tish'
+
+let pass = 0
+let fail = 0
+fn check(name, cond) {
+  if (cond) { pass = pass + 1; console.log("ok  - " + name) }
+  else { fail = fail + 1; console.log("FAIL - " + name) }
+}
+
+let src = "deck 1\nbpm 100\nwave organ harmonics 1 0.5 0.33 0.2\nwave lit 8beffecbbbbaa9888776554444310014\n\ntrack Bass id bass gen gameBoyDmg\n  gen type wave wave_shape organ vol 15\n  note 36 0 2 v 110\n"
+
+let p = emptyProjectShell()
+let res = applyTplSource(p, src)
+check("no errors", res.errors.length === 0)
+check("both tables collected", Object.keys(p.waveTables).length === 2)
+check("harmonics retained", p.waveTables.organ.mode === "harmonics")
+check("levels resolved", p.waveTables.organ.levels.length === 32)
+check("harmonics equals hex literal", p.waveTables.organ.levels.join(",") === p.waveTables.lit.levels.join(","))
+check("channel bound to its table", p.channels[0].waveTable !== null && p.channels[0].waveTable.length === 32)
+
+// Emit: the source spelling survives a save, and only the used table is written.
+let out = emitProject(p)
+check("emits harmonics, not flattened hex", out.indexOf("wave organ harmonics 1 0.5 0.33 0.2") >= 0)
+check("unused table is not emitted", out.indexOf("wave lit ") < 0)
+
+// Round trip: re-applying the emitted text reproduces the same levels.
+let p2 = emptyProjectShell()
+applyTplSource(p2, out)
+check("round trip keeps levels", p2.waveTables.organ.levels.join(",") === p.waveTables.organ.levels.join(","))
+check("round trip keeps mode", p2.waveTables.organ.mode === "harmonics")
+
+// A hex table that IS used emits as hex.
+let p3 = emptyProjectShell()
+applyTplSource(p3, "deck 1\nwave lit 8beffecbbbbaa9888776554444310014\ntrack B id b gen gameBoyDmg\n  gen type wave wave_shape lit\n  note 36 0 1 v 100\n")
+check("hex table emits as hex", emitProject(p3).indexOf("wave lit 8beffecbbbbaa9888776554444310014") >= 0)
+
+// A built-in shape name binds no table.
+let p4 = emptyProjectShell()
+applyTplSource(p4, "deck 1\ntrack B id b gen gameBoyDmg\n  gen type wave wave_shape saw\n  note 36 0 1 v 100\n")
+check("built-in shape binds no table", !p4.channels[0].waveTable)
+
+console.log(fail === 0 ? "\nall " + pass + " passed" : "\n" + fail + " FAILED")
+if (fail > 0) { process.exit(1) }
