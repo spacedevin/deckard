@@ -27,8 +27,9 @@
     "agent:host": "tish run services/agent-worker/main.tish --role host --actor-id host-ai",
     "agent:client": "tish run services/agent-worker/main.tish --role client",
     "token-demo": "tish run services/token-stream-demo/main.tish",
-    "test:js": "npm run test:smoke && npm run test:mp && npm run test:levels && npm run test:multiword && npm run test:voicereset && npm run test:deckjoin && npm run test:transport && npm run test:deckmix",
-    "test:tish": "tish test"
+    "test:js": "npm run test:smoke && npm run test:mp && npm run test:levels && npm run test:multiword && npm run test:voicereset && npm run test:deckjoin && npm run test:transport && npm run test:deckmix && npm run test:wavetables",
+    "test:tish": "tish test",
+    "test:wavetables": "tish build --target js test/wavetables.tish -o /tmp/deckard-wt.js && node /tmp/deckard-wt.js"
   },
   "engines": {
     "node": "22.x"

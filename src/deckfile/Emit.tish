@@ -126,6 +126,55 @@ export fn deckMixLine(project, deck) {
   return "deck_mix " + deck + " hi " + formatTplFloat(hi) + " mid " + formatTplFloat(mid) + " lo " + formatTplFloat(lo) + " flt " + formatTplFloat(flt) + " vol " + formatTplFloat(vol)
 }
 
+/// `wave <name> …` lines for every named table the project holds, in a stable order.
+///
+/// Only tables a channel actually names are written: a project can accumulate tables from files it
+/// has loaded, and emitting the unused ones would grow the file every save.
+fn emitWaveLines(project) {
+  let tables = project.waveTables
+  if (!tables) {
+    return ""
+  }
+  let used = {}
+  let ci = 0
+  while (ci < project.channels.length) {
+    let gp = project.channels[ci].generatorParams
+    if (gp && gp.waveShape !== null && gp.waveShape !== undefined) {
+      used[String(gp.waveShape)] = true
+    }
+    ci = ci + 1
+  }
+
+  let o = ""
+  let names = Object.keys(tables)
+  let i = 0
+  while (i < names.length) {
+    let name = names[i]
+    let t = tables[name]
+    if (used[name] && t) {
+      if (t.mode === "harmonics" && t.harmonics && t.harmonics.length > 0) {
+        o = o + "wave " + name + " harmonics"
+        let h = 0
+        while (h < t.harmonics.length) {
+          o = o + " " + formatTplFloat(t.harmonics[h])
+          h = h + 1
+        }
+        o = o + "\n"
+      } else if (t.levels && t.levels.length === 32) {
+        o = o + "wave " + name + " "
+        let k = 0
+        while (k < 32) {
+          o = o + t.levels[k].toString(16)
+          k = k + 1
+        }
+        o = o + "\n"
+      }
+    }
+    i = i + 1
+  }
+  return o
+}
+
 export fn emitProjectInner(project, skipSync) {
   if (!skipSync) {
     syncAllMainClipsFromChannels(project)
@@ -169,6 +218,10 @@ export fn emitProjectInner(project, skipSync) {
     }
     dmi = dmi + 1
   }
+  // Named wavetables, before the tracks that name them. A table written as `harmonics` is emitted
+  // that way rather than flattened to its 32 digits — the parser keeps the source spelling precisely
+  // so a save does not throw away what the author wrote.
+  o = o + emitWaveLines(project)
   o = o + "\n"
 
   let ci = 0

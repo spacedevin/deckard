@@ -14,6 +14,35 @@ import { Knob, InfiniteKnob, WaveIconPicker, EnvDisplay, accentForGenerator, Swi
 // Every instrument edit routes one param through the single gated write door (rt.emit → `gen <snake> <v>`,
 // merged into generatorParams). The deck key is snake_case so apply's snakeToCamel lands the right field;
 // the dedicated osc/fm/noise emit branches read the same camelCase keys, so the round-trip is preserved.
+/// Options for the DMG Wave selector: the three built-in shapes, plus every named `wave` table the
+/// song defines. Without this a table could be loaded and played but never chosen by hand — the
+/// selector was hardcoded to the built-ins, so picking anything else meant editing the file.
+fn waveShapeOptions(project, current) {
+  let opts = [["saw", "Saw"], ["square", "Square"], ["sine", "Sine"]]
+  let tables = project ? project.waveTables : null
+  if (tables) {
+    let names = Object.keys(tables)
+    let i = 0
+    while (i < names.length) {
+      opts.push([names[i], names[i]])
+      i = i + 1
+    }
+  }
+  // A shape the song names but has no table for (a typo, or a table not loaded yet) still has to be
+  // selectable, or turning the knob would silently rewrite it.
+  let cur = String(current)
+  let seen = false
+  let k = 0
+  while (k < opts.length) {
+    if (String(opts[k][0]) === cur) { seen = true }
+    k = k + 1
+  }
+  if (!seen && cur.length > 0) {
+    opts.push([cur, cur])
+  }
+  return opts
+}
+
 fn genEmit(rt, ch, tplKey, value) {
   if (rt && rt.emit) {
     rt.emit("track/" + ch.id + "/gen/" + tplKey, value)
@@ -1229,7 +1258,7 @@ export fn GeneratorParamPanel(ch, project, setProject, tplMirrorFlush, rt) {
             {genSelectorKnob("Type", type, [["pulse", "Pulse"], ["wave", "Wave"], ["noise", "Noise"]], rt, ch, "type", accent)}
             {genSelectorKnob("Duty", duty, [["12_5", "12.5%"], ["25", "25%"], ["50", "50%"], ["75", "75%"]], rt, ch, "duty", accent, !isPulse)}
             {genSelectorKnob("Mode", noiseMode, [["long", "15-bit"], ["short", "7-bit"]], rt, ch, "noiseMode", accent, !isNoise)}
-            {genSelectorKnob("Wave", waveShape, [["saw", "Saw"], ["square", "Square"], ["sine", "Sine"]], rt, ch, "waveShape", accent, !isWave)}
+            {genSelectorKnob("Wave", waveShape, waveShapeOptions(project, waveShape), rt, ch, "waveShape", accent, !isWave)}
           </div>
         </div>
         <div class="ik-card">
