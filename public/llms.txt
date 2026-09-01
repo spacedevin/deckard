@@ -32,8 +32,8 @@ Deckard is the product. **deck** is the language (`.deck` files, header `deck 1`
 
 - [`@spacedevin/deck`](https://github.com/spacedevin/deck): Language parse / format / registries / highlight
 - [src/deckfile/](src/deckfile/): Apply, Emit, Stream, PatchGraph, MatrixFmGraph
-- [src/generators/DeckIds.tish](src/generators/DeckIds.tish): Host registry boot
-- [src/generators/](src/generators/): Instrument registry and modules
+- [DeckIds.tish](https://github.com/spacedevin/deck/blob/main/packages/synths/src/DeckIds.tish): Host registry boot
+- [https://github.com/spacedevin/deck/tree/main/packages/synths/src/](https://github.com/spacedevin/deck/tree/main/packages/synths/src/): Instrument registry and modules
 - [src/codj/](src/codj/): Merge, Skills, DeckJoin, Launch
 - [services/agent-worker/main.tish](services/agent-worker/main.tish): LLM co-DJ worker
 - [services/gateway/main.tish](services/gateway/main.tish): WebSocket hub

@@ -52,9 +52,9 @@ the Tish interpreter with the `ws` / `http` / `process` features.
 |---------|-------|
 | `.deck` language (parse / format / registries / highlight) | `@spacedevin/deck` |
 | Apply / emit / stream + graph dialects | `src/deckfile/` |
-| Generator id + macro registration | `src/generators/DeckIds.tish`, `BuiltinMacros.tish` |
+| Generator id + macro registration | `DeckIds.tish` (@spacedevin/deck-synths), `BuiltinMacros.tish` |
 | Data model (project = single source of truth) | `src/model/` |
-| Synthesis & scheduling (the "stems") | `src/audio/`, `src/schedule/`, `src/generators/` |
+| Synthesis & scheduling (the "stems") | `src/audio/`, `src/schedule/`, `@spacedevin/deck-synths` |
 | Co-DJ collaboration (lanes, merge, skills, scheduling) | `src/codj/` |
 | DAW UI (Lattish/JSX) | `src/ui/` |
 | WebSocket gateway, agent worker, demo bot | `services/` |
@@ -168,7 +168,9 @@ so tempo changes take effect live. Generators are modular plugins
 | `basicOsc` | `basic_osc` | single oscillator + ADSR |
 | `matrixFm` | `matrix_fm` | Sytrus-style multi-operator graph via `gen_block` |
 
-To add an instrument: drop a module in `src/generators/`, register it, branch in `Dispatch.tish`.
+To add an instrument: the catalog is `@spacedevin/deck-synths`, which ships from the deck repo, so
+the module, its registry entry and its `Dispatch.tish` branch all land there and reach this app
+through a release. See [GENERATORS.md](GENERATORS.md).
 This is the only place sound is defined — there is no separate hand-written JS engine.
 
 ---
@@ -272,10 +274,10 @@ See the [README](../README.md) quick-start.
   [MixerRouting.tish](../src/model/MixerRouting.tish), [DeckRouting.tish](../src/model/DeckRouting.tish)
 - **deck language:** [`@spacedevin/deck`](../node_modules/@spacedevin/deck/docs/DECK_GRAMMAR.md)
 - **deck host:** [Apply.tish](../src/deckfile/Apply.tish), [Emit.tish](../src/deckfile/Emit.tish),
-  [Stream.tish](../src/deckfile/Stream.tish), [PatchGraph.tish](../src/deckfile/PatchGraph.tish),
-  [MatrixFmGraph.tish](../src/deckfile/MatrixFmGraph.tish), [DeckIds.tish](../src/generators/DeckIds.tish)
+  [Stream.tish](../src/deckfile/Stream.tish), [PatchGraph.tish](https://github.com/spacedevin/deck/blob/main/packages/synths/src/PatchGraph.tish),
+  [MatrixFmGraph.tish](https://github.com/spacedevin/deck/blob/main/packages/synths/src/MatrixFmGraph.tish), [DeckIds.tish](https://github.com/spacedevin/deck/blob/main/packages/synths/src/DeckIds.tish)
 - **Audio:** [Engine.tish](../src/audio/Engine.tish), [Playback.tish](../src/audio/Playback.tish),
-  [schedule/Engine.tish](../src/schedule/Engine.tish), [generators/](../src/generators/)
+  [schedule/Engine.tish](../src/schedule/Engine.tish), [generators/](https://github.com/spacedevin/deck/tree/main/packages/synths/src/)
 - **Co-DJ:** [Merge.tish](../src/codj/Merge.tish), [Skills.tish](../src/codj/Skills.tish),
   [Schedule.tish](../src/codj/Schedule.tish), [Overlay.tish](../src/codj/Overlay.tish),
   [CoDjMeta.tish](../src/codj/CoDjMeta.tish), [Prune.tish](../src/codj/Prune.tish)

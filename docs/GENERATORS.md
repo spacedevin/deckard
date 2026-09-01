@@ -1,7 +1,12 @@
 # Adding a generator (instrument module)
 
+> **Where the code lives.** The catalog is [`@spacedevin/deck-synths`](https://github.com/spacedevin/deck/tree/main/packages/synths),
+> published from the deck repo. It used to live in `src/generators/` here; it moved so the docs-site
+> player and any other host could play the same voices instead of re-porting them. Every step below
+> happens in that package, and reaches this app through a release — not by editing this repo.
+
 > **Catalog (current):** there are **33 fixed generators** + **8 macro voices**. The authoritative id list is
-> `generatorCatalog()` in [`src/generators/Registry.tish`](../src/generators/Registry.tish) and `macroCatalog()`
+> `generatorCatalog()` in [`Registry.tish` (@spacedevin/deck-synths)](https://github.com/spacedevin/deck/blob/main/packages/synths/src/Registry.tish) and `macroCatalog()`
 > in [`src/model/MacroVoice.tish`](../src/model/MacroVoice.tish); the picker grouping is `VOICE_GROUPS` in
 > [`src/ui/InstrumentStack.tish`](../src/ui/InstrumentStack.tish). For the agent-facing list by role + the
 > `gen <id>` deck aliases, see [`DECK_AGENT_GRAMMAR.md`](DECK_AGENT_GRAMMAR.md). This page is the **how-to-add** guide.
@@ -10,22 +15,22 @@
 
 Stable string, e.g. `mySynth`. Used in project JSON and dispatch.
 
-## 2. Register in [`src/generators/Registry.tish`](../src/generators/Registry.tish)
+## 2. Register in [`packages/synths/src/Registry.tish`](https://github.com/spacedevin/deck/blob/main/packages/synths/src/Registry.tish)
 
 - Add `{ id, label, description }` to `generatorCatalog()`.
 - Add defaults in `defaultParamsForGeneratorId()`.
 
-## 3. Implement audio in `src/generators/YourGenerator.tish`
+## 3. Implement audio in `packages/synths/src/YourGenerator.tish`
 
 Export `playYourGenerator(ctx, bus, t, midi, vel, durSec, ch, bendSemis)`:
 
 - Build a short-lived Web Audio subgraph.
 - Connect the **last node** to `bus.input` (channel filter → gain → pan → master).
-- Read patch and envelope from `ch.generatorParams` if applicable. The ADSR lives in `generatorParams`, not on the channel root — do `let p = ch.generatorParams` then read `p.attack` / `p.decay` / `p.sustain` / `p.release` (see [`src/generators/BasicOsc.tish`](../src/generators/BasicOsc.tish)).
+- Read patch and envelope from `ch.generatorParams` if applicable. The ADSR lives in `generatorParams`, not on the channel root — do `let p = ch.generatorParams` then read `p.attack` / `p.decay` / `p.sustain` / `p.release` (see [`BasicOsc.tish` (@spacedevin/deck-synths)](https://github.com/spacedevin/deck/blob/main/packages/synths/src/BasicOsc.tish)).
 
 Use [`midiToHz`](../src/schedule/Engine.tish) for pitched notes.
 
-## 4. Dispatch in [`src/generators/Dispatch.tish`](../src/generators/Dispatch.tish)
+## 4. Dispatch in [`packages/synths/src/Dispatch.tish`](https://github.com/spacedevin/deck/blob/main/packages/synths/src/Dispatch.tish)
 
 Call your `play...` when `ch.generatorId === "yourId"`. Unknown ids fall back to `basicOsc`.
 
