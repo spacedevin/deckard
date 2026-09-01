@@ -18,6 +18,7 @@ import { ensureDeckGeneratorIds } from './DeckIds.tish'
 import { ensureBuiltinMacros } from './BuiltinMacros.tish'
 import { midiToHz } from './Midi.tish'
 import { cancelTtsVocal } from './TtsVocal.tish'
+import { configureMeSpeak } from './MeSpeakVocal.tish'
 import {
   generatorCatalog,
   generatorLabelById,
@@ -43,6 +44,7 @@ export { dispatchPlayNote }
 export { ensureDeckGeneratorIds, ensureBuiltinMacros }
 export { midiToHz }
 export { cancelTtsVocal }
+export { configureMeSpeak }
 export {
   generatorCatalog,
   generatorLabelById,
