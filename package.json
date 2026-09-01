@@ -2,7 +2,7 @@
   "name": "deckard",
   "version": "0.1.0",
   "private": true,
-  "description": "Token-streamed live-coding DAW in Tish — LLM + human co-DJ over deck",
+  "description": "Token-streamed live-coding DAW in Tish \u2014 LLM + human co-DJ over deck",
   "scripts": {
     "dev": "npm run build:og && npm run build:docs && vite",
     "build": "tish build --target js src/main.tish -o dist/bundle.js && tish build --target js src/ScopeWorker.tish -o scope-worker.js",
@@ -36,7 +36,7 @@
   },
   "packageManager": "pnpm@9.15.4",
   "dependencies": {
-    "@spacedevin/deck": "^1.5.3",
+    "@spacedevin/deck": "^1.6.1",
     "@spacedevin/deck-synths": "workspace:*",
     "@tishlang/lattish": "^4.0.2",
     "@tishlang/tish": "^3.7.1",

@@ -40,7 +40,7 @@
   "main": "./dist/deck-synths.js",
   "module": "./dist/deck-synths.js",
   "dependencies": {
-    "@spacedevin/deck": "^1.5.3"
+    "@spacedevin/deck": "^1.6.1"
   },
   "peerDependencies": {
     "@tishlang/tish": ">=3.2.2"
