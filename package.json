@@ -36,8 +36,8 @@
   },
   "packageManager": "pnpm@9.15.4",
   "dependencies": {
-    "@spacedevin/deck": "^1.6.1",
-    "@spacedevin/deck-synths": "workspace:*",
+    "@spacedevin/deck": "^1.6.2",
+    "@spacedevin/deck-synths": "^1.6.3",
     "@tishlang/lattish": "^4.0.2",
     "@tishlang/tish": "^3.7.1",
     "@vercel/og": "^0.11.1",
