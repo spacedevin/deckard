@@ -1,4 +1,4 @@
-import { midiToHz } from '../schedule/Engine.tish'
+import { midiToHz } from './Midi.tish'
 import { scheduleAdsrAmpEnvelope } from './AdsrAmpSchedule.tish'
 import { playBasicOsc } from './BasicOsc.tish'
 

@@ -2,7 +2,7 @@
 // an amp decay, an optional noise layer, and optional drive. This is what makes punchy kicks, snares,
 // toms and 808s instead of beeps. Base pitch = the triggered note; pitchEnv = semitones it starts above.
 
-import { midiToHz } from '../schedule/Engine.tish'
+import { midiToHz } from './Midi.tish'
 
 fn makeDriveCurve(ctx, amount) {
   let k = amount * 120

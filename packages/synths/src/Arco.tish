@@ -16,7 +16,7 @@
 // air/wood/bridge-hill resonances (scaled by `voice`) → amp. A bandpassed noise layer adds rosin. A
 // sine LFO drives both oscillators' detune for vibrato.
 
-import { midiToHz } from '../schedule/Engine.tish'
+import { midiToHz } from './Midi.tish'
 
 fn arcoClamp01(x) {
   if (x < 0) { return 0 }

@@ -1,4 +1,4 @@
-import { defaultParamsForGeneratorId, normalizeBasicOscWaveform } from '../generators/Registry.tish'
+import { defaultParamsForGeneratorId, normalizeBasicOscWaveform } from '@spacedevin/deck-synths'
 import { ensureCoDjMeta } from '../codj/CoDjMeta.tish'
 import { ensureActorMixerEntries, ensureMasterMixer } from './MixerRouting.tish'
 import { ensureProjectSession } from './Session.tish'

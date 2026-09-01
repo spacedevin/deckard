@@ -8,7 +8,7 @@ import {
   defaultPatchRawLines
 } from '../model/PatchGraphEdit.tish'
 import { h } from '@tishlang/lattish'
-import { defaultParamsForGeneratorId, normalizeBasicOscWaveform } from '../generators/Registry.tish'
+import { defaultParamsForGeneratorId, normalizeBasicOscWaveform } from '@spacedevin/deck-synths'
 import { Knob, InfiniteKnob, WaveIconPicker, EnvDisplay, accentForGenerator, Switch } from './InstrumentKit.tish'
 
 // Every instrument edit routes one param through the single gated write door (rt.emit → `gen <snake> <v>`,

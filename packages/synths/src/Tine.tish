@@ -20,7 +20,7 @@
 // adds the hammer "tink". The summed signal goes through an optional saturator, then a stereo tremolo
 // (two anti-phase LFO-gated paths panned L/R) into the bus. Velocity scales loudness, FM-index AND ping.
 
-import { midiToHz } from '../schedule/Engine.tish'
+import { midiToHz } from './Midi.tish'
 
 fn tineClamp01(x) {
   if (x < 0) { return 0 }

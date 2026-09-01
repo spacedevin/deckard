@@ -16,7 +16,7 @@ import {
 // every pill is a ch.* edit or rt.emit that re-folds to deck — the UI stays a pure deck client.
 
 import { h, Fragment } from '@tishlang/lattish'
-import { defaultParamsForGeneratorId, generatorDescriptionById } from '../generators/Registry.tish'
+import { defaultParamsForGeneratorId, generatorDescriptionById } from '@spacedevin/deck-synths'
 import {
   deepCloneParams,
   addInstrumentPreset,

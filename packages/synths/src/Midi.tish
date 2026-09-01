@@ -1,0 +1,9 @@
+// Pitch conversion, shared by every generator in this package.
+//
+// This lived in the app's `src/schedule/Engine.tish` while the generators did; it moved with them so
+// the package has no import that points back at Deckard. The app re-exports it from here rather than
+// keeping a second copy.
+
+export fn midiToHz(midi) {
+  return 440 * Math.pow(2, (midi - 69) / 12)
+}

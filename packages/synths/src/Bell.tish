@@ -2,7 +2,7 @@
 // The 2.01× partial + highpass + percussive exp decay give a metallic shimmer (great with reverb),
 // far from a flat MIDI sine. (Ported from the AetherSynth "stellar_bells" voice.)
 
-import { midiToHz } from '../schedule/Engine.tish'
+import { midiToHz } from './Midi.tish'
 
 export fn playBell(ctx, bus, t, midi, vel, durSec, ch, bendSemis) {
   let p = ch.generatorParams ? ch.generatorParams : {}

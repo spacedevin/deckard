@@ -23,7 +23,7 @@
 // soft strike = a short lowpassed noise tick. A lowpassed sub-sine adds the "gu" body. A gentle highpass on
 // the partial bus keeps it airy. Everything is normalized so one loud strike peaks <= ~1.
 
-import { midiToHz } from '../schedule/Engine.tish'
+import { midiToHz } from './Midi.tish'
 
 fn haloClamp01(x) {
   if (x < 0) { return 0 }

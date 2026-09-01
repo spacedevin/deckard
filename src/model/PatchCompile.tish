@@ -3,7 +3,7 @@ import {
 } from '@spacedevin/deck'
 import {
   sortedStringKeys
-} from '../deckfile/MatrixFmGraph.tish'
+} from '@spacedevin/deck-synths'
 // Compile a fixed generator into the EQUIVALENT patch graph, so "switch to Patch" is a lossless
 // reduction (the sound is preserved) rather than a reset to a default. This is what makes `patch` the
 // universal substrate: every voice can be expressed as osc/noise/filter/shaper/gain + breakpoint
@@ -13,7 +13,7 @@ import {
 // the output `conn` vol × that. So a compiled output `conn ... <100/127>` reproduces the same level.
 // FM depth + drum pitch-drop are note-relative, expressed with the `note*<k>` resolver tokens.
 
-import { normalizeBasicOscWaveform } from '../generators/Registry.tish'
+import { normalizeBasicOscWaveform } from '@spacedevin/deck-synths'
 
 let VOL_COMP = 100 / 127
 

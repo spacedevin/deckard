@@ -1,4 +1,4 @@
-import { midiToHz } from '../schedule/Engine.tish'
+import { midiToHz } from './Midi.tish'
 
 // All 13 distinct English monophthong vowels.
 // F1/F2/F3 values from Peterson & Barney (1952) male-speaker averages.

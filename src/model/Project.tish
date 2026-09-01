@@ -1,6 +1,6 @@
 // Channel = routing (gain, pan, mute, solo) + generatorId + generatorParams (sound + ADSR per plugin).
 
-import { defaultParamsForGeneratorId } from '../generators/Registry.tish'
+import { defaultParamsForGeneratorId } from '@spacedevin/deck-synths'
 import { matrixFmFactoryInstrumentPresets } from './MatrixFmPresets.tish'
 import { generatorFactoryPresets } from './GeneratorPresets.tish'
 import { patchFactoryPresets } from './PatchPresets.tish'

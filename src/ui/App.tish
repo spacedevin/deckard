@@ -5,7 +5,7 @@ import { freshSetEnergy, freshActiveDecks, foldSetEnergyStep } from '../model/Se
 import { loadDefaultDeckardProject, loadProjectFromTpl } from '../model/ProjectLoad.tish'
 import { loadUserInstrumentPresets } from '../model/InstrumentPresets.tish'
 import { createStationPresets } from '../core/StationPresets.tish'
-import { cancelTtsVocal } from '../generators/TtsVocal.tish'
+import { cancelTtsVocal } from '@spacedevin/deck-synths'
 import { emitLevel, retargetTpl } from '../core/Levels.tish'
 import { createSetLibrary, emitSet, loadSet, freeDecks, emitSetStream, parseSetStream, isStreamSet } from '../core/SetLibrary.tish'
 import { loadDeckSet, deckSetCatalog } from '../model/DeckSets.tish'

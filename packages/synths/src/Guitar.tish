@@ -4,7 +4,7 @@
 // feedback-loop latency limits), then run through drive (pickup/amp grit) and a body/cab lowpass.
 // Synthesis, not samples — but pair it with the `chord` voice param for strummed power chords.
 
-import { midiToHz } from '../schedule/Engine.tish'
+import { midiToHz } from './Midi.tish'
 
 fn guitarDriveCurve(amount) {
   let k = amount * 100

@@ -1,0 +1,65 @@
+// @spacedevin/deck-synths — Deckard's instrument catalog, as a package.
+//
+// These are the same modules Deckard has always played through; they were lifted out of
+// `src/generators/` so that a second host — the docs-site player, a demo, a renderer — can make the
+// same sounds without a second copy of the code. Deckard imports this package rather than keeping a
+// private set, so there is exactly one implementation of every voice.
+//
+// A generator is a pure function that builds a short-lived Web Audio subgraph and connects its last
+// node to `bus.input`:
+//
+//   play<Name>(ctx, bus, t, midi, vel, durSec, ch, bendSemis)
+//
+// `dispatchPlayNote` picks one by `ch.generatorId`. Unknown ids fall back to `basicOsc`.
+// See docs/GENERATORS.md in the Deckard checkout for how to add one.
+
+import { dispatchPlayNote } from './Dispatch.tish'
+import { ensureDeckGeneratorIds } from './DeckIds.tish'
+import { ensureBuiltinMacros } from './BuiltinMacros.tish'
+import { midiToHz } from './Midi.tish'
+import { cancelTtsVocal } from './TtsVocal.tish'
+import {
+  generatorCatalog,
+  generatorLabelById,
+  generatorDescriptionById,
+  normalizeBasicOscWaveform,
+  defaultParamsForGeneratorId
+} from './Registry.tish'
+import {
+  normalizePatchFilterType,
+  parsePatchGraph,
+  patchGraphToLines,
+  syncPatchSpecFromGraph
+} from './PatchGraph.tish'
+import {
+  parseMatrixFmGraph,
+  sortedStringKeys,
+  matrixFmGraphToLines,
+  syncMatrixFmSpecFromGraph
+} from './MatrixFmGraph.tish'
+import { ensureSyncWorklet, syncWorkletSource } from './SyncWorklet.tish'
+
+export { dispatchPlayNote }
+export { ensureDeckGeneratorIds, ensureBuiltinMacros }
+export { midiToHz }
+export { cancelTtsVocal }
+export {
+  generatorCatalog,
+  generatorLabelById,
+  generatorDescriptionById,
+  normalizeBasicOscWaveform,
+  defaultParamsForGeneratorId
+}
+export {
+  normalizePatchFilterType,
+  parsePatchGraph,
+  patchGraphToLines,
+  syncPatchSpecFromGraph
+}
+export {
+  parseMatrixFmGraph,
+  sortedStringKeys,
+  matrixFmGraphToLines,
+  syncMatrixFmSpecFromGraph
+}
+export { ensureSyncWorklet, syncWorkletSource }
