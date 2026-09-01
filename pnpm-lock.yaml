@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@spacedevin/deck':
-        specifier: ^1.5.3
-        version: 1.5.3(@tishlang/tish@3.10.3)
+        specifier: ^1.6.1
+        version: 1.6.1(@tishlang/tish@3.10.3)
       '@spacedevin/deck-synths':
         specifier: workspace:*
         version: link:packages/synths
@@ -40,7 +40,14 @@ importers:
         specifier: ^8.0.14
         version: 8.0.16
 
-  packages/synths: {}
+  packages/synths:
+    dependencies:
+      '@spacedevin/deck':
+        specifier: ^1.6.1
+        version: 1.6.1(@tishlang/tish@3.10.3)
+      '@tishlang/tish':
+        specifier: '>=3.2.2'
+        version: 3.10.3
 
 packages:
 
@@ -300,8 +307,8 @@ packages:
     engines: {node: '>= 8.0.0'}
     hasBin: true
 
-  '@spacedevin/deck@1.5.3':
-    resolution: {integrity: sha512-+Owx+zCRQWmetCMQhcB1du8/O7MQMOfqEMi1KnuFNi9VgNxnR7iP5jBmRldjbH1X5sh4VW4aYtrLKu7ssJlYSw==}
+  '@spacedevin/deck@1.6.1':
+    resolution: {integrity: sha512-7X/AYaqqt15nzD48M8uJwlK6fsGKmEraKYuecBQLe+Y8psDJlszYSDZMcdRKu/YiTNpkSy1KBJsrbh/QyXR/QA==}
     engines: {node: '>=22'}
     peerDependencies:
       '@tishlang/tish': '>=3.2.2'
@@ -761,7 +768,7 @@ snapshots:
       fflate: 0.7.5
       string.prototype.codepointat: 0.2.1
 
-  '@spacedevin/deck@1.5.3(@tishlang/tish@3.10.3)':
+  '@spacedevin/deck@1.6.1(@tishlang/tish@3.10.3)':
     dependencies:
       '@tishlang/tish': 3.10.3
 
