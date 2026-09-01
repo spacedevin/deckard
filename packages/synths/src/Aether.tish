@@ -24,7 +24,7 @@
 // irregularity LFO) drives detune AND a tremolo gain; both fade in after the onset. A bandpassed noise
 // layer is the breath.
 
-import { midiToHz } from '../schedule/Engine.tish'
+import { midiToHz } from './Midi.tish'
 
 fn aetherClamp01(x) {
   if (x < 0) { return 0 }

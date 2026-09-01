@@ -4,7 +4,7 @@ import {
 import {
   sortedStringKeys,
   syncMatrixFmSpecFromGraph
-} from '../deckfile/MatrixFmGraph.tish'
+} from '@spacedevin/deck-synths'
 import {
   addMatrixFmOperator,
   removeMatrixFmOperator,

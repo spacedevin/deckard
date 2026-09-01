@@ -9,10 +9,10 @@ import {
   parsePatchGraph,
   patchGraphToLines,
   syncPatchSpecFromGraph
-} from '../src/deckfile/PatchGraph.tish'
+} from '@spacedevin/deck-synths'
 import {
   syncMatrixFmSpecFromGraph
-} from '../src/deckfile/MatrixFmGraph.tish'
+} from '@spacedevin/deck-synths'
 import {
   defaultMatrixFmRawLines
 } from '../src/model/MatrixFmDefaults.tish'
@@ -52,7 +52,7 @@ import { createSignals } from '../src/core/Signals.tish'
 import { createIngest } from '../src/core/Ingest.tish'
 import { fragmentForEdit, createEditor } from '../src/core/Edit.tish'
 import { macroCatalog, macroKind, macroParamControls, expandMacroToSpec, assignMacroToChannel, setMacroParam, freezeMacroChannel } from '../src/model/MacroVoice.tish'
-import { defaultParamsForGeneratorId, generatorCatalog } from '../src/generators/Registry.tish'
+import { defaultParamsForGeneratorId, generatorCatalog } from '@spacedevin/deck-synths'
 import { matrixFmPatches, matrixFmFactoryInstrumentPresets } from '../src/model/MatrixFmPresets.tish'
 import { emitInstrumentModuleTpl } from '../src/core/Levels.tish'
 import { addInstrumentPreset, applyInstrumentPresetToChannel, ensureInstrumentPresets } from '../src/model/InstrumentPresets.tish'

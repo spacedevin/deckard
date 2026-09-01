@@ -7,8 +7,8 @@ import {
   registerBodyLineDialect,
   registerHighlightKeywords
 } from '@spacedevin/deck'
-import { parseMatrixFmGraph } from '../deckfile/MatrixFmGraph.tish'
-import { parsePatchGraph } from '../deckfile/PatchGraph.tish'
+import { parseMatrixFmGraph } from './MatrixFmGraph.tish'
+import { parsePatchGraph } from './PatchGraph.tish'
 
 /// `noise` / `fm` / `osc` — legacy one-line generator params, same shape as `gen`: trailing
 /// `key value` pairs, snake keys camelised. Numbers become numbers, everything else stays a string.

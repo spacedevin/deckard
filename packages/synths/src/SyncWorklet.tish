@@ -1,3 +1,14 @@
+// The hard-sync oscillator the sync voices run on, as source rather than as a file.
+//
+// `syncLead`, `syncChoir`, `obSync` and `laserSync` all instantiate an `AudioWorkletNode` named
+// "sync-oscillator". A worklet has to be `class X extends AudioWorkletProcessor`, and Tish has no
+// class syntax, so the processor stays hand-written JavaScript — but it lives here as a string and
+// is loaded from a Blob URL, so no consumer of this package has to copy an asset into its own
+// public directory to get sound. Deckard used to serve it from `/sync-worklet.js`; that copy is
+// gone, and this is the only one.
+
+export fn syncWorkletSource() {
+  return `
 class SyncOscillator extends AudioWorkletProcessor {
   static get parameterDescriptors() {
     return [
@@ -79,3 +90,25 @@ class SyncOscillator extends AudioWorkletProcessor {
 }
 
 registerProcessor('sync-oscillator', SyncOscillator);
+`
+}
+
+/// Register the sync processor on `ctx`, once. Returns a promise that resolves when the module is
+/// ready, or null when the context has no worklet support (the voices fall back to a plain
+/// oscillator in that case, the same as before).
+export fn ensureSyncWorklet(ctx) {
+  if (!ctx || typeof ctx.audioWorklet === "undefined") {
+    return null
+  }
+  if (!ctx.audioWorklet || !ctx.audioWorklet.addModule) {
+    return null
+  }
+  if (ctx.__deckSyncWorklet) {
+    return ctx.__deckSyncWorklet
+  }
+  let blob = new Blob([syncWorkletSource()], { type: "text/javascript" })
+  let url = URL.createObjectURL(blob)
+  let done = ctx.audioWorklet.addModule(url)
+  ctx.__deckSyncWorklet = done
+  return done
+}

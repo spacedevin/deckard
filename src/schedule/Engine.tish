@@ -1,3 +1,9 @@
+// `midiToHz` now lives with the generators that use it, in @spacedevin/deck-synths. Re-exported
+// here so existing callers of `schedule/Engine.tish` keep working without a second copy.
+import { midiToHz } from '@spacedevin/deck-synths'
+
+export { midiToHz }
+
 // Map project time → playback parameters (beats, automation).
 
 export fn sixteenthSeconds(bpm) {
@@ -23,8 +29,4 @@ export fn automationAt(points, beat) {
     i = i + 1
   }
   return points[points.length - 1].value
-}
-
-export fn midiToHz(midi) {
-  return 440 * Math.pow(2, (midi - 69) / 12)
 }

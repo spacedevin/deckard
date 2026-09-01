@@ -1,5 +1,5 @@
-import { ensureBuiltinMacros } from '../generators/BuiltinMacros.tish'
-import { ensureDeckGeneratorIds } from '../generators/DeckIds.tish'
+import { ensureBuiltinMacros } from '@spacedevin/deck-synths'
+import { ensureDeckGeneratorIds } from '@spacedevin/deck-synths'
 import {
   paramKeyToCamel,
   snakeToCamel,

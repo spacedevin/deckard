@@ -1,7 +1,7 @@
 // Factory presets for all generators — Tier 2 (Sync), Tier 3 (existing generators), Tier 4 (drums).
 // Each function returns an array of { presetId, name, generatorId, params } objects.
 
-import { generatorLabelById } from '../generators/Registry.tish'
+import { generatorLabelById } from '@spacedevin/deck-synths'
 
 export fn generatorFactoryPresets() {
   let raw = [

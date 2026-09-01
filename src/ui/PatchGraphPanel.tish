@@ -3,7 +3,7 @@ import {
 } from '@spacedevin/deck'
 import {
   syncPatchSpecFromGraph
-} from '../deckfile/PatchGraph.tish'
+} from '@spacedevin/deck-synths'
 import {
   defaultPatchRawLines,
   addPatchNode,
@@ -35,7 +35,7 @@ import {
 // but is NOT on the undo stack (the undo stack covers rt.emit addresses, not directives) — unlike a fader.
 
 import { h } from '@tishlang/lattish'
-import { normalizeBasicOscWaveform } from '../generators/Registry.tish'
+import { normalizeBasicOscWaveform } from '@spacedevin/deck-synths'
 import { emitInstrumentModuleTpl } from '../core/Levels.tish'
 import { Knob, accentForGenerator, WaveIconPicker, isKnobDragging, selOpt } from './InstrumentKit.tish'
 

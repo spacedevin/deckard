@@ -1,0 +1,24 @@
+{
+  "name": "@spacedevin/deck-synths",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Deckard's instrument catalog as a package \u2014 the generators, their registry and dispatch",
+  "license": "PIF",
+  "exports": {
+    ".": {
+      "tish": "./src/index.tish",
+      "default": "./dist/deck-synths.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "tish": {
+    "module": "./src/index.tish"
+  },
+  "files": [
+    "src/",
+    "dist/"
+  ],
+  "scripts": {
+    "build": "tish build --target js src/index.tish -o dist/deck-synths.js"
+  }
+}

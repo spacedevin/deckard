@@ -3,7 +3,7 @@
 import { automationAt } from '../schedule/Engine.tish'
 import { mixerAutomationAt } from './MixerAutomation.tish'
 import { coDjEffectiveGain } from '../codj/Overlay.tish'
-import { dispatchPlayNote } from '../generators/Dispatch.tish'
+import { dispatchPlayNote, ensureSyncWorklet } from '@spacedevin/deck-synths'
 import {
   channelActorLane,
   collectActorLanes,
@@ -336,7 +336,9 @@ export fn ensureAudio(project, store) {
   store.clockNode = null
   if (typeof ctx.audioWorklet !== "undefined" && ctx.audioWorklet && ctx.audioWorklet.addModule) {
     let pmod = ctx.audioWorklet.addModule("/clock-worklet.js")
-    let smod = ctx.audioWorklet.addModule("/sync-worklet.js")
+    // The sync voices' processor now ships with @spacedevin/deck-synths and loads from a Blob URL,
+    // so it is no longer served out of this app's public/ directory.
+    ensureSyncWorklet(ctx)
 
     if (pmod && pmod.then) {
       pmod.then(() => {
