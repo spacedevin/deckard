@@ -680,6 +680,17 @@ export fn App() {
     signalsRef.current = createSignals()
   }
   let signals = signalsRef.current
+
+  // Capture hook. With `?capture=1`, an external recorder gets the runtime handle and the signal bus:
+  // it can load sets onto decks, then publish `transport.position` per frame to seek the playhead and
+  // screenshot each one. That is the only way to record the UI deterministically — playing in real
+  // time and screencasting drops frames under load and never renders the same way twice. Gated on the
+  // query string, so it is not an API the app ships to ordinary users.
+  if (typeof window !== "undefined" && window.location &&
+      String(window.location.search).indexOf("capture=1") >= 0) {
+    window.__deckardCapture = { rt: rt, signals: signals }
+  }
+
   let transportRef = useRef(null)
   if (!transportRef.current) {
     transportRef.current = createTransport(audioStore, signals)
