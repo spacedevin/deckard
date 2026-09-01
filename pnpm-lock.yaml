@@ -9,11 +9,11 @@ importers:
   .:
     dependencies:
       '@spacedevin/deck':
-        specifier: ^1.6.2
-        version: 1.6.2(@tishlang/tish@3.10.3)
+        specifier: ^1.8.0
+        version: 1.8.0(@tishlang/tish@3.10.3)
       '@spacedevin/deck-synths':
-        specifier: file:/tmp/claude-501/-Users-a--Projects-chuggie/be32abaf-6b38-40e0-8822-19dc2bf12b6f/scratchpad/pub163/spacedevin-deck-synths-1.6.3.tgz
-        version: file:../../../../../tmp/claude-501/-Users-a--Projects-chuggie/be32abaf-6b38-40e0-8822-19dc2bf12b6f/scratchpad/pub163/spacedevin-deck-synths-1.6.3.tgz(@tishlang/tish@3.10.3)
+        specifier: ^1.8.0
+        version: 1.8.0(@tishlang/tish@3.10.3)
       '@tishlang/lattish':
         specifier: ^4.0.2
         version: 4.0.2
@@ -307,9 +307,8 @@ packages:
     engines: {node: '>= 8.0.0'}
     hasBin: true
 
-  '@spacedevin/deck-synths@file:../../../../../tmp/claude-501/-Users-a--Projects-chuggie/be32abaf-6b38-40e0-8822-19dc2bf12b6f/scratchpad/pub163/spacedevin-deck-synths-1.6.3.tgz':
-    resolution: {integrity: sha512-ZWFXYaB+URbeMwLaYOk2/bSzqgMpHQzRHihqVleGxKjt37a2ajxYJaga6sdFx+PXLdopA9ogV8mTNySU6u3pSA==, tarball: file:../../../../../tmp/claude-501/-Users-a--Projects-chuggie/be32abaf-6b38-40e0-8822-19dc2bf12b6f/scratchpad/pub163/spacedevin-deck-synths-1.6.3.tgz}
-    version: 1.6.3
+  '@spacedevin/deck-synths@1.8.0':
+    resolution: {integrity: sha512-7wK7QMea1kRPxCpT9Jhkk98dFciqRbxqYRi2c+YzCmvTMvf1v+kPhZ1EwRZZnMigHgEzPyGqtFXRILjgCl9u3w==}
     engines: {node: '>=22'}
     peerDependencies:
       '@tishlang/tish': '>=3.2.2'
@@ -323,8 +322,8 @@ packages:
     peerDependencies:
       '@tishlang/tish': '>=3.2.2'
 
-  '@spacedevin/deck@1.6.2':
-    resolution: {integrity: sha512-i8EcTT70fXutVNbN0p4ocyZYlHn6P0JyYfrg9wkUSnHm499IjWeSVjEk6UE8tqMBjcbtnjjYwpIv61GxqnNV5g==}
+  '@spacedevin/deck@1.8.0':
+    resolution: {integrity: sha512-GOuATSZTZx4z38qBaNwdWg2BcQum6l6fdzkZewzex2LEJCaMRQxHbSYig/rHURvfzjqa0GFgMp47T508wOvt+A==}
     engines: {node: '>=22'}
     peerDependencies:
       '@tishlang/tish': '>=3.2.2'
@@ -784,9 +783,9 @@ snapshots:
       fflate: 0.7.5
       string.prototype.codepointat: 0.2.1
 
-  '@spacedevin/deck-synths@file:../../../../../tmp/claude-501/-Users-a--Projects-chuggie/be32abaf-6b38-40e0-8822-19dc2bf12b6f/scratchpad/pub163/spacedevin-deck-synths-1.6.3.tgz(@tishlang/tish@3.10.3)':
+  '@spacedevin/deck-synths@1.8.0(@tishlang/tish@3.10.3)':
     dependencies:
-      '@spacedevin/deck': 1.6.2(@tishlang/tish@3.10.3)
+      '@spacedevin/deck': 1.8.0(@tishlang/tish@3.10.3)
     optionalDependencies:
       '@tishlang/tish': 3.10.3
 
@@ -794,7 +793,7 @@ snapshots:
     dependencies:
       '@tishlang/tish': 3.10.3
 
-  '@spacedevin/deck@1.6.2(@tishlang/tish@3.10.3)':
+  '@spacedevin/deck@1.8.0(@tishlang/tish@3.10.3)':
     dependencies:
       '@tishlang/tish': 3.10.3
 
