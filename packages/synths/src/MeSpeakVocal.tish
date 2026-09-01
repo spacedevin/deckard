@@ -1,3 +1,25 @@
+// The meSpeak voice needs a worker and a voice-data directory, and those are assets a host serves
+// rather than anything this package can ship. The defaults are the paths Deckard has always used,
+// so a host that serves them there needs no configuration; anything else calls `configureMeSpeak`
+// before playing. This is the one voice in the catalog with an external asset dependency —
+// `ensureSyncWorklet` removed the other one by inlining its processor.
+
+let meSpeakWorkerUrl = "/mespeak-worker.js"
+let meSpeakAssetsBase = "/mespeak"
+
+/// Point the meSpeak voice at its worker script and voice-data directory.
+export fn configureMeSpeak(opts) {
+  if (!opts) {
+    return
+  }
+  if (opts.workerUrl) {
+    meSpeakWorkerUrl = opts.workerUrl
+  }
+  if (opts.assetsBaseUrl) {
+    meSpeakAssetsBase = opts.assetsBaseUrl
+  }
+}
+
 
 
 let worker = null
@@ -12,7 +34,7 @@ fn initWorker() {
   if (worker) return
   if (typeof window === "undefined" || typeof Worker === "undefined") return
   
-  worker = new Worker('/mespeak-worker.js')
+  worker = new Worker(meSpeakWorkerUrl)
   worker.onmessage = (e) => {
     let d = e.data
     if (d.type === 'init_done') {
@@ -51,7 +73,7 @@ fn initWorker() {
     initWorker()
   }
   
-  fetch('/mespeak/mespeak_config.json')
+  fetch(meSpeakAssetsBase + '/mespeak_config.json')
     .then((r) => r.json())
     .then((cfg) => {
       worker.postMessage({ type: 'init', config: cfg })
@@ -81,7 +103,7 @@ export fn playMeSpeakVocal(ctx, bus, t, midi, vel, durSec, ch, bendSemis, lyric)
   
   if (!loadedVoices[voicePath]) {
     loadedVoices[voicePath] = "loading"
-    fetch('/mespeak/voices/' + voicePath + '.json')
+    fetch(meSpeakAssetsBase + '/voices/' + voicePath + '.json')
       .then((r) => r.json())
       .then((vc) => {
         worker.postMessage({ type: 'loadVoice', voiceId: voicePath, voice: vc })
