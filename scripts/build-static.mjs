@@ -39,8 +39,9 @@ copy('scope-worker.js', 'scope-worker.js')
 copy('clock-worklet.js', 'clock-worklet.js')
 copy('scratch-worklet.js', 'scratch-worklet.js')
 
-// public/ assets are served at the web root in dev (Vite) — mirror that: mespeak/ (TTS engine + voices),
-// mespeak-worker.js, sync-worklet.js. Copy each top-level entry so they land at /<name>, not /public/<name>.
+// public/ assets are served at the web root in dev (Vite) — mirror that: mespeak/ (TTS engine + voices)
+// and mespeak-worker.js. Copy each top-level entry so they land at /<name>, not /public/<name>.
+// (sync-worklet.js used to live here; it ships inside @spacedevin/deck-synths as a Blob URL now.)
 const publicDir = join(root, 'public')
 for (const entry of readdirSync(publicDir)) {
   cpSync(join(publicDir, entry), join(out, entry), { recursive: true })
