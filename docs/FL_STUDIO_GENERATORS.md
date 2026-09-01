@@ -24,7 +24,7 @@
 | Pick instrument (generator plugin) | `channel.generatorId` (`basicOsc`, `noiseBurst`, `fmTone`, …) |
 | Plugin-specific patch | `channel.generatorParams` (shape depends on `generatorId`) |
 | Swap instrument | Change `generatorId` + reset params via registry defaults |
-| Add new instrument | New module under `src/generators/` + register in `Registry.tish` + branch in `Dispatch.tish` |
+| Add new instrument | New module under `@spacedevin/deck-synths` + register in `Registry.tish` + branch in `Dispatch.tish` |
 
 We do **not** host VSTs; each generator is **Tish + Web Audio** code paths. The same **modular boundary** as FL’s “one plugin per channel” applies.
 

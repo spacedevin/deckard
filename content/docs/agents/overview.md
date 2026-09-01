@@ -9,7 +9,7 @@ This is the editing contract for LLM agents working on Deckard (same intent as r
 
 1. **Project shape** — `docs/schema/project-v2.json` (`generatorId` + `generatorParams`)
 2. **Load / model** — `src/model/Project.tish`, `ProjectLoad.tish` (`loadProjectFromTpl`), default song `projects/default.deckard.deck`
-3. **Generators** — `src/generators/` ([docs](/docs/architecture/generators/))
+3. **Generators** — `@spacedevin/deck-synths` ([docs](/docs/architecture/generators/))
 4. **Safe mutators** — `src/model/Edits.tish`
 5. **deck language** — [grammar](/docs/deck/grammar/), [agent subset](/docs/deck/agent-grammar/), `src/deckfile/`
 

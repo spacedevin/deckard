@@ -6,7 +6,7 @@
 - Package export: `@spacedevin/deck/grammar`
 - Upstream: [github.com/spacedevin/deck](https://github.com/spacedevin/deck)
 
-Host integration (registries, dialects): package [`docs/HOST.md`](https://github.com/spacedevin/deck/blob/main/docs/HOST.md) · Deckard boot: [`src/generators/DeckIds.tish`](../src/generators/DeckIds.tish), [`src/generators/BuiltinMacros.tish`](../src/generators/BuiltinMacros.tish).
+Host integration (registries, dialects): package [`docs/HOST.md`](https://github.com/spacedevin/deck/blob/main/docs/HOST.md) · Deckard boot: [`DeckIds.tish` (@spacedevin/deck-synths)](https://github.com/spacedevin/deck/blob/main/packages/synths/src/DeckIds.tish), [`BuiltinMacros.tish` (@spacedevin/deck-synths)](https://github.com/spacedevin/deck/blob/main/packages/synths/src/BuiltinMacros.tish).
 
 This document is the **Deckard overlay** — UI, co-DJ, ownership, clamps, and generator spellings — not a second grammar.
 
@@ -33,9 +33,9 @@ There is a **single** deck editor (Apply / Sync, step highlight). **Stream vs lo
 | AST → project | [`src/deckfile/Apply.tish`](../src/deckfile/Apply.tish) |
 | project → deck | [`src/deckfile/Emit.tish`](../src/deckfile/Emit.tish) |
 | Incremental `deck.line` | [`src/deckfile/Stream.tish`](../src/deckfile/Stream.tish) |
-| `patch` / `matrix_fm` graphs | [`PatchGraph.tish`](../src/deckfile/PatchGraph.tish), [`MatrixFmGraph.tish`](../src/deckfile/MatrixFmGraph.tish) |
-| Id / dialect registration | [`DeckIds.tish`](../src/generators/DeckIds.tish) |
-| Builtin macros | [`BuiltinMacros.tish`](../src/generators/BuiltinMacros.tish) |
+| `patch` / `matrix_fm` graphs | [`PatchGraph.tish`](https://github.com/spacedevin/deck/blob/main/packages/synths/src/PatchGraph.tish), [`MatrixFmGraph.tish`](https://github.com/spacedevin/deck/blob/main/packages/synths/src/MatrixFmGraph.tish) |
+| Id / dialect registration | [`DeckIds.tish`](https://github.com/spacedevin/deck/blob/main/packages/synths/src/DeckIds.tish) |
+| Builtin macros | [`BuiltinMacros.tish`](https://github.com/spacedevin/deck/blob/main/packages/synths/src/BuiltinMacros.tish) |
 | Ownership / skills | [`src/codj/`](../src/codj/) |
 | HTML highlight | [`src/ui/SongEditorHighlight.tish`](../src/ui/SongEditorHighlight.tish) |
 
