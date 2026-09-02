@@ -688,7 +688,11 @@ export fn App() {
   // query string, so it is not an API the app ships to ordinary users.
   if (typeof window !== "undefined" && window.location &&
       String(window.location.search).indexOf("capture=1") >= 0) {
-    window.__deckardCapture = { rt: rt, signals: signals }
+    // `control` and `note` are the MIDI-controller entry points. Driving those is what makes a capture
+    // show the app being USED: the crossfader travels, the deck knobs turn, pads light — because the
+    // recorder is moving the same controls a hardware surface moves, through the same write door,
+    // rather than setting model fields behind the UI's back.
+    window.__deckardCapture = { rt: rt, signals: signals, control: midiControl, note: midiNote }
   }
 
   let transportRef = useRef(null)
