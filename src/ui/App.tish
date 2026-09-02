@@ -680,6 +680,21 @@ export fn App() {
     signalsRef.current = createSignals()
   }
   let signals = signalsRef.current
+
+  // Capture hook. With `?capture=1`, an external recorder gets the runtime handle and the signal bus:
+  // it can load sets onto decks, then publish `transport.position` per frame to seek the playhead and
+  // screenshot each one. That is the only way to record the UI deterministically — playing in real
+  // time and screencasting drops frames under load and never renders the same way twice. Gated on the
+  // query string, so it is not an API the app ships to ordinary users.
+  if (typeof window !== "undefined" && window.location &&
+      String(window.location.search).indexOf("capture=1") >= 0) {
+    // `control` and `note` are the MIDI-controller entry points. Driving those is what makes a capture
+    // show the app being USED: the crossfader travels, the deck knobs turn, pads light — because the
+    // recorder is moving the same controls a hardware surface moves, through the same write door,
+    // rather than setting model fields behind the UI's back.
+    window.__deckardCapture = { rt: rt, signals: signals, control: midiControl, note: midiNote }
+  }
+
   let transportRef = useRef(null)
   if (!transportRef.current) {
     transportRef.current = createTransport(audioStore, signals)
