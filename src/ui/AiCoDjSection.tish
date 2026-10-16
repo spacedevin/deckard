@@ -1,0 +1,224 @@
+// "AI co-DJs" section of the Co-DJ panel — layout + wiring only; the co-DJ lifecycle lives in
+// src/agentkit/BrowserHost.tish. Re-renders through the panel's rt.coDjBumpUi.
+
+import { h, Fragment } from '@tishlang/lattish'
+import { spawnAiCoDj, aiCoDjTracks, setAiCoDjTeam } from '../agentkit/BrowserHost.tish'
+import { hyperyBrowserSession, hyperyLoginPopup, hyperyBrowserTeam, hyperyBrowserTeamsState, loadHyperyBrowserTeams } from '../auth/HyperyBrowser.tish'
+import { selOpt } from './InstrumentKit.tish'
+import { codjModelChoices, codjDefaultModel, rememberCoDjModel, codjDirectorChoices, codjDefaultDirectorModel, rememberCoDjDirectorModel } from '../codj/CoDjModels.tish'
+
+fn bump(rt) {
+  if (rt.coDjBumpUi) {
+    rt.coDjBumpUi()
+  }
+}
+
+fn note(rt, s) {
+  rt.aiCoDjNotice = String(s)
+  bump(rt)
+}
+
+fn add(rt, agent, role) {
+  spawnAiCoDj(rt, { agent: agent, model: rt.coDjAiModel, role: role === "host" ? "host" : "client" }).then((hd) => {
+    let what = role === "host" ? " joined — it runs the session and the mixer" : (agent ? " joined — message it below; it writes its own script" : " added — press Play to hear its hat, message it below")
+    note(rt, hd.name + what + (hd.mode === "ws" ? " (in the room)" : ""))
+  }, (e) => note(rt, String(e && e.message ? e.message : e)))
+}
+
+fn addAgent(rt, role) {
+  if (hyperyBrowserSession() !== null) {
+    add(rt, true, role)
+    return
+  }
+  note(rt, "Sign in with Hypery to add an AI co-DJ…")
+  hyperyLoginPopup().then((s) => add(rt, true, role), (e) => note(rt, "Hypery sign-in: " + String(e && e.message ? e.message : e)))
+}
+
+fn reloadTeams(rt) {
+  loadHyperyBrowserTeams().then(() => bump(rt), () => bump(rt))
+  bump(rt)
+}
+
+/**
+ * Hypery team switcher for the account row: which team pays for AI co-DJ model calls. Loads the team list on
+ * first render after sign-in; a failed load shows the error with Retry instead of auto-retrying every render.
+ */
+export fn HyperyTeamPicker(rt) {
+  if (!rt || hyperyBrowserSession() === null) {
+    return null
+  }
+  let st = hyperyBrowserTeamsState()
+  if (st.data === null && st.error === null && !st.loading) {
+    loadHyperyBrowserTeams().then(() => bump(rt), () => bump(rt))
+    st = hyperyBrowserTeamsState()
+  }
+  if (st.data === null) {
+    if (st.error !== null) {
+      return <span class="codj-team">
+        <span class="codj-ai-error">{"Teams: " + st.error}</span>
+        <button type="button" class="btn-codj" onclick={() => reloadTeams(rt)}>{"Retry"}</button>
+      </span>
+    }
+    return <span class="codj-ai-status">{"Team: loading…"}</span>
+  }
+  let teams = st.data.teams
+  let chosen = hyperyBrowserTeam()
+  let known = chosen !== null && teams.some((t) => t.id === chosen)
+  let cur = known ? chosen : (st.data.activeTeamId !== null ? st.data.activeTeamId : (teams.length > 0 ? teams[0].id : ""))
+  return <span class="codj-team">
+    <span class="codj-ai-status">{"Team"}</span>
+    <select class="codj-input codj-ai-team" title="The Hypery team whose credits pay for AI co-DJ model calls" onchange={(e) => setAiCoDjTeam(rt, String(e.target.value))}>
+      {teams.map((t) => selOpt(t.id, t.personal ? t.name + " (personal)" : t.name, cur, "team-" + t.id))}
+    </select>
+  </span>
+}
+
+fn errorText(msg) {
+  let m = String(msg)
+  let low = m.toLowerCase()
+  if (low.indexOf("credit") >= 0 || low.indexOf("card") >= 0 || low.indexOf("billing") >= 0 || low.indexOf("payment") >= 0) {
+    return m + " Switch to a team with credits (Team, above)."
+  }
+  return m
+}
+
+fn statusLine(hd) {
+  let s = hd.status
+  if (!hd.alive) {
+    return "stopped"
+  }
+  if (s === null) {
+    return "starting…"
+  }
+  let parts = [s.joined ? "live" : "joining"]
+  if (s.script && s.script.loaded) {
+    parts.push(s.script.disabled ? "script paused" : "script running")
+  }
+  if (s.agentBusy) {
+    parts.push("thinking")
+  }
+  if (s.clock && s.clock.playing) {
+    parts.push("bar " + String(s.clock.bar))
+  }
+  return parts.join(" · ")
+}
+
+fn tracksRow(rt, hd) {
+  let tracks = aiCoDjTracks(rt.project, hd)
+  if (tracks.length === 0) {
+    return <div class="codj-ai-status">{hd.agent ? "No tracks yet" : "No tracks yet — press Play; the script runs every bar"}</div>
+  }
+  let decks = []
+  let i = 0
+  while (i < tracks.length) {
+    if (decks.indexOf(tracks[i].deck) < 0) {
+      decks.push(tracks[i].deck)
+    }
+    i = i + 1
+  }
+  let names = tracks.map((t) => t.name).join(", ")
+  return <div class="codj-row">
+    <span class="codj-ai-status">{"Plays on Deck " + decks.join("/") + ": " + names}</span>
+    {rt.setActiveDeck ? decks.map((d) => <button type="button" class="btn-codj" key={"show-" + d} onclick={() => rt.setActiveDeck(d)}>{"Show Deck " + d}</button>) : null}
+  </div>
+}
+
+/** True when this line is a direct exchange with a co-DJ, so the card already shows it. */
+export fn coDjChatOnCard(rt, c) {
+  let list = rt && Array.isArray(rt.aiCoDjs) ? rt.aiCoDjs : []
+  let i = 0
+  while (i < list.length) {
+    let name = list[i].name
+    if (c.to === name || (c.from === name && c.to !== null)) {
+      return true
+    }
+    i = i + 1
+  }
+  return false
+}
+
+fn thread(rt, hd) {
+  let all = Array.isArray(rt.coDjChat) ? rt.coDjChat : []
+  let mine = all.filter((c) => c.to === hd.name || (c.from === hd.name && c.to !== null))
+  let recent = mine.slice(-8)
+  if (recent.length === 0) {
+    return <div class="codj-ai-thread codj-ai-thread-empty">{hd.agent ? "Say hi, or ask for something: \"add a bassline\", \"make the hats busier\"…" : "Message it below; its script's onMessage hook answers (try \"drop\" / \"back\")."}</div>
+  }
+  return <div class="codj-ai-thread">
+    {recent.map((c, i) => <div class={"codj-ai-msg" + (c.from === hd.name ? " codj-ai-msg-them" : " codj-ai-msg-you")} key={"m" + String(i)}>
+      <strong>{c.from === hd.name ? hd.name : "you"}</strong>{": " + c.text}
+    </div>)}
+  </div>
+}
+
+fn card(rt, hd) {
+  let logs = hd.logs.slice(-14).join("\n")
+  let draft = hd.draft !== null ? hd.draft : (hd.script !== null ? hd.script : "export function onBar(codj, ctx) {\n}\n")
+  let showScript = rt.coDjOpenScript === hd.id
+  return <div class="codj-ai-card">
+    <div class="codj-ai-head">
+      <strong>{hd.name}</strong>
+      <span class="codj-ai-status">{(hd.role === "host" ? "host · " : (hd.agent ? "AI · " : "script · ")) + statusLine(hd)}</span>
+      <button type="button" class="btn-codj" onclick={() => hd.stop()}>{"Remove"}</button>
+    </div>
+    {hd.lastError !== null ? <div class="codj-ai-error">{"✖ " + errorText(hd.lastError)}</div> : null}
+    {tracksRow(rt, hd)}
+    {thread(rt, hd)}
+    <input type="text" class="codj-input codj-ai-ask" placeholder={"Message " + hd.name + " (Enter)"} onkeydown={(e) => {
+      if (e.key === "Enter" && String(e.target.value).trim().length > 0) {
+        hd.ask(String(e.target.value).trim())
+        e.target.value = ""
+      }
+    }} />
+    <div class="codj-row">
+      <button type="button" class="btn-codj" onclick={() => {
+        rt.coDjOpenScript = showScript ? null : hd.id
+        bump(rt)
+      }}>{showScript ? "Hide script & log" : (hd.agent ? "Script & log (what it wrote)" : "Edit script & log")}</button>
+      <a class="codj-ai-status" href="/codj.d.ts" target="_blank">{"codj API (.d.ts)"}</a>
+    </div>
+    {showScript ? (
+      <div>
+        <textarea class="codj-ai-script" spellcheck="false" value={draft} oninput={(e) => {
+          hd.draft = e.target.value
+          hd.draftDirty = true
+        }}></textarea>
+        <div class="codj-row">
+          <button type="button" class="btn-codj" onclick={() => hd.load(hd.draft !== null ? hd.draft : draft)}>{"Apply script"}</button>
+        </div>
+        <div class="codj-ai-logs">{logs}</div>
+      </div>
+    ) : (hd.logs.length > 0 ? <div class="codj-ai-status">{hd.logs[hd.logs.length - 1]}</div> : null)}
+  </div>
+}
+
+export fn AiCoDjSection(rt) {
+  if (!rt) {
+    return null
+  }
+  let list = Array.isArray(rt.aiCoDjs) ? rt.aiCoDjs : []
+  let signedIn = hyperyBrowserSession() !== null
+  let cards = list.map((hd) => card(rt, hd))
+  return <div class="codj-ai">
+    <div class="codj-row">
+      <strong>{"Co-DJs"}</strong>
+      <button type="button" class="btn-codj btn-codj-primary" title={signedIn ? "An AI co-DJ that writes and evolves its own script" : "Signs you in with Hypery, then adds an AI co-DJ"} onclick={() => addAgent(rt, "client")}>{"Add AI co-DJ"}</button>
+      <button type="button" class="btn-codj" title={signedIn ? "An AI host: session clips, the 4-way fader, booth EQ and the echo/filter throws" : "Signs you in with Hypery, then adds an AI host"} onclick={() => addAgent(rt, "host")}>{"Add AI host"}</button>
+      <button type="button" class="btn-codj" title="A co-DJ you program yourself (JS hooks over the codj API)" onclick={() => add(rt, false)}>{"Add script co-DJ"}</button>
+      <select class="codj-input codj-ai-model" title="Producer model for the next AI co-DJ or host: it calls the tools and writes the script." onchange={(e) => {
+        rt.coDjAiModel = String(e.target.value)
+        rememberCoDjModel(rt.coDjAiModel)
+      }}>
+        {codjModelChoices().map((m) => selOpt(m.id, m.label, rt.coDjAiModel ? rt.coDjAiModel : codjDefaultModel(), "model-" + m.id))}
+      </select>
+      <select class="codj-input codj-ai-model" title="Director model for the next AI co-DJ or host: the creative lead that decides each chapter and move (no tools)." onchange={(e) => {
+        rt.coDjAiDirectorModel = String(e.target.value)
+        rememberCoDjDirectorModel(rt.coDjAiDirectorModel)
+      }}>
+        {codjDirectorChoices().map((m) => selOpt(m.id, m.label, rt.coDjAiDirectorModel ? rt.coDjAiDirectorModel : codjDefaultDirectorModel(), "director-" + m.id))}
+      </select>
+    </div>
+    {rt.aiCoDjNotice ? <div class="codj-ai-status">{rt.aiCoDjNotice}</div> : null}
+    {cards}
+  </div>
+}

@@ -4,6 +4,7 @@
 // wsBroadcast does send in Rust — avoids Tish Call opcode for method/native in loop
 import { Server, wsSend, wsBroadcast } from "tish:ws"
 import { process } from "tish:process"
+import { fetch } from "http"
 
 // Port: CODJ_HUB_PORT (explicit override) wins, else PORT (App Platform / generic PaaS injects it),
 // else the local default 35987. So `tish run` locally stays on 35987; a DO service listens on $PORT.
@@ -15,6 +16,92 @@ if (process !== null && process.env) {
   if (v) port = parseInt(v, 10)
 }
 if (!(port >= 1 && port <= 65535)) port = 35987
+
+// Identity. A join may carry a Hypery access token: the gateway verifies it (GET <HYPERY_URL>/api/user/me), binds
+// the actorId to the user (`hy-<user8>-<name>`), and caps master_mixer to the room owner (the first signed-in
+// joiner) and their own agents. Tokenless joins are refused unless --allow-anon / CODJ_ALLOW_ANON=1 (local dev,
+// open rooms) — anonymous actors keep the legacy declare-your-own-skills behaviour.
+let allowAnon = false
+let hyperyUrl = "https://hypery.ai"
+if (process !== null && process.env) {
+  if ("CODJ_ALLOW_ANON" in process.env && process.env["CODJ_ALLOW_ANON"] === "1") allowAnon = true
+  if ("HYPERY_URL" in process.env && process.env["HYPERY_URL"]) hyperyUrl = process.env["HYPERY_URL"]
+}
+let gwArgv = process !== null && process.argv ? process.argv : []
+let gai = 0
+while (gai < gwArgv.length) {
+  if (gwArgv[gai] === "--allow-anon") allowAnon = true
+  if (gwArgv[gai] === "--hypery-url" && gai + 1 < gwArgv.length) hyperyUrl = gwArgv[gai + 1]
+  gai = gai + 1
+}
+while (hyperyUrl.length > 0 && hyperyUrl.charAt(hyperyUrl.length - 1) === "/") {
+  hyperyUrl = hyperyUrl.substring(0, hyperyUrl.length - 1)
+}
+console.log("[gateway] auth: " + (allowAnon ? "anonymous joins allowed" : "Hypery sign-in required") + " (" + hyperyUrl + ")")
+
+// token -> { userId, name, at }  (verified identities, re-checked after 5 minutes)
+let authCache = {}
+
+async fn verifyHyperyToken(token) {
+  let hit = authCache[token]
+  if (hit !== null && Date.now() - hit.at < 300000) return hit
+  let ident = null
+  try {
+    let resp = await fetch(hyperyUrl + "/api/user/me", { method: "GET", headers: { "Authorization": "Bearer " + token, "Accept": "application/json" } })
+    if (resp.status === 200) {
+      let body = await resp.json()
+      if (body !== null && body.id !== null) {
+        ident = { userId: String(body.id), name: body.name !== null ? String(body.name) : "", at: Date.now() }
+      }
+    } else {
+      console.log("[gateway] token rejected by Hypery: HTTP " + String(resp.status))
+    }
+  } catch (e) {
+    console.log("[gateway] Hypery verify failed: " + String(e))
+  }
+  if (ident !== null) authCache[token] = ident
+  return ident
+}
+
+// [a-z0-9-] slug of a requested actor name (the part after `hy-<user8>-`).
+fn actorSlug(s) {
+  let src = String(s).toLowerCase()
+  let out = ""
+  let i = 0
+  while (i < src.length && out.length < 32) {
+    let c = src.charAt(i)
+    let ok = (c >= "a" && c <= "z") || (c >= "0" && c <= "9")
+    if (ok) {
+      out = out + c
+    } else if (out.length > 0 && out.charAt(out.length - 1) !== "-") {
+      out = out + "-"
+    }
+    i = i + 1
+  }
+  while (out.length > 0 && out.charAt(out.length - 1) === "-") out = out.substring(0, out.length - 1)
+  return out.length > 0 ? out : "player"
+}
+
+// Bind a verified user's requested actorId into their namespace. Agents keep "agent" in the id so the
+// co-DJ prune rule (src/codj/Prune.tish) cleans up their tracks once they leave.
+fn boundActorId(userId, requested, kind) {
+  let prefix = "hy-" + userId.substring(userId.length > 8 ? userId.length - 8 : 0) + "-"
+  let req = String(requested)
+  if (req.indexOf(prefix) === 0) return req
+  let slug = actorSlug(req)
+  if (kind === "agent" && slug.indexOf("agent") < 0) slug = "agent-" + slug
+  return prefix + slug
+}
+
+fn withoutMaster(skillIds) {
+  let out = []
+  let i = 0
+  while (i < skillIds.length) {
+    if (skillIds[i] !== "master_mixer") out.push(skillIds[i])
+    i = i + 1
+  }
+  return out
+}
 
 let server = Server({ port })
 if (server === null) {
@@ -35,7 +122,9 @@ fn getRoom(sessionId) {
     if (rooms[i].id === sessionId) return rooms[i]
     i = i + 1
   }
-  let r = { id: sessionId, conns: [], seq: {}, hostActorId: null, hostSnapshot: null, hostOwners: null, hostGen: 0 }
+  // deltas = the host's deck.delta frames since the cached snapshot (replayed to joiners); ownerUserId = the
+  // first signed-in joiner (the only user whose actors may hold master_mixer, plus anyone they grant it to).
+  let r = { id: sessionId, conns: [], seq: {}, hostActorId: null, hostSnapshot: null, hostOwners: null, hostGen: 0, hostRev: 0, deltas: [], ownerUserId: null }
   rooms.push(r)
   return r
 }
@@ -60,6 +149,58 @@ fn skillsHaveMaster(skillIds) {
   return false
 }
 
+fn ensureMaster(skillIds) {
+  if (skillsHaveMaster(skillIds)) return skillIds
+  let out = []
+  let i = 0
+  while (i < skillIds.length) {
+    out.push(skillIds[i])
+    i = i + 1
+  }
+  out.push("master_mixer")
+  return out
+}
+
+// The room host recorded in hostActorId is a human DAW tab (the master browser), not an agent that joined first.
+fn humanHostPresent(room) {
+  if (room.hostActorId === null) return false
+  let i = 0
+  while (i < room.conns.length) {
+    let c = room.conns[i]
+    if (c.actorId === room.hostActorId && c.kind === "human") return true
+    i = i + 1
+  }
+  return false
+}
+
+// The browser that hosts the session is the master. An AI host added in that browser (role host, same owner)
+// is a master too. A client agent is not, and neither is a later tab that is only following.
+fn applyMasterSeat(conn, room) {
+  let owns = conn.userId !== null && room.ownerUserId === conn.userId
+  let openAnon = conn.userId === null && room.ownerUserId === null
+  let masterSeat = false
+  if (owns || openAnon) {
+    if (conn.kind === "human" && (conn.role === "host" || conn.role === null)) {
+      if (room.hostActorId === null || !humanHostPresent(room)) {
+        room.hostActorId = conn.actorId
+        console.log("[gateway] master browser: " + conn.actorId + " session=" + room.id)
+      }
+      masterSeat = conn.actorId === room.hostActorId
+    } else if (conn.kind === "agent" && conn.role === "host") {
+      masterSeat = true
+      if (room.hostActorId === null) {
+        room.hostActorId = conn.actorId
+        console.log("[gateway] AI host holding the clock until the browser joins: " + conn.actorId)
+      }
+    }
+  }
+  if (masterSeat) {
+    conn.skillIds = ensureMaster(conn.skillIds)
+  } else {
+    conn.skillIds = withoutMaster(conn.skillIds)
+  }
+}
+
 fn collectActors(room) {
   let out = []
   let i = 0
@@ -70,6 +211,26 @@ fn collectActors(room) {
     i = i + 1
   }
   return out.sort()
+}
+
+// Who is in the room, with enough to address and reason about each actor (display name, human/agent, role, skills).
+fn collectRoster(room) {
+  let out = []
+  let seen = {}
+  let i = 0
+  while (i < room.conns.length) {
+    let c = room.conns[i]
+    if (c.actorId && seen[c.actorId] !== true) {
+      seen[c.actorId] = true
+      out.push({ actorId: c.actorId, displayName: c.displayName, kind: c.kind, role: c.role, skillIds: c.skillIds, userId: c.userId, host: c.actorId === room.hostActorId })
+    }
+    i = i + 1
+  }
+  return out
+}
+
+fn presenceFrame(room) {
+  return { type: "presence", sessionId: room.id, actors: collectActors(room), hostActorId: room.hostActorId, roster: collectRoster(room) }
 }
 
 fn nextSeq(room, actorId) {
@@ -125,8 +286,18 @@ fn isFanoutType(mt) {
   if (mt === "deck.stream_chunk") return true
   if (mt === "control") return true
   if (mt === "deck.line") return true
+  if (mt === "deck.delta") return true
   if (mt === "direct") return true
+  if (mt === "chat") return true
+  if (mt === "edit.result") return true
+  if (mt === "focus") return true
+  if (mt === "levels") return true
   return false
+}
+
+// Frames only the elected host may publish (they describe the authoritative fold).
+fn isHostOnlyType(mt) {
+  return mt === "deck.delta" || mt === "edit.result" || mt === "levels" || mt === "focus"
 }
 
 // wsSend returns false once a connection is closed — use it to prune dead conns. A closed conn that
@@ -173,6 +344,8 @@ fn pruneDeadConns() {
         room.hostSnapshot = null
         room.hostOwners = null
         room.hostGen = 0
+        room.hostRev = 0
+        room.deltas = []
         let hi = 0
         while (hi < room.conns.length) {
           if (skillsHaveMaster(room.conns[hi].skillIds)) {
@@ -190,7 +363,7 @@ fn pruneDeadConns() {
           }
         }
       }
-      broadcast(room, { type: "presence", sessionId: room.id, actors: collectActors(room), hostActorId: room.hostActorId }, null)
+      broadcast(room, presenceFrame(room), null)
     }
     ri = ri + 1
   }
@@ -203,7 +376,7 @@ while (true) {
   let ws = server.acceptTimeout(server, 50)
   if (ws !== null) {
     console.log("[gateway] WS connection accepted (handshake OK), awaiting join")
-    allConns.push({ ws, sessionId: null, actorId: null, channelIds: [], skillIds: [], clientId: null, joined: false })
+    allConns.push({ ws, sessionId: null, actorId: null, channelIds: [], skillIds: [], clientId: null, joined: false, displayName: null, kind: "human", role: null, userId: null })
   }
 
   if (Date.now() - lastPrune > 2500) {
@@ -240,11 +413,30 @@ while (true) {
               let v = msg["actorId"]
               if (typeof v === "string" && v !== "") aid = v
             }
-            if (!aid) {
+            let kind = msg.kind === "agent" ? "agent" : "human"
+            let ident = null
+            let tok = (typeof msg.token === "string" && msg.token.length > 0) ? msg.token : null
+            if (tok !== null) {
+              ident = await verifyHyperyToken(tok)
+            }
+            let authErr = null
+            if (tok !== null && ident === null) {
+              authErr = "Hypery token was rejected — sign in again"
+            } else if (tok === null && !allowAnon) {
+              authErr = "sign in with Hypery to join this gateway"
+            }
+            if (authErr !== null) {
+              let errPayload = JSON.stringify({ type: "error", code: "AUTH", message: authErr })
+              console.log("[gateway] AUTH reject: " + authErr)
+              if (conn.ws !== null) wsSend(conn.ws, errPayload)
+            } else if (!aid) {
               let errPayload = JSON.stringify({ type: "error", code: "JOIN_BAD", message: "actorId required" })
               console.log("[gateway] OUTPUT wsSend error:", errPayload)
               if (conn.ws !== null) wsSend(conn.ws, errPayload)
             } else {
+              if (ident !== null) {
+                aid = boundActorId(ident.userId, aid, kind)
+              }
               let sid = (typeof msg.sessionId === "string" && msg.sessionId !== "") ? msg.sessionId : "default"
               let roomPre = getRoom(sid)
               let existingActors = collectActors(roomPre)
@@ -258,9 +450,22 @@ while (true) {
               conn.joined = true
               conn.sessionId = sid
               conn.actorId = aid
+              conn.kind = kind
+              conn.role = (typeof msg.role === "string" && msg.role.length > 0) ? msg.role : null
+              conn.userId = ident !== null ? ident.userId : null
+              let dn = (typeof msg.displayName === "string" && msg.displayName.length > 0) ? msg.displayName : null
+              if (dn === null && ident !== null && ident.name.length > 0) dn = ident.name
+              conn.displayName = dn !== null ? dn.substring(0, 40) : aid
               conn.channelIds = ("channelIds" in msg && Array.isArray(msg["channelIds"]) && msg["channelIds"].length > 0) ? msg["channelIds"] : ["default"]
               conn.skillIds = ("skillIds" in msg && Array.isArray(msg["skillIds"])) ? msg["skillIds"] : []
               conn.clientId = clientId()
+              if (ident !== null && roomPre.ownerUserId === null) {
+                roomPre.ownerUserId = ident.userId
+                console.log("[gateway] room " + sid + " owned by user " + ident.userId)
+              }
+              // Host in the master browser (and an AI host added there) keeps master_mixer.
+              // Everyone else — client agents, followers, other users — has it stripped.
+              applyMasterSeat(conn, roomPre)
               let room = getRoom(conn.sessionId)
               if (room !== null) {
                 room.conns.push(conn)
@@ -275,16 +480,19 @@ while (true) {
                   let joinedPayload = JSON.stringify({
                     type: "joined",
                     sessionId: conn.sessionId,
-                    you: { actorId: conn.actorId, clientId: conn.clientId, channelIds: conn.channelIds },
+                    you: { actorId: conn.actorId, clientId: conn.clientId, channelIds: conn.channelIds, skillIds: conn.skillIds, displayName: conn.displayName, userId: conn.userId, kind: conn.kind },
                     actors,
                     hostActorId: room.hostActorId,
-                    replay: []
+                    roster: collectRoster(room),
+                    ownerUserId: room.ownerUserId,
+                    // The host's deck.delta frames since the cached snapshot (apply after it, by rev).
+                    replay: room.deltas
                   })
                   console.log("[gateway] OUTPUT wsSend joined:", joinedPayload.substring(0, 200) + (joinedPayload.length > 200 ? "..." : ""))
                   wsSend(conn.ws, joinedPayload)
                 }
                 console.log("[gateway] presence update: actors=" + JSON.stringify(actors) + " session=" + conn.sessionId)
-                broadcast(room, { type: "presence", sessionId: conn.sessionId, actors, hostActorId: room.hostActorId }, null)
+                broadcast(room, presenceFrame(room), null)
                 // A joining FOLLOWER gets the host's authoritative state: deliver the cached snapshot
                 // now (if any) and ask the host to push a fresh one so the joiner's default is clobbered.
                 if (conn.actorId !== room.hostActorId) {
@@ -293,7 +501,7 @@ while (true) {
                     // tell host tracks from its own → every track defaults to "human" → channelPlayerIndex's
                     // "human"→host remap collapses EVERYTHING (incl. the joiner's own contribution) onto
                     // Deck A. The owners map is what keeps each contributor on its own deck.
-                    let snapPayload = JSON.stringify({ type: "state.snapshot", sessionId: conn.sessionId, fromHost: room.hostActorId, lines: room.hostSnapshot, owners: room.hostOwners, gen: room.hostGen })
+                    let snapPayload = JSON.stringify({ type: "state.snapshot", sessionId: conn.sessionId, fromHost: room.hostActorId, lines: room.hostSnapshot, owners: room.hostOwners, gen: room.hostGen, rev: room.hostRev })
                     console.log("[gateway] OUTPUT wsSend cached state.snapshot -> " + conn.actorId + " (" + String(room.hostSnapshot.length) + " lines)")
                     wsSend(conn.ws, snapPayload)
                   }
@@ -331,11 +539,46 @@ while (true) {
                 // Dropping it is the "guests merge into Deck A" bug — see the cached-send note above.
                 room.hostOwners = msg.owners
                 room.hostGen = sg
+                let sr = (typeof msg.rev === "number") ? Math.floor(msg.rev) : 0
+                room.hostRev = sr
+                // The snapshot already contains every delta up to its rev — keep only the newer ones for replay.
+                let kept = []
+                let di = 0
+                while (di < room.deltas.length) {
+                  if (room.deltas[di].rev > sr) kept.push(room.deltas[di])
+                  di = di + 1
+                }
+                room.deltas = kept
                 console.log("[gateway] cached host snapshot from " + actorId + " (" + String(msg.lines.length) + " lines, gen " + String(sg) + ")")
-                broadcast(room, { type: "state.snapshot", sessionId: conn.sessionId, fromHost: actorId, lines: msg.lines, owners: msg.owners, gen: sg }, conn)
+                broadcast(room, { type: "state.snapshot", sessionId: conn.sessionId, fromHost: actorId, lines: msg.lines, owners: msg.owners, gen: sg, rev: sr }, conn)
+              }
+            }
+            // Any peer may ask for a fresh snapshot (a mirror that saw a delta gap): route it to the host.
+            if (mt0 === "request.snapshot" && room.hostActorId !== null && actorId !== room.hostActorId) {
+              let hc = connForActor(room, room.hostActorId)
+              if (hc !== null && hc.ws !== null) {
+                wsSend(hc.ws, JSON.stringify({ type: "request.snapshot", sessionId: conn.sessionId, forActorId: actorId }))
+              }
+            }
+            // The room owner may hand master_mixer (or any skills) to another actor — e.g. a friend's AI host.
+            if (mt0 === "grant" && typeof msg.targetActorId === "string" && Array.isArray(msg.skillIds)) {
+              let ownerOk = room.ownerUserId === null ? actorId === room.hostActorId : conn.userId === room.ownerUserId
+              let target = connForActor(room, msg.targetActorId)
+              if (ownerOk && target !== null) {
+                target.skillIds = msg.skillIds
+                if (room.hostActorId === null && skillsHaveMaster(target.skillIds)) room.hostActorId = target.actorId
+                console.log("[gateway] " + actorId + " granted " + JSON.stringify(msg.skillIds) + " to " + target.actorId)
+                if (target.ws !== null) wsSend(target.ws, JSON.stringify({ type: "granted", sessionId: room.id, skillIds: target.skillIds, by: actorId }))
+                broadcast(room, presenceFrame(room), null)
+              } else if (conn.ws !== null) {
+                wsSend(conn.ws, JSON.stringify({ type: "error", code: "GRANT_DENIED", message: "only the room owner may grant skills" }))
               }
             }
             let mt = msg.type !== null ? String(msg.type) : ""
+            if (isHostOnlyType(mt) && actorId !== room.hostActorId) {
+              if (conn.ws !== null) wsSend(conn.ws, JSON.stringify({ type: "error", code: "HOST_ONLY", message: mt + " may only be sent by the room host" }))
+              mt = ""
+            }
             let n = 0
             let bi = 0
             while (bi < room.conns.length) {
@@ -371,9 +614,17 @@ while (true) {
             out.seq = seq
             out.sessionId = conn.sessionId
             out.actorId = actorId
-            // Stamp the sender's declared skills so receivers can enforce skill-gating on apply.
-            if (out.skillIds === null) {
-              out.skillIds = conn.skillIds
+            // ALWAYS stamp the skills the gateway holds for this conn (declared at join, capped by identity,
+            // widened only by a grant) — a frame can never claim master_mixer for itself.
+            out.skillIds = conn.skillIds
+            if (mt === "chat") {
+              out.displayName = conn.displayName
+            }
+            if (mt === "deck.delta") {
+              room.deltas.push(out)
+              if (room.deltas.length > 512) {
+                room.deltas.shift()
+              }
             }
             if (isFanoutType(mt)) {
               broadcast(room, out, conn)

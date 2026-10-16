@@ -44,6 +44,14 @@ services:
       - key: CODJ_HUB_PORT
         scope: RUN_TIME
         value: "8080"
+      # Open rooms: tokenless (anonymous) players may still join. Signed-in Hypery actors are verified and
+      # identity-bound either way; remove this to require "Log in with Hypery" for every player.
+      - key: CODJ_ALLOW_ANON
+        scope: RUN_TIME
+        value: "1"
+      - key: HYPERY_URL
+        scope: RUN_TIME
+        value: "https://hypery.ai"
     instance_size_slug: basic-xxs
     instance_count: 1
     # WS-only service: omit http_path so App Platform uses a TCP health check (the open WS port = healthy).

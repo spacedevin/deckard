@@ -74,38 +74,41 @@ Error `code`s **actually emitted** by `services/gateway/main.tish`: **`BAD_JSON`
 
 ## 2. Worker contract (actor + skills)
 
+The reference co-DJ is the **agentkit** ([`src/agentkit/`](../src/agentkit/), overview in
+[ARCHITECTURE.md §8](./ARCHITECTURE.md)); the same runtime runs in a browser Web Worker, the `codj` CLI
+(`services/codj-runner`) and the MCP server (`services/mcp`).
+
 ### 2.1 Process model
 
-- One worker **per actor** per session (e.g. `actor-1`), or a **pool** with one job per `(sessionId, actorId)`.
-- Worker connects with `actorId` (e.g. `actor-1`), `channelIds: ["default"]`, `skillIds: [...]`.
+- One runtime **per actor** per session. It joins with `actorId`, `skillIds`, `displayName`, `kind: "agent"` and a
+  Hypery access `token` (the gateway verifies it and binds the peer to that user).
 
 ### 2.2 Input loop
 
-The persistence / RAG steps below (local DB, embeddings, `chunks`) are **planned** — see [§3](#3-sqlite--vector-schema-planned). Today the worker keeps an in-memory rolling context buffer only.
-
-1. On each inbound `deck.line` / `deck.block` (other actors or merged snapshot): append to the context buffer (planned: also persist to local DB and embed chunks).
-2. On each `direct` where `targetActorId` matches this actor's `actorId`: enqueue for response.
-3. On timer or debounce: build context = system prompt + last N buffered messages (planned: + **RAG** top-k from `chunks`).
+1. Keep a **mirror** of the room: adopt `state.snapshot` keyframes, fold `deck.delta`s in `rev` order (a gap →
+   `request.snapshot`), and track the clock from `control` `tick` / `clock` frames.
+2. Turn everything else (`chat` / `direct`, `edit.result`, `presence`, focus) into events for the co-DJ script
+   (`onBar` / `onBeat` / `onMessage` / `onEvent`) and the agent loop.
 
 ### 2.3 Output loop
 
-The worker (`services/agent-worker/main.tish`) **calls its LLM**: `handlePlayingStream` and `handleDirect` snapshot the buffered peer stream into one prompt (`llmLinesFrom`), call `callLLM`, and stream the **real model output** — first as `deck.stream_chunk` (the finished text char-by-char), then as a committed `deck.block`. It **falls back to a demo patch only** when `GRADIENT_MODEL_ACCESS_KEY` (or `MODEL_ACCESS_KEY`) is unset or the call fails. The worker also **ingests inbound `deck.block`** from other actors into its context buffer so responses are aware of them. The old 3-second periodic demo `deck.block` flood has been **removed**.
-
-> **Note:** the worker streams the *finished* text char-by-char — provider-side SSE token streaming (live provider tokens) is **planned, not implemented**.
-
-1. Snapshot the buffered peer stream into one prompt; call `callLLM` and stream the resulting text.
-2. Emit `deck.stream_chunk` (per character of the finished output) for the UI typing indicator, then a `deck.block`.
-3. Validate deck line against actor's skills ([DJ_SKILLS.md](./DJ_SKILLS.md)); if invalid, log and skip or send `error` to gateway.
-4. For **`deck.block`**: set **`effectivePerfStep`** to **host `perfStep` + lookahead** (default **64** sixteenths ≈ four 4/4 bars). Set **`submitDeadlinePerfStep`** to host step + slack (e.g. **48**) so the host drops the block if it arrives too late. Omit both and use **`asap: true`** for emergency edits. Alternatively put **`@ perf_step N`** as the first line of deck (parsed by host; same as `effectivePerfStep`).
+1. A script or the agent writes through the `codj.*` API; each write is **gate-reported** against the mirror
+   (skills + ownership, [DJ_SKILLS.md](./DJ_SKILLS.md)) so rejected lines are reported immediately and never sent.
+2. Accepted text is folded locally (optimistic) and sent as one **`deck.block`** with a `ref`. While the room plays
+   it carries **`effectivePerfStep`** on the next bar (or beat) boundary; otherwise **`asap: true`**. The host
+   answers with **`edit.result`** and publishes what it applied as `deck.delta`.
+3. The agent itself (Hypery SDK `runAgentLoop`) mostly *writes the script* that does this every bar, rather
+   than emitting blocks turn by turn.
 
 ### 2.4 Reconnect
 
-- Resend `join` with same `actorId`, `channelIds`, `skillIds`; gateway sends `replay`.
-- **Planned / not implemented in `services/agent-worker`:** loading state from a SQLite `messages` table on reconnect. The worker is **in-memory only** — its context buffer does not survive a restart.
+- Resend `join` with the same `actorId` / `skillIds` / token; the gateway sends `joined` with `replay` (recent
+  deltas) and the current snapshot; the mirror re-adopts and buffered deltas are re-applied. Script state
+  (`codj.state`) survives in process; nothing is persisted across restarts.
 
 ## 3. SQLite + vector schema (Planned)
 
-> **Planned / not implemented in `services/agent-worker`.** The worker is currently **in-memory only**: it holds a rolling context buffer in process and does not open SQLite, embed chunks, or run vector/RAG retrieval. The schema below is a **forward-looking spec** for agent memory, kept here as the target design.
+> **Planned / not implemented.** Co-DJ runtimes are **in-memory only**: they do not open SQLite, embed chunks, or run vector/RAG retrieval. The schema below is a **forward-looking spec** for agent memory, kept here as the target design.
 
 Path: e.g. `~/.deckard-sessions/<sessionId>.sqlite` (agent-local) or shared if gateway persists.
 
@@ -169,7 +172,8 @@ CREATE TABLE agent_memory (
 ## 5. Reference implementation layout
 
 - **`services/gateway/`** — Tish: `npm run gateway` (or `tish run --features ws,process services/gateway/main.tish`). Listens on **ws://127.0.0.1:35987** (or `CODJ_HUB_PORT`).
-- **`services/agent-worker/`** — Tish agent: `npm run agent` (or `tish run --features ws,http,fs,process services/agent-worker/main.tish`). It calls its LLM (`callLLM` over the `http` feature) for **real** responses when `GRADIENT_MODEL_ACCESS_KEY` (or `MODEL_ACCESS_KEY`) is set, and falls back to a demo patch otherwise. Memory persistence and RAG ([§2.4](#24-reconnect), [§3](#3-sqlite--vector-schema-planned)) remain planned — the worker is in-memory only.
+- **`services/codj-runner/`** — headless co-DJ (`npm run build:codj-cli`, then `npm run codj:login` and `npm run codj -- run <script.js> [--agent]`, or `npm run agent:client` / `agent:host`). Hosts a hot-reloaded JS co-DJ script; `--agent` adds a Hypery agent that writes it.
+- **`services/mcp/`** — the same peer over MCP stdio for external agents ([README](../services/mcp/README.md)).
 
 See repository `package.json` / README for run commands.
 
@@ -185,4 +189,4 @@ The WebSocket gateway responds with **101 Switching Protocols**, not 200. A **20
    lsof -i :35987
    ```
    You should see a single process (the `tish` gateway). If you see another process (e.g. `node`), stop it so only the gateway is listening.
-3. **Then start the agent**: `npm run agent`.
+3. **Then start the co-DJ**: `npm run agent:client` (or `npm run codj -- run <script.js>`).

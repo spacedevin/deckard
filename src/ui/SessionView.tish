@@ -115,6 +115,30 @@ fn clipEnvelope(clip) {
   return env
 }
 
+// A clip's short label in its cell: numbered clips (c1, c2 …) read #1, #2; a named clip shows its name.
+fn clipNumberLabel(ch, clipId) {
+  let id = String(clipId)
+  if (id.length >= 2 && id.charAt(0) === "c" && String(Math.floor(Number(id.substring(1)))) === id.substring(1)) {
+    return "#" + id.substring(1)
+  }
+  return id.length > 7 ? id.substring(0, 6) + "…" : id
+}
+
+fn clipIsSilent(clip) {
+  if (clip.pianoNotes && clip.pianoNotes.length > 0) {
+    return false
+  }
+  let st = clip.steps ? clip.steps : []
+  let i = 0
+  while (i < st.length) {
+    if (st[i] && st[i].on) {
+      return false
+    }
+    i = i + 1
+  }
+  return true
+}
+
 // Mirror the envelope into a closed SVG path (viewBox 0 0 120 24, baseline at y=12).
 fn clipWavePath(env) {
   let N = env.length
@@ -183,7 +207,22 @@ export fn SessionTrackRow(project, ch, tix, activeDeck, rt, sc, playing, bumpSes
     let isPlaying = playing && !muted && armed === slotClipId && slotClipId.length > 0
     let sjCopy = sj
     let clipIdCopy = slotClipId
-    if (!clip) {
+    if (clip && clipIsSilent(clip)) {
+      // A hitless clip is this track sitting out the scene — a stop slot, not a clip to look at.
+      let restCls = "session-cell session-cell-rest" + (isPlaying ? " session-cell-rest-on" : "") + (isQueued ? " session-cell-queued" : "")
+      cells.push(
+        <button
+          type="button"
+          class={restCls}
+          key={"c-" + String(tix) + "-" + String(sj)}
+          disabled={!mayLaunch}
+          onclick={() => armCell(tix, clipIdCopy)}
+          title={"Silent in this scene — " + ch.name + " sits out. Click to drop it out now."}
+        >
+          <span class="session-cell-rest-glyph">{"■"}</span>
+        </button>
+      )
+    } else if (!clip) {
       cells.push(
         <div class="session-cell session-cell-empty" key={"c-" + String(tix) + "-" + String(sj)}>
           <span class="session-cell-dash">{"—"}</span>
@@ -218,7 +257,7 @@ export fn SessionTrackRow(project, ch, tix, activeDeck, rt, sc, playing, bumpSes
             <path class={"session-wave-fill session-wave-" + dsuf} d={wavePath} />
           </svg>
           <span class="session-cell-meta">
-            {isPlaying ? "■" : "▶"}{" · "}{String(bars)}{" bar"}{bars === 1 ? "" : "s"}
+            {isPlaying ? "■" : "▶"}{" "}<b class="session-cell-num">{clipNumberLabel(ch, slotClipId)}</b>{" · "}{String(bars)}{"b"}
           </span>
         </button>
       )
@@ -447,14 +486,25 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
   }
   // Short, readable labels (full text fits a full-width select; glyphs alone were illegible when tiny).
   fn followOptions() {
-    let list = [["repeat", "↻ Loop"], ["next", "→ Next"], ["prev", "← Prev"], ["first", "⏮ First"], ["last", "⏭ Last"], ["any", "✦ Any"], ["stop", "■ Stop"]]
+    let list = [["repeat", "↻", "Loop"], ["next", "→", "Next"], ["prev", "←", "Prev"], ["first", "⏮", "First"], ["last", "⏭", "Last"], ["any", "✦", "Any"], ["stop", "■", "Stop"]]
     let opts = []
     let i = 0
     while (i < list.length) {
-      opts.push({ value: list[i][0], label: list[i][1] })
+      opts.push({ value: list[i][0], label: list[i][1] + " " + list[i][2], short: list[i][1] })
       i = i + 1
     }
     return opts
+  }
+  fn followName(v) {
+    let os = followOptions()
+    let i = 0
+    while (i < os.length) {
+      if (os[i].value === v) {
+        return os[i].label
+      }
+      i = i + 1
+    }
+    return String(v)
   }
   fn followRow(si) {
     let f = sceneFollow(project, si)
@@ -482,7 +532,7 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
       )
     }
     return (
-      <div class="session-scene-follow" title={"After this pattern plays, do this. Add a weighted second action (⚖) for a deterministic chance (seeded — same for every player)."}>
+      <div class="session-scene-follow" title={"Then: " + followName(aVal) + (hasB ? " (" + String(pctA) + "%) or " + followName(bVal) + " (" + String(100 - pctA) + "%)" : "") + ". After this pattern plays, do this. Add a weighted second action (⚖) for a deterministic chance (seeded — same for every player)."}>
         <div class="follow-line1">
           {IkSelect({
             class: "follow-sel",
@@ -560,7 +610,7 @@ export fn SessionView(project, rt, setProjectFromUI, playing, bumpSessionUi, pat
       let isLive = pb.liveScene !== null && Math.floor(Number(pb.liveScene)) === si
       let isQueuedLaunch =
         pb.queuePending && pb.queuedScene !== null && Math.floor(Number(pb.queuedScene)) === si
-      let launchLabel = "LAUNCH"
+      let launchLabel = "▶"
       if (isQueuedLaunch) {
         if (pb.dropSteps !== null) {
           launchLabel = pb.dropSteps === 0 ? "● NOW" : "◷ " + String(pb.dropSteps)

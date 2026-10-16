@@ -1,0 +1,372 @@
+// Bulk production library. Original Deckard patches and patterns across the same roles a desktop DAW browser
+// splits into: kicks, snares, hats, claps, percussion, basses, keys, pads, leads, and a starter kit per style.
+// Not a copy of anyone else's preset bank — every value is a setting on a Deckard generator.
+
+import { generatorIdToTpl } from '../deckfile/Emit.tish'
+
+let G = null
+
+fn gens() {
+  if (G !== null) {
+    return G
+  }
+  G = {
+    drum: generatorIdToTpl("drumSynth"),
+    clap: generatorIdToTpl("clap"),
+    sub: generatorIdToTpl("sub808"),
+    acid: generatorIdToTpl("acid303"),
+    reese: generatorIdToTpl("reeseBass"),
+    pad: generatorIdToTpl("pad"),
+    tine: generatorIdToTpl("tine"),
+    fm: generatorIdToTpl("fmTone"),
+    osc: generatorIdToTpl("basicOsc"),
+    guitar: generatorIdToTpl("guitar"),
+    halo: generatorIdToTpl("halo"),
+    bell: generatorIdToTpl("bell"),
+    aether: generatorIdToTpl("aether"),
+    arco: generatorIdToTpl("arco"),
+    hat: "noise_burst"
+  }
+  return G
+}
+
+fn n3(v) {
+  return Math.round(v * 1000) / 1000
+}
+
+fn clamp(v, lo, hi) {
+  if (v < lo) {
+    return lo
+  }
+  if (v > hi) {
+    return hi
+  }
+  return v
+}
+
+// One row per style. Patterns are 16 steps, x = hit. Degrees are semitones; -1 is a rest.
+fn styles() {
+  return [
+    { id: "house", label: "House", tag: "house", hard: true, swing: 0.02, kickDecay: 0.24, kickNoise: 0.06, hatTone: 0.82, kick: "x...x...x...x...", hat: "..x...x...x...x.", snare: "....x.......x...", clap: "....x.......x...", perc: "..x..x...x..x..x", bass: [0, -1, 0, -1, 12, -1, 0, -1, 7, -1, 0, -1, 12, -1, 0, -1], chords: [0, 5, 8, 3], hook: [0, -1, 3, 7, -1, 12, 7, -1] },
+    { id: "deep_house", label: "Deep House", tag: "house", hard: false, swing: 0.03, kickDecay: 0.32, kickNoise: 0.03, hatTone: 0.62, kick: "x...x...x...x...", hat: "..x...x...x...x.", snare: "....x.......x...", clap: "....x.......x...", perc: "x..x..x..x..x..x", bass: [0, -1, -1, 0, -1, 7, -1, -1, 3, -1, -1, 0, -1, 5, -1, -1], chords: [0, 5, 7, 3], hook: [0, -1, -1, 7, -1, 3, -1, 12] },
+    { id: "techno", label: "Techno", tag: "techno", hard: true, swing: 0, kickDecay: 0.2, kickNoise: 0.08, hatTone: 0.9, kick: "x...x...x...x...", hat: "x.x.x.x.x.x.x.x.", snare: "....x.......x...", clap: "....x.......x...", perc: "..x...x..x...x..", bass: [0, 0, -1, 0, 0, -1, 0, 1, 0, 0, -1, 0, 3, -1, 0, 0], chords: [0, 0, 1, 0], hook: [0, 0, 7, 0, 12, 7, 0, 1] },
+    { id: "trance", label: "Trance", tag: "edm", hard: true, swing: 0, kickDecay: 0.22, kickNoise: 0.04, hatTone: 0.86, kick: "x...x...x...x...", hat: "..x...x...x...x.", snare: "....x.......x...", clap: "....x.......x...", perc: "x...x...x...x...", bass: [0, -1, 12, -1, 0, -1, 7, -1, 3, -1, 12, -1, 0, -1, 7, -1], chords: [0, 8, 3, 10], hook: [0, 3, 7, 12, 7, 3, 0, 7] },
+    { id: "acid", label: "Acid", tag: "acid", hard: true, swing: 0.01, kickDecay: 0.22, kickNoise: 0.05, hatTone: 0.92, kick: "x...x...x...x...", hat: "xxxxxxxxxxxxxxxx", snare: "....x.......x...", clap: "....x.......x...", perc: "..x.x...x..x.x..", bass: [0, 0, 0, 3, 0, 12, 0, 7, 0, 0, 5, 0, 3, 0, 12, 0], chords: [0, 0, 3, 0], hook: [0, 3, 0, 7, 12, 0, 7, 3] },
+    { id: "dnb", label: "Drum and Bass", tag: "dnb", hard: true, swing: 0.04, kickDecay: 0.18, kickNoise: 0.04, hatTone: 0.88, kick: "x.......x...x...", hat: "x.x.x.x.x.xxx.x.", snare: "....x.......x...", clap: "....x.......x...", perc: "..x...x...x...x.", bass: [0, -1, 0, 12, -1, 7, 0, -1, 3, -1, 0, 10, -1, 7, 0, -1], chords: [0, 3, 8, 10], hook: [0, 7, 12, 15, 12, 7, 3, 0] },
+    { id: "hiphop", label: "Hip Hop", tag: "hiphop", hard: false, swing: 0.08, kickDecay: 0.4, kickNoise: 0.02, hatTone: 0.7, kick: "x.....x.x.......", hat: "x.x.x.x.x.x.x.x.", snare: "....x.......x...", clap: "....x.......x...", perc: "x..x..x...x..x..", bass: [0, -1, -1, 0, -1, 5, -1, -1, 7, -1, 3, -1, 0, -1, 10, -1], chords: [0, 5, 7, 10], hook: [0, -1, 3, -1, 7, 5, -1, 3] },
+    { id: "trap", label: "Trap", tag: "trap", hard: false, swing: 0.05, kickDecay: 0.55, kickNoise: 0.01, hatTone: 0.84, kick: "x.........x.....", hat: "x.x.x.xxx.x.xxx.", snare: "....x.......x...", clap: "....x.......x...", perc: "x...x...x...x...", bass: [0, -1, -1, -1, 0, -1, 12, -1, -1, 7, -1, -1, 0, -1, 3, -1], chords: [0, 1, 5, 7], hook: [0, 1, 0, 7, 12, 7, 1, 0] },
+    { id: "lofi", label: "Lofi", tag: "lofi", hard: false, swing: 0.1, kickDecay: 0.46, kickNoise: 0.02, hatTone: 0.48, kick: "x....x..x.......", hat: "x.x.x.x.x.x.x.x.", snare: "....x......x.x..", clap: "....x.......x...", perc: "x..x...x..x...x.", bass: [0, -1, -1, 10, -1, -1, 3, -1, 0, -1, 5, -1, -1, 0, -1, -1], chords: [0, 5, 8, 3], hook: [0, -1, 3, 7, -1, -1, 10, 12] },
+    { id: "pop", label: "Pop", tag: "pop", hard: false, swing: 0.02, kickDecay: 0.28, kickNoise: 0.05, hatTone: 0.75, kick: "x...x...x...x...", hat: "x.x.x.x.x.x.x.x.", snare: "....x.......x...", clap: "....x...x...x...", perc: "..x...x...x...x.", bass: [0, -1, 7, -1, 0, -1, 5, -1, 3, -1, 7, -1, 0, -1, 10, -1], chords: [0, 7, 9, 5], hook: [0, 4, 7, 12, 9, 7, 4, 0] },
+    { id: "rock", label: "Rock", tag: "rock", hard: true, swing: 0, kickDecay: 0.2, kickNoise: 0.12, hatTone: 0.8, kick: "x...x...x...x...", hat: "x.x.x.x.x.x.x.x.", snare: "....x.......x...", clap: "....x.......x...", perc: "x..x..x..x..x..x", bass: [0, 0, 0, 0, 5, 5, 7, 7, 3, 3, 3, 5, 0, 0, 7, 0], chords: [0, 5, 7, 5], hook: [0, 3, 7, 8, 7, 5, 3, 0] },
+    { id: "funk", label: "Funk", tag: "funk", hard: false, swing: 0.09, kickDecay: 0.22, kickNoise: 0.07, hatTone: 0.78, kick: "x..x..x...x..x..", hat: "x.x.x.x.x.x.x.x.", snare: "....x.......x...", clap: "..x.....x...x...", perc: "x.x..x.x..x.x..x", bass: [0, -1, 0, 10, 0, 12, -1, 0, 5, -1, 7, 5, 3, 0, 10, 0], chords: [0, 5, 7, 10], hook: [0, 3, 5, 7, 10, 7, 5, 3] },
+    { id: "latin", label: "Latin", tag: "latin", hard: false, swing: 0.04, kickDecay: 0.2, kickNoise: 0.06, hatTone: 0.7, kick: "x..x...x..x...x.", hat: "x.x.x.x.x.x.x.x.", snare: "..x...x....x..x.", clap: "....x.......x...", perc: "x.xx.x.x.xx.x.x.", bass: [0, -1, 3, 0, -1, 7, 0, 3, 5, -1, 7, 5, 3, 0, 7, 0], chords: [0, 5, 7, 0], hook: [0, 3, 7, 10, 12, 10, 7, 3] },
+    { id: "reggae", label: "Reggae", tag: "reggae", hard: false, swing: 0.06, kickDecay: 0.34, kickNoise: 0.03, hatTone: 0.66, kick: "x.......x.......", hat: "..x...x...x...x.", snare: "....x.......x...", clap: "..x.....x...x...", perc: "..x...x...x...x.", bass: [0, -1, -1, 0, -1, 7, -1, 0, 3, -1, 5, -1, 0, -1, 7, -1], chords: [0, 5, 7, 5], hook: [0, -1, 7, -1, 3, 5, -1, 0] },
+    { id: "jazz", label: "Jazz", tag: "jazz", hard: false, swing: 0.12, kickDecay: 0.3, kickNoise: 0.04, hatTone: 0.55, kick: "x.....x.....x...", hat: "x.x.x.x.x.x.x.x.", snare: "....x..x....x..x", clap: "....x.......x...", perc: "x..x.x..x..x.x..", bass: [0, 2, 3, 5, 7, 5, 3, 2, 0, 10, 7, 5, 3, 2, 0, -1], chords: [0, 5, 7, 10], hook: [0, 4, 7, 11, 14, 11, 7, 4] },
+    { id: "breakbeat", label: "Breakbeat", tag: "breakbeat", hard: true, swing: 0.05, kickDecay: 0.22, kickNoise: 0.1, hatTone: 0.8, kick: "x...x..x....x...", hat: "x.x.x.x.x.x.xxx.", snare: "....x..x.x..x...", clap: "....x.......x...", perc: "..x.x...x..x.x..", bass: [0, -1, 0, 7, -1, 0, 12, -1, 3, 0, -1, 7, 0, 10, -1, 0], chords: [0, 3, 5, 7], hook: [0, 3, 7, 8, 7, 12, 8, 3] },
+    { id: "ambient", label: "Ambient", tag: "ambient", hard: false, swing: 0, kickDecay: 0.6, kickNoise: 0.01, hatTone: 0.4, kick: "x.......x.......", hat: "x.......x.......", snare: "........x.......", clap: "............x...", perc: "x...x.......x...", bass: [0, -1, -1, -1, 7, -1, -1, -1, 3, -1, -1, -1, 10, -1, -1, -1], chords: [0, 7, 3, 10], hook: [0, -1, 7, -1, 12, -1, 7, -1] },
+    { id: "garage", label: "Garage", tag: "garage", hard: false, swing: 0.07, kickDecay: 0.26, kickNoise: 0.05, hatTone: 0.86, kick: "x.........x.x...", hat: "..x..x..x...x.x.", snare: "....x.......x...", clap: "....x.......x...", perc: "..x...x....x..x.", bass: [0, -1, 0, -1, 12, -1, 7, 0, -1, 3, -1, 0, 10, -1, 0, -1], chords: [0, 8, 3, 10], hook: [0, 3, -1, 7, 12, -1, 7, 3] }
+  ]
+}
+
+fn pat(s) {
+  let steps = []
+  let i = 0
+  while (i < s.length && steps.length < 16) {
+    let c = s.charAt(i)
+    if (c === "x" || c === ".") {
+      steps.push(c === "x" ? 1 : 0)
+    }
+    i = i + 1
+  }
+  while (steps.length < 16) {
+    steps.push(0)
+  }
+  return steps
+}
+
+fn velOf(steps, accent, ghost, swing) {
+  let vel = []
+  let nudge = []
+  let prob = []
+  let i = 0
+  while (i < 16) {
+    let on = steps[i] === 1
+    vel.push(on ? (i % 4 === 0 ? accent : ghost) : 1)
+    let late = on && (i % 2 === 1) ? swing : 0
+    nudge.push(n3(late))
+    prob.push(on && i % 4 !== 0 ? 0.92 : 1)
+    i = i + 1
+  }
+  return { vel: vel, nudge: nudge, prob: prob }
+}
+
+fn pushBeat(out, style, role, pattern, accent, ghost) {
+  let steps = pat(pattern)
+  let locks = velOf(steps, accent, ghost, style.swing)
+  out.push({
+    id: "pack_beat_" + style.id + "_" + role,
+    kind: "beat",
+    role: role,
+    tags: [style.tag, role],
+    name: style.label + " " + role,
+    about: style.label + " " + role + " pattern. Load it on the selected track.",
+    steps: steps,
+    step_vel: locks.vel,
+    step_nudge: locks.nudge,
+    step_prob: locks.prob
+  })
+}
+
+export fn packBeats() {
+  let out = []
+  let styleset = styles()
+  let i = 0
+  while (i < styleset.length) {
+    let s = styleset[i]
+    pushBeat(out, s, "kick", s.kick, 120, 104)
+    pushBeat(out, s, "hat", s.hat, 96, 62)
+    pushBeat(out, s, "snare", s.snare, 118, 90)
+    pushBeat(out, s, "clap", s.clap, 114, 96)
+    pushBeat(out, s, "perc", s.perc, 92, 70)
+    i = i + 1
+  }
+  return out
+}
+
+fn inst(id, gen, role, tags, name, about, params) {
+  return { id: id, kind: "instrument", role: role, tags: tags, name: name, about: about, gen: gen, params: params }
+}
+
+export fn packInstruments() {
+  let g = gens()
+  let out = []
+  let styleset = styles()
+  let i = 0
+  while (i < styleset.length) {
+    let s = styleset[i]
+    let tags = [s.tag]
+    let k = 0
+    while (k < 3) {
+      out.push(inst(
+        "pack_kick_" + s.id + "_" + String(k),
+        g.drum, g.drum, tags.concat(["drums", "kick"]),
+        s.label + " Kick " + String(k + 1),
+        s.label + " kick. Shorter and clickier as the number goes up.",
+        { tone: "sine", pitch_env: Math.floor((s.hard ? 34 : 18) + k * 8), pitch_decay: n3(0.02 + k * 0.012), decay: n3(s.kickDecay + k * 0.05), noise: n3(s.kickNoise + k * 0.02), drive: n3((s.hard ? 0.18 : 0.04) + k * 0.1) }
+      ))
+      k = k + 1
+    }
+    let sn = 0
+    while (sn < 2) {
+      out.push(inst(
+        "pack_snare_" + s.id + "_" + String(sn),
+        g.drum, g.drum, tags.concat(["drums", "snare"]),
+        s.label + " Snare " + String(sn + 1),
+        s.label + " snare. The second one is tighter and noisier.",
+        { tone: sn === 0 ? "triangle" : "sine", pitch_env: 8 + sn * 6, pitch_decay: 0.02, decay: n3(0.16 - sn * 0.04), noise: n3(0.55 + sn * 0.2), noise_hp: 1400 + sn * 800, noise_decay: n3(0.1 + sn * 0.02), drive: n3(0.08 + sn * 0.1) }
+      ))
+      sn = sn + 1
+    }
+    out.push(inst(
+      "pack_hat_" + s.id + "_0",
+      g.hat, "hat", tags.concat(["drums", "hat"]),
+      s.label + " Hat",
+      s.label + " closed hat. Short noise burst.",
+      { attack: 0.001, decay: 0.03, tone: n3(s.hatTone), pitch_follow: 0.05 }
+    ))
+    out.push(inst(
+      "pack_hat_" + s.id + "_1",
+      g.hat, "hat", tags.concat(["drums", "hat"]),
+      s.label + " Open Hat",
+      s.label + " open hat. Longer decay, a bit darker.",
+      { attack: 0.002, decay: n3(0.14 + (s.hard ? 0 : 0.06)), tone: n3(clamp(s.hatTone - 0.15, 0.3, 0.95)), pitch_follow: 0.12 }
+    ))
+    out.push(inst(
+      "pack_clap_" + s.id,
+      g.clap, g.clap, tags.concat(["drums", "clap"]),
+      s.label + " Clap",
+      s.label + " clap. Wider and softer on the laid-back styles.",
+      { hands: s.hard ? 3 : 5, spread: n3(s.hard ? 0.22 : 0.48), size: n3(s.hard ? 0.3 : 0.5), tone: n3(s.hard ? 0.7 : 0.4), claps: s.swing > 0.06 ? 2 : 1, gap: 0.2, tail: n3(s.hard ? 0.18 : 0.4), body: 0.16 }
+    ))
+    out.push(inst(
+      "pack_perc_" + s.id,
+      g.drum, g.drum, tags.concat(["drums", "perc"]),
+      s.label + " Perc",
+      s.label + " percussion blip. Pan it off center.",
+      { tone: "triangle", pitch_env: 14, pitch_decay: 0.03, decay: 0.08, noise: 0.35, noise_hp: 2200, noise_decay: 0.05, drive: 0.05 }
+    ))
+    out.push(inst(
+      "pack_tom_" + s.id,
+      g.drum, g.drum, tags.concat(["drums", "tom"]),
+      s.label + " Tom",
+      s.label + " low tom.",
+      { tone: "sine", pitch_env: 20, pitch_decay: 0.05, decay: 0.32, noise: 0.08, drive: 0.06 }
+    ))
+    out.push(inst(
+      "pack_shaker_" + s.id,
+      g.hat, "hat", tags.concat(["drums", "shaker"]),
+      s.label + " Shaker",
+      s.label + " soft shaker. Keep the gain under the hat.",
+      { attack: 0.001, decay: 0.045, tone: n3(clamp(s.hatTone - 0.25, 0.25, 0.8)), pitch_follow: 0 }
+    ))
+    if (s.id === "acid") {
+      let a = 0
+      while (a < 3) {
+        out.push(inst(
+          "pack_acid_" + s.id + "_" + String(a),
+          g.acid, g.acid, tags.concat(["bass", "lead"]),
+          "Acid Line " + String(a + 1),
+          "303. " + (a === 0 ? "Screaming resonance." : (a === 1 ? "Rubber low end." : "Drier, sits in a mix.")),
+          { waveform: a === 1 ? "square" : "sawtooth", cutoff: 220 + a * 280, resonance: 22 - a * 4, env_mod: 7000 - a * 1800, decay: n3(0.16 + a * 0.16) }
+        ))
+        a = a + 1
+      }
+    }
+    out.push(inst(
+      "pack_sub_" + s.id,
+      g.sub, g.sub, tags.concat(["bass"]),
+      s.label + " Sub",
+      s.label + " sub bass. Root it with the kick.",
+      { punch: Math.floor(s.hard ? 52 : 22), decay: n3(s.hard ? 0.7 : 1.5), drive: n3(s.hard ? 0.22 : 0.05), glide: n3(s.swing > 0.06 ? 0.12 : 0.03) }
+    ))
+    out.push(inst(
+      "pack_bass_" + s.id,
+      s.id === "acid" ? g.acid : g.reese, s.id === "acid" ? g.acid : g.reese, tags.concat(["bass"]),
+      s.label + " Bass",
+      s.label + (s.id === "acid" ? " acid bass." : " mid bass. Detune and cutoff are the tone."),
+      s.id === "acid"
+        ? { waveform: "sawtooth", cutoff: 480, resonance: 16, env_mod: 3600, decay: 0.4 }
+        : { voices: s.hard ? 4 : 2, detune: s.hard ? 28 : 12, cutoff: s.hard ? 1400 : 700, wobble: n3(s.id === "dnb" || s.id === "techno" ? 0.35 : 0), decay: n3(s.hard ? 0.9 : 1.3) }
+    ))
+    out.push(inst(
+      "pack_pad_" + s.id,
+      g.pad, g.pad, tags.concat(["pad", "keys"]),
+      s.label + " Pad",
+      s.label + " pad. Slow attack on the soft styles, a stab envelope on the hard ones.",
+      { wave1: s.hard ? "sawtooth" : "triangle", wave2: s.hard ? "square" : "sine", detune: s.hard ? 18 : 7, cutoff: s.hard ? 2800 : 900, attack: n3(s.hard ? 0.02 : 0.7), decay: n3(s.hard ? 0.25 : 0.9), sustain: n3(s.hard ? 0.35 : 0.78), release: n3(s.hard ? 0.3 : 2.2) }
+    ))
+    out.push(inst(
+      "pack_keys_" + s.id,
+      s.swing > 0.05 ? g.tine : g.fm, s.swing > 0.05 ? g.tine : g.fm, tags.concat(["keys"]),
+      s.label + " Keys",
+      s.label + (s.swing > 0.05 ? " electric piano." : " FM keys."),
+      s.swing > 0.05
+        ? { bark: n3(s.hard ? 0.4 : 0.2), tine: n3(0.35 + (s.hard ? 0.2 : 0)), tremolo: n3(s.swing), decay: n3(s.hard ? 0.4 : 0.8), drive: 0.08 }
+        : { ratio: 1, mod_index: s.hard ? 3.5 : 1.6, carrier_wave: "sine", mod_wave: "sine", attack: 0.006, decay: 0.45, sustain: 0.2, release: 0.4 }
+    ))
+    out.push(inst(
+      "pack_pluck_" + s.id,
+      g.osc, g.osc, tags.concat(["lead", "pluck"]),
+      s.label + " Pluck",
+      s.label + " short pluck.",
+      { waveform: s.hard ? "sawtooth" : "triangle", attack: 0.002, decay: n3(s.hard ? 0.1 : 0.18), sustain: 0.08, release: 0.16 }
+    ))
+    out.push(inst(
+      "pack_lead_" + s.id,
+      g.osc, g.osc, tags.concat(["lead"]),
+      s.label + " Lead",
+      s.label + " sustained lead.",
+      { waveform: s.hard ? "sawtooth" : "square", attack: 0.015, decay: 0.2, sustain: 0.72, release: 0.25 }
+    ))
+    i = i + 1
+  }
+  let g2 = gens()
+  out.push(inst("pack_gtr_clean", g2.guitar, g2.guitar, ["rock", "pop", "keys"], "Clean Guitar", "Light electric. Palm-mute it by shortening notes.", { tone: 0.58, decay: 0.62, damping: 0.32, drive: 0.08, body: 3600, mute: 0.05 }))
+  out.push(inst("pack_gtr_mute", g2.guitar, g2.guitar, ["funk", "rock"], "Muted Guitar", "Short, damped pluck for funky sixteenths.", { tone: 0.34, decay: 0.22, damping: 0.7, drive: 0.2, body: 2400, mute: 0.75 }))
+  out.push(inst("pack_gtr_jazz", g2.guitar, g2.guitar, ["jazz", "lofi"], "Jazz Guitar", "Rounder body, almost no drive.", { tone: 0.48, decay: 0.7, damping: 0.4, drive: 0.02, body: 3000, mute: 0.15 }))
+  out.push(inst("pack_bell_soft", g2.bell, g2.bell, ["ambient", "lofi", "pop"], "Soft Bell", "Short metallic partial. Sparse notes only.", { partial: 2.8, highpass: 900, decay: 1.6 }))
+  out.push(inst("pack_bell_glass", g2.bell, g2.bell, ["ambient", "edm"], "Glass Bell", "Higher partial, longer ring.", { partial: 4.2, highpass: 1600, decay: 2.4 }))
+  out.push(inst("pack_halo_air", g2.halo, g2.halo, ["ambient", "lofi"], "Air Halo", "Slow bloom, low mallet. A bed, not a lead.", { temper: 0.25, ring: 0.7, mallet: 0.15, bloom: 0.8, lows: 0.55 }))
+  out.push(inst("pack_aether_drift", g2.aether, g2.aether, ["ambient", "techno"], "Drift", "Wavering tone for intros.", { glide: 0.55, waver: 0.7, tone: 0.28, swell: 0.6, air: 0.45 }))
+  out.push(inst("pack_strings", g2.arco, g2.arco, ["pop", "ambient", "jazz"], "Solo Strings", "Bowed cello, light vibrato.", { voice: "cello", pressure: 0.5, bow: 0.4, vibrato: 0.35, rosin: 0.15, body: 0.7 }))
+  out.push(inst("pack_violin", g2.arco, g2.arco, ["pop", "jazz"], "Solo Violin", "Higher bow pressure. One note at a time.", { voice: "violin", pressure: 0.58, bow: 0.48, vibrato: 0.45, rosin: 0.22, body: 0.6 }))
+  return out
+}
+
+fn eventsFrom(degs, step, dur, vel) {
+  let events = []
+  let i = 0
+  while (i < degs.length) {
+    if (degs[i] >= 0) {
+      events.push({ deg: degs[i], start: n3(i * step), dur: dur, vel: vel - (i % 2) * 8 })
+    }
+    i = i + 1
+  }
+  return events
+}
+
+export fn packSequences() {
+  let out = []
+  let styleset = styles()
+  let i = 0
+  while (i < styleset.length) {
+    let s = styleset[i]
+    let bassBars = s.bass.length > 8 ? 2 : 1
+    out.push({
+      id: "pack_seq_" + s.id + "_bass",
+      kind: "sequence",
+      role: "bass",
+      tags: [s.tag, "bass"],
+      name: s.label + " Bassline",
+      about: s.label + " bass. Degrees are semitones above the root you pass in.",
+      bars: bassBars,
+      defaultRoot: s.hard ? 33 : 36,
+      events: eventsFrom(s.bass, 0.25, 0.2, 108)
+    })
+    out.push({
+      id: "pack_seq_" + s.id + "_chords",
+      kind: "sequence",
+      role: "chords",
+      tags: [s.tag, "chords"],
+      name: s.label + " Chords",
+      about: s.label + " changes, one chord a bar, min7. Move the root to change key.",
+      bars: 4,
+      defaultRoot: 57,
+      chord: "min7",
+      octave: -1,
+      events: eventsFrom(s.chords, 4, 3.5, 74)
+    })
+    out.push({
+      id: "pack_seq_" + s.id + "_hook",
+      kind: "sequence",
+      role: "lead",
+      tags: [s.tag, "lead"],
+      name: s.label + " Hook",
+      about: s.label + " hook over two bars. Rests are part of the line.",
+      bars: 2,
+      defaultRoot: s.tag === "lofi" || s.tag === "jazz" ? 67 : 72,
+      events: eventsFrom(s.hook, 0.5, 0.35, 100)
+    })
+    i = i + 1
+  }
+  return out
+}
+
+export fn packKits() {
+  let out = []
+  let styleset = styles()
+  let i = 0
+  while (i < styleset.length) {
+    let s = styleset[i]
+    let bassPreset = s.id === "acid" ? "pack_acid_acid_0" : "pack_sub_" + s.id
+    let bassSeq = "pack_seq_" + s.id + "_bass"
+    out.push({
+      id: "pack_kit_" + s.id,
+      kind: "kit",
+      role: s.id,
+      tags: [s.tag, "kit"],
+      name: s.label + " Kit",
+      about: s.label + " starter: kick, hat, clap, bass, pad, and a hook. Adds tracks. Then change the root.",
+      parts: [
+        { id: "kick", name: "Kick", preset: "pack_kick_" + s.id + "_0", beat: "pack_beat_" + s.id + "_kick", gain: 0.88 },
+        { id: "hat", name: "Hat", preset: "pack_hat_" + s.id + "_0", beat: "pack_beat_" + s.id + "_hat", gain: 0.36, pan: 0.22 },
+        { id: "clap", name: "Clap", preset: "pack_clap_" + s.id, beat: "pack_beat_" + s.id + "_clap", gain: 0.6 },
+        { id: "bass", name: "Bass", preset: bassPreset, sequence: bassSeq, gain: 0.74 },
+        { id: "pad", name: "Pad", preset: "pack_pad_" + s.id, sequence: "pack_seq_" + s.id + "_chords", gain: 0.3 },
+        { id: "hook", name: "Hook", preset: "pack_pluck_" + s.id, sequence: "pack_seq_" + s.id + "_hook", gain: 0.42 }
+      ]
+    })
+    i = i + 1
+  }
+  return out
+}

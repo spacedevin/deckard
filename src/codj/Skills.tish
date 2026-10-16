@@ -22,13 +22,24 @@ export fn skillIdsAllowMaster(skillIds) {
 }
 
 /**
+ * True for a top-level head that changes the whole session. The master browser (the DAW tab that hosts
+ * the room) and an AI host added in that browser hold master_mixer and may emit these. A client lane may not.
+ * Track placement (`deck B slot 1`) is not in this list — that is body of an owned track. The document
+ * headers `deck 1` / `tpl 2` are handled by the caller (a single token after the word).
+ * Keep this list in lockstep with docs/DJ_SKILLS.md, docs/DECK_AGENT_GRAMMAR.md, and Gate.tish.
+ */
+export fn isCoDjMasterHead(h) {
+  return h === "bpm" || h === "auto" || h === "transpose" || h === "master_mix" || h === "actor_mix" ||
+    h === "session_scenes" || h === "session_slot" || h === "clip" || h === "scale" || h === "swing" ||
+    h === "xfade" || h === "deck_mix" || h === "launch_quant" || h === "song_seed" || h === "main_deck" ||
+    h === "song" || h === "follow"
+}
+
+/**
  * Check if an actor with skillIds may emit this deck line.
  * Global / master-scope lines require the master_mixer skill; everything else is allowed (per-track
- * ownership is enforced separately by Merge.tish:actorMayEditTrack). Master-scope = anything that changes
- * the WHOLE session for every player: bpm, tpl re-header, auto, transpose, master_mix, actor_mix,
- * session_scenes/session_slot, clip, AND the global key/groove (scale, swing) — a co-DJ lane must not
- * re-key or re-shuffle the whole mix out from under the host. Keep this list in lockstep with
- * docs/DJ_SKILLS.md and the agent SYSTEM_PROMPT (services/agent-worker/main.tish).
+ * ownership is enforced separately by Merge.tish:actorMayEditTrack). A client lane must not re-key
+ * or re-shuffle the whole mix. The host in the master browser may.
  */
 export fn coDjLineAllowedForSkills(line, skillIds) {
   let t = line.trim()
@@ -37,21 +48,15 @@ export fn coDjLineAllowedForSkills(line, skillIds) {
   }
   let sp = t.indexOf(" ")
   let h = sp < 0 ? t : t.substring(0, sp)
-  if (
-    h === "bpm" ||
-    h === "deck" ||
-    h === "tpl" ||
-    h === "auto" ||
-    h === "transpose" ||
-    h === "master_mix" ||
-    h === "actor_mix" ||
-    h === "session_scenes" ||
-    h === "session_slot" ||
-    h === "clip" ||
-    h === "scale" ||
-    h === "swing"
-  ) {
+  if (isCoDjMasterHead(h)) {
     return skillIdsAllowMaster(skillIds)
+  }
+  // `deck 1` / `tpl 2` are the document headers (master). `deck B slot 1` is track placement.
+  if (h === "deck" || h === "tpl") {
+    let rest = sp < 0 ? "" : t.substring(sp + 1).trim()
+    if (rest.indexOf(" ") < 0) {
+      return skillIdsAllowMaster(skillIds)
+    }
   }
   return true
 }
@@ -73,6 +78,8 @@ fn skillHumanOk(id) {
 }
 
 fn skillAiOk(id) {
+  // Not the live gate. The gate uses declared skillIds: a host agent in the master browser holds
+  // master_mixer, a client agent does not. Do not consult this id-shape check for that decision.
   if (id === "master_mixer" || id === "transpose_track" || id === "promote_song" || id === "remove_track") return false
   if (id === "add_track" || id === "adjust_instrument" || id === "pattern_steps" || id === "pattern_piano" || id === "channel_mix") return true
   return false

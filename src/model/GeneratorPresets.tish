@@ -539,6 +539,182 @@ export fn generatorFactoryPresets() {
       name: "Pulse Chug",
       generatorId: "gbaDirectSound",
       params: { waveform: "pulse", duty: "25", attack: 0, decay: 0.1, sustain: 0, release: 0.2, bitcrush: true }
+    },
+
+    // ──── LOFI ───────────────────────────────────────────────────
+    {
+      presetId: "factory_lofi_rhodes",
+      name: "Dusty Rhodes",
+      generatorId: "tine",
+      genre: "lofi",
+      params: { bark: 0.22, tine: 0.3, tremolo: 0.42, decay: 0.9, drive: 0.08 }
+    },
+    {
+      presetId: "factory_lofi_keys",
+      name: "Muffled Keys",
+      generatorId: "tine",
+      genre: "lofi",
+      params: { bark: 0.12, tine: 0.18, tremolo: 0.18, decay: 0.38, drive: 0.04 }
+    },
+    {
+      presetId: "factory_lofi_pad",
+      name: "Tape Pad",
+      generatorId: "pad",
+      genre: "lofi",
+      params: { wave1: "triangle", wave2: "sine", detune: 6, cutoff: 680, attack: 0.9, decay: 1.1, sustain: 0.72, release: 2.6 }
+    },
+    {
+      presetId: "factory_lofi_guitar",
+      name: "Dusty Pluck",
+      generatorId: "guitar",
+      genre: "lofi",
+      params: { tone: 0.38, decay: 0.42, damping: 0.52, drive: 0.1, body: 2200, mute: 0.4 }
+    },
+    {
+      presetId: "factory_lofi_sub",
+      name: "Soft Sub",
+      generatorId: "sub808",
+      genre: "lofi",
+      params: { punch: 16, decay: 1.7, drive: 0.04, glide: 0.14 }
+    },
+    {
+      presetId: "factory_lofi_ep",
+      name: "Wobbly EP",
+      generatorId: "fmTone",
+      genre: "lofi",
+      params: { ratio: 1, modIndex: 1.5, carrierWave: "sine", modWave: "sine", attack: 0.012, decay: 0.5, sustain: 0.18, release: 0.7 }
+    },
+    {
+      presetId: "factory_lofi_pluck",
+      name: "Soft Pluck",
+      generatorId: "basicOsc",
+      genre: "lofi",
+      params: { waveform: "triangle", attack: 0.004, decay: 0.16, sustain: 0, release: 0.28 }
+    },
+    {
+      presetId: "factory_lofi_kick",
+      name: "Dusty Kick",
+      generatorId: "drumSynth",
+      genre: "lofi",
+      params: { tone: "sine", pitchEnv: 20, pitchDecay: 0.09, decay: 0.48, noise: 0.02, drive: 0.04 }
+    },
+    {
+      presetId: "factory_lofi_snare",
+      name: "Brush Snare",
+      generatorId: "drumSynth",
+      genre: "lofi",
+      params: { tone: "triangle", pitchEnv: 6, pitchDecay: 0.02, decay: 0.14, noise: 0.72, noiseHp: 1600, noiseDecay: 0.12, drive: 0.06 }
+    },
+    {
+      presetId: "factory_lofi_clap",
+      name: "Room Clap",
+      generatorId: "clap",
+      genre: "lofi",
+      params: { hands: 3, spread: 0.5, size: 0.45, tone: 0.32, claps: 2, gap: 0.28, tail: 0.5, body: 0.08 }
+    },
+
+    // ──── HOUSE ──────────────────────────────────────────────────
+    {
+      presetId: "factory_house_stab",
+      name: "House Stab",
+      generatorId: "pad",
+      genre: "house",
+      params: { wave1: "sawtooth", wave2: "square", detune: 5, cutoff: 2600, attack: 0.004, decay: 0.16, sustain: 0.15, release: 0.12 }
+    },
+    {
+      presetId: "factory_house_pad",
+      name: "Deep Pad",
+      generatorId: "pad",
+      genre: "house",
+      params: { wave1: "triangle", wave2: "sawtooth", detune: 16, cutoff: 1500, attack: 0.45, decay: 0.7, sustain: 0.82, release: 1.8 }
+    },
+    {
+      presetId: "factory_house_bass",
+      name: "Pump Bass",
+      generatorId: "sub808",
+      genre: "house",
+      params: { punch: 40, decay: 0.48, drive: 0.14, glide: 0.02 }
+    },
+    {
+      presetId: "factory_house_kick",
+      name: "House Kick",
+      generatorId: "drumSynth",
+      genre: "house",
+      params: { tone: "sine", pitchEnv: 44, pitchDecay: 0.028, decay: 0.26, noise: 0.06, drive: 0.28 }
+    },
+    {
+      presetId: "factory_house_clap",
+      name: "House Clap",
+      generatorId: "clap",
+      genre: "house",
+      params: { hands: 4, spread: 0.28, size: 0.32, tone: 0.72, claps: 1, gap: 0.14, tail: 0.18, body: 0.22 }
+    },
+
+    // ──── ACID ───────────────────────────────────────────────────
+    {
+      presetId: "factory_acid_scream",
+      name: "Acid Scream",
+      generatorId: "acid303",
+      genre: "acid",
+      params: { waveform: "sawtooth", cutoff: 260, resonance: 24, envMod: 7600, decay: 0.15 }
+    },
+    {
+      presetId: "factory_acid_rubber",
+      name: "Rubber Bass",
+      generatorId: "acid303",
+      genre: "acid",
+      params: { waveform: "square", cutoff: 170, resonance: 20, envMod: 4400, decay: 0.58 }
+    },
+    {
+      presetId: "factory_acid_dry",
+      name: "Dry 303",
+      generatorId: "acid303",
+      genre: "acid",
+      params: { waveform: "sawtooth", cutoff: 980, resonance: 11, envMod: 2200, decay: 0.26 }
+    },
+
+    // ──── EDM ────────────────────────────────────────────────────
+    {
+      presetId: "factory_edm_supersaw",
+      name: "Supersaw",
+      generatorId: "pad",
+      genre: "edm",
+      params: { wave1: "sawtooth", wave2: "square", detune: 24, cutoff: 3400, attack: 0.28, decay: 0.45, sustain: 0.88, release: 1.3 }
+    },
+    {
+      presetId: "factory_edm_pluck",
+      name: "Trance Pluck",
+      generatorId: "basicOsc",
+      genre: "edm",
+      params: { waveform: "sawtooth", attack: 0.002, decay: 0.11, sustain: 0.12, release: 0.16 }
+    },
+    {
+      presetId: "factory_edm_lead",
+      name: "Festival Lead",
+      generatorId: "basicOsc",
+      genre: "edm",
+      params: { waveform: "sawtooth", attack: 0.02, decay: 0.18, sustain: 0.78, release: 0.28 }
+    },
+    {
+      presetId: "factory_edm_reese",
+      name: "Wide Reese",
+      generatorId: "reeseBass",
+      genre: "edm",
+      params: { voices: 4, detune: 30, cutoff: 1500, wobble: 0.32, decay: 1.05 }
+    },
+    {
+      presetId: "factory_edm_sub",
+      name: "Drop Sub",
+      generatorId: "sub808",
+      genre: "edm",
+      params: { punch: 66, decay: 0.8, drive: 0.32, glide: 0.04 }
+    },
+    {
+      presetId: "factory_edm_kick",
+      name: "Drop Kick",
+      generatorId: "drumSynth",
+      genre: "edm",
+      params: { tone: "sine", pitchEnv: 50, pitchDecay: 0.022, decay: 0.2, noise: 0.04, drive: 0.42 }
     }
   ]
 

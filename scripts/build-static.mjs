@@ -36,6 +36,7 @@ copy('dist/bundle.js', 'dist/bundle.js')
 
 // Workers + audio worklets the app loads from the web root ("/...").
 copy('scope-worker.js', 'scope-worker.js')
+copy('codj-worker.js', 'codj-worker.js')
 copy('clock-worklet.js', 'clock-worklet.js')
 copy('scratch-worklet.js', 'scratch-worklet.js')
 

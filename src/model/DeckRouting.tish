@@ -108,9 +108,15 @@ export fn channelPlayerIndex(project, ch) {
     }
     return 0
   }
-  // A GUEST-owned track ALWAYS lives on that guest's own deck. A stray deck slot — e.g. a "+ TRACK" that
-  // defaulted to slot 0, or an inherited DeckSet slot — must NEVER pin a non-host's track onto the host's
-  // Deck A. Ownership is the source of truth in a live session, so deckSlot cannot override it for guests.
+  // A GUEST-owned track lives on that guest's own deck. A stray deck slot — e.g. a "+ TRACK" that defaulted to
+  // slot 0, or an inherited DeckSet slot — must NEVER pin a non-host's track onto another player's deck. A slot
+  // on a deck no player holds (index past the roster) is honoured, so a guest DJ can stage a second song there.
+  if (ch.deckSlot !== null) {
+    let gs = Math.floor(Number(ch.deckSlot))
+    if (gs >= players.length && gs <= 3 && gs === gs) {
+      return gs
+    }
+  }
   return oi
 }
 
