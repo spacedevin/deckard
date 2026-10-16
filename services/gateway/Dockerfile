@@ -15,9 +15,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm pkg-
 
 # Just the compiler. npm runs @tishlang/tish's postinstall (places the Linux binary) by default.
 # Keep this version in sync with package.json's @tishlang/tish range.
-RUN npm install --no-save --no-package-lock @tishlang/tish@2.12.0
+RUN npm install --no-save --no-package-lock @tishlang/tish@3.10.3
 
-# The gateway imports only built-in modules (tish:ws, tish:process) — this one file is the whole program.
+# The gateway imports only built-in modules (tish:ws, tish:process, http — the latter verifies Hypery sign-in
+# tokens against $HYPERY_URL/api/user/me) — this one file is the whole program. distroless/cc ships CA certs.
 # `cranelift` is the native backend that compiles real-world tish: it embeds bytecode + the VM runtime, so
 # it sidesteps the default `rust` backend's codegen bug (E0382 move-of-reused-let — tishlang/tish#328).
 COPY services/gateway/main.tish main.tish

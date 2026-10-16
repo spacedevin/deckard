@@ -1,0 +1,146 @@
+// Co-DJ transports — how a runtime reaches the room. All three expose the same shape:
+//   { send(frameObj), onMessage(cb(frameObj)), onOpen(cb), onClose(cb), close(), kind }
+//
+//   wsTransport(url)        the gateway (browser worker or Node ≥ 22: global WebSocket); auto-reconnects
+//   portTransport(port)     a MessagePort / Worker / worker `self` (browser loopback to the host page)
+//   localPair()             two in-memory ends wired to each other (tests, in-process hosts)
+
+fn makeHub() {
+  let subs = { message: [], open: [], close: [] }
+  fn on(kind, cb) {
+    subs[kind].push(cb)
+  }
+  fn fire(kind, arg) {
+    let list = subs[kind]
+    let i = 0
+    while (i < list.length) {
+      list[i](arg)
+      i = i + 1
+    }
+  }
+  return { on: on, fire: fire }
+}
+
+fn parseFrame(data) {
+  if (typeof data === "string") {
+    try {
+      return JSON.parse(data)
+    } catch (e) {
+      return null
+    }
+  }
+  return data
+}
+
+/** Gateway WebSocket with capped exponential reconnect (opts.reconnect false disables). */
+export fn wsTransport(url, opts) {
+  let o = opts !== null ? opts : {}
+  let hub = makeHub()
+  let ws = null
+  let closed = false
+  let backoff = 500
+  let outbox = []
+
+  fn connect() {
+    ws = new globalThis.WebSocket(url)
+    ws.onopen = () => {
+      backoff = 500
+      hub.fire("open", null)
+      let q = outbox
+      outbox = []
+      let i = 0
+      while (i < q.length) {
+        ws.send(q[i])
+        i = i + 1
+      }
+    }
+    ws.onmessage = (ev) => {
+      let m = parseFrame(ev.data)
+      if (m !== null && m.type !== "ping") {
+        hub.fire("message", m)
+      }
+    }
+    ws.onclose = () => {
+      hub.fire("close", null)
+      if (!closed && o.reconnect !== false) {
+        setTimeout(connect, backoff)
+        backoff = Math.min(backoff * 2, 15000)
+      }
+    }
+    ws.onerror = () => {}
+  }
+  connect()
+
+  return {
+    kind: "ws",
+    send: (frame) => {
+      let s = JSON.stringify(frame)
+      if (ws !== null && ws.readyState === 1) {
+        ws.send(s)
+      } else if (frame && frame.type !== "join") {
+        outbox.push(s)
+      }
+    },
+    onMessage: (cb) => hub.on("message", cb),
+    onOpen: (cb) => hub.on("open", cb),
+    onClose: (cb) => hub.on("close", cb),
+    close: () => {
+      closed = true
+      if (ws !== null) {
+        ws.close()
+      }
+    }
+  }
+}
+
+/** A MessagePort-like endpoint (postMessage + onmessage). Already "open". */
+export fn portTransport(port) {
+  let hub = makeHub()
+  port.onmessage = (ev) => {
+    let m = parseFrame(ev.data)
+    if (m !== null && m.codj !== null) {
+      hub.fire("message", m.codj)
+    }
+  }
+  setTimeout(() => hub.fire("open", null), 0)
+  return {
+    kind: "port",
+    send: (frame) => port.postMessage({ codj: frame }),
+    onMessage: (cb) => hub.on("message", cb),
+    onOpen: (cb) => hub.on("open", cb),
+    onClose: (cb) => hub.on("close", cb),
+    close: () => hub.fire("close", null)
+  }
+}
+
+/** Two connected in-memory ends: { a, b }. Delivery is synchronous unless opts.deferred. Frames are JSON-cloned. */
+export fn localPair(opts) {
+  let o = opts !== null ? opts : {}
+  let hubA = makeHub()
+  let hubB = makeHub()
+  fn deliver(hub, frame) {
+    let copy = JSON.parse(JSON.stringify(frame))
+    if (o.deferred === true) {
+      setTimeout(() => hub.fire("message", copy), 0)
+    } else {
+      hub.fire("message", copy)
+    }
+  }
+  fn end(mine, other) {
+    return {
+      kind: "local",
+      send: (frame) => deliver(other, frame),
+      onMessage: (cb) => mine.on("message", cb),
+      onOpen: (cb) => {
+        mine.on("open", cb)
+        setTimeout(() => cb(null), 0)
+      },
+      onClose: (cb) => mine.on("close", cb),
+      close: () => {
+        mine.fire("close", null)
+        other.fire("close", null)
+      }
+    }
+  }
+  return { a: end(hubA, hubB), b: end(hubB, hubA) }
+}

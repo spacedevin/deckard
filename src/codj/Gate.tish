@@ -1,0 +1,169 @@
+import { parseProgram } from '@spacedevin/deck'
+// Edit gate report: which lines of a deck fragment an actor's apply would DROP, and why. The fold itself
+// (Merge.applyCoDjTplSource + Launch.applyLaunchDirective) skips denied lines silently; this mirrors its rules
+// so the host can publish an `edit.result` and an agent can dry-run (`deck.preview`) before sending.
+// Must be computed BEFORE the apply — ownership of a brand-new track changes once it lands.
+
+import { actorMayEditTrack, laneCanMaster } from './Merge.tish'
+import { isLaunchDirective, isPrivateDirective } from './Launch.tish'
+import { isCoDjMasterHead } from './Skills.tish'
+
+fn headOf(line) {
+  let t = String(line).trim()
+  let sp = t.indexOf(" ")
+  return sp < 0 ? t : t.substring(0, sp)
+}
+
+fn words(line) {
+  let out = []
+  let parts = String(line).trim().split(" ")
+  let i = 0
+  while (i < parts.length) {
+    let w = parts[i].trim()
+    if (w.length > 0) {
+      out.push(w)
+    }
+    i = i + 1
+  }
+  return out
+}
+
+fn isIndented(ln) {
+  return ln.length > 0 && (ln.charAt(0) === " " || ln.charAt(0) === "\t")
+}
+
+// The id of a `track <name> id <id> gen …` header (positional: the token after the LAST " id " before " gen ").
+fn headerTrackId(line) {
+  let t = String(line).trim()
+  let genIdx = t.indexOf(" gen ")
+  let head = genIdx >= 0 ? t.substring(0, genIdx) : t
+  let idIdx = head.lastIndexOf(" id ")
+  if (idIdx < 0) {
+    return null
+  }
+  let rest = head.substring(idIdx + 4).trim()
+  let sp = rest.indexOf(" ")
+  return sp < 0 ? rest : rest.substring(0, sp)
+}
+
+// Launch directives the receiver ignores for a non-master lane. `@ launch track` / `@ deck` are ownership-gated
+// per deck/track at apply time; scene / transport / throw / fx need master.
+fn directiveNeedsMaster(line) {
+  let toks = words(line)
+  let verb = toks.length >= 2 ? toks[1] : ""
+  if (verb === "transport" || verb === "throw" || verb === "fx") {
+    return true
+  }
+  if (verb === "launch" && toks.length >= 3 && (toks[2] === "scene" || toks[2] === "deck")) {
+    return true
+  }
+  return false
+}
+
+/**
+ * Report what `actorId` (with `skillIds`) would have dropped from `source` against `project`.
+ * Returns { accepted: number, rejected: [{ line, code, reason }] } where code is one of
+ * SKILL_DENIED (master-scope line without master_mixer), NOT_OWNER (track owned by someone else / master-locked),
+ * PARSE_FAIL (the language rejected the line), PRIVATE (a local-only directive that never leaves the machine).
+ */
+export fn coDjGateReport(project, source, actorId, skillIds) {
+  let rejected = []
+  let accepted = 0
+  let src = String(source === null ? "" : source)
+  let lines = src.split("\n")
+  let canMaster = laneCanMaster(actorId, skillIds)
+  let parseSrc = src
+  let offset = 0
+  if (src.trim().indexOf("deck ") !== 0 && src.trim().indexOf("tpl ") !== 0) {
+    parseSrc = "deck 1\n" + src
+    offset = 1
+  }
+  let parsed = parseProgram(parseSrc)
+  let errLines = {}
+  let ei = 0
+  while (ei < parsed.errors.length) {
+    let e = parsed.errors[ei]
+    let ln = Math.floor(Number(e.line)) - offset
+    if (ln >= 1 && ln <= lines.length) {
+      errLines[ln] = e.msg !== null ? String(e.msg) : "parse error"
+    }
+    ei = ei + 1
+  }
+  let inDenied = false
+  let i = 0
+  while (i < lines.length) {
+    let raw = lines[i]
+    let t = raw.trim()
+    let lineNo = i + 1
+    i = i + 1
+    if (t.length === 0 || t.charAt(0) === "#") {
+      continue
+    }
+    if (errLines[lineNo] !== null) {
+      rejected.push({ line: t, code: "PARSE_FAIL", reason: errLines[lineNo] })
+      continue
+    }
+    if (isIndented(raw)) {
+      if (inDenied) {
+        continue
+      }
+      accepted = accepted + 1
+      continue
+    }
+    inDenied = false
+    let h = headOf(t)
+    if ((h === "deck" || h === "tpl") && words(t).length === 2) {
+      continue
+    }
+    if (h === "@") {
+      if (isPrivateDirective(t)) {
+        rejected.push({ line: t, code: "PRIVATE", reason: "cue/preview directives stay on the sender's machine" })
+      } else if (isLaunchDirective(t) && directiveNeedsMaster(t) && !canMaster) {
+        rejected.push({ line: t, code: "SKILL_DENIED", reason: "needs master_mixer" })
+      } else {
+        accepted = accepted + 1
+      }
+      continue
+    }
+    if (isCoDjMasterHead(h)) {
+      if (canMaster) {
+        accepted = accepted + 1
+      } else {
+        rejected.push({ line: t, code: "SKILL_DENIED", reason: "'" + h + "' is master-scope (needs master_mixer)" })
+      }
+      continue
+    }
+    if (h === "track") {
+      let id = headerTrackId(t)
+      let exists = false
+      let ci = 0
+      while (ci < project.channels.length) {
+        if (String(project.channels[ci].id) === String(id)) {
+          exists = true
+        }
+        ci = ci + 1
+      }
+      if (id !== null && !actorMayEditTrack(project, id, actorId, !exists)) {
+        let meta = project.coDjMeta && project.coDjMeta.tracks ? project.coDjMeta.tracks[id] : null
+        let owner = meta && meta.ownerActorId ? String(meta.ownerActorId) : "?"
+        let why = meta && meta.masterLock ? "track is master-locked" : "track is owned by " + owner
+        rejected.push({ line: t, code: "NOT_OWNER", reason: why })
+        inDenied = true
+      } else {
+        accepted = accepted + 1
+      }
+      continue
+    }
+    if (h === "remove_track") {
+      let rid = t.substring(13).trim()
+      if (canMaster || actorMayEditTrack(project, rid, actorId, false)) {
+        accepted = accepted + 1
+      } else {
+        rejected.push({ line: t, code: "NOT_OWNER", reason: "only the owner or a master may remove " + rid })
+      }
+      continue
+    }
+    accepted = accepted + 1
+  }
+  return { accepted: accepted, rejected: rejected }
+}

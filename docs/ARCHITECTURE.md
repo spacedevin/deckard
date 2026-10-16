@@ -199,22 +199,22 @@ The collaboration layer (`src/codj/`) is the differentiator. A **session** is a 
 ### The end-to-end happy path
 
 ```
-agent worker                      gateway                         browser (host)
-─────────────                     ───────                         ──────────────
-join (skillIds)  ───────────────▶  room/presence  ◀─────────────  join (Connect)
-                                                                   Play → stream project as deck.line
-buffer peer deck.line  ◀────────── fanout (+skillIds) ◀──────────── deck.line per line (throttled)
-debounce → snapshot buffer
-  → callLLM → deck lines
-deck.stream_chunk (live tokens) ──▶ fanout ──────────────────────▶ "Hub → you" preview
-deck.block @ effectivePerfStep ───▶ fanout ──────────────────────▶ schedule → apply on that step
-                                                                   merge (ownership/skills) → synth → sound
+co-DJ (worker / CLI / MCP)        gateway                         browser (host)
+──────────────────────────        ───────                         ──────────────
+join (token, skillIds) ─────────▶  verify Hypery token, room  ◀──  join (Connect, signed in)
+mirror ◀── state.snapshot ◀──────  fanout + replay ring  ◀────────  keyframe (on join / debounced)
+mirror ◀── deck.delta (rev) ◀────  fanout  ◀──────────────────────  every accepted edit, as deck
+clock  ◀── control tick/clock ◀──  fanout  ◀──────────────────────  Play → beat ticks, bar clocks
+script onBar/onBeat → codj.* write
+  gate report (skills/ownership)
+deck.block @ next bar ───────────▶ fanout ──────────────────────▶ schedule → gated fold on that step
+                      ◀──────────  edit.result + deck.delta  ◀──  (applied / rejected + why)
+agent (Hypery SDK) rewrites the script on chat / every N bars / on script errors
 ```
 
-Humans stream **`deck.line`** (decoded incrementally); agents commit **`deck.block`** scheduled to a
-future bar. The worker only collapses the rolling stream into a single prompt **at the LLM boundary**
-— everything on the wire stays a stream. With no `GRADIENT_MODEL_ACCESS_KEY`, the worker falls back to
-a built-in demo patch so the loop is exercisable offline.
+The host publishes **everything** as deck (deltas of every accepted edit, plus periodic snapshots), so a co-DJ's
+mirror is the same fold the host plays. Agents commit **`deck.block`**s quantised to a bar; most of them come from
+the agent's **script** rather than from a model turn, so the music keeps moving between LLM calls.
 
 ---
 
@@ -242,12 +242,39 @@ model/schedule/audio; UI files are layout + wiring.**
 
 | Service | File | Role |
 |---------|------|------|
-| **Gateway** | `services/gateway/main.tish` | One room per `sessionId`; JSON fan-out; per-actor `seq`; presence; stamps each sender's `skillIds` onto fan-out. `ws://127.0.0.1:35987` (or `CODJ_HUB_PORT`). |
-| **Agent worker** | `services/agent-worker/main.tish` | Joins as an actor; buffers the peer stream; on debounce snapshots it into one prompt, calls the LLM, and streams real deck out (`deck.stream_chunk` → `deck.block`); demo fallback without a key. |
+| **Gateway** | `services/gateway/main.tish` | One room per `sessionId`; JSON fan-out; per-actor `seq`; presence + roster; stamps each sender's `skillIds` onto fan-out; verifies Hypery tokens on join (tokenless joins need `--allow-anon`); keeps a replay ring of recent `deck.delta`s for late joiners. `ws://127.0.0.1:35987` (or `CODJ_HUB_PORT`). |
+| **co-DJ runner** | `services/codj-runner/main.tish` → `codj.mjs` | Headless co-DJ peer: `codj login` (Hypery browser login, loopback redirect), `codj run <script.js> [--agent]`. Hosts a hot-reloaded JS script and, with `--agent`, a Hypery agent that writes it. `--role host` in an empty room also runs the room clock. |
+| **MCP server** | `services/mcp/main.tish` → `mcp.mjs` | Same peer, driven over MCP stdio by an external agent (registry tools + `write_script`). See [services/mcp/README.md](../services/mcp/README.md). |
 | **Token-stream demo** | `services/token-stream-demo/main.tish` | A bot that streams rotating patches (kick / hats / bass) to prove the wire path end-to-end. |
 
-Run order: **gateway → worker → browser** (`npm run gateway`, `npm run agent`, `npm run serve`).
-See the [README](../README.md) quick-start.
+Run order: **gateway → browser → co-DJs** (`npm run gateway`, `npm run serve`, then `npm run agent:client` /
+`npm run codj -- run examples/codj/hat-evolver.js`). See the [README](../README.md) quick-start.
+
+### Agentic co-DJs (`src/agentkit/`)
+
+Every co-DJ — in a browser Web Worker (after **Log in with Hypery**), the CLI runner, or the MCP server — is the
+same stack, so they behave identically:
+
+- **Mirror** — a local fold of the room built from `state.snapshot` keyframes + ordered `deck.delta`s (gap → ask
+  for a snapshot). The host publishes every accepted edit as a delta, so peers see everything that happens.
+- **Runtime** — the gated write path (`coDjGateReport` tells the caller what the host will drop and why), bar /
+  beat-quantised `deck.block`s while playing, chat, ownership keep-alive, and headless host duties.
+- **Commands** — one registry that generates the script API (`codj.*`), the LLM / MCP tools, `public/codj.d.ts`
+  and [CODJ_API.md](CODJ_API.md) (`node scripts/gen-codj-api.mjs [--check]`).
+- **ScriptHost** — runs the agent-editable JS (`setup` / `onBar` / `onBeat` / `onMessage` / `onEvent`) with hot
+  reload, last-good fallback, rollback after repeated errors, and a per-hook time budget.
+- **Agent** — `@hyperyai/sdk/agents` `runAgentLoop` over the Hypery gateway; its prompt is composed from
+  `skills/*.md` + the agent grammar + the `.d.ts` ([PromptAssets.tish](../src/agentkit/PromptAssets.tish), generated).
+  It prefers writing the script over calling tools turn by turn.
+- **Director** — the creative lead beside the agent: a second model with no tools, asked before the opening, a
+  request and every evolve move. It works from a persona, constraint cards, style idioms (`skills/_*.md`) and the
+  set memory on `codj.state.setMemory`, and answers with a brief (idea, signature, palette, steps, avoid). The agent,
+  as producer, carries the brief out. The two can use different models (`--director-model`, the panel's Director menu).
+  A host thinks two tracks ahead: its script cues the next track silent on a free deck two phrases into the live
+  one (`book.next`, the bar it comes in on; `book.crate`, the tracks after). That wakes a **prepare** pass, where the
+  director decides what the cued track becomes, when and how it comes in, and what follows. The producer works on that
+  deck alone. On the bar, `codj.blend` schedules the whole mix (fader glide, bass swap, outgoing stop) at once.
+- **LocalHost** — the browser page acting as an in-process host for worker co-DJs when no gateway is connected.
 
 ---
 
@@ -261,7 +288,7 @@ See the [README](../README.md) quick-start.
 | Session / scene launcher (arm / queue / commit) | **Solid** |
 | Co-DJ gateway, ownership/merge, perf-step scheduling, overlays, pruning | **Solid** |
 | Incremental `deck.line` decode; skill-gating enforcement | **Wired** |
-| Agent worker LLM call + real outbound streaming | **Wired** (needs `GRADIENT_MODEL_ACCESS_KEY`) |
+| Agentic co-DJs (Hypery login, script host, agent loop; browser / CLI / MCP) | **Working** |
 | matrix_fm generator + graph editor | **Working** |
 | **Planned / not yet built** | SQLite + vector/RAG agent memory; provider-side SSE token streaming (currently the finished reply is streamed char-by-char); control ops `take_track`/`release_track`/`set_master`/`master_overwrite`; named MIDI controller profiles (only note%8 → gain overlay exists); inline `@lane` author tags; Session-view scene authoring (add/remove/duplicate/clear). |
 
@@ -282,6 +309,10 @@ See the [README](../README.md) quick-start.
   [Schedule.tish](../src/codj/Schedule.tish), [Overlay.tish](../src/codj/Overlay.tish),
   [CoDjMeta.tish](../src/codj/CoDjMeta.tish), [Prune.tish](../src/codj/Prune.tish)
 - **UI:** [App.tish](../src/ui/App.tish) (orchestrator), [CoDjPanel.tish](../src/ui/CoDjPanel.tish)
-- **Services:** [gateway](../services/gateway/main.tish), [agent-worker](../services/agent-worker/main.tish)
+- **Agentkit:** [Runtime.tish](../src/agentkit/Runtime.tish), [Mirror.tish](../src/agentkit/Mirror.tish),
+  [Commands.tish](../src/agentkit/Commands.tish), [ScriptHost.tish](../src/agentkit/ScriptHost.tish),
+  [Agent.tish](../src/agentkit/Agent.tish), [CODJ_API.md](CODJ_API.md)
+- **Services:** [gateway](../services/gateway/main.tish), [codj-runner](../services/codj-runner/main.tish),
+  [mcp](../services/mcp/main.tish)
 - **Tests:** [test/smoke.tish](../test/smoke.tish) — `npm test` (round-trip, incremental decode,
   skill-gating, permissions)

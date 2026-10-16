@@ -1,0 +1,361 @@
+// Co-DJ runtime — one headless peer in a room: a Mirror (the fold), a Transport (the wire), the `kit` every command
+// runs on, and the event stream scripts/agents react to. Hosts (browser worker, Node CLI, MCP server, tests) build
+// one of these and hang a ScriptHost and/or an Agent off it.
+//
+// Writes: gate-reported against the local fold (so the caller learns at once what the host will drop and why),
+// folded locally (optimistic — the gateway doesn't echo our own frames), then sent as one `deck.block`. While the
+// transport plays they land on a boundary (`at`: 'bar' default, 'beat', 'now', or an absolute perfStep) so a
+// script's change starts on the downbeat instead of mid-phrase.
+//
+// Prune safety: the host drops agent-owned tracks untouched for 2 sequences, so once per sequence the runtime
+// re-sends each owned track's mix line (a no-op edit that marks it touched).
+
+import { createMirror } from './Mirror.tish'
+import { scriptApi } from './Commands.tish'
+import { ensureCoDjMeta, setTrackOwner } from '../codj/CoDjMeta.tish'
+import { coDjGateReport } from '../codj/Gate.tish'
+import { fragmentForEdit } from '../core/Edit.tish'
+import { emitProject } from '../deckfile/Emit.tish'
+import { joinFrame, chatFrame, requestSnapshotFrame, rosterEntry } from '../codj/Protocol.tish'
+
+/**
+ * opts: {
+ *   transport, actorId, skillIds, displayName, kind ('agent'), role ('client'|'host'), sessionId,
+ *   token?: string | async () => string|null,   Hypery access token for the gateway
+ *   grammar?: () => string,                      agent grammar text (Commands `grammar`)
+ *   hostClock?: bool,                            if elected host of an empty room, run the room's beat clock
+ *   log?: (line) => void, now?: () => ms
+ * }
+ */
+export fn createCoDjRuntime(opts) {
+  let log = opts.log ? opts.log : (s) => {}
+  let mirror = createMirror({ actorId: opts.actorId, skillIds: opts.skillIds, displayName: opts.displayName, kind: opts.kind ? opts.kind : "agent", now: opts.now })
+  let transport = opts.transport
+  let listeners = []
+  let seq = 0
+  let defaultAt = null
+  let joined = false
+  let lastTouchSeq = -1
+  let closed = false
+  let now = opts.now ? opts.now : () => Date.now()
+  // Own writes the host may not have folded yet: a keyframe that crosses one in flight would erase it locally.
+  let pending = []
+  let PENDING_MS = 5000
+
+  fn emit(ev) {
+    let i = 0
+    while (i < listeners.length) {
+      try {
+        listeners[i](ev)
+      } catch (e) {
+        log("listener error: " + String(e && e.message ? e.message : e))
+      }
+      i = i + 1
+    }
+  }
+
+  async fn sendJoin() {
+    let tok = null
+    if (typeof opts.token === "function") {
+      tok = await opts.token()
+    } else if (opts.token) {
+      tok = String(opts.token)
+    }
+    let me = mirror.me()
+    transport.send(joinFrame({
+      sessionId: opts.sessionId ? opts.sessionId : "default",
+      actorId: me.actorId,
+      skillIds: me.skillIds,
+      displayName: me.displayName,
+      kind: opts.kind ? opts.kind : "agent",
+      role: opts.role ? opts.role : "client",
+      token: tok
+    }))
+  }
+
+  fn resolveAt(at) {
+    let c = mirror.clock()
+    if (!c.playing) {
+      return null
+    }
+    let a = at !== null ? at : (defaultAt !== null ? defaultAt : "bar")
+    if (a === "now") {
+      return null
+    }
+    if (typeof a === "number") {
+      return Math.floor(a)
+    }
+    let unit = a === "beat" ? 4 : 16
+    return (Math.floor(c.perfStep / unit) + 1) * unit
+  }
+
+  fn hasDirective(src) {
+    let ls = String(src).split("\n")
+    let i = 0
+    while (i < ls.length) {
+      if (ls[i].trim().indexOf("@") === 0) {
+        return true
+      }
+      i = i + 1
+    }
+    return false
+  }
+
+  fn write(src, wopts) {
+    let text = String(src)
+    let w = wopts !== null ? wopts : {}
+    let me = mirror.me()
+    let report = coDjGateReport(mirror.project(), text, me.actorId, me.skillIds)
+    let at = resolveAt(w.at)
+    if (report.accepted === 0 && !hasDirective(text)) {
+      return { sent: false, at: at, accepted: 0, rejected: report.rejected }
+    }
+    mirror.ingest.ingest(text, { actorId: me.actorId, authorId: me.actorId, skillIds: me.skillIds, perfStep: mirror.clock().perfStep, remote: true })
+    // A track added in our own fold arrives unowned (the loopback host stamps ownership on ITS copy, and a
+    // follower's fold never round-trips it back), so claim every track this write adds — including one re-added
+    // under an id it just removed — otherwise the next arrange can't see it as ours to replace.
+    let mp = mirror.project()
+    ensureCoDjMeta(mp)
+    let tl = text.split("\n")
+    let ci = 0
+    while (ci < tl.length) {
+      let t = tl[ci].trim()
+      if (t.indexOf("track ") === 0) {
+        let tok = t.split(" ")
+        let k = tok.indexOf("id")
+        if (k >= 0 && k + 1 < tok.length) {
+          let cid = tok[k + 1]
+          let m = mp.coDjMeta.tracks[cid]
+          if (!m || !m.ownerActorId) {
+            setTrackOwner(mp, cid, me.actorId, me.actorId)
+          }
+        }
+      }
+      ci = ci + 1
+    }
+    seq = seq + 1
+    pending.push({ ref: seq, text: text, t: now() })
+    let frame = { type: "deck.block", actorId: me.actorId, authorId: me.actorId, lines: text.split("\n"), ref: seq }
+    if (at !== null) {
+      frame.effectivePerfStep = at
+    } else {
+      frame.asap = true
+    }
+    transport.send(frame)
+    scheduleSnapshot()
+    return { sent: true, at: at, accepted: report.accepted, rejected: report.rejected, ref: seq }
+  }
+
+  /** `to` may be an actorId or a display name (case-insensitive). */
+  fn resolveActor(to) {
+    if (to === null || String(to).length === 0) {
+      return null
+    }
+    let want = String(to).toLowerCase()
+    if (want.charAt(0) === "@") {
+      want = want.substring(1)
+    }
+    let roster = mirror.room().roster
+    let i = 0
+    while (i < roster.length) {
+      let r = roster[i]
+      if (String(r.actorId).toLowerCase() === want || (r.displayName && String(r.displayName).toLowerCase() === want)) {
+        return String(r.actorId)
+      }
+      i = i + 1
+    }
+    return String(to)
+  }
+
+  fn say(text, to) {
+    let me = mirror.me()
+    transport.send(chatFrame(me.actorId, me.displayName !== null ? me.displayName : me.actorId, text, resolveActor(to)))
+  }
+
+  fn touchOwned(perfStep) {
+    let sq = Math.floor(perfStep / 64)
+    if (sq === lastTouchSeq) {
+      return
+    }
+    lastTouchSeq = sq
+    let p = mirror.project()
+    let me = mirror.me().actorId
+    let lines = []
+    let i = 0
+    while (i < p.channels.length) {
+      let ch = p.channels[i]
+      let m = p.coDjMeta && p.coDjMeta.tracks ? p.coDjMeta.tracks[ch.id] : null
+      if (m && m.ownerActorId === me) {
+        lines.push(fragmentForEdit(p, "track/" + ch.id + "/mix/gain", ch.gain !== null ? ch.gain : 0.85))
+      }
+      i = i + 1
+    }
+    if (lines.length > 0) {
+      write(lines.join("\n"), { at: "now" })
+    }
+  }
+
+  let kit = {
+    mirror: mirror,
+    write: write,
+    say: say,
+    grammar: () => (opts.grammar ? opts.grammar() : ""),
+    state: opts.state ? opts.state : null
+  }
+
+  // ---- headless host duties (when the gateway elects THIS peer host: a `--role host` runner in an empty room) ----
+  let hostGen = 0
+  let snapTimer = null
+  let clockTimer = null
+  let clockStep = 0
+
+  fn isHost() {
+    return mirror.room().hostActorId !== null && mirror.room().hostActorId === mirror.me().actorId
+  }
+
+  fn sendSnapshot() {
+    let p = mirror.project()
+    hostGen = hostGen + 1
+    let owners = {}
+    let ci = 0
+    while (ci < p.channels.length) {
+      let cid = p.channels[ci].id
+      let m = p.coDjMeta && p.coDjMeta.tracks ? p.coDjMeta.tracks[cid] : null
+      owners[cid] = m && m.ownerActorId ? String(m.ownerActorId) : mirror.me().actorId
+      ci = ci + 1
+    }
+    let me = mirror.me().actorId
+    transport.send({ type: "state.snapshot", actorId: me, authorId: me, lines: emitProject(p).split("\n"), owners: owners, gen: hostGen, rev: 0 })
+  }
+
+  fn scheduleSnapshot() {
+    if (!isHost()) {
+      return
+    }
+    if (snapTimer !== null) {
+      clearTimeout(snapTimer)
+    }
+    snapTimer = setTimeout(() => {
+      snapTimer = null
+      if (isHost()) {
+        sendSnapshot()
+      }
+    }, 1500)
+  }
+
+  fn startHostClock() {
+    if (clockTimer !== null || opts.hostClock !== true) {
+      return
+    }
+    let beatMs = () => 60000 / (mirror.project().bpm ? mirror.project().bpm : 120)
+    let me = mirror.me().actorId
+    transport.send({ type: "control", op: "playing_start", actorId: me, authorId: me, perfStep: 0, playMode: "sequence" })
+    fn beat() {
+      if (closed || !isHost()) {
+        clockTimer = null
+        return
+      }
+      let bpm = mirror.project().bpm ? mirror.project().bpm : 120
+      transport.send({ type: "control", op: "tick", actorId: me, perfStep: clockStep, bpm: bpm })
+      if (clockStep % 16 === 0) {
+        transport.send({ type: "control", op: "clock", actorId: me, authorId: me, perfStep: clockStep, bpm: bpm, playMode: "sequence" })
+      }
+      dispatch(mirror.localTick(clockStep, bpm))
+      clockStep = clockStep + 4
+      clockTimer = setTimeout(beat, beatMs())
+    }
+    clockTimer = setTimeout(beat, 0)
+  }
+
+  fn refoldPending() {
+    let cut = now() - PENDING_MS
+    pending = pending.filter((w) => w.t >= cut)
+    let me = mirror.me()
+    let i = 0
+    while (i < pending.length) {
+      mirror.ingest.ingest(pending[i].text, { actorId: me.actorId, authorId: me.actorId, skillIds: me.skillIds, perfStep: mirror.clock().perfStep, remote: true })
+      i = i + 1
+    }
+  }
+
+  fn dispatch(evs) {
+    let i = 0
+    while (i < evs.length) {
+      let ev = evs[i]
+      if (ev.type === "snapshot") {
+        refoldPending()
+      } else if (ev.type === "edit.result" && ev.ref !== null) {
+        pending = pending.filter((w) => w.ref !== ev.ref)
+      }
+      if (ev.type === "joined") {
+        joined = true
+        log("joined as " + ev.actorId + (ev.isHost ? " [host]" : ""))
+        if (ev.isHost && !mirror.hasSnapshot()) {
+          // An empty room elected us: our fold is the room. Seed the gateway cache and start the clock.
+          mirror.markAuthoritative()
+          sendSnapshot()
+          startHostClock()
+          emit(ev)
+          emit({ type: "snapshot", gen: hostGen, rev: 0, tracks: mirror.project().channels.length })
+          i = i + 1
+          continue
+        }
+      } else if (ev.type === "resync") {
+        log("resync: " + ev.reason)
+        transport.send(requestSnapshotFrame(mirror.me().actorId))
+      } else if (ev.type === "error") {
+        log("gateway error " + (ev.code !== null ? ev.code + ": " : "") + ev.message)
+      } else if (ev.type === "tick" && ev.perfStep % 64 === 0) {
+        touchOwned(ev.perfStep)
+      } else if (ev.type === "deck") {
+        scheduleSnapshot()
+      } else if (ev.type === "presence" && isHost()) {
+        startHostClock()
+      }
+      emit(ev)
+      i = i + 1
+    }
+  }
+
+  transport.onOpen(() => {
+    if (!closed) {
+      sendJoin()
+    }
+  })
+  transport.onClose(() => {
+    joined = false
+    emit({ type: "disconnected" })
+  })
+  transport.onMessage((msg) => {
+    if (msg && msg.type === "request.snapshot") {
+      if (isHost()) {
+        sendSnapshot()
+      }
+      return
+    }
+    dispatch(mirror.handle(msg))
+  })
+
+  return {
+    mirror: mirror,
+    kit: kit,
+    api: scriptApi(kit),
+    me: () => mirror.me(),
+    joined: () => joined,
+    on: (cb) => listeners.push(cb),
+    write: write,
+    say: say,
+    nameOf: (actorId) => {
+      let e = rosterEntry(mirror.room().roster, actorId)
+      return e !== null && e.displayName ? e.displayName : actorId
+    },
+    /** Default landing point for writes made while a hook runs ('bar' inside onBar, 'beat' inside onBeat). */
+    setDefaultAt: (a) => {
+      defaultAt = a
+    },
+    close: () => {
+      closed = true
+      transport.close()
+    }
+  }
+}

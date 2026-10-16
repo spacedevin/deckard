@@ -1,0 +1,50 @@
+// deck.put — a peer's WHOLE deck in one frame (replace-my-deck semantics). Shared by the browser receive path
+// (CoDjPanel) and headless mirrors (src/agentkit/Mirror.tish) so both fold a deck.put identically.
+
+/** The set of track ids carried in a deck.put frame (the positional id token before " gen " in each header). */
+export fn deckPutKeepIds(dlines) {
+  let keep = {}
+  let i = 0
+  while (i < dlines.length) {
+    let ln = dlines[i]
+    let isIndented = ln.length > 0 && (ln.charAt(0) === " " || ln.charAt(0) === "\t")
+    if (!isIndented && ln.trim().indexOf("track ") === 0) {
+      let genIdx = ln.indexOf(" gen ")
+      if (genIdx >= 0) {
+        let head = ln.substring(0, genIdx)
+        let lastSp = head.lastIndexOf(" ")
+        if (lastSp >= 0) {
+          keep[head.substring(lastSp + 1)] = true
+        }
+      }
+    }
+    i = i + 1
+  }
+  return keep
+}
+
+/** remove_track lines for every channel OWNED BY `fromId` but ABSENT from this deck.put (dropped on their side). */
+export fn staleOwnedRemoveLines(p, fromId, keep) {
+  let out = []
+  if (!p || !p.coDjMeta || !p.coDjMeta.tracks || !Array.isArray(p.channels)) {
+    return out
+  }
+  let ci = 0
+  while (ci < p.channels.length) {
+    let ch = p.channels[ci]
+    let cid = String(ch.id)
+    let m = p.coDjMeta.tracks[cid]
+    let owner = m && m.ownerActorId ? String(m.ownerActorId) : ""
+    if (owner === String(fromId) && keep[cid] !== true) {
+      out.push("remove_track " + cid)
+    }
+    ci = ci + 1
+  }
+  return out
+}
+
+/** The deck source to fold for a deck.put from `fromId`: stale-owned removals first, then the sender's lines. */
+export fn deckPutSource(p, fromId, dlines) {
+  let rmLines = staleOwnedRemoveLines(p, fromId, deckPutKeepIds(dlines))
+  return "deck 1\n" + rmLines.concat(dlines).join("\n") + "\n"
+}

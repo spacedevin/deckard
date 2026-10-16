@@ -1,0 +1,4 @@
+// Prints the co-DJ command registry's derived surfaces as JSON (for scripts/gen-codj-api.mjs).
+import { apiDts, apiMarkdownTable, toolSpecs } from '../src/agentkit/Commands.tish'
+
+console.log(JSON.stringify({ dts: apiDts(), table: apiMarkdownTable(), tools: toolSpecs() }))

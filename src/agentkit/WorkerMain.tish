@@ -1,0 +1,159 @@
+// Browser AI co-DJ worker (built to /codj-worker.js). One worker = one co-DJ: its runtime (mirror + transport), its
+// script host and, when signed in with Hypery, its agent. The page (src/agentkit/BrowserHost.tish) talks to it with
+// two kinds of messages on the same channel:
+//   { codj: frame }   wire frames for the loopback room (the page's LocalHost) — absent in "ws" mode
+//   { ctl: … }        control: init / load / ask / token / team / stop  (page → worker)
+//                     log / script / status / activity / beat    (worker → page)
+// A hung script can't be preempted inside the worker, so the worker heartbeats and the page terminates + respawns a
+// worker that goes quiet.
+
+import { createCoDjRuntime } from './Runtime.tish'
+import { createScriptHost } from './ScriptHost.tish'
+import { createCoDjAgent } from './Agent.tish'
+import { wsTransport } from './Transport.tish'
+import { promptAssets } from './PromptAssets.tish'
+
+let G = globalThis
+let frameSubs = []
+let openSubs = []
+let closeSubs = []
+let token = null
+let team = null
+let runtime = null
+let scriptHost = null
+let agent = null
+
+fn post(msg) {
+  G.postMessage(msg)
+}
+
+fn log(line) {
+  post({ ctl: "log", line: String(line) })
+}
+
+fn loopbackTransport() {
+  setTimeout(() => {
+    let i = 0
+    while (i < openSubs.length) {
+      openSubs[i](null)
+      i = i + 1
+    }
+  }, 0)
+  return {
+    kind: "port",
+    send: (frame) => post({ codj: frame }),
+    onMessage: (cb) => frameSubs.push(cb),
+    onOpen: (cb) => openSubs.push(cb),
+    onClose: (cb) => closeSubs.push(cb),
+    close: () => {}
+  }
+}
+
+fn status() {
+  return {
+    actorId: runtime !== null ? runtime.me().actorId : null,
+    joined: runtime !== null ? runtime.joined() : false,
+    script: scriptHost !== null ? scriptHost.status() : null,
+    agentBusy: agent !== null ? agent.busy() : false,
+    clock: runtime !== null ? runtime.mirror.clock() : null
+  }
+}
+
+fn hostSkills(cfg) {
+  let skills = Array.isArray(cfg.skillIds) ? cfg.skillIds.slice() : ["add_track", "adjust_instrument", "pattern_steps", "pattern_piano", "channel_mix"]
+  if (cfg.role === "host" && skills.indexOf("master_mixer") < 0) {
+    skills.push("master_mixer")
+  }
+  return skills
+}
+
+fn start(cfg) {
+  token = cfg.token ? String(cfg.token) : null
+  team = cfg.team ? String(cfg.team) : null
+  let transport = cfg.mode === "ws" ? wsTransport(String(cfg.wsUrl), null) : loopbackTransport()
+  runtime = createCoDjRuntime({
+    transport: transport,
+    actorId: cfg.actorId,
+    skillIds: hostSkills(cfg),
+    displayName: cfg.displayName,
+    kind: "agent",
+    role: cfg.role ? cfg.role : "client",
+    sessionId: cfg.sessionId ? cfg.sessionId : "default",
+    token: () => token,
+    grammar: () => promptAssets().grammar,
+    log: log
+  })
+  scriptHost = createScriptHost({ runtime: runtime, budgetMs: 50 })
+  scriptHost.onLog((l) => post({ ctl: "log", line: l, script: true }))
+  runtime.on((ev) => {
+    if (ev.type === "joined" || ev.type === "snapshot" || ev.type === "error" || ev.type === "disconnected") {
+      post({ ctl: "status", status: status(), event: ev.type })
+    }
+  })
+  if (cfg.script) {
+    scriptHost.load(String(cfg.script))
+    post({ ctl: "script", source: scriptHost.source() })
+  }
+  if (cfg.agent === true) {
+    try {
+      G.importScripts(cfg.vendorUrl ? String(cfg.vendorUrl) : "/vendor/hypery-agents.js")
+      agent = createCoDjAgent({
+        runtime: runtime,
+        scriptHost: scriptHost,
+        agents: G.HyperyAgents,
+        token: async () => token,
+        model: cfg.model,
+        directorModel: cfg.directorModel,
+        team: () => team,
+        gatewayUrl: cfg.gatewayUrl,
+        role: cfg.role,
+        skills: cfg.skills,
+        log: log,
+        onScript: (src) => post({ ctl: "script", source: src }),
+        onActivity: (e) => post({ ctl: "activity", entry: e })
+      })
+    } catch (e) {
+      log("✖ could not start the agent: " + String(e && e.message ? e.message : e))
+    }
+  }
+  setInterval(() => post({ ctl: "beat", status: status() }), 1000)
+}
+
+G.onmessage = (ev) => {
+  let m = ev.data
+  if (m === null || typeof m !== "object") {
+    return
+  }
+  if (m.codj !== null) {
+    let i = 0
+    while (i < frameSubs.length) {
+      frameSubs[i](m.codj)
+      i = i + 1
+    }
+    return
+  }
+  let c = m.ctl
+  if (c === "init") {
+    start(m.config)
+  } else if (c === "load" && scriptHost !== null) {
+    let r = scriptHost.load(String(m.source))
+    post({ ctl: "loaded", result: r })
+    post({ ctl: "script", source: scriptHost.source() })
+  } else if (c === "ask" && agent !== null) {
+    agent.trigger("message", String(m.text), m.from ? String(m.from) : null)
+  } else if (c === "ask") {
+    log("no agent in this co-DJ (sign in with Hypery to add one) — edit its script instead")
+  } else if (c === "token") {
+    token = m.token ? String(m.token) : null
+  } else if (c === "team") {
+    team = m.team ? String(m.team) : null
+  } else if (c === "stop") {
+    if (agent !== null) {
+      agent.stop()
+    }
+    if (runtime !== null) {
+      runtime.close()
+    }
+    G.close()
+  }
+}

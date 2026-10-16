@@ -1,0 +1,328 @@
+// ScriptHost — runs a co-DJ's JS against a runtime. A script is plain JS that exports hooks (all optional):
+//
+//   export function setup(codj, ctx)      once per (re)load, after the room snapshot is in
+//   export function onBar(codj, ctx)      every bar while the transport plays  (writes land on the NEXT bar)
+//   export function onBeat(codj, ctx)     every beat                           (writes land on the next beat)
+//   export function onMessage(codj, ctx)  someone chatted (ctx.message.toMe when addressed to this co-DJ)
+//   export function onEvent(codj, ctx)    anything else the room published (ctx.event: deck/snapshot/edit.result/…)
+//
+// `codj` = the command registry's script API + `codj.state` (persists across hot reloads) + `codj.log(...)`.
+// Hot reload: load(newSource) swaps hooks atomically; a script that fails to compile/setup never replaces the
+// running one, and one that throws 3 times in a row is rolled back to the last good source. Each hook call has a
+// time budget: the Node engine enforces it (node:vm timeout); the Function engine (browser worker) measures it and
+// disables a script that keeps overrunning — the page's watchdog terminates a worker that hangs outright.
+
+let HOOKS = ["setup", "onBar", "onBeat", "onMessage", "onEvent"]
+
+/** `export function x` / `export const x` / `export default` → plain declarations the wrapper can see. */
+export fn stripExports(src) {
+  let lines = String(src).split("\n")
+  let out = []
+  let i = 0
+  while (i < lines.length) {
+    let ln = lines[i]
+    let lead = ln.length - ln.trimStart().length
+    let body = ln.substring(lead)
+    if (body.indexOf("export default ") === 0) {
+      body = body.substring(15)
+    } else if (body.indexOf("export ") === 0) {
+      body = body.substring(7)
+    }
+    out.push(ln.substring(0, lead) + body)
+    i = i + 1
+  }
+  return out.join("\n")
+}
+
+fn hooksReturn() {
+  let parts = HOOKS.map((h) => h + ": typeof " + h + " === \"function\" ? " + h + " : null")
+  return "return { " + parts.join(", ") + " };"
+}
+
+/** Browser/worker engine: new Function. Budget is measured, not enforced. */
+export fn functionEngine() {
+  let hooks = null
+  return {
+    kind: "function",
+    load: (src) => {
+      let make = new Function("\"use strict\";\n" + stripExports(src) + "\n;" + hooksReturn())
+      hooks = make()
+      return hooks
+    },
+    has: (name) => hooks !== null && hooks[name] !== null,
+    call: (name, codj, ctx) => hooks[name](codj, ctx)
+  }
+}
+
+/** Node engine: node:vm with a hard per-call timeout. `vm` = process.getBuiltinModule("node:vm"). */
+export fn vmEngine(vm, timeoutMs, filename) {
+  let context = vm.createContext({ console: console, Math: Math, JSON: JSON, Date: Date })
+  let loaded = false
+  return {
+    kind: "vm",
+    load: (src) => {
+      let code = "globalThis.__hooks = (function () {\n\"use strict\";\n" + stripExports(src) + "\n;" + hooksReturn() + "\n})();"
+      let script = new vm.Script(code, { filename: filename ? filename : "codj-script.js" })
+      script.runInContext(context, { timeout: timeoutMs * 4 })
+      loaded = true
+      return context.__hooks
+    },
+    has: (name) => loaded && context.__hooks && context.__hooks[name] !== null,
+    call: (name, codj, ctx) => {
+      context.__codj = codj
+      context.__ctx = ctx
+      return vm.runInContext("__hooks." + name + "(__codj, __ctx)", context, { timeout: timeoutMs })
+    }
+  }
+}
+
+/**
+ * opts: { runtime, engine?, budgetMs? (50), log?: (line) => void, now?: () => ms }
+ * Returns { load(src) → {ok, error?}, source(), logs(), lastError(), state, onError(cb), onLog(cb), status(), stop() }
+ */
+export fn createScriptHost(opts) {
+  let runtime = opts.runtime
+  let budget = opts.budgetMs !== null ? opts.budgetMs : 50
+  let nowMs = opts.now ? opts.now : () => Date.now()
+  let engine = opts.engine ? opts.engine : functionEngine()
+  let state = {}
+  let logs = []
+  let logSubs = []
+  let errSubs = []
+  let current = null
+  let prevGood = null
+  let errorsInRow = 0
+  let overruns = 0
+  let disabled = false
+  let setupPending = false
+  let setupFailed = false
+  let lastError = null
+  let calls = 0
+  let stopped = false
+
+  fn log(line) {
+    let s = String(line)
+    logs.push(s)
+    if (logs.length > 200) {
+      logs.shift()
+    }
+    let i = 0
+    while (i < logSubs.length) {
+      logSubs[i](s)
+      i = i + 1
+    }
+  }
+
+  fn fmt(v) {
+    if (typeof v === "string") {
+      return v
+    }
+    try {
+      return JSON.stringify(v)
+    } catch (e) {
+      return String(v)
+    }
+  }
+
+  runtime.kit.state = state
+
+  fn trackNames(ids) {
+    let p = runtime.mirror.project()
+    return ids.map((id) => {
+      let ch = p.channels.find((c) => String(c.id) === String(id))
+      return ch && ch.name ? String(ch.name) : String(id)
+    })
+  }
+
+  // A write the gate refuses returns quietly; say so in the log, where the script's author (or its agent) reads it.
+  fn wrapCommand(name, f) {
+    return (a0, a1, a2, a3) => {
+      let before = name === "arrange" ? trackNames(runtime.api.owned()) : []
+      let r = f(a0, a1, a2, a3)
+      if (r !== null && typeof r === "object" && !Array.isArray(r)) {
+        let rej = Array.isArray(r.rejected) ? r.rejected : []
+        if (r.sent === false || rej.length > 0) {
+          let why = rej.slice(0, 3).map((x) => String(x.line).trim().substring(0, 60) + " (" + String(x.code) + ": " + String(x.reason) + ")").join("; ")
+          log("✖ " + name + " " + (r.sent === false ? "was not sent" : "partly rejected") + (why.length > 0 ? " — " + why : ""))
+        }
+        if (name === "arrange" && r.sent !== false && before.length > 0) {
+          log("arrange replaced " + String(before.length) + " track(s) you owned (" + before.join(", ") + ") with " + String(Object.keys(r.ids ? r.ids : {}).length))
+        }
+      }
+      return r
+    }
+  }
+
+  let apiOut = {}
+  let apiKeys = Object.keys(runtime.api)
+  let ai = 0
+  while (ai < apiKeys.length) {
+    let k = apiKeys[ai]
+    apiOut[k] = typeof runtime.api[k] === "function" ? wrapCommand(k, runtime.api[k]) : runtime.api[k]
+    ai = ai + 1
+  }
+  let codj = Object.assign({}, apiOut, {
+    state: state,
+    log: (a, b, c, d) => {
+      let parts = [a, b, c, d].filter((x) => x !== null).map(fmt)
+      log(parts.join(" "))
+    }
+  })
+
+  fn reportError(hook, e) {
+    let msg = e && e.message ? String(e.message) : String(e)
+    lastError = { hook: hook, message: msg, stack: e && e.stack ? String(e.stack).split("\n").slice(0, 6).join("\n") : null, at: nowMs() }
+    log("✖ " + hook + ": " + msg)
+    let i = 0
+    while (i < errSubs.length) {
+      errSubs[i](lastError)
+      i = i + 1
+    }
+  }
+
+  fn ctxFor(extra) {
+    let c = { clock: runtime.mirror.clock() }
+    if (extra) {
+      let ks = Object.keys(extra)
+      let i = 0
+      while (i < ks.length) {
+        c[ks[i]] = extra[ks[i]]
+        i = i + 1
+      }
+    }
+    return c
+  }
+
+  fn call(hook, extra, at) {
+    if (current === null || disabled || stopped || !engine.has(hook)) {
+      return
+    }
+    runtime.setDefaultAt(at)
+    let t0 = nowMs()
+    try {
+      engine.call(hook, codj, ctxFor(extra))
+      errorsInRow = 0
+    } catch (e) {
+      errorsInRow = errorsInRow + 1
+      if (hook === "setup") {
+        setupFailed = true
+      }
+      reportError(hook, e)
+      if (errorsInRow >= 3) {
+        if (prevGood !== null && prevGood !== current) {
+          log("↩ 3 errors in a row — rolling back to the last good script")
+          let bad = current
+          load(prevGood)
+          prevGood = null
+          if (current === bad) {
+            disabled = true
+          }
+        } else {
+          log("⏸ 3 errors in a row — script paused until it is reloaded")
+          disabled = true
+        }
+      }
+    }
+    runtime.setDefaultAt(null)
+    calls = calls + 1
+    let dt = nowMs() - t0
+    if (dt > budget) {
+      overruns = overruns + 1
+      log("⚠ " + hook + " took " + String(dt) + "ms (budget " + String(budget) + "ms)")
+      if (overruns >= 5) {
+        log("⏸ 5 budget overruns — script paused until it is reloaded")
+        disabled = true
+      }
+    } else {
+      overruns = 0
+    }
+  }
+
+  fn runSetup() {
+    setupPending = false
+    call("setup", null, "now")
+  }
+
+  /** Swap in new source. Returns {ok:true} or {ok:false, error} (the running script is kept on failure). */
+  fn load(src) {
+    let text = String(src)
+    try {
+      engine.load(text)
+    } catch (e) {
+      reportError("load", e)
+      if (current !== null) {
+        try {
+          engine.load(current)
+        } catch (e2) {}
+      }
+      return { ok: false, error: lastError.message }
+    }
+    let before = current
+    current = text
+    disabled = false
+    errorsInRow = 0
+    overruns = 0
+    if (runtime.mirror.hasSnapshot()) {
+      setupFailed = false
+      runSetup()
+      if (setupFailed && before !== null && before !== text) {
+        try {
+          engine.load(before)
+        } catch (e3) {}
+        current = before
+        errorsInRow = 0
+        log("↩ setup threw — kept the running script")
+        return { ok: false, error: lastError.message }
+      }
+    } else {
+      setupPending = true
+    }
+    if (before !== null && before !== text) {
+      prevGood = before
+    }
+    log("▶ script loaded (" + String(text.split("\n").length) + " lines)")
+    return setupFailed ? { ok: false, error: lastError.message } : { ok: true }
+  }
+
+  runtime.on((ev) => {
+    if (stopped) {
+      return
+    }
+    let t = ev.type
+    if (t === "snapshot" && setupPending) {
+      runSetup()
+    }
+    if (t === "tick") {
+      call("onBeat", { beat: Math.floor(ev.perfStep / 4) % 4 }, "beat")
+      if (ev.perfStep % 16 === 0) {
+        call("onBar", { bar: Math.floor(ev.perfStep / 16) }, "bar")
+      }
+      return
+    }
+    if (t === "clock") {
+      return
+    }
+    if (t === "chat") {
+      call("onMessage", { message: { from: ev.from, fromName: ev.fromName, text: ev.text, to: ev.to, toMe: ev.toMe } }, null)
+      return
+    }
+    call("onEvent", { event: ev }, null)
+  })
+
+  return {
+    load: load,
+    source: () => current,
+    logs: () => logs.slice(),
+    lastError: () => lastError,
+    state: state,
+    codj: codj,
+    onError: (cb) => errSubs.push(cb),
+    onLog: (cb) => logSubs.push(cb),
+    status: () => ({ loaded: current !== null, disabled: disabled, calls: calls, errorsInRow: errorsInRow, overruns: overruns, engine: engine.kind }),
+    /** Run one hook by hand (tests / the agent's run_script). */
+    invoke: (hook, extra) => call(hook, extra, "now"),
+    stop: () => {
+      stopped = true
+    }
+  }
+}

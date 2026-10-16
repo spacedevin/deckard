@@ -134,7 +134,8 @@ site, delete the `services:` block + the `/codj` ingress rule from `.do/app.yaml
 
 ### Optional: the LLM co-DJ agent
 
-The AI co-DJ ([`services/agent-worker`](services/agent-worker/main.tish)) is a *third* process — a **worker**, not
-a web-facing service. It connects to the gateway as a client and reads `GRADIENT_MODEL_ACCESS_KEY` (DO serverless
-inference; falls back to an offline demo patch without a key). To run it, add a `workers:` component with the same
-Dockerfile pattern and `CMD` = `npm run agent` (point `--hub` at the gateway). Not included by default.
+Most AI co-DJs need no deployment: signed-in users add them from the browser (**Add AI co-DJ** runs the agent in
+a Web Worker on their own Hypery account). For an always-on headless co-DJ, run the CLI runner
+([`services/codj-runner`](services/codj-runner/main.tish)) as a *worker* component — not a web-facing service —
+with `CMD` = `node services/codj-runner/codj.mjs run <script.js> --agent --gateway wss://<host>/codj` and a
+`HYPERY_TOKEN` secret (a Hypery access token for the account it plays and bills as). Not included by default.

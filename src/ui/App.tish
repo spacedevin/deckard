@@ -13,7 +13,7 @@ import { levelPresetList, addLevelPreset, findLevelPreset, removeLevelPreset } f
 import { PresetBar } from './PresetBar.tish'
 import { promptName, alertModal } from './PromptModal.tish'
 import { IkSelect } from './InstrumentKit.tish'
-import { emitProject, emitLivePlayback } from '../deckfile/Emit.tish'
+import { emitProject, emitLivePlayback, generatorIdToTpl } from '../deckfile/Emit.tish'
 import { CodeDebugView } from './CodeDebugView.tish'
 import { migrateProjectGenerators } from '../model/Migrate.tish'
 import { ensureAudio, updateMixerFromProject, resyncAllChannelBuses, applyCueRouting, applyOutputDevices, setCueLevel, setCueSyncOffset, setMainAutoSync, ensureCueOutput, suspendDrawsAround, drawsSuspended, setDrawDisabled, triggerMasterFxEcho, triggerMasterFxFilter, playHitAt, applyChannelFilterAutomation } from '../audio/Engine.tish'
@@ -21,6 +21,8 @@ import { createAudioDeviceSettings } from '../core/AudioDeviceSettings.tish'
 import { AudioRackPanel } from './AudioRackPanel.tish'
 import { MidiPanel } from './MidiPanel.tish'
 import { SongBrowser } from './SongBrowser.tish'
+import { LibraryBrowser } from './LibraryBrowser.tish'
+import { libraryEntry, channelLoadSource, kitLoadSource, deckPlaceLine } from '../agentkit/Library.tish'
 import { loadScratchBuffer, setScratchRate, setScratchVolume, setScratchDucking, scratchHasBuffer, setScratchPos, setScratchCut, scratchSpin } from '../audio/Engine.tish'
 import { renderDeckLoopToBuffer } from '../audio/Playback.tish'
 import { createMidiController } from '../midi/Midi.tish'
@@ -36,8 +38,9 @@ import { TransportBar } from './Transport.tish'
 import { collectActorLanes, channelActorLane, ensureActorMixerEntries } from '../model/MixerRouting.tish'
 import { InstrumentStack } from './InstrumentStack.tish'
 import { CoDjPanel } from './CoDjPanel.tish'
-import { launchSceneDirective, transportDirective, fxDirective, cueDirective, deckMoveDirective } from '../codj/Launch.tish'
+import { launchSceneDirective, transportDirective, fxDirective, cueDirective, deckMoveDirective, keepPinnedOverrides } from '../codj/Launch.tish'
 import { coDjClockPayload, coDjShouldFollow, coDjClockAlign, coDjIsFollower, coDjOwnDeckLetter } from '../codj/Transport.tish'
+import { tickFrame } from '../codj/Protocol.tish'
 import {
   PianoRollCanvas,
   PianoRollZoomBar,
@@ -289,6 +292,7 @@ export fn App() {
   let [midiGen, setMidiGen] = useState(0)
   let midiRenderRaf = useRef(false)
   let [songBrowserOpen, setSongBrowserOpen] = useState(false)
+  let [libOpen, setLibOpen] = useState(true)
   let [songQuery, setSongQuery] = useState("")
   let [scratchGen, setScratchGen] = useState(0)
   let [gridGen, setGridGen] = useState(0)
@@ -384,6 +388,9 @@ export fn App() {
   rt.setTplText = setTplText
   rt.selectedCh = selectedCh
   rt.setSelectedCh = setSelectedCh
+  if (rt.coDjPublishFocus && Array.isArray(project.channels) && selectedCh >= 0 && selectedCh < project.channels.length) {
+    rt.coDjPublishFocus(String(project.channels[selectedCh].id))
+  }
   rt.playing = playing
   rt.playMode = playMode
   // Launch quantize lives on the project (source of truth) so it round-trips in deck and syncs to every
@@ -400,13 +407,19 @@ export fn App() {
     storeRef.current = { project: project, runtime: rt }
   }
   storeRef.current.project = project
-  // Local actor ctx: single-player = "human" (the default-project owner) with master rights; co-DJ
-  // overrides coDjActorId / coDjLocalSkillIds when a session assigns a narrower role.
+  // Local actor ctx. Solo, and the browser that hosts the room, are the master. A connected follower is not.
   fn localCtx() {
     let r = rtRef.current
+    let skills = ["master_mixer"]
+    let connected = r.coDjWs && r.coDjWs.readyState === 1
+    if (r.coDjLocalSkillIds) {
+      skills = r.coDjLocalSkillIds
+    } else if (connected && r.coDjIsHost !== true) {
+      skills = ["add_track", "adjust_instrument", "pattern_steps", "pattern_piano", "channel_mix"]
+    }
     return {
       actorId: r.coDjActorId ? r.coDjActorId : "human",
-      skillIds: r.coDjLocalSkillIds ? r.coDjLocalSkillIds : ["master_mixer"],
+      skillIds: skills,
       perfStep: r.perfStep !== null ? r.perfStep : 0
     }
   }
@@ -462,11 +475,23 @@ export fn App() {
       // this ingest), so this never echoes. Without it a follower's knob/step edits never reach the host.
       coDjScheduleEditBroadcast()
     })
+    // Publish every local edit's deck fragment to the room (host only — CoDjPanel decides), so co-DJ agents
+    // follow the document edit-by-edit instead of diffing snapshots.
+    ingestRef.current.onOut((fragment, kind, ctx) => {
+      let r = rtRef.current
+      if (r && r.coDjPublishDelta) {
+        r.coDjPublishDelta(fragment, kind, ctx)
+      }
+    })
   }
   let editorRef = useRef(null)
   if (!editorRef.current) {
     editorRef.current = createEditor(storeRef.current, ingestRef.current.ingest, localCtx)
   }
+  // Raw gated door + out tap for in-page co-DJ peers (the AI co-DJ loopback host): they fold as THEIR actor.
+  rt.ingestAs = (src, ctx) => ingestRef.current.ingest(src, ctx)
+  rt.onIngestOut = (cb) => ingestRef.current.onOut(cb)
+  rt.currentProject = () => storeRef.current.project
   rt.emit = (addr, val) => editorRef.current.emit(addr, val)
   rt.directive = (line) => editorRef.current.directive(line)
   rt.directiveUndoable = (fwd, inv, addr) => editorRef.current.directiveUndoable(fwd, inv, addr)
@@ -546,6 +571,148 @@ export fn App() {
     if (typeof rt.selectedCh === "number" && rt.selectedCh >= p2.channels.length) {
       setSelectedCh(p2.channels.length > 0 ? p2.channels.length - 1 : 0)
     }
+  }
+
+  // Library browser. Every click adds tracks on the deck you're viewing. A kit adds its whole set.
+  // An instrument, beat, or sequence adds one track. Nothing in the rack is overwritten.
+  // A live session omits the deck line so ownership routes new tracks, and a follower's ids are prefixed.
+  fn mintTrackId(p, taken) {
+    let n = p.channels.length + taken.length
+    let id = "c" + String(n)
+    let guard = 0
+    while (guard < 80) {
+      let hit = false
+      let i = 0
+      while (i < p.channels.length) {
+        if (p.channels[i].id === id) {
+          hit = true
+        }
+        i = i + 1
+      }
+      let t = 0
+      while (t < taken.length) {
+        if (taken[t] === id) {
+          hit = true
+        }
+        t = t + 1
+      }
+      if (!hit) {
+        return id
+      }
+      n = n + 1
+      id = "c" + String(n)
+      guard = guard + 1
+    }
+    return id
+  }
+
+  fn voiceForNew(entry) {
+    if (entry.kind === "instrument" && entry.gen) {
+      return String(entry.gen)
+    }
+    let role = entry.role ? String(entry.role) : ""
+    if (role === "hat" || role === "shaker") {
+      return "noise_burst"
+    }
+    if (role === "clap") {
+      return generatorIdToTpl("clap")
+    }
+    if (entry.kind === "beat" || role === "kick" || role === "snare" || role === "perc" || role === "tom") {
+      return generatorIdToTpl("drumSynth")
+    }
+    if (role === "bass") {
+      return generatorIdToTpl("sub808")
+    }
+    return generatorIdToTpl("basicOsc")
+  }
+
+  fn flashLibraryRow() {
+    setTimeout(() => {
+      let d = globalThis.document
+      if (!d || !d.querySelector) {
+        return
+      }
+      let el = d.querySelector(".sg-row-sel")
+      if (!el) {
+        return
+      }
+      if (el.scrollIntoView) {
+        el.scrollIntoView({ block: "nearest" })
+      }
+      el.classList.add("sg-row-lib")
+      setTimeout(() => {
+        el.classList.remove("sg-row-lib")
+      }, 1400)
+    }, 40)
+  }
+
+  fn onLibraryPick(id, root) {
+    if (!rt.directiveUndoable) {
+      return ""
+    }
+    let entry = libraryEntry(id)
+    if (!entry) {
+      return ""
+    }
+    let p = rtRef.current.project
+    let own = coDjOwnDeckLetter(rt)
+    let inSession = Array.isArray(p.coDjPlayers) && p.coDjPlayers.length > 1
+    let letter = own !== null ? own : activeDeck
+    if (letter !== "A" && letter !== "B" && letter !== "C" && letter !== "D") {
+      letter = "A"
+    }
+    if (letter !== activeDeck) {
+      setActiveDeck(letter)
+    }
+    if (entry.kind === "kit") {
+      let parts = entry.parts ? entry.parts : []
+      let ids = []
+      let removes = []
+      let k = 0
+      let amHostNow = rtRef.current && rtRef.current.coDjIsHost === true
+      let aidNow = rtRef.current && rtRef.current.coDjActorId ? String(rtRef.current.coDjActorId) : ""
+      while (k < parts.length) {
+        let nid = mintTrackId(p, ids)
+        if (inSession && !amHostNow && aidNow.length > 0) {
+          nid = aidNow + "_" + nid
+        }
+        ids.push(nid)
+        removes.push("remove_track " + nid)
+        k = k + 1
+      }
+      let before = p.channels.length
+      let src = kitLoadSource(entry, ids, inSession ? null : letter)
+      rt.directiveUndoable(src, removes.join("\n"), "library/kit/" + entry.id)
+      setSelectedCh(before)
+      let p2 = rtRef.current.project
+      if (audioStore.ctx) {
+        resyncAllChannelBuses(p2, audioStore)
+        updateMixerFromProject(p2, audioStore)
+      }
+      flashLibraryRow()
+      return "Added " + entry.name + " — " + String(parts.length) + " new tracks on deck " + letter + "."
+    }
+    let ids = []
+    let nid = mintTrackId(p, ids)
+    let amHostNow = rtRef.current && rtRef.current.coDjIsHost === true
+    let aidNow = rtRef.current && rtRef.current.coDjActorId ? String(rtRef.current.coDjActorId) : ""
+    if (inSession && !amHostNow && aidNow.length > 0) {
+      nid = aidNow + "_" + nid
+    }
+    let before = p.channels.length
+    let src = channelLoadSource({ id: nid, name: entry.name, macroName: voiceForNew(entry) }, entry, root)
+    if (!inSession) {
+      src = src + "\n" + deckPlaceLine(letter)
+    }
+    rt.directiveUndoable(src, "remove_track " + nid, "library/add/" + nid)
+    setSelectedCh(before)
+    let p2 = rtRef.current.project
+    if (audioStore.ctx) {
+      resyncAllChannelBuses(p2, audioStore)
+      updateMixerFromProject(p2, audioStore)
+    }
+    flashLibraryRow()
+    return "Added " + entry.name + " as a new track on deck " + letter + "."
   }
 
   // ---- MIDI: keyboard notes audition the SELECTED instrument; a learned CC drives a control via emit (the
@@ -1480,7 +1647,14 @@ export fn App() {
           let armedChanged = false
           if (r.sessionQueuePending) {
             if (onQuant && sessionCommitQueued(p, r)) {
-              r.trackOverrides = []
+              r.trackOverrides = keepPinnedOverrides(p, r)
+              let ko = 0
+              while (ko < r.trackOverrides.length) {
+                if (r.trackOverrides[ko] !== null && r.trackOverrides[ko] !== undefined) {
+                  r.sessionArmedClipIds[ko] = r.trackOverrides[ko]
+                }
+                ko = ko + 1
+              }
               r.trackPending = []
               r.songScene = r.sessionActiveScene
               r.songSceneEndTick = step + sceneBarLength(p, r.songScene) * barSteps
@@ -1543,6 +1717,9 @@ export fn App() {
         }
       }
       r.perfStep = step
+      if (step % 4 === 0 && r.coDjPushTick) {
+        r.coDjPushTick(step)
+      }
       // A replay plays exactly as long as the recording; stop once its last step has sounded (+1 bar tail).
       if (r.tplReplaying && (r.tplReplayMaxStep !== null) && step > Math.floor(r.tplReplayMaxStep) + 16) {
         onStop()
@@ -1727,6 +1904,19 @@ export fn App() {
     rt.coDjWs.send(JSON.stringify(coDjClockPayload(aid, perfStep, scene, bpm, rt.playMode)))
   }
   rt.coDjPushClock = coDjPushClock
+  // Host beat tick (4 per bar): lets co-DJ scripts schedule a beat ahead instead of waiting for the bar clock.
+  fn coDjPushTick(perfStep) {
+    let bpm = project && typeof project.bpm === "number" ? project.bpm : null
+    // In-page AI co-DJs (loopback) run on this playhead whether or not a room is connected.
+    if (rt && rt.coDjLocalTick) {
+      rt.coDjLocalTick(perfStep, bpm)
+    }
+    if (!(rt && rt.coDjWs && rt.coDjWs.readyState === 1 && rt.coDjIsHost === true)) {
+      return
+    }
+    rt.coDjWs.send(JSON.stringify(tickFrame(rt.coDjActorId, perfStep, bpm)))
+  }
+  rt.coDjPushTick = coDjPushTick
 
   // Followers call these (from the co-DJ receive path) to slave their transport to the host.
   rt.setTransportTick = (n) => {
@@ -1834,8 +2024,9 @@ export fn App() {
     // Launching a scene takes it live — so end any private cue audition (you've committed). This is the
     // "cue → launch" path that replaced the separate THROW button.
     onStopPreview()
-    // A full pattern LAUNCH resets the per-track mix — every track follows this pattern again.
-    rt.trackOverrides = []
+    // A full pattern LAUNCH resets the per-track mix — every track follows this pattern again, except a deck
+    // another DJ pinned with its own launch.
+    rt.trackOverrides = keepPinnedOverrides(project, rt)
     rt.trackPending = []
     if (rt.playing && rt.playMode === "song") {
       // Already live — queue the swap (and the co-DJ broadcast) for the next bar.
@@ -2256,6 +2447,20 @@ export fn App() {
     }
   }
   rt.onPlayStop = onPlayStop
+  // `@ transport play|stop` from a host co-DJ. Stopped transport applies the line immediately, so play
+  // starts the clock; a play while already running just selects sequence vs session on the same clock.
+  rt.onTransportPlay = (pm) => {
+    let m = pm === "sequence" ? "sequence" : "song"
+    selectPlayMode(m)
+    if (!rt.playing) {
+      onPlay(m)
+    }
+  }
+  rt.onTransportStop = () => {
+    if (rt.playing) {
+      onStop()
+    }
+  }
 
   // ---- Preview transport: its OWN independent clock, NOT bundled with the live transport ----------
   // Auditions the rack pattern (always sequence rendering) on a separate timer + tick. Starting/stopping
@@ -2354,7 +2559,7 @@ export fn App() {
     onStopPreview()
     rt.cueScene = null
     ensureProjectSession(project)
-    rt.trackOverrides = []
+    rt.trackOverrides = keepPinnedOverrides(project, rt)
     rt.trackPending = []
     if (rt.playing && rt.playMode === "song") {
       sessionQueueScene(project, rt, scene)
@@ -3043,6 +3248,7 @@ export fn App() {
       )}
       <div class="set-presets" key={"sp-" + String(setListGenKey)}>
         <button type="button" class="songs-open-btn" title="Browse the song library — load a full song (kit + patterns) onto any deck" onclick={() => setSongBrowserOpen(true)}>{"♫"}</button>
+        <button type="button" class={libOpen ? "songs-open-btn lib-open-on" : "songs-open-btn"} title="Browse instruments, beats, sequences and kits" onclick={() => setLibOpen(!libOpen)}>{"LIB"}</button>
         <span class="transport-div" />
         {IkSelect({
           class: "set-select",
@@ -3116,6 +3322,11 @@ export fn App() {
         {renderDeckNav("C")}
         {renderDeckNav("D")}
       </aside>
+      {libOpen ? (
+        <aside class="daw-library">
+          {LibraryBrowser(activeDeck, onLibraryPick, () => setLibOpen(false))}
+        </aside>
+      ) : null}
       <div class="daw-main-area">
         <div class="daw-body daw-body-stack">
           <div class="daw-main-stack">

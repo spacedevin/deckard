@@ -1,0 +1,489 @@
+// The co-DJ reference library. Agents start from these instead of inventing a kick pattern or a pad timbre
+// from nothing: factory instrument presets (the same ones the picker saves), named drum beats, scale-degree
+// sequences, and a few whole kits. codj.library() is the index; codj.preset(id) is one entry; arrange() and
+// clip() expand `preset` / `beat` / `sequence` on a track spec into gen, params, steps and notes.
+
+import { generatorFactoryPresets } from '../model/GeneratorPresets.tish'
+import { generatorIdToTpl } from '../deckfile/Emit.tish'
+import { packInstruments, packBeats, packSequences, packKits } from './LibraryPacks.tish'
+
+fn snake(key) {
+  let s = String(key)
+  let out = ""
+  let i = 0
+  while (i < s.length) {
+    let c = s.charAt(i)
+    let upper = c >= "A" && c <= "Z"
+    out = out + (upper ? "_" + c.toLowerCase() : c)
+    i = i + 1
+  }
+  return out
+}
+
+fn snakeParams(params) {
+  let out = {}
+  if (!params) {
+    return out
+  }
+  let ks = Object.keys(params)
+  let i = 0
+  while (i < ks.length) {
+    let v = params[ks[i]]
+    if (typeof v !== "boolean") {
+      out[snake(ks[i])] = v
+    }
+    i = i + 1
+  }
+  return out
+}
+
+let cached = null
+
+fn tagsFor(id, explicit) {
+  if (explicit && explicit.length > 0) {
+    return explicit
+  }
+  let s = String(id)
+  let tags = []
+  if (s.indexOf("lofi") >= 0) {
+    tags.push("lofi")
+  }
+  if (s.indexOf("acid") >= 0) {
+    tags.push("acid")
+  }
+  if (s.indexOf("house") >= 0 || s.indexOf("garage") >= 0) {
+    tags.push("house")
+  }
+  if (s.indexOf("edm") >= 0 || s.indexOf("halftime") >= 0) {
+    tags.push("edm")
+  }
+  return tags
+}
+
+fn beats() {
+  return [
+    { id: "four-on-the-floor", kind: "beat", role: "kick", tags: ["house", "edm"], name: "Four on the floor", about: "House and techno kick: every quarter, accent on 1 and 3.", steps: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], step_vel: [124, 1, 1, 1, 108, 1, 1, 1, 120, 1, 1, 1, 108, 1, 1, 1] },
+    { id: "halftime-kick", kind: "beat", role: "kick", tags: ["edm"], name: "Halftime kick", about: "Kick on beat 1 and the and of 3. Reads as halftime under a busy hat.", steps: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0], step_vel: [124, 1, 1, 1, 1, 1, 1, 1, 1, 1, 112, 1, 1, 1, 1, 1] },
+    { id: "garage-kick", kind: "beat", role: "kick", tags: ["house"], name: "Garage kick", about: "2-step: beat 1, a skipped 2, and a late kick before 4.", steps: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0], step_vel: [120, 1, 1, 1, 1, 1, 1, 1, 1, 1, 104, 1, 1, 112, 1, 1], step_nudge: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.06, 0, 0, 0, 0, 0] },
+    { id: "break-kick", kind: "beat", role: "kick", name: "Break kick", about: "A one-bar break: kicks on 1, the and of 2, and 4. Pair with break-snare.", steps: [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0], step_vel: [124, 1, 1, 1, 1, 1, 110, 1, 1, 1, 1, 1, 116, 1, 1, 1] },
+    { id: "lofi-kick", kind: "beat", role: "kick", tags: ["lofi"], name: "Lofi kick", about: "Boom-bap pocket: beat 1, a soft kick on the and of 2, and beat 3. The second hit sits late.", steps: [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0], step_vel: [108, 1, 1, 1, 1, 72, 1, 1, 100, 1, 1, 1, 1, 1, 1, 1], step_nudge: [0, 0, 0, 0, 0, 0.08, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    { id: "offbeat-hat", kind: "beat", role: "hat", tags: ["house"], name: "Offbeat hat", about: "Closed hat on every offbeat. The house skeleton against four-on-the-floor.", steps: [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0], step_vel: [1, 1, 90, 1, 1, 1, 80, 1, 1, 1, 90, 1, 1, 1, 84, 1] },
+    { id: "house-open-hat", kind: "beat", role: "hat", tags: ["house"], name: "Open hat", about: "Open hat on the and of 2 and the and of 4. Pair with offbeat-hat on a shorter noise decay.", steps: [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0], step_vel: [1, 1, 1, 1, 1, 1, 104, 1, 1, 1, 1, 1, 1, 1, 100, 1] },
+    { id: "house-shaker", kind: "beat", role: "perc", tags: ["house"], name: "House shaker", about: "Soft sixteenths. Keep the gain low; it is the air, not the hat.", steps: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], step_vel: [58, 36, 48, 32, 54, 34, 46, 30, 60, 36, 50, 32, 52, 34, 48, 40], step_prob: [1, 0.75, 0.9, 0.65, 1, 0.7, 0.85, 0.6, 1, 0.75, 0.9, 0.65, 1, 0.7, 0.85, 0.7] },
+    { id: "garage-hat", kind: "beat", role: "hat", tags: ["house"], name: "Garage hat", about: "Skippy 2-step hats: not on every offbeat, a late one before 4.", steps: [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], step_vel: [1, 1, 86, 1, 1, 74, 1, 1, 90, 1, 1, 70, 1, 1, 96, 1], step_nudge: [0, 0, 0, 0, 0, 0.04, 0, 0, 0, 0, 0, 0.06, 0, 0, 0, 0] },
+    { id: "sixteenth-hat", kind: "beat", role: "hat", tags: ["acid", "edm"], name: "Sixteenth hats", about: "A hat on every 16th. Accents on the quarters, ghosts in between, a little late swing.", steps: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], step_vel: [110, 48, 78, 44, 100, 48, 78, 52, 110, 48, 78, 44, 100, 48, 86, 60], step_prob: [1, 0.7, 0.9, 0.6, 1, 0.7, 0.9, 0.65, 1, 0.7, 0.9, 0.6, 1, 0.75, 0.9, 0.8], step_nudge: [0, 0.08, 0, 0.08, 0, 0.08, 0, 0.08, 0, 0.08, 0, 0.08, 0, 0.08, 0, 0.08] },
+    { id: "trap-hat", kind: "beat", role: "hat", tags: ["edm"], name: "Trap hats", about: "Sparse hats with ratchet rolls at the end of the bar. Halftime pocket.", steps: [1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 1], step_vel: [100, 1, 70, 1, 96, 1, 1, 64, 1, 80, 1, 1, 100, 1, 90, 110], step_ratchet: [1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 2, 3] },
+    { id: "edm-build-hat", kind: "beat", role: "hat", tags: ["edm"], name: "Build hats", about: "Sixteenths that get louder across the bar. Use on the bar before a drop, then switch back.", steps: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], step_vel: [48, 52, 56, 60, 64, 70, 76, 82, 88, 94, 100, 106, 112, 116, 120, 124], step_ratchet: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 3] },
+    { id: "lofi-hat", kind: "beat", role: "hat", tags: ["lofi"], name: "Swung hat", about: "Swung eighths with ghosts. The off-8ths are late and quieter, and a few of them drop out.", steps: [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0], step_vel: [78, 1, 46, 1, 70, 1, 42, 1, 82, 1, 44, 1, 66, 1, 50, 1], step_prob: [1, 1, 0.8, 1, 1, 1, 0.7, 1, 1, 1, 0.85, 1, 1, 1, 0.75, 1], step_nudge: [0, 0, 0.1, 0, 0, 0, 0.1, 0, 0, 0, 0.1, 0, 0, 0, 0.1, 0] },
+    { id: "backbeat-clap", kind: "beat", role: "clap", tags: ["house", "edm"], name: "Backbeat clap", about: "Clap on 2 and 4.", steps: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0], step_vel: [1, 1, 1, 1, 118, 1, 1, 1, 1, 1, 1, 1, 114, 1, 1, 1] },
+    { id: "lofi-snare", kind: "beat", role: "snare", tags: ["lofi"], name: "Lofi snare", about: "2 and 4, a little late, with a ghost just before 4.", steps: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0], step_vel: [1, 1, 1, 1, 96, 1, 1, 1, 1, 1, 1, 40, 104, 1, 1, 1], step_nudge: [0, 0, 0, 0, 0.05, 0, 0, 0, 0, 0, 0, 0, 0.04, 0, 0, 0] },
+    { id: "break-snare", kind: "beat", role: "snare", name: "Break snare", about: "2 and 4 plus a ghost just before 4. Pair with break-kick.", steps: [0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0], step_vel: [1, 1, 1, 1, 120, 1, 1, 48, 1, 1, 1, 1, 116, 1, 70, 1] },
+    { id: "techno-perc", kind: "beat", role: "perc", tags: ["acid"], name: "Techno perc", about: "Syncopated perc: a 3-against-4 feel inside the bar. Pan it off center.", steps: [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], step_vel: [1, 1, 84, 1, 1, 96, 1, 1, 78, 1, 1, 100, 1, 1, 88, 1], step_prob: [1, 1, 1, 1, 1, 0.85, 1, 1, 1, 1, 1, 0.8, 1, 1, 1, 1] }
+  ]
+}
+
+fn sequences() {
+  return [
+    { id: "root-fifth", kind: "sequence", role: "bass", name: "Root and fifth", about: "One-bar bass: root on 1, octave ghost, fifth on 3. Set root to the kick's pitch.", bars: 1, defaultRoot: 33, events: [{ deg: 0, start: 0, dur: 0.75, vel: 114 }, { deg: 12, start: 1, dur: 0.25, vel: 78 }, { deg: 7, start: 2, dur: 0.75, vel: 104 }, { deg: 0, start: 3, dur: 0.5, vel: 96 }] },
+    { id: "minor-walk", kind: "sequence", role: "bass", name: "Minor walk", about: "Two-bar minor bass: root, minor third, fourth, fifth, then back down.", bars: 2, defaultRoot: 33, events: [{ deg: 0, start: 0, dur: 1, vel: 112 }, { deg: 3, start: 1.5, dur: 0.5, vel: 90 }, { deg: 5, start: 2.5, dur: 0.75, vel: 100 }, { deg: 7, start: 4, dur: 1, vel: 110 }, { deg: 5, start: 5.5, dur: 0.5, vel: 88 }, { deg: 3, start: 6.5, dur: 0.5, vel: 96 }, { deg: 0, start: 7, dur: 0.75, vel: 108 }] },
+    { id: "acid-16", kind: "sequence", role: "bass", tags: ["acid"], name: "Acid sixteenths", about: "A one-bar 303 line: sixteenths on the root with a minor-third lift and a rest before the last hit. Wants factory_acid_squelch and a moving cutoff.", bars: 1, defaultRoot: 36, events: [{ deg: 0, start: 0, dur: 0.25, vel: 110 }, { deg: 0, start: 0.5, dur: 0.25, vel: 90 }, { deg: 0, start: 0.75, dur: 0.2, vel: 100 }, { deg: 3, start: 1.25, dur: 0.25, vel: 104 }, { deg: 0, start: 1.75, dur: 0.25, vel: 88 }, { deg: 0, start: 2, dur: 0.25, vel: 112 }, { deg: 7, start: 2.5, dur: 0.25, vel: 96 }, { deg: 0, start: 2.75, dur: 0.2, vel: 84 }, { deg: 0, start: 3.25, dur: 0.25, vel: 108 }, { deg: 3, start: 3.75, dur: 0.2, vel: 100 }] },
+    { id: "acid-octave", kind: "sequence", role: "bass", tags: ["acid"], name: "Acid octave", about: "Two bars. The line leaves the root, jumps the octave, and rests before the last slide. Pair with factory_acid_scream and move cutoff.", bars: 2, defaultRoot: 36, events: [{ deg: 0, start: 0, dur: 0.4, vel: 112 }, { deg: 0, start: 0.5, dur: 0.2, vel: 90 }, { deg: 12, start: 1.25, dur: 0.45, vel: 108 }, { deg: 3, start: 2, dur: 0.25, vel: 96 }, { deg: 0, start: 2.75, dur: 0.2, vel: 84 }, { deg: 7, start: 4, dur: 0.7, vel: 114 }, { deg: 12, start: 5.5, dur: 0.25, vel: 92 }, { deg: 0, start: 6.25, dur: 0.4, vel: 100 }, { deg: 3, start: 7.25, dur: 0.4, vel: 104 }] },
+    { id: "axis-min7", kind: "sequence", role: "chords", tags: ["house", "edm"], name: "Minor axis", about: "Four bars, one chord a bar: i, VI, III, VII. The house and trance loop. Hold each note for the bar; voice.chord min7 spells it.", bars: 4, defaultRoot: 57, chord: "min7", octave: -1, events: [{ deg: 0, start: 0, dur: 4, vel: 74 }, { deg: 8, start: 4, dur: 4, vel: 72 }, { deg: 3, start: 8, dur: 4, vel: 74 }, { deg: 10, start: 12, dur: 4, vel: 70 }] },
+    { id: "offbeat-stab", kind: "sequence", role: "chords", name: "Offbeat stab", about: "Two bars of chords stabbed on the offbeat. Short, rhythmic, leaves the downbeat to the kick.", bars: 2, defaultRoot: 60, chord: "min7", events: [{ deg: 0, start: 0.5, dur: 0.25, vel: 100 }, { deg: 0, start: 1.5, dur: 0.25, vel: 88 }, { deg: 0, start: 2.5, dur: 0.25, vel: 96 }, { deg: 0, start: 3.5, dur: 0.25, vel: 84 }, { deg: 8, start: 4.5, dur: 0.25, vel: 100 }, { deg: 8, start: 5.5, dur: 0.25, vel: 88 }, { deg: 8, start: 6.5, dur: 0.25, vel: 96 }, { deg: 5, start: 7.5, dur: 0.25, vel: 104 }] },
+    { id: "two-bar-hook", kind: "sequence", role: "lead", name: "Two-bar hook", about: "A motif, a rest, then the same shape a step higher. Hum it before you change it.", bars: 2, defaultRoot: 72, events: [{ deg: 0, start: 0, dur: 0.5, vel: 108 }, { deg: 3, start: 0.75, dur: 0.25, vel: 92 }, { deg: 7, start: 1.5, dur: 1, vel: 114 }, { deg: 3, start: 3, dur: 0.5, vel: 86 }, { deg: 2, start: 4, dur: 0.5, vel: 108 }, { deg: 5, start: 4.75, dur: 0.25, vel: 92 }, { deg: 9, start: 5.5, dur: 1.5, vel: 116 }] },
+    { id: "minor-arp", kind: "sequence", role: "arp", name: "Minor arpeggio", about: "One bar, sixteenths climbing the minor triad and back down. Loop it under a pad of the same root.", bars: 1, defaultRoot: 60, events: [{ deg: 0, start: 0, dur: 0.25, vel: 96 }, { deg: 3, start: 0.25, dur: 0.25, vel: 84 }, { deg: 7, start: 0.5, dur: 0.25, vel: 90 }, { deg: 12, start: 0.75, dur: 0.25, vel: 100 }, { deg: 7, start: 1, dur: 0.25, vel: 86 }, { deg: 3, start: 1.25, dur: 0.25, vel: 80 }, { deg: 0, start: 1.5, dur: 0.25, vel: 94 }, { deg: 7, start: 1.75, dur: 0.25, vel: 88 }, { deg: 12, start: 2, dur: 0.25, vel: 102 }, { deg: 15, start: 2.25, dur: 0.25, vel: 90 }, { deg: 12, start: 2.5, dur: 0.25, vel: 86 }, { deg: 7, start: 2.75, dur: 0.25, vel: 80 }, { deg: 3, start: 3, dur: 0.25, vel: 92 }, { deg: 0, start: 3.25, dur: 0.25, vel: 100 }, { deg: 7, start: 3.5, dur: 0.25, vel: 84 }, { deg: 12, start: 3.75, dur: 0.2, vel: 96 }] },
+    { id: "lofi-bass", kind: "sequence", role: "bass", tags: ["lofi"], name: "Lofi bass", about: "Two bars, behind the beat. Root, flat-7, minor third, then a short 4. Long notes, lots of air. Wants factory_lofi_sub.", bars: 2, defaultRoot: 41, events: [{ deg: 0, start: 0.12, dur: 1.5, vel: 94 }, { deg: 10, start: 2.3, dur: 0.8, vel: 82 }, { deg: 3, start: 4.15, dur: 1.3, vel: 90 }, { deg: 0, start: 6.4, dur: 0.7, vel: 86 }, { deg: 5, start: 7.3, dur: 0.45, vel: 74 }] },
+    { id: "lofi-chords", kind: "sequence", role: "chords", tags: ["lofi"], name: "Lofi changes", about: "Four bars, min7, a little late: i, iv, bVI, bIII. The dusty loop under a Rhodes. Wants factory_lofi_rhodes.", bars: 4, defaultRoot: 60, chord: "min7", octave: -1, events: [{ deg: 0, start: 0.12, dur: 3.6, vel: 72 }, { deg: 5, start: 4.14, dur: 3.5, vel: 68 }, { deg: 8, start: 8.1, dur: 3.6, vel: 70 }, { deg: 3, start: 12.16, dur: 3.4, vel: 66 }] },
+    { id: "lofi-hook", kind: "sequence", role: "lead", tags: ["lofi"], name: "Lofi hook", about: "Two bars of pentatonic fragments with rests. Hummable, never busy. Wants factory_lofi_pluck or factory_lofi_ep.", bars: 2, defaultRoot: 72, events: [{ deg: 0, start: 0.5, dur: 0.6, vel: 88 }, { deg: 3, start: 1.4, dur: 0.3, vel: 74 }, { deg: 7, start: 2.1, dur: 1.2, vel: 96 }, { deg: 10, start: 4.6, dur: 0.5, vel: 80 }, { deg: 7, start: 5.6, dur: 0.7, vel: 76 }, { deg: 12, start: 6.8, dur: 0.9, vel: 98 }] },
+    { id: "house-pump-bass", kind: "sequence", role: "bass", tags: ["house"], name: "Pump bass", about: "One bar house bass: root on the downbeats, octave ghosts on the offs. Wants factory_house_bass.", bars: 1, defaultRoot: 33, events: [{ deg: 0, start: 0, dur: 0.4, vel: 116 }, { deg: 12, start: 1, dur: 0.18, vel: 78 }, { deg: 0, start: 1.5, dur: 0.35, vel: 104 }, { deg: 7, start: 2, dur: 0.4, vel: 110 }, { deg: 12, start: 3, dur: 0.18, vel: 76 }, { deg: 0, start: 3.5, dur: 0.3, vel: 100 }] },
+    { id: "house-deep-bass", kind: "sequence", role: "bass", tags: ["house"], name: "Deep bass", about: "Two bars, fewer notes, longer holds. Sits under a pad instead of pumping the offbeats.", bars: 2, defaultRoot: 31, events: [{ deg: 0, start: 0, dur: 1.5, vel: 112 }, { deg: 0, start: 2, dur: 0.7, vel: 96 }, { deg: 7, start: 3, dur: 0.6, vel: 100 }, { deg: 3, start: 4, dur: 1.4, vel: 110 }, { deg: 0, start: 6, dur: 1.2, vel: 104 }] },
+    { id: "edm-octave-bass", kind: "sequence", role: "bass", tags: ["edm"], name: "Octave pump", about: "Two-bar drop bass. Root and octave trade the bar, with a rest so the kick owns beat 1 of bar 2.", bars: 2, defaultRoot: 33, events: [{ deg: 0, start: 0, dur: 0.45, vel: 120 }, { deg: 0, start: 1, dur: 0.3, vel: 100 }, { deg: 12, start: 2, dur: 0.4, vel: 112 }, { deg: 0, start: 3, dur: 0.35, vel: 104 }, { deg: 0, start: 4.5, dur: 0.4, vel: 116 }, { deg: 12, start: 6, dur: 0.7, vel: 118 }, { deg: 7, start: 7, dur: 0.4, vel: 100 }] },
+    { id: "edm-pluck", kind: "sequence", role: "lead", tags: ["edm"], name: "Pluck hook", about: "Two-bar trance pluck. Short notes, a rest, then the same shape up a fifth. Wants factory_edm_pluck.", bars: 2, defaultRoot: 76, events: [{ deg: 0, start: 0, dur: 0.2, vel: 104 }, { deg: 3, start: 0.5, dur: 0.2, vel: 90 }, { deg: 7, start: 1, dur: 0.35, vel: 110 }, { deg: 12, start: 2, dur: 0.25, vel: 100 }, { deg: 7, start: 4, dur: 0.2, vel: 104 }, { deg: 10, start: 4.5, dur: 0.2, vel: 90 }, { deg: 14, start: 5, dur: 0.5, vel: 114 }, { deg: 12, start: 6.5, dur: 0.7, vel: 108 }] },
+    { id: "edm-rise", kind: "sequence", role: "lead", tags: ["edm"], name: "Minor rise", about: "Two bars climbing the minor scale. A build line — mute it on the drop or hand it to the supersaw.", bars: 2, defaultRoot: 60, events: [{ deg: 0, start: 0, dur: 0.4, vel: 80 }, { deg: 2, start: 1, dur: 0.4, vel: 84 }, { deg: 3, start: 2, dur: 0.4, vel: 90 }, { deg: 5, start: 3, dur: 0.4, vel: 96 }, { deg: 7, start: 4, dur: 0.4, vel: 102 }, { deg: 8, start: 5, dur: 0.4, vel: 106 }, { deg: 10, start: 6, dur: 0.4, vel: 112 }, { deg: 12, start: 7, dur: 0.8, vel: 120 }] }
+  ]
+}
+
+fn kits() {
+  return [
+    { id: "house-loop", kind: "kit", role: "house", tags: ["house"], name: "House loop", about: "126-feel house: four-on-the-floor, offbeat hats, backbeat clap, root-fifth sub, minor-axis pad. arrange(preset('house-loop').parts), then change the root.", parts: [
+      { id: "kick", name: "Kick", gen: "kick_edm", beat: "four-on-the-floor", gain: 0.9 },
+      { id: "hat", name: "Hat", gen: "noise_burst", params: { attack: 0.001, decay: 0.04, tone: 0.85, pitch_follow: 0.1 }, beat: "offbeat-hat", gain: 0.42, pan: 0.28 },
+      { id: "clap", name: "Clap", preset: "factory_clap_tight", beat: "backbeat-clap", gain: 0.66 },
+      { id: "bass", name: "Bass", preset: "factory_808_long", sequence: "root-fifth", root: 33, gain: 0.8 },
+      { id: "pad", name: "Pad", preset: "factory_pad_warm", sequence: "axis-min7", root: 57, gain: 0.3 }
+    ] },
+    { id: "halftime-kit", kind: "kit", role: "halftime", tags: ["edm"], name: "Halftime kit", about: "Halftime kick, trap hats, a break snare and a two-bar minor bass. Darker and slower-feeling than house-loop at the same bpm.", parts: [
+      { id: "kick", name: "Kick", gen: "kick_deep", beat: "halftime-kick", gain: 0.9 },
+      { id: "hat", name: "Hat", gen: "noise_burst", params: { attack: 0.001, decay: 0.03, tone: 0.8, pitch_follow: 0.05 }, beat: "trap-hat", gain: 0.4, pan: 0.2 },
+      { id: "snare", name: "Snare", preset: "factory_drum_boombap", beat: "break-snare", gain: 0.72 },
+      { id: "bass", name: "Bass", preset: "factory_reese_minimal", sequence: "minor-walk", root: 31, gain: 0.74 }
+    ] },
+    { id: "acid-bar", kind: "kit", role: "acid", tags: ["acid"], name: "Acid bar", about: "303 sixteenths over a dry kick and sixteenth hats. Move the cutoff from onBar; a static acid line is dead.", parts: [
+      { id: "kick", name: "Kick", gen: "kick_edm", beat: "four-on-the-floor", gain: 0.88 },
+      { id: "hat", name: "Hat", gen: "noise_burst", params: { attack: 0.001, decay: 0.025, tone: 0.9, pitch_follow: 0 }, beat: "sixteenth-hat", gain: 0.36, pan: -0.2 },
+      { id: "acid", name: "Acid", preset: "factory_acid_squelch", sequence: "acid-16", root: 36, gain: 0.7 }
+    ] },
+    { id: "lofi-beat", kind: "kit", role: "lofi", tags: ["lofi"], name: "Lofi beat", about: "Dusty kick, swung hats, a late snare, a soft sub and min7 Rhodes changes. About 80–90 bpm. Change the chord root together.", parts: [
+      { id: "kick", name: "Kick", preset: "factory_lofi_kick", beat: "lofi-kick", gain: 0.84 },
+      { id: "hat", name: "Hat", gen: "noise_burst", params: { attack: 0.002, decay: 0.05, tone: 0.45, pitch_follow: 0.05 }, beat: "lofi-hat", gain: 0.3, pan: 0.32 },
+      { id: "snare", name: "Snare", preset: "factory_lofi_snare", beat: "lofi-snare", gain: 0.58 },
+      { id: "bass", name: "Bass", preset: "factory_lofi_sub", sequence: "lofi-bass", root: 41, gain: 0.68 },
+      { id: "keys", name: "Keys", preset: "factory_lofi_rhodes", sequence: "lofi-chords", root: 60, gain: 0.4 }
+    ] },
+    { id: "house-deep", kind: "kit", role: "house", tags: ["house"], name: "Deep house", about: "Longer bass, an open hat, a warm pad on the minor axis, and a short stab. Slower and wider than house-loop.", parts: [
+      { id: "kick", name: "Kick", preset: "factory_house_kick", beat: "four-on-the-floor", gain: 0.9 },
+      { id: "hat", name: "Hat", gen: "noise_burst", params: { attack: 0.001, decay: 0.035, tone: 0.8, pitch_follow: 0.08 }, beat: "offbeat-hat", gain: 0.38, pan: 0.25 },
+      { id: "open", name: "Open", gen: "noise_burst", params: { attack: 0.002, decay: 0.18, tone: 0.7, pitch_follow: 0.15 }, beat: "house-open-hat", gain: 0.28, pan: -0.22 },
+      { id: "bass", name: "Bass", preset: "factory_house_bass", sequence: "house-deep-bass", root: 31, gain: 0.76 },
+      { id: "pad", name: "Pad", preset: "factory_house_pad", sequence: "axis-min7", root: 57, gain: 0.28 },
+      { id: "stab", name: "Stab", preset: "factory_house_stab", sequence: "offbeat-stab", root: 60, gain: 0.38 }
+    ] },
+    { id: "house-garage", kind: "kit", role: "house", tags: ["house"], name: "UK garage", about: "Skippy kick and hats, a clap on 2 and 4, and a pumping bass. Around 132 bpm.", parts: [
+      { id: "kick", name: "Kick", preset: "factory_house_kick", beat: "garage-kick", gain: 0.88 },
+      { id: "hat", name: "Hat", gen: "noise_burst", params: { attack: 0.001, decay: 0.03, tone: 0.88, pitch_follow: 0.1 }, beat: "garage-hat", gain: 0.36, pan: 0.3 },
+      { id: "clap", name: "Clap", preset: "factory_house_clap", beat: "backbeat-clap", gain: 0.62 },
+      { id: "bass", name: "Bass", preset: "factory_house_bass", sequence: "house-pump-bass", root: 35, gain: 0.78 }
+    ] },
+    { id: "acid-scream", kind: "kit", role: "acid", tags: ["acid"], name: "Acid scream", about: "A two-bar octave 303 over a dry kick and sixteenth hats. Ride gen/cutoff on the acid track or the line sits still.", parts: [
+      { id: "kick", name: "Kick", preset: "factory_house_kick", beat: "four-on-the-floor", gain: 0.86 },
+      { id: "hat", name: "Hat", gen: "noise_burst", params: { attack: 0.001, decay: 0.022, tone: 0.92, pitch_follow: 0 }, beat: "sixteenth-hat", gain: 0.32, pan: -0.18 },
+      { id: "acid", name: "Acid", preset: "factory_acid_scream", sequence: "acid-octave", root: 36, gain: 0.68 }
+    ] },
+    { id: "edm-drop", kind: "kit", role: "edm", tags: ["edm"], name: "EDM drop", about: "Drop kick, sixteenth hats, clap, octave sub, a supersaw on the minor axis, and a pluck hook. Open the filter across the 8 bars before you call it finished.", parts: [
+      { id: "kick", name: "Kick", preset: "factory_edm_kick", beat: "four-on-the-floor", gain: 0.92 },
+      { id: "hat", name: "Hat", gen: "noise_burst", params: { attack: 0.001, decay: 0.028, tone: 0.9, pitch_follow: 0.05 }, beat: "sixteenth-hat", gain: 0.34, pan: 0.22 },
+      { id: "clap", name: "Clap", preset: "factory_house_clap", beat: "backbeat-clap", gain: 0.64 },
+      { id: "bass", name: "Bass", preset: "factory_edm_sub", sequence: "edm-octave-bass", root: 33, gain: 0.78 },
+      { id: "saw", name: "Saw", preset: "factory_edm_supersaw", sequence: "axis-min7", root: 57, gain: 0.32 },
+      { id: "pluck", name: "Pluck", preset: "factory_edm_pluck", sequence: "edm-pluck", root: 76, gain: 0.4 }
+    ] }
+  ]
+}
+
+fn catalog() {
+  if (cached !== null) {
+    return cached
+  }
+  let all = []
+  let factory = generatorFactoryPresets()
+  let i = 0
+  while (i < factory.length) {
+    let p = factory[i]
+    all.push({ id: String(p.presetId), kind: "instrument", role: generatorIdToTpl(p.generatorId), tags: tagsFor(p.presetId, p.genre ? [p.genre] : null), name: String(p.name), about: String(p.name) + " — factory preset, gen " + generatorIdToTpl(p.generatorId) + ".", gen: generatorIdToTpl(p.generatorId), params: snakeParams(p.params) })
+    i = i + 1
+  }
+  let groups = [beats(), sequences(), kits(), packInstruments(), packBeats(), packSequences(), packKits()]
+  let g = 0
+  while (g < groups.length) {
+    let j = 0
+    while (j < groups[g].length) {
+      let row = groups[g][j]
+      if (!row.tags) {
+        row.tags = tagsFor(row.id, null)
+      }
+      all.push(row)
+      j = j + 1
+    }
+    g = g + 1
+  }
+  cached = all
+  return all
+}
+
+fn clone(v) {
+  return JSON.parse(JSON.stringify(v))
+}
+
+/** Index rows: { id, kind, role, name, about }. kind filters to instrument | beat | sequence | kit. */
+export fn libraryIndex(kind) {
+  let all = catalog()
+  let out = []
+  let i = 0
+  while (i < all.length) {
+    let e = all[i]
+    if (kind === null || typeof kind === "undefined" || kind === "" || e.kind === kind) {
+      out.push({ id: e.id, kind: e.kind, role: e.role, tags: e.tags ? e.tags : [], name: e.name, about: e.about })
+    }
+    i = i + 1
+  }
+  return out
+}
+
+/** One library entry by id, or null. */
+export fn libraryEntry(id) {
+  let want = String(id)
+  let all = catalog()
+  let i = 0
+  while (i < all.length) {
+    if (all[i].id === want) {
+      return clone(all[i])
+    }
+    i = i + 1
+  }
+  return null
+}
+
+fn overlay(base, extra) {
+  let out = base ? clone(base) : {}
+  if (!extra) {
+    return out
+  }
+  let ks = Object.keys(extra)
+  let i = 0
+  while (i < ks.length) {
+    out[ks[i]] = extra[ks[i]]
+    i = i + 1
+  }
+  return out
+}
+
+/**
+ * A track spec with `preset` / `beat` / `sequence` filled in from the library. Explicit fields on the spec
+ * win. Throws on an unknown id, so a script finds out immediately.
+ */
+export fn expandSpec(spec) {
+  let s = spec ? clone(spec) : {}
+  if (s.preset !== null && s.preset !== undefined) {
+    let e = libraryEntry(s.preset)
+    if (e === null || e.kind !== "instrument") {
+      throw new Error("unknown instrument preset '" + String(s.preset) + "' — codj.library('instrument')")
+    }
+    if (s.gen === null || s.gen === undefined) {
+      s.gen = e.gen
+    }
+    s.params = overlay(e.params, s.params)
+  }
+  if (s.beat !== null && s.beat !== undefined) {
+    let b = libraryEntry(s.beat)
+    if (b === null || b.kind !== "beat") {
+      throw new Error("unknown beat '" + String(s.beat) + "' — codj.library('beat')")
+    }
+    let lanes = ["steps", "step_vel", "step_prob", "step_ratchet", "step_nudge", "step_pitch"]
+    let i = 0
+    while (i < lanes.length) {
+      if ((s[lanes[i]] === null || s[lanes[i]] === undefined) && b[lanes[i]] !== null && b[lanes[i]] !== undefined) {
+        s[lanes[i]] = b[lanes[i]]
+      }
+      i = i + 1
+    }
+  }
+  if (s.sequence !== null && s.sequence !== undefined) {
+    let q = libraryEntry(s.sequence)
+    if (q === null || q.kind !== "sequence") {
+      throw new Error("unknown sequence '" + String(s.sequence) + "' — codj.library('sequence')")
+    }
+    if (s.bars === null || s.bars === undefined) {
+      s.bars = q.bars
+    }
+    if (s.notes === null || s.notes === undefined) {
+      let root = s.root !== null && s.root !== undefined ? Math.floor(Number(s.root)) : q.defaultRoot
+      let notes = []
+      let i = 0
+      while (i < q.events.length) {
+        let ev = q.events[i]
+        notes.push({ pitch: root + ev.deg, start: ev.start, dur: ev.dur, vel: ev.vel })
+        i = i + 1
+      }
+      s.notes = notes
+    }
+    if (q.chord && (s.voice === null || s.voice === undefined)) {
+      s.voice = { chord: q.chord }
+      if (q.octave !== null && q.octave !== undefined) {
+        s.voice.octave = q.octave
+      }
+    }
+  }
+  return s
+}
+
+fn stepChar(s) {
+  return s === true || s === 1 || (s && s.on === true)
+}
+
+fn stepsDeck(steps) {
+  if (typeof steps === "string") {
+    return "  steps " + steps
+  }
+  let o = "  steps"
+  let i = 0
+  let n = steps ? steps.length : 0
+  while (i < n) {
+    o = o + (stepChar(steps[i]) ? " x" : " .")
+    i = i + 1
+  }
+  return o
+}
+
+fn laneDeck(name, arr) {
+  if (!arr || arr.length === 0) {
+    return ""
+  }
+  let o = "  " + name
+  let i = 0
+  while (i < arr.length) {
+    o = o + " " + String(arr[i])
+    i = i + 1
+  }
+  return o
+}
+
+fn paramsDeck(params) {
+  if (!params) {
+    return ""
+  }
+  let ks = Object.keys(params)
+  if (ks.length === 0) {
+    return ""
+  }
+  let o = "  gen"
+  let i = 0
+  while (i < ks.length) {
+    o = o + " " + ks[i] + " " + String(params[ks[i]])
+    i = i + 1
+  }
+  return o
+}
+
+fn notesDeck(notes) {
+  let lines = []
+  if (!notes) {
+    return lines
+  }
+  let i = 0
+  while (i < notes.length) {
+    let n = notes[i]
+    lines.push("  note " + String(n.pitch) + " " + String(n.start) + " " + String(n.dur) + " v " + String(n.vel))
+    i = i + 1
+  }
+  return lines
+}
+
+fn voiceDeck(voice) {
+  if (!voice) {
+    return ""
+  }
+  let o = "  voice"
+  if (voice.octave !== null && voice.octave !== undefined) {
+    o = o + " octave " + String(voice.octave)
+  }
+  if (voice.chord) {
+    o = o + " chord " + String(voice.chord)
+  }
+  return o === "  voice" ? "" : o
+}
+
+fn pushLine(lines, line) {
+  if (line && line.length > 0) {
+    lines.push(line)
+  }
+}
+
+fn genOfChannel(ch) {
+  if (ch && ch.macroName) {
+    return String(ch.macroName)
+  }
+  return generatorIdToTpl(ch && ch.generatorId ? ch.generatorId : "basicOsc")
+}
+
+/** Deck text that loads one library entry onto an existing channel. Instrument swaps the sound and keeps the
+ *  pattern. A beat replaces the steps. A sequence replaces the notes. */
+export fn channelLoadSource(ch, entry, root) {
+  let kind = entry.kind
+  let gen = kind === "instrument" ? entry.gen : genOfChannel(ch)
+  let name = ch && ch.name ? String(ch.name) : "Track"
+  let id = ch && ch.id ? String(ch.id) : "c0"
+  let lines = []
+  if (kind === "instrument") {
+    lines.push("track " + name + " id " + id + " gen " + gen)
+    pushLine(lines, paramsDeck(entry.params))
+    return lines.join("\n")
+  }
+  if (kind === "beat") {
+    let s = expandSpec({ beat: entry.id })
+    lines.push("track " + name + " id " + id + " gen " + gen)
+    pushLine(lines, stepsDeck(s.steps))
+    pushLine(lines, laneDeck("step_vel", s.step_vel))
+    pushLine(lines, laneDeck("step_prob", s.step_prob))
+    pushLine(lines, laneDeck("step_ratchet", s.step_ratchet))
+    pushLine(lines, laneDeck("step_nudge", s.step_nudge))
+    return lines.join("\n")
+  }
+  let spec = { sequence: entry.id }
+  if (root !== null && root !== undefined && root === root) {
+    spec.root = root
+  }
+  let s = expandSpec(spec)
+  let hdr = "track " + name + " id " + id + " gen " + gen
+  if (s.bars !== null && s.bars >= 2) {
+    hdr = hdr + " * " + String(Math.floor(Number(s.bars)))
+  }
+  lines.push(hdr)
+  pushLine(lines, voiceDeck(s.voice))
+  let notes = notesDeck(s.notes)
+  let i = 0
+  while (i < notes.length) {
+    lines.push(notes[i])
+    i = i + 1
+  }
+  return lines.join("\n")
+}
+
+fn trackFromSpec(s, id, deck) {
+  let gen = s.gen ? s.gen : "basic_osc"
+  let name = s.name ? String(s.name) : "Track"
+  let hdr = "track " + name + " id " + id + " gen " + gen
+  if (s.bars !== null && s.bars >= 2) {
+    hdr = hdr + " * " + String(Math.floor(Number(s.bars)))
+  }
+  let lines = [hdr]
+  let mix = "  mix gain " + String(s.gain !== null && s.gain !== undefined ? Number(s.gain) : 0.75) + " pan " + String(s.pan !== null && s.pan !== undefined ? Number(s.pan) : 0)
+  lines.push(mix)
+  pushLine(lines, paramsDeck(s.params))
+  pushLine(lines, voiceDeck(s.voice))
+  if (s.steps) {
+    pushLine(lines, stepsDeck(s.steps))
+    pushLine(lines, laneDeck("step_vel", s.step_vel))
+    pushLine(lines, laneDeck("step_prob", s.step_prob))
+    pushLine(lines, laneDeck("step_ratchet", s.step_ratchet))
+    pushLine(lines, laneDeck("step_nudge", s.step_nudge))
+  }
+  let notes = notesDeck(s.notes)
+  let i = 0
+  while (i < notes.length) {
+    lines.push(notes[i])
+    i = i + 1
+  }
+  if (deck) {
+    lines.push(deckPlaceLine(deck))
+  }
+  return lines.join("\n")
+}
+
+/** `deck B slot 1` — the slot is the deck index. Slot 0 is always deck A, so a letter alone is not enough. */
+export fn deckPlaceLine(deck) {
+  let letter = String(deck)
+  let slot = 0
+  if (letter === "B") {
+    slot = 1
+  } else if (letter === "C") {
+    slot = 2
+  } else if (letter === "D") {
+    slot = 3
+  }
+  return "  deck " + letter + " slot " + String(slot)
+}
+
+/** Deck text for a kit: one new track per part. `ids` is parallel to parts. `deck` (A–D) places them when
+ *  the session is solo; pass null in a live room so ownership routes the tracks. */
+export fn kitLoadSource(entry, ids, deck) {
+  let parts = entry.parts ? entry.parts : []
+  let blocks = []
+  let i = 0
+  while (i < parts.length) {
+    let s = expandSpec(parts[i])
+    let id = ids && i < ids.length ? ids[i] : ("kit_" + String(i))
+    blocks.push(trackFromSpec(s, id, deck))
+    i = i + 1
+  }
+  return blocks.join("\n")
+}

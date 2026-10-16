@@ -1,3 +1,6 @@
+import { loadOrMakeRoomName } from '../codj/RoomName.tish'
+import { loadCoDjModel, loadCoDjDirectorModel } from '../codj/CoDjModels.tish'
+
 // Mutable bag owned by App via useRef — transport, Co-DJ, deck editor, and WS state live here (no window.__*).
 
 export fn createDeckardRuntime() {
@@ -92,7 +95,9 @@ export fn createDeckardRuntime() {
     coDjClientId: "",
     coDjMidiInitialized: false,
     coDjWsUrl: "",
-    coDjSessionId: "default",
+    coDjSessionId: loadOrMakeRoomName(),
+    coDjAiModel: loadCoDjModel(),
+    coDjAiDirectorModel: loadCoDjDirectorModel(),
     coDjDirectTarget: "",
     coDjDirectText: "",
     coDjCodjPollIv: null,

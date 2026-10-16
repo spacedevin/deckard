@@ -1,12 +1,14 @@
 # deck grammar (co-DJ agent reference)
 
-The lines a **co-DJ lane** may emit. Human/host stream lines are **read-only context**; you add **new tracks +
-patterns on your own lane only** (ids prefixed with your `actorId`, e.g. `ai-a_hat`). This is the agent subset
+The lines a **co-DJ lane** may emit. A **client** lane adds **new tracks + patterns on its own lane only**
+(ids prefixed with its `actorId`, e.g. `ai-a_hat`) and reads everyone else's lines as context. A **host** lane
+in the browser that owns the session is the master: it holds `master_mixer` and may also emit the master-scope
+lines below. This is the agent subset
 of the full language — for the complete grammar (master-scope headers, clips, `gen_block` graphs, automation,
 control directives) see **[`@spacedevin/deck` grammar](../node_modules/@spacedevin/deck/docs/DECK_GRAMMAR.md)** (canonical).
-Deckard UI / ownership notes: **[DECK_GRAMMAR.md](DECK_GRAMMAR.md)**. Keep this in lockstep with the agent
-`SYSTEM_PROMPT` in [`services/agent-worker/main.tish`](../services/agent-worker/main.tish) and the master-scope
-denylist in [`src/codj/Skills.tish`](../src/codj/Skills.tish).
+Deckard UI / ownership notes: **[DECK_GRAMMAR.md](DECK_GRAMMAR.md)**. This file is injected verbatim into the
+co-DJ agent prompt (via `scripts/gen-codj-api.mjs` → `src/agentkit/PromptAssets.tish`); keep it in lockstep with
+the master-scope denylist in [`src/codj/Skills.tish`](../src/codj/Skills.tish).
 
 ## Track block
 
@@ -65,22 +67,47 @@ Generators vs. macros never share a label (see project memory *macro-generator-b
 | every other named generator | `gen <param> <value> …` — 0–1 designer knobs (e.g. `gen tone 0.5 swell 0.45`) |
 | `matrix_fm` / `patch` | `gen_block <patch\|matrix_fm> … end gen_block` graph — see [DECK_EXTENSION.md](DECK_EXTENSION.md) / package [extension](../node_modules/@spacedevin/deck/docs/DECK_EXTENSION.md) |
 
-## What you may NOT emit (master-scope)
+## Master-scope (the master browser)
 
-These change the **whole session for every player**, so they require the `master_mixer` skill and are **skipped**
-for an agent lane (per [`Skills.tish`](../src/codj/Skills.tish)):
+These change the **whole session for every player**. The DAW tab that hosts the session is the master. An
+**AI host added in that browser** (`Add AI host`, role `host`) holds `master_mixer` and may emit them. A
+**client** lane does not, so the gate skips them (per [`Skills.tish`](../src/codj/Skills.tish)):
 
 ```
 bpm   tpl   auto   transpose   scale   swing   master_mix   actor_mix
-session_scenes   session_slot   clip   @ <control directives>
+xfade <x 0..1> <y 0..1>          deck_mix <A|B|C|D> hi <dB> mid <dB> lo <dB> flt <-1..0> vol <0..1>
+session_scenes   session_slot   clip
+launch_quant   song_seed   main_deck   song   follow
+@ launch scene <n>               @ launch clip <trackId> <clipId>
+@ transport play <seq|song>     @ transport stop
+@ fx <echo|filter> <on|off> [time <s>] [fb <0..0.9>] [freq <hz>]
 ```
 
-Also **never** emit `remove_track <id>` — deleting tracks is a host/UI action (owner-gated), not something an
-agent does. You add complementary parts.
+`xfade` is the 4-way fader (x = deck A↔B, y = top↔bottom). `deck_mix` is that deck's booth EQ, lowpass (`flt`)
+and volume. `@ fx` is a master throw, not a track send. Prefer the script helpers: `codj.crossfade`, `codj.booth`,
+`codj.throwFx`, `codj.clips`, `codj.scene`, `codj.clip`, `codj.play`, `codj.stop`, `codj.launch`. Compose in Session
+mode: `codj.clips(track, [...])` writes a track's short numbered clips (`clip c1 …`, `clip c2 …`, 1–4 bars, shown as
+#1, #2 in the grid), and `codj.scene(n, { kick: 1, hat: 2 }, name)` writes a whole session column from those numbers
+(a `session_slot` per track, or a `clip` block when a part is given inline); every owned track it leaves out gets
+a hitless `rest` clip in that slot (an empty slot falls back to the track's main pattern), so it is silent there.
 
-So **global key (`scale`) and groove (`swing`) are master-only** — you cannot re-key or re-shuffle the mix.
-Live control directives (`@ launch`/`transport`/`cue`/`throw`/`fx`/`deck`) are a separate master/owner surface —
-see [package grammar § Control directives](../node_modules/@spacedevin/deck/docs/DECK_GRAMMAR.md#control-directives-).
+Per-deck launches (host): `@ launch scene <n> deck <X>` moves only deck X's tracks to scene n and pins the deck
+there — a launch on the shared session (`@ launch scene <n>`) and the song's follow actions leave a pinned deck
+alone. `@ launch deck <X> stop` silences the deck; `@ launch deck <X> song` releases it back to the shared session.
+`@ launch clip <trackId> -` returns a track on a pinned deck to that deck's scene. A track line `deck <X> slot <n>`
+places a track on a deck; for a guest's track it holds only on a deck no player owns (`codj.session().free`).
+Script helpers: `codj.launch(n, deck)`, `codj.deckCtl(deck, 'stop' | 'song')`, `codj.launchClip`, `codj.stopClip`,
+`codj.follow`, `codj.quantize`, `codj.song`, and `{ deck }` on `arrange` / `scene` / `clear`.
+
+`remove_track <id>` removes a track **you own** — `codj.arrange` uses it to replace your previous arrangement
+instead of stacking a new copy on every reload. The master (the host browser, and an AI host there) may remove
+any track. A client lane may not remove a track it does not own. The page loads a starter loop — Kick `c0`,
+Snare `c1`, HiHat `c2`, Bass `c3`. While those are the only tracks, `codj.placeholder()` is true and a host
+calls `codj.clear()` before its own sequence so the demo is gone. `codj.clear()` is the clean slate: a host
+removes every track, a client only its own.
+
+A client lane cannot re-key (`scale`) or re-shuffle (`swing`) the mix. A host lane can, and it can launch scenes
+and throw master FX. Cue and preview stay on the sender's machine.
 
 ## Streaming
 

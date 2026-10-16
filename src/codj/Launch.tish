@@ -8,6 +8,8 @@ import {
 // project-only merge in Merge.tish (which has no rt). Format:
 //
 //   @ launch scene <idx0>                  arm a whole scene (master only)
+//   @ launch scene <idx0> deck <X>         arm scene idx0 on deck X only, and pin it there (master only)
+//   @ launch deck <X> stop|song            silence deck X | release its pin back to the song (master only)
 //   @ launch clip <trackId> <clipId|-|stop> per-track override (track owner only; - = follow song)
 //   @ transport song <scene0>              align the shared song position (master only)
 //   @ transport stop                       silence all tracks (master only)
@@ -20,10 +22,78 @@ import { laneCanMaster, actorMayEditTrack } from './Merge.tish'
 import {
   ensureProjectSession,
   sessionArmScene,
+  armSceneWithOverrides,
   sessionStopAllTracks,
   sessionStopTrack,
   sceneSlotClipId
 } from '../model/Session.tish'
+import { channelDeck } from '../model/DeckRouting.tish'
+
+/** Launch scene `sceneIdx` on one deck only (A–D). */
+export fn launchDeckSceneDirective(sceneIdx, deck) {
+  return "@ launch scene " + String(Math.floor(Number(sceneIdx))) + " deck " + String(deck).toUpperCase()
+}
+
+fn validDeck(d) {
+  return d === "A" || d === "B" || d === "C" || d === "D"
+}
+
+/**
+ * The per-track overrides a whole-session launch must keep: those on decks pinned by a per-deck launch
+ * (rt.deckScenes). A scene launch on the shared song re-arms every OTHER track; a pinned deck keeps playing
+ * its own scene until it is launched, stopped or released on its own.
+ */
+export fn keepPinnedOverrides(project, rt) {
+  let out = []
+  let pins = rt && rt.deckScenes ? rt.deckScenes : null
+  if (pins === null || !rt.trackOverrides) {
+    return out
+  }
+  let t = 0
+  while (t < project.channels.length) {
+    let d = channelDeck(project, project.channels[t])
+    if (pins[d] !== null && pins[d] !== undefined && rt.trackOverrides[t] !== null && rt.trackOverrides[t] !== undefined) {
+      out[t] = rt.trackOverrides[t]
+    }
+    t = t + 1
+  }
+  return out
+}
+
+// The scene the shared session is on (0 before anything was launched).
+fn sharedScene(rt) {
+  if (rt.songScene !== null && rt.songScene !== undefined) {
+    return rt.songScene
+  }
+  if (rt.sessionActiveScene !== null && rt.sessionActiveScene !== undefined) {
+    return rt.sessionActiveScene
+  }
+  return 0
+}
+
+// Point every track on `deck` at `clipFor(trackIdx)`: an override (so the shared song leaves it alone), landing
+// on the next launch boundary while the song plays, at once otherwise.
+fn armDeckTracks(project, rt, deck, clipFor) {
+  if (!rt.trackOverrides) {
+    rt.trackOverrides = []
+  }
+  let t = 0
+  while (t < project.channels.length) {
+    if (channelDeck(project, project.channels[t]) === deck) {
+      let clip = clipFor(t)
+      rt.trackOverrides[t] = clip
+      if (rt.playing && rt.playMode === "song") {
+        if (!rt.trackPending) {
+          rt.trackPending = []
+        }
+        rt.trackPending.push({ t: t, clip: clip })
+      } else {
+        rt.sessionArmedClipIds[t] = clip
+      }
+    }
+    t = t + 1
+  }
+}
 
 // ---- emit (the SENDER builds these lines) -------------------------------------------------------
 
@@ -86,6 +156,9 @@ export fn fxDirective(type, on, params) {
   }
   if (typeof p.fb === "number") {
     extra = extra + " fb " + String(p.fb)
+  }
+  if (typeof p.freq === "number" && p.freq > 0) {
+    extra = extra + " freq " + String(p.freq)
   }
   return "@ fx " + t + " " + s + extra
 }
@@ -201,11 +274,60 @@ export fn applyLaunchDirective(project, rt, line, actorId, skillIds) {
     if (idx < 0 || idx >= sc || idx !== idx) {
       return true
     }
-    // A full scene launch resets per-track overrides — every track follows the launched scene.
-    rt.trackOverrides = []
-    sessionArmScene(project, rt, idx)
+    if (toks.length >= 6 && toks[4] === "deck") {
+      let deck = String(toks[5]).toUpperCase()
+      if (!validDeck(deck)) {
+        return true
+      }
+      if (!rt.deckScenes) {
+        rt.deckScenes = {}
+      }
+      rt.deckScenes[deck] = idx
+      armDeckTracks(project, rt, deck, (t) => sceneSlotClipId(project, idx, t))
+      return true
+    }
+    // A full scene launch resets per-track overrides — every track follows the launched scene — except on a
+    // deck pinned by its own launch, which keeps playing its scene.
+    rt.trackOverrides = keepPinnedOverrides(project, rt)
+    armSceneWithOverrides(project, rt, idx)
     rt.songScene = idx
     rt.songPos = null
+    return true
+  }
+
+  if (kind === "launch" && toks.length >= 4 && toks[2] === "deck") {
+    if (!laneCanMaster(actorId, skillIds)) {
+      return true
+    }
+    let deck = String(toks[3]).toUpperCase()
+    let what = toks.length >= 5 ? String(toks[4]) : "stop"
+    if (!validDeck(deck)) {
+      return true
+    }
+    if (!rt.deckScenes) {
+      rt.deckScenes = {}
+    }
+    if (what === "song") {
+      rt.deckScenes[deck] = null
+      let scene = sharedScene(rt)
+      armDeckTracks(project, rt, deck, (t) => sceneSlotClipId(project, scene, t))
+      let t = 0
+      while (t < project.channels.length) {
+        if (channelDeck(project, project.channels[t]) === deck) {
+          rt.trackOverrides[t] = null
+        }
+        t = t + 1
+      }
+      return true
+    }
+    rt.deckScenes[deck] = -1
+    let s = 0
+    while (s < project.channels.length) {
+      if (channelDeck(project, project.channels[s]) === deck) {
+        sessionStopTrack(project, rt, s)
+      }
+      s = s + 1
+    }
     return true
   }
 
@@ -225,10 +347,16 @@ export fn applyLaunchDirective(project, rt, line, actorId, skillIds) {
       return true
     }
     if (clipId === "-" || clipId === ".") {
-      // Release: this track follows the current song scene again.
+      // Release: this track follows its scene again — its deck's pinned scene, else the shared song's.
+      let pin = rt.deckScenes ? rt.deckScenes[channelDeck(project, project.channels[tix])] : null
+      if (pin !== null && pin !== undefined && pin >= 0) {
+        let own = sceneSlotClipId(project, pin, tix)
+        rt.trackOverrides[tix] = own
+        rt.sessionArmedClipIds[tix] = own
+        return true
+      }
       rt.trackOverrides[tix] = null
-      let scene = rt.songScene !== null ? rt.songScene : (rt.sessionActiveScene !== null ? rt.sessionActiveScene : 0)
-      rt.sessionArmedClipIds[tix] = sceneSlotClipId(project, scene, tix)
+      rt.sessionArmedClipIds[tix] = sceneSlotClipId(project, sharedScene(rt), tix)
       return true
     }
     rt.trackOverrides[tix] = clipId
@@ -244,6 +372,20 @@ export fn applyLaunchDirective(project, rt, line, actorId, skillIds) {
     if (mode === "stop") {
       sessionStopAllTracks(project, rt)
       rt.trackOverrides = []
+      rt.deckScenes = {}
+      if (rt.onTransportStop) {
+        rt.onTransportStop()
+      }
+      return true
+    }
+    // `@ transport play seq|song` starts the shared clock. Handle it before the song-align branch, which
+    // reads the next token as a scene index (`Number("seq")` is not a scene).
+    if (mode === "play") {
+      let which = toks.length >= 4 ? String(toks[3]) : "song"
+      let pm = (which === "seq" || which === "sequence") ? "sequence" : "song"
+      if (rt.onTransportPlay) {
+        rt.onTransportPlay(pm)
+      }
       return true
     }
     // song / sequence: align the shared song position so a follower that is playing matches the host.
@@ -251,8 +393,8 @@ export fn applyLaunchDirective(project, rt, line, actorId, skillIds) {
       let scene = Math.floor(Number(toks[3]))
       let sc = Math.floor(Number(project.session.sceneCount))
       if (scene >= 0 && scene < sc && scene === scene) {
-        rt.trackOverrides = []
-        sessionArmScene(project, rt, scene)
+        rt.trackOverrides = keepPinnedOverrides(project, rt)
+        armSceneWithOverrides(project, rt, scene)
         rt.songScene = scene
         rt.songPos = null
       }
@@ -309,6 +451,8 @@ export fn applyLaunchDirective(project, rt, line, actorId, skillIds) {
           params.time = v
         } else if (k === "fb") {
           params.fb = v
+        } else if (k === "freq") {
+          params.freq = v
         }
       }
       fi = fi + 2

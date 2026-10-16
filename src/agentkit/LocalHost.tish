@@ -1,0 +1,276 @@
+// LocalHost — an in-process "gateway + host" for co-DJ runtimes that share a page/process with the authoritative
+// fold: the browser's loopback AI co-DJ (worker ↔ page over a MessagePort) and the headless tests. It speaks the
+// exact wire protocol a real room does (joined / state.snapshot / deck.delta / control tick / edit.result / chat),
+// so a runtime can't tell it from the gateway and everything it learns here holds over the network.
+//
+// opts: {
+//   hostActorId,                    the host's identity in frames (default "host")
+//   getProject(),                   the authoritative fold (re-read every time; the app swaps it on load)
+//   ingest(src, ctx),               the host's gated write door
+//   onOut(cb(fragment, kind, ctx)), subscribe to every folded fragment (→ deck.delta)
+//   onChat?(entry),                 a peer said something (entry = {from, fromName, text, to})
+//   log?(line)
+// }
+
+import { emitProject } from '../deckfile/Emit.tish'
+import { ensureCoDjMeta, setTrackOwner } from '../codj/CoDjMeta.tish'
+import { coDjGateReport } from '../codj/Gate.tish'
+import { deckPutSource } from '../codj/DeckPut.tish'
+import { deltaFrame, tickFrame, editResultFrame, chatFrame } from '../codj/Protocol.tish'
+
+export fn createLocalHost(opts) {
+  let hostId = opts.hostActorId ? String(opts.hostActorId) : "host"
+  let peers = []
+  let rev = 0
+  let gen = 0
+  let deltas = []
+  let queued = []
+  let perfStep = 0
+  let playing = false
+  let alive = true
+  let log = opts.log ? opts.log : (s) => {}
+
+  fn roster() {
+    let out = [{ actorId: hostId, displayName: opts.hostName ? String(opts.hostName) : "host", kind: "human", role: "host", skillIds: ["master_mixer"] }]
+    let i = 0
+    while (i < peers.length) {
+      let p = peers[i]
+      out.push({ actorId: p.actorId, displayName: p.displayName, kind: p.kind, role: p.role, skillIds: p.skillIds })
+      i = i + 1
+    }
+    return out
+  }
+
+  fn actorIds() {
+    let out = [hostId]
+    let i = 0
+    while (i < peers.length) {
+      out.push(peers[i].actorId)
+      i = i + 1
+    }
+    return out
+  }
+
+  fn sendTo(peer, frame) {
+    if (peer.joined) {
+      peer.end.send(frame)
+    }
+  }
+
+  fn broadcast(frame, exceptActorId) {
+    let i = 0
+    while (i < peers.length) {
+      if (peers[i].actorId !== exceptActorId) {
+        sendTo(peers[i], frame)
+      }
+      i = i + 1
+    }
+  }
+
+  fn presence() {
+    broadcast({ type: "presence", sessionId: "local", actors: actorIds(), roster: roster(), hostActorId: hostId }, null)
+  }
+
+  fn snapshotFrame() {
+    let p = opts.getProject()
+    gen = gen + 1
+    let owners = {}
+    if (p.coDjMeta && p.coDjMeta.tracks) {
+      let ci = 0
+      while (ci < p.channels.length) {
+        let cid = p.channels[ci].id
+        let m = p.coDjMeta.tracks[cid]
+        // Verbatim (no "human" → hostId relabel like the gateway host does): an in-process mirror then folds
+        // byte-identically to the host, actor lanes included.
+        owners[cid] = m && m.ownerActorId ? String(m.ownerActorId) : "human"
+        ci = ci + 1
+      }
+    }
+    return { type: "state.snapshot", actorId: hostId, authorId: hostId, lines: emitProject(p).split("\n"), owners: owners, gen: gen, rev: rev }
+  }
+
+  // Every fragment the host folds → a deck.delta to every peer. The peer whose frame produced it gets it too (it
+  // keeps the rev sequence gap-free) and skips the re-fold — it already applied its own edit optimistically.
+  opts.onOut((fragment, kind, ctx) => {
+    if (!alive || peers.length === 0) {
+      return
+    }
+    let origin = ctx && ctx.originActorId ? String(ctx.originActorId) : null
+    if (kind !== "doc") {
+      broadcast({ type: "deck.block", actorId: ctx && ctx.actorId ? String(ctx.actorId) : hostId, lines: [String(fragment)], skillIds: ctx ? ctx.skillIds : null }, origin)
+      return
+    }
+    rev = rev + 1
+    let author = ctx && ctx.actorId !== null ? ctx : { actorId: "human", skillIds: ctx ? ctx.skillIds : null }
+    let f = deltaFrame(hostId, rev, gen, fragment, ctx && ctx.perfStep !== null ? ctx.perfStep : perfStep, author)
+    deltas.push(f)
+    if (deltas.length > 512) {
+      deltas.shift()
+    }
+    broadcast(f, null)
+  })
+
+  // The loopback fold has no joiner-ownership pass of its own (the gateway host does), so a track a peer adds
+  // would be stamped "human" and the peer could never edit or remove it again. Attribute each track this write
+  // ADDS — including one re-added under an id it just removed — to the peer, and nothing else.
+  fn claimAddedTracks(peer, src) {
+    let p = opts.getProject()
+    ensureCoDjMeta(p)
+    let lines = String(src).split("\n")
+    let i = 0
+    while (i < lines.length) {
+      let t = lines[i].trim()
+      if (t.indexOf("track ") === 0) {
+        let tok = t.split(" ")
+        let k = tok.indexOf("id")
+        if (k >= 0 && k + 1 < tok.length) {
+          let cid = tok[k + 1]
+          let m = p.coDjMeta.tracks[cid]
+          if (!m || !m.ownerActorId) {
+            setTrackOwner(p, cid, peer.actorId, peer.actorId)
+          }
+        }
+      }
+      i = i + 1
+    }
+  }
+
+  fn foldFrom(peer, src, status, ref) {
+    let report = coDjGateReport(opts.getProject(), src, peer.actorId, peer.skillIds)
+    opts.ingest(src, { actorId: peer.actorId, authorId: peer.actorId, skillIds: peer.skillIds, perfStep: perfStep, originActorId: peer.actorId })
+    claimAddedTracks(peer, src)
+    broadcast(editResultFrame(hostId, peer.actorId, ref, report, status), null)
+  }
+
+  fn flushQueued() {
+    let keep = []
+    let i = 0
+    while (i < queued.length) {
+      let q = queued[i]
+      if (!playing || q.at <= perfStep) {
+        foldFrom(q.peer, q.src, "applied", q.ref)
+      } else {
+        keep.push(q)
+      }
+      i = i + 1
+    }
+    queued = keep
+  }
+
+  fn onFrame(peer, msg) {
+    if (!alive || msg === null) {
+      return
+    }
+    let t = msg.type
+    if (t === "join") {
+      peer.actorId = msg.actorId ? String(msg.actorId) : "agent-local"
+      peer.displayName = msg.displayName ? String(msg.displayName).slice(0, 40) : peer.actorId
+      peer.kind = msg.kind === "human" ? "human" : "agent"
+      peer.role = msg.role ? String(msg.role) : "client"
+      // This in-page room is the master browser. A host-role agent added here is the master.
+      // A client agent is not, even if it asked for the skill.
+      let skills = Array.isArray(msg.skillIds) ? msg.skillIds.slice() : []
+      if (peer.role === "host") {
+        if (skills.indexOf("master_mixer") < 0) {
+          skills.push("master_mixer")
+        }
+      } else {
+        skills = skills.filter((s) => s !== "master_mixer")
+      }
+      peer.skillIds = skills
+      peer.joined = true
+      sendTo(peer, {
+        type: "joined",
+        sessionId: "local",
+        you: { actorId: peer.actorId, skillIds: peer.skillIds, displayName: peer.displayName, kind: peer.kind },
+        actors: actorIds(),
+        roster: roster(),
+        hostActorId: hostId,
+        replay: []
+      })
+      sendTo(peer, snapshotFrame())
+      if (playing) {
+        sendTo(peer, tickFrame(hostId, perfStep, opts.getProject().bpm))
+      }
+      presence()
+      log("loopback: " + peer.displayName + " joined")
+      return
+    }
+    if (!peer.joined) {
+      return
+    }
+    if (t === "deck.block") {
+      let lines = Array.isArray(msg.lines) ? msg.lines : []
+      let src = lines.filter((l) => String(l).trim().indexOf("@ perf_step ") !== 0).join("\n")
+      let at = msg.effectivePerfStep !== null ? Math.floor(Number(msg.effectivePerfStep)) : null
+      let ref = msg.ref !== null ? msg.ref : null
+      if (playing && at !== null && at > perfStep) {
+        queued.push({ peer: peer, src: src, at: at, ref: ref })
+        broadcast(editResultFrame(hostId, peer.actorId, ref, { accepted: 0, rejected: [] }, "queued"), null)
+      } else {
+        foldFrom(peer, src, "applied", ref)
+      }
+      return
+    }
+    if (t === "deck.put") {
+      let src2 = deckPutSource(opts.getProject(), peer.actorId, Array.isArray(msg.lines) ? msg.lines : [])
+      foldFrom(peer, src2, "applied", msg.ref !== null ? msg.ref : null)
+      return
+    }
+    if (t === "chat" || t === "direct") {
+      let f = chatFrame(peer.actorId, peer.displayName, msg.text !== null ? msg.text : "", msg.targetActorId)
+      broadcast(f, peer.actorId)
+      if (opts.onChat) {
+        opts.onChat({ from: peer.actorId, fromName: peer.displayName, text: f.text, to: f.targetActorId })
+      }
+      return
+    }
+    if (t === "request.snapshot") {
+      sendTo(peer, snapshotFrame())
+      return
+    }
+  }
+
+  /** Attach one runtime's transport end (the host side). Returns a detach fn. */
+  fn attach(end) {
+    let peer = { end: end, actorId: null, skillIds: [], displayName: null, kind: "agent", role: "client", joined: false }
+    peers.push(peer)
+    end.onMessage((m) => onFrame(peer, m))
+    return () => {
+      peers = peers.filter((p) => p !== peer)
+      presence()
+    }
+  }
+
+  /** The host's playhead advanced (call once per beat while playing). */
+  fn tick(step, bpm) {
+    perfStep = Math.floor(Number(step))
+    playing = true
+    flushQueued()
+    broadcast(tickFrame(hostId, perfStep, bpm), null)
+  }
+
+  fn stop() {
+    playing = false
+    flushQueued()
+    broadcast({ type: "control", op: "playing_stop", actorId: hostId, perfStep: perfStep }, null)
+  }
+
+  /** The host's user says something (targetActorId optional). */
+  fn say(text, targetActorId) {
+    broadcast(chatFrame(hostId, opts.hostName ? opts.hostName : "host", text, targetActorId), null)
+  }
+
+  return {
+    attach: attach,
+    tick: tick,
+    stop: stop,
+    say: say,
+    snapshot: () => broadcast(snapshotFrame(), null),
+    peers: () => peers.map((p) => ({ actorId: p.actorId, displayName: p.displayName, kind: p.kind })),
+    dispose: () => {
+      alive = false
+      peers = []
+    }
+  }
+}
