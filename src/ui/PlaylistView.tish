@@ -147,7 +147,7 @@ export fn PlaylistView(project, rt, props) {
         <button
           type="button"
           class={p.recording ? "pl-rec pl-rec-on" : "pl-rec"}
-          title={p.recording ? "Recording ARMED — Play captures what the sequencer fires into the timeline. Click to disarm." : "Recording OFF — click to arm, then Play to capture a take."}
+          title={p.recording ? "Recording ARMED — the next Play records a fresh take over the timeline (disarms on Stop). Click to disarm." : "Recording OFF — click to arm, then Play to capture a take."}
           onclick={() => { if (p.onToggleRec) { p.onToggleRec() } }}
         >
           <span class="pl-rec-dot"></span>
@@ -168,6 +168,15 @@ export fn PlaylistView(project, rt, props) {
           onclick={() => { if (p.onSaveRecording) { p.onSaveRecording() } }}
         >
           {"⤓"}
+        </button>
+        <button
+          type="button"
+          class="pl-btn pl-btn-ico"
+          title="Replay this take — plays the timeline back without recording over it"
+          disabled={steps === 0}
+          onclick={() => { if (p.onReplayTake) { p.onReplayTake() } }}
+        >
+          {"▶"}
         </button>
         {IkSelect({
           class: "pl-replay-select",

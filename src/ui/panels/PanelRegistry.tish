@@ -1,0 +1,89 @@
+// Panel type → content. Every surface renders from ONE shared panel context `pc` built by App (project,
+// runtime, selection, callbacks) plus the panel's resolved lens, so the same panel type can be opened twice
+// pointed at different decks.
+//
+// The heavy panels stay memo'd exactly as before (created once at module scope): each re-renders only when its
+// scalar deps change. A lens just feeds a different deck / track into those deps.
+
+import { h, memo } from '@tishlang/lattish'
+import { StepGridPanel } from '../grid/StepGrid.tish'
+import { SessionView } from '../SessionView.tish'
+import { PlaylistView } from '../PlaylistView.tish'
+import { InstrumentStack } from '../InstrumentStack.tish'
+import { DeckMixer } from '../deck/DeckMixer.tish'
+import { CoDjPanel } from '../CoDjPanel.tish'
+import { CodeDebugView } from '../CodeDebugView.tish'
+import { DecksPanel } from './DecksPanel.tish'
+import { LibraryPanel } from './LibraryPanel.tish'
+import { MasterPanel } from './MasterPanel.tish'
+import { BoothsPanel } from './BoothsPanel.tish'
+
+fn stepGridEq(a, b) {
+  return a.gridGen === b.gridGen && a.selectedCh === b.selectedCh && a.channelsRev === b.channelsRev && a.seqPromoteUi === b.seqPromoteUi && a.activeDeck === b.activeDeck
+}
+let StepGridMemo = memo((p) => StepGridPanel(p.project, p.selectedCh, p.setProjectFromUI, p.setSelectedCh, p.rt, p.headerRight, p.activeDeck), stepGridEq)
+
+fn sessionEq(a, b) {
+  return a.sessionUiGen === b.sessionUiGen && a.seqPromoteUi === b.seqPromoteUi && a.sessionRev === b.sessionRev && a.channelsRev === b.channelsRev && a.playing === b.playing && a.activeDeck === b.activeDeck
+}
+let SessionViewMemo = memo((p) => SessionView(p.project, p.rt, p.setProjectFromUI, p.playing, p.bumpSessionUi, p.patternBank, p.headerRight, p.activeDeck), sessionEq)
+
+fn playlistEq(a, b) {
+  return a.timelineGen === b.timelineGen && a.setLibGen === b.setLibGen && a.channelsRev === b.channelsRev && a.recording === b.recording && a.playing === b.playing
+}
+let PlaylistMemo = memo((p) => PlaylistView(p.project, p.rt, p.props), playlistEq)
+
+fn instrumentEq(a, b) {
+  return a.selectedCh === b.selectedCh && a.channelsRev === b.channelsRev && a.activeDeck === b.activeDeck
+}
+let InstrumentStackMemo = memo((p) => InstrumentStack(p.project, p.selectedCh, p.setProjectFromUI, p.tplMirrorFlush, p.rt, p.activeDeck), instrumentEq)
+
+fn deckMixerEq(a, b) {
+  let ap = a.project
+  let bp = b.project
+  let abpm = ap ? ap.bpm : 120
+  let bbpm = bp ? bp.bpm : 120
+  return a.xfadeX === b.xfadeX && a.xfadeY === b.xfadeY && a.channelsRev === b.channelsRev && a.deckMixRev === b.deckMixRev && a.playing === b.playing && abpm === bbpm
+}
+let DeckMixerMemo = memo((p) => DeckMixer(p.project, p.setProjectFromUI, p.touchMixer, p.rt), deckMixerEq)
+
+/** Render one panel's content. `info.lens` = resolved { deck, chIndex, peerId, label }. */
+export fn renderPanelContent(rec, info, pc, sh) {
+  let t = rec.type
+  let deck = info.lens.deck
+  let ch = info.lens.chIndex
+  if (t === "decks") {
+    return DecksPanel(pc, rec, info)
+  }
+  if (t === "mixer") {
+    return h(DeckMixerMemo, { project: pc.project, setProjectFromUI: pc.setProjectFromUI, touchMixer: pc.touchMixer, rt: pc.rt, xfadeX: pc.xfadeX, xfadeY: pc.xfadeY, channelsRev: pc.channelsRev, deckMixRev: pc.deckMixRev, playing: pc.playing })
+  }
+  if (t === "instruments") {
+    return h(InstrumentStackMemo, { project: pc.project, selectedCh: ch, setProjectFromUI: pc.setProjectFromUI, tplMirrorFlush: pc.tplMirrorFlush, rt: pc.rt, channelsRev: pc.channelsRev, activeDeck: deck })
+  }
+  if (t === "sequencer") {
+    return h(StepGridMemo, { project: pc.project, selectedCh: ch, setProjectFromUI: pc.setProjectFromUI, setSelectedCh: pc.setSelectedCh, rt: pc.rt, headerRight: pc.seqHeaderRight, gridGen: pc.gridGen, channelsRev: pc.channelsRev, seqPromoteUi: pc.seqPromoteUi, activeDeck: deck })
+  }
+  if (t === "session") {
+    return h(SessionViewMemo, { project: pc.project, rt: pc.rt, setProjectFromUI: pc.setProjectFromUI, playing: pc.playing, bumpSessionUi: pc.bumpSessionUi, patternBank: pc.patternBank, headerRight: pc.sessionHeaderRight, sessionUiGen: pc.sessionUiGen, seqPromoteUi: pc.seqPromoteUi, sessionRev: pc.sessionRev, channelsRev: pc.channelsRev, activeDeck: deck })
+  }
+  if (t === "playlist") {
+    return h(PlaylistMemo, { project: pc.project, rt: pc.rt, props: pc.playlistProps, recording: pc.playlistProps.recording, playing: pc.playlistProps.playing, timelineGen: pc.timelineGen, setLibGen: pc.setLibGen, channelsRev: pc.channelsRev })
+  }
+  if (t === "codj") {
+    return <div class="ws-codj">{CoDjPanel(pc.project, pc.setProject, pc.tplMirrorFlush, pc.rt)}</div>
+  }
+  if (t === "deckEditor") {
+    return <div class="ws-deck-editor">{CodeDebugView(pc.project, pc.setProject, pc.tplText, pc.setTplText, pc.rt, true)}</div>
+  }
+  if (t === "library") {
+    return LibraryPanel(pc, rec, info, () => sh.run("panel.close", { panelId: rec.id }))
+  }
+  if (t === "master") {
+    return MasterPanel(pc)
+  }
+  if (t === "booths") {
+    return BoothsPanel(pc, sh)
+  }
+  return <div class="ws-unknown">{"Unknown panel: " + String(t)}</div>
+}

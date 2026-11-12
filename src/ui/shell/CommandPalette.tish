@@ -1,0 +1,213 @@
+// ⌘K command palette — one box for everything: every workspace action (with its chord), open-a-panel
+// (optionally pointed at a deck), mood switches, a raw deck line (prefix ">") and talking to the co-DJs
+// (any other text). Fully keyboard driven: ↑↓ pick, ↵ run, Esc close.
+
+import { h } from '@tishlang/lattish'
+import { openPanelEntries } from '../../workspace/Actions.tish'
+import { chatLocalCoDjs } from '../../agentkit/BrowserHost.tish'
+import { announce } from './Announcer.tish'
+
+/** Fuzzy score of `q` against `text` (higher is better; -1 = no match). Word starts and runs score extra. */
+export fn fuzzyScore(q, text) {
+  let a = String(q).toLowerCase().trim()
+  let s = String(text).toLowerCase()
+  if (a.length === 0) {
+    return 0
+  }
+  let direct = s.indexOf(a)
+  if (direct >= 0) {
+    return 1000 - direct + (direct === 0 || s.charAt(direct - 1) === " " ? 200 : 0)
+  }
+  let score = 0
+  let si = 0
+  let run = 0
+  let qi = 0
+  while (qi < a.length) {
+    let c = a.charAt(qi)
+    if (c === " ") {
+      qi = qi + 1
+      continue
+    }
+    let found = -1
+    while (si < s.length) {
+      if (s.charAt(si) === c) {
+        found = si
+        break
+      }
+      si = si + 1
+    }
+    if (found < 0) {
+      return -1
+    }
+    let wordStart = found === 0 || s.charAt(found - 1) === " " || s.charAt(found - 1) === "·"
+    run = found === si && run > 0 ? run + 1 : 1
+    score = score + 1 + (wordStart ? 8 : 0) + run * 2
+    si = found + 1
+    qi = qi + 1
+  }
+  return score
+}
+
+fn buildEntries(sh) {
+  let out = []
+  let st = sh.state
+  let n = 0
+  while (n < st.moods.length) {
+    let m = st.moods[n]
+    out.push({ kind: "mood", id: "mood:" + m.id, label: "Mood: " + m.name + (st.active === m.id ? " (current)" : ""), group: "Moods", chord: n < 9 ? sh.chordText("mood.goto" + String(n + 1)) : "", moodIndex: n })
+    n = n + 1
+  }
+  sh.registry.list().forEach((a) => {
+    if (a.palette === true) {
+      out.push({ kind: "action", id: a.id, label: a.label, group: a.group, chord: sh.chordText(a.id) })
+    }
+  })
+  openPanelEntries().forEach((e) => {
+    out.push({ kind: "open", id: e.id, label: e.label, group: e.group, chord: "", args: e.args })
+  })
+  return out
+}
+
+fn sendChat(rt, text) {
+  if (rt && rt.coDjWs && rt.coDjWs.readyState === 1 && rt.coDjSendChat) {
+    rt.coDjSendChat(text)
+    announce("Sent to the room")
+    return
+  }
+  if (rt && Array.isArray(rt.aiCoDjs) && rt.aiCoDjs.length > 0) {
+    chatLocalCoDjs(rt, text)
+    announce("Asked your AI co-DJs")
+    return
+  }
+  announce("No co-DJs here yet — add one in the Co-DJ panel")
+}
+
+fn matches(sh, text, rt) {
+  let q = String(text)
+  let trimmed = q.trim()
+  if (trimmed.charAt(0) === ">") {
+    let line = trimmed.substring(1).trim()
+    return [{ kind: "deck", id: "deck-line", label: line.length > 0 ? "Apply deck line: " + line : "Type a deck line, e.g. >bpm 124", group: "Deck", chord: "↵", line: line }]
+  }
+  let all = buildEntries(sh)
+  let scored = []
+  all.forEach((e) => {
+    let sc = fuzzyScore(trimmed, e.label + " " + e.group)
+    if (sc >= 0) {
+      scored.push({ e: e, s: sc })
+    }
+  })
+  if (trimmed.length > 0) {
+    scored.sort((x, y) => y.s - x.s)
+  }
+  let out = scored.slice(0, 40).map((x) => x.e)
+  if (trimmed.length > 0) {
+    out.push({ kind: "chat", id: "chat", label: "Ask the co-DJs: " + trimmed, group: "Co-DJ", chord: "", text: trimmed })
+    out.push({ kind: "deck", id: "deck-line", label: "Apply as a deck line: " + trimmed, group: "Deck", chord: "", line: trimmed })
+  }
+  return out
+}
+
+fn runEntry(sh, rt, e) {
+  sh.closePalette()
+  if (e.kind === "action") {
+    sh.run(e.id, null)
+  } else if (e.kind === "open") {
+    sh.run("panel.open", e.args)
+  } else if (e.kind === "mood") {
+    sh.run("mood.goto" + String(e.moodIndex + 1), null)
+  } else if (e.kind === "deck") {
+    if (e.line.length > 0 && rt && rt.applyTpl) {
+      rt.applyTpl(e.line)
+      announce("Applied: " + e.line)
+    }
+  } else if (e.kind === "chat") {
+    sendChat(rt, e.text)
+  }
+}
+
+export fn CommandPalette(sh, rt) {
+  let pal = sh.ui().palette
+  if (pal === null) {
+    return null
+  }
+  let text = pal.text
+  let list = matches(sh, text, rt)
+  let sel = typeof pal.sel === "number" ? Math.max(0, Math.min(list.length - 1, pal.sel)) : 0
+  fn setSel(i) {
+    sh.setUi({ palette: { text: text, sel: i } })
+    requestAnimationFrame(() => {
+      let el = document.getElementById("ws-pal-opt-" + String(i))
+      if (el && el.scrollIntoView) {
+        el.scrollIntoView({ block: "nearest" })
+      }
+    })
+  }
+  let groupSeen = {}
+  fn onKey(e) {
+    let k = e.key
+    if (k === "Escape") {
+      e.preventDefault()
+      e.stopPropagation()
+      sh.closePalette()
+    } else if (k === "ArrowDown" || (k === "Tab" && !e.shiftKey)) {
+      e.preventDefault()
+      setSel(list.length > 0 ? (sel + 1) % list.length : 0)
+    } else if (k === "ArrowUp" || (k === "Tab" && e.shiftKey)) {
+      e.preventDefault()
+      setSel(list.length > 0 ? (sel - 1 + list.length) % list.length : 0)
+    } else if (k === "Enter") {
+      e.preventDefault()
+      e.stopPropagation()
+      if (list.length > 0) {
+        runEntry(sh, rt, list[sel])
+      }
+    }
+  }
+  let input = h("input", {
+    class: "ws-palette-input",
+    "data-focus-id": "palette:input",
+    role: "combobox",
+    "aria-expanded": "true",
+    "aria-controls": "ws-pal-list",
+    "aria-activedescendant": list.length > 0 ? "ws-pal-opt-" + String(sel) : "",
+    "aria-autocomplete": "list",
+    placeholder: "Search actions & panels · >deck line · or talk to the co-DJs",
+    value: text,
+    oninput: (e) => sh.setUi({ palette: { text: e.target.value, sel: 0 } }),
+    onkeydown: onKey
+  }, [])
+  let items = list.map((e, i) => {
+    let head = groupSeen[e.group] === true ? null : e.group
+    groupSeen[e.group] = true
+    return h("li", {
+      id: "ws-pal-opt-" + String(i),
+      role: "option",
+      "aria-selected": i === sel ? "true" : "false",
+      class: "ws-pal-opt ws-pal-" + e.kind + (i === sel ? " ws-pal-sel" : ""),
+      onmousemove: () => { if (i !== sel) { setSel(i) } },
+      onclick: () => runEntry(sh, rt, e)
+    }, [
+      <span class="ws-pal-group">{head !== null ? head : ""}</span>,
+      <span class="ws-pal-label">{e.label}</span>,
+      e.chord.length > 0 ? <kbd class="ws-pal-chord">{e.chord}</kbd> : null
+    ])
+  })
+  return (
+    <div class="ws-palette-scrim" onmousedown={(e) => { if (e.target === e.currentTarget) { sh.closePalette() } }}>
+      {h("div", { class: "ws-palette", role: "dialog", "aria-modal": "true", "aria-label": "Command palette" }, [
+        <div class="ws-palette-field">
+          {h("span", { class: "ws-palette-glyph", "aria-hidden": "true" }, ["⌘"])}
+          {input}
+        </div>,
+        h("ul", { class: "ws-palette-list", id: "ws-pal-list", role: "listbox", "aria-label": "Results" }, items),
+        h("div", { class: "ws-palette-foot", "aria-hidden": "true" }, [
+          <span><kbd>{"↑↓"}</kbd>{" pick"}</span>,
+          <span><kbd>{"↵"}</kbd>{" run"}</span>,
+          <span><kbd>{">"}</kbd>{" deck line"}</span>,
+          <span><kbd>{"esc"}</kbd>{" close"}</span>
+        ])
+      ])}
+    </div>
+  )
+}

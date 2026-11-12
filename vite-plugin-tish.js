@@ -1,5 +1,5 @@
 // Compiles src/main.tish -> dist/bundle.js via `tish build --target js`, and full-reloads the
-// browser whenever a .tish (or styles.css) file changes.
+// browser whenever a .tish (or styles.css / styles/*.css) file changes.
 //
 // Why full-reload (not HMR): Lattish re-mounts the whole tree on every render (see docs/LATTISH.md),
 // and the compiled bundle is a single self-contained classic script — there is no module-level state
@@ -51,7 +51,10 @@ export default function tishPlugin() {
       ]
       server.middlewares.use((req, res, next) => {
         const url = (req.url || '').split('?')[0]
-        const hit = raw.find((r) => r.url === url)
+        let hit = raw.find((r) => r.url === url)
+        if (!hit && /^\/styles\/[\w.-]+\.css$/.test(url)) {
+          hit = { url, file: path.join(ROOT, url), type: 'text/css; charset=utf-8' }
+        }
         if (hit) {
           try {
             const body = readFileSync(hit.file, 'utf8')
@@ -79,7 +82,7 @@ export default function tishPlugin() {
         ctx.server.ws.send({ type: 'full-reload' })
         return [] // handled — suppress Vite's default HMR for .tish
       }
-      if (f.endsWith('styles.css')) {
+      if (f.endsWith('styles.css') || (f.includes(`${path.sep}styles${path.sep}`) && f.endsWith('.css'))) {
         ctx.server.ws.send({ type: 'full-reload' })
         return []
       }

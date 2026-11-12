@@ -1,0 +1,433 @@
+/* ---- Generic patch (gen_block patch) editor ---- */
+.patch-panel-wrap { margin-top: 0.5rem; }
+.patch-panel .patch-add-row { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
+.patch-node { padding: 0.4rem 0.45rem; }
+.patch-node-top { display: flex; align-items: center; justify-content: space-between; gap: 0.35rem;
+  margin-bottom: 0.3rem; }
+.patch-node-badge { font-size: 0.6rem; font-weight: 800; letter-spacing: 0.08em; color: var(--accent-warm);
+  background: rgba(0, 0, 0, 0.3); border-radius: 3px; padding: 0.1rem 0.35rem; }
+.patch-node-body { display: flex; flex-direction: column; gap: 0.25rem; }
+.patch-node-body .deck-wave-grid { display: flex; gap: 0.2rem; }
+.patch-node-body .gen-row select.sytrus-route-sel { max-width: 6.5rem; }
+.patch-val { font-size: 0.58rem; color: var(--muted); min-width: 3.2rem; text-align: right;
+  font-variant-numeric: tabular-nums; }
+.patch-env-grid { display: flex; flex-direction: column; gap: 0.4rem; }
+.patch-env { padding: 0.4rem 0.45rem; }
+.patch-env-top { display: flex; align-items: center; justify-content: space-between; gap: 0.35rem;
+  margin-bottom: 0.3rem; }
+.patch-env-target { display: inline-flex; align-items: center; gap: 0.15rem; }
+.patch-dot { color: var(--accent-warm); font-weight: 800; }
+.patch-seg-head { display: grid; grid-template-columns: 3rem 1fr 1fr 1.4rem; gap: 0.25rem;
+  font-size: 0.52rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
+  margin-bottom: 0.2rem; }
+.patch-seg-row { display: grid; grid-template-columns: 3rem 1fr 1fr 1.4rem; gap: 0.25rem;
+  align-items: center; margin-bottom: 0.2rem; }
+.patch-seg-row .sytrus-route-sel { max-width: none; }
+.patch-expr { font-family: inherit; font-size: 0.58rem; background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 3px; padding: 0.12rem 0.25rem; min-width: 0; width: 100%; }
+
+/* ---- Decomposed modular patch: per-module cards + inline routing ---- */
+/* Module palette (the add-a-module bar). */
+.patch-palette { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin: 0.1rem 0 0.5rem; }
+.patch-palette-label { font-size: 0.54rem; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--muted); margin-right: 0.15rem; }
+/* Masonry signal flow: node cards are ordered by signal-flow stage (sources → … → out) then packed into CSS
+   multi-columns — multi-column lays items out IN ORDER (filling columns left→right), so we keep the rough
+   left-to-right flow AND fill the vertical whitespace that a rigid grid/stage-columns leaves under short cards.
+   `.patch-mod-grid` is the cable host (position:relative so the absolute SVG overlay covers node + env rows). */
+.patch-mod-grid { position: relative; }
+/* Matrix FM cable region: same concept — position:relative so the absolute SVG overlay covers op + filter cards. */
+.mfm-cable-region { position: relative; }
+.patch-node-masonry { columns: 12rem; column-gap: 0.5rem; position: relative; z-index: 1; }
+.patch-mod { break-inside: avoid; margin: 0 0 0.5rem; padding: 0.45rem 0.5rem;
+  display: flex; flex-direction: column; gap: 0.35rem; position: relative; z-index: 1; }
+/* Envelopes — their own wider masonry row (the seg editors need room); cables shown only in Edit. */
+.patch-env-row { position: relative; z-index: 1; margin-top: 0.6rem; padding-top: 0.5rem;
+  border-top: 1px dashed var(--border, #2a2a31); }
+.patch-env-row-label { display: block; font-size: 0.54rem; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted); margin-bottom: 0.4rem; }
+.patch-env-row-cards { columns: 17rem; column-gap: 0.5rem; }
+
+/* Read-only signal-flow cables: an SVG overlay UNDER the cards (z-index 0), drawn imperatively. opacity
+   transitions so hover-dim/highlight fades in. */
+.patch-cables { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;
+  overflow: visible; z-index: 0; }
+.patch-cable { fill: none; stroke-width: 1.6; opacity: 0.55; transition: opacity 0.12s ease; }
+.patch-cable-audio { stroke: #5fd06f; }                                  /* green = audio signal */
+.patch-cable-mod { stroke: #e8945c; stroke-dasharray: 5 3; }             /* amber dashed = modulation */
+.patch-cable-out { stroke: #8ab6ff; stroke-width: 2.4; opacity: 0.85; }  /* blue bold = reaches output */
+/* Output / reverb sink tiles — cables terminate here so "what's audible" is obvious. Pack like any card. */
+.patch-sink { break-inside: avoid; margin: 0.1rem 0 0.4rem; min-height: 1.45rem; display: inline-flex; align-items: center;
+  justify-content: center; border-radius: 6px; position: relative; z-index: 1; padding: 2px 18px; align-self: flex-start; }
+.patch-sink-out { border: 1.5px solid #8ab6ff; background: rgba(138, 182, 255, 0.1); }
+.patch-sink-rev { border: 1.5px solid #c9a6e0; background: rgba(201, 166, 224, 0.1); }
+.patch-sink-label { font-size: 0.62rem; font-weight: 800; letter-spacing: 0.08em; color: var(--text, #e8e8ea); }
+.patch-mod-head { display: flex; align-items: center; gap: 0.35rem; }
+.patch-mod-badge { font-size: 0.58rem; font-weight: 800; letter-spacing: 0.08em; color: var(--panel, #141418);
+  background: var(--accent-warm, #e8945c); border-radius: 3px; padding: 0.1rem 0.35rem; }
+.patch-env-badge { background: #8ab6ff; }
+.patch-mod-id { font-size: 0.58rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.patch-mod-x { margin-left: auto; }
+/* Inline routing footer — each card owns where its signal goes. */
+.patch-mod-routes { display: flex; flex-direction: column; gap: 0.25rem; border-top: 1px solid var(--border, #2a2a31);
+  padding-top: 0.3rem; }
+.patch-route { display: flex; align-items: center; gap: 0.25rem; }
+.patch-route-arrow { color: var(--accent-warm, #e8945c); font-weight: 800; font-size: 0.7rem; }
+.patch-route .sytrus-route-sel { max-width: none; flex: 1 1 auto; min-width: 0; }
+.patch-route-param { flex: 0 1 4.5rem !important; }
+.patch-route-vol { flex: 0 0 auto; }
+.patch-route-empty { font-size: 0.55rem; color: var(--muted); font-style: italic; }
+.patch-route-add { align-self: flex-start; font-family: inherit; font-size: 0.6rem; font-weight: 700;
+  color: var(--accent-warm, #e8945c); background: transparent; border: 1px dashed var(--border, #2a2a31);
+  border-radius: 4px; padding: 0.1rem 0.4rem; cursor: pointer; }
+.patch-route-add:hover { border-color: var(--accent-warm, #e8945c); }
+.patch-env .patch-seg-head { margin-top: 0.1rem; }
+.patch-voicelen { margin-top: 0.6rem; }
+
+/* Patch View ↔ Edit. View = clean read-only flow: hide the wiring chrome (route dropdowns/vol/×, +→, palette,
+   remove ×, +seg) and show a compact "→ dest" label instead; the cables convey the routing. Edit reveals all. */
+.patch-panel .sytrus-panel-head { display: flex; align-items: center; gap: 0.45rem; }
+.patch-mode-toggle { margin-left: auto; display: inline-flex; }
+.patch-route-dst-lbl { font-size: 0.62rem; color: var(--text, #d6d6dc); font-weight: 600;
+  background: rgba(0, 0, 0, 0.25); border-radius: 3px; padding: 0.05rem 0.32rem; }
+.patch-edit .patch-route-dst-lbl { display: none; }
+.patch-view .patch-route .sytrus-route-sel,
+.patch-view .patch-route-param,
+.patch-view .patch-route-vol,
+.patch-view .patch-route .sytrus-icon-btn,
+.patch-view .patch-route-add,
+.patch-view .patch-mod-x,
+.patch-view .patch-palette,
+.patch-view .patch-env .sytrus-add-btn,
+.patch-view .patch-seg-row .sytrus-icon-btn,
+.patch-view .patch-orphan-route .sytrus-icon-btn { display: none; }
+/* In View, the route row collapses to just the arrow + dest label (no big gap). */
+.patch-view .patch-route { gap: 0.2rem; }
+/* Orphan / unrouted connections (src module deleted) — visible + removable so they're never stuck. */
+.patch-orphans { margin-top: 0.5rem; }
+.patch-orphan-route { gap: 0.35rem; color: var(--muted); }
+.patch-orphan-src, .patch-orphan-dst { font-size: 0.6rem; font-variant-numeric: tabular-nums;
+  background: rgba(0, 0, 0, 0.25); border-radius: 3px; padding: 0.08rem 0.3rem; }
+.patch-orphan-src { color: #e0794e; }
+
+/* ---- Instrument editor ownership gate (read-only for a track you don't own / master-locked) ---- */
+.instr-readonly { pointer-events: none; opacity: 0.5; }
+.instr-readonly-host { pointer-events: none; opacity: 0.62; }
+.instr-locked-hint { display: flex; align-items: center; gap: 0.3rem; font-size: 0.6rem; font-weight: 700;
+  color: #f0b06a; background: rgba(232, 148, 92, 0.14); border: 1px solid rgba(232, 148, 92, 0.4);
+  border-radius: 5px; padding: 0.2rem 0.45rem; margin: 0.1rem 0 0.4rem; }
+.instr-lock-tag { font-size: 0.52rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+  color: #f0b06a; border: 1px solid rgba(232, 148, 92, 0.45); border-radius: 3px; padding: 0.05rem 0.3rem;
+  margin-left: 0.4rem; }
+
+/* ---- Kick / Bass macro designers ---- */
+.designer-pick-row { display: flex; align-items: center; gap: 0.4rem; margin: 0.35rem 0 0.1rem; }
+.designer-pick-label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted); }
+.macro-panel-wrap { margin-top: 0.5rem; }
+.macro-rows { display: flex; flex-direction: column; gap: 0.3rem; }
+.macro-row { display: grid; grid-template-columns: 7rem 1fr 3.4rem; align-items: center; gap: 0.4rem; }
+.macro-row-label { font-size: 0.62rem; color: var(--text); }
+.macro-row input[type="range"] { width: 100%; }
+
+/* Dim a generator sub-card whose layer is inactive (e.g. drum noise amount = 0). */
+.gen-sub-dim { opacity: 0.5; }
+
+/* ---- Unified voice picker (one selector: engines + macro designers) ---- */
+.voice-picker-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem;
+  margin-bottom: 0.5rem; }
+.voice-picker-head h2 { margin: 0; }
+.voice-picker-sub { font-size: 0.6rem; color: var(--muted); letter-spacing: 0.04em; }
+.voice-picker-groups { display: flex; flex-direction: column; gap: 0.5rem; }
+.voice-group { display: grid; grid-template-columns: 5.5rem 1fr; align-items: center; gap: 0.5rem; }
+.voice-group-label { font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--muted); text-align: right; }
+.voice-tiles { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.voice-tile { font-family: inherit; font-size: 0.66rem; font-weight: 600; padding: 0.32rem 0.6rem;
+  border-radius: 5px; border: 1px solid var(--border, #2a2a2a); background: var(--panel, #15151b);
+  color: var(--text, #e8e8ea); cursor: pointer; }
+.voice-tile:hover { border-color: #444; }
+.voice-tile-active { border-color: var(--accent-warm, #e8945c); color: var(--accent-warm, #e8945c);
+  background: rgba(232, 148, 92, 0.12); }
+
+/* ---- Modular instrument stack (hardware-style module cards in a signal chain) ---- */
+.instr-stack-head { margin-bottom: 0.6rem; }
+.instr-stack-head h2 { margin: 0; }
+.instr-stack-sub { font-size: 0.6rem; color: var(--muted); letter-spacing: 0.04em; }
+/* Horizontal rack: instrument modules sit side by side as small boxes and wrap. */
+.instr-modules-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: stretch; }
+.instr-module { border: 1px solid var(--border, #14141c); border-radius: 2px;
+  background: rgba(0, 0, 0, 0.05); display: flex; flex-direction: column;
+  flex: 1 1 18rem; min-width: 16rem; max-width: 30rem; }
+/* min-width:0 lets the body shrink to its flex track so long content (the desc, wide designers)
+   wraps/clips instead of stretching the column and breaking the row. */
+.instr-module .instr-module-body { flex: 1 1 auto; min-width: 0; }
+/* Modular designers (Matrix FM / Patch / macros) get a full-width box. */
+.instr-module-wide { flex: 100 1 36rem; max-width: 100%; }
+.instr-module-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  padding: 0.2rem 0.4rem; border-bottom: 1px solid var(--border, #14141c);
+  border-left: none; border-radius: 0;
+  background: transparent; }
+.instr-module-title { font-size: 0.66rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--text, #e8e8ea); }
+.instr-module-tpl { font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.6rem;
+  color: var(--accent-warm, #e8945c); letter-spacing: 0.04em; }
+.instr-module-body { padding: 0.35rem 0.4rem; }
+/* Designer ⇄ Raw segmented toggle in each module header */
+.instr-module-toggle { display: inline-flex; border: 1px solid var(--border, #2a2a2a); border-radius: 4px;
+  overflow: hidden; margin-left: auto; margin-right: 0.5rem; }
+.imt-btn { font-family: inherit; font-size: 0.56rem; font-weight: 600; padding: 0.12rem 0.4rem; border: none;
+  background: transparent; color: var(--muted); cursor: pointer; }
+.imt-btn.imt-on { background: rgba(232, 148, 92, 0.18); color: var(--accent-warm, #e8945c); }
+/* Reusable rich deck editor (RichTplEditor) — the SAME highlight stack as the main deck editor, sized for the
+   inline module "Raw" views: border/background on the stack, the transparent textarea over the highlighted <pre>.
+   Only min-height is overridden so font metrics stay identical (alignment of the two layers must match). */
+.rich-tpl-slot { display: block; width: 100%; }
+.rich-tpl-stack.tpl-song-mirror-stack { min-height: 0; background: var(--bg, #0e0e12);
+  border: 1px solid var(--border, #2a2a2a); border-radius: 5px; overflow: hidden; }
+.rich-tpl-stack .tpl-song-input-layer { min-height: 8rem; }
+.rich-tpl-stack .tpl-song-input-layer,
+.rich-tpl-stack .tpl-song-highlight-layer {
+  font-size: 10px !important;
+}
+
+/* ---- Instrument kit: rotary knobs, wave-icon pickers, envelope display, reskinned cards ---- */
+.ik-knob { display: inline-flex; flex-direction: column; align-items: center; gap: 0.1rem; width: 4rem; }
+.ik-knob-dial { width: 2.9rem; height: 2.9rem; cursor: ns-resize; touch-action: none; user-select: none; }
+.ik-knob-track { stroke: rgba(255, 255, 255, 0.12); stroke-width: 3.4; stroke-linecap: round; }
+.ik-knob-val { stroke-width: 3.4; stroke-linecap: round; }
+.ik-knob-label { font-size: 0.54rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);
+  white-space: nowrap; }
+.ik-knob-value { font-size: 0.62rem; font-variant-numeric: tabular-nums; color: var(--text, #e8e8ea); }
+.ik-knob-value-inside { font-family: "IBM Plex Mono", ui-monospace, monospace; font-weight: 700; font-size: 10px; pointer-events: none !important; dominant-baseline: middle; text-anchor: middle; paint-order: stroke fill; stroke: var(--bg); stroke-width: 3px; stroke-linecap: round; stroke-linejoin: round; }
+.ik-knob-grid { display: flex; flex-wrap: wrap; gap: 0.5rem 0.35rem; align-items: flex-start; }
+/* Detent dots for stepped selector knobs (octave / arp / chord) — unlit positions are faint,
+   the current one is filled with the accent colour inline. */
+.ik-knob-detent { fill: rgba(255, 255, 255, 0.28); transition: fill 0.08s ease; }
+.ik-knob-detent-on { filter: drop-shadow(0 0 1.4px rgba(255, 255, 255, 0.25)); }
+
+/* Pitch module: the three stepped selector knobs sit in one row filling the card width. */
+.instr-pitch-knobs { display: flex; gap: 0.35rem; justify-content: space-around; align-items: flex-start;
+  flex-wrap: wrap; padding: 0.1rem 0; }
+.instr-pitch-knobs .ik-knob-value { white-space: nowrap; font-size: 0.56rem; }
+
+/* Compact knob (dense panels) */
+.ik-knob-sm { width: 3rem; }
+.ik-knob-sm .ik-knob-dial { width: 2.1rem; height: 2.1rem; }
+.ik-knob-sm .ik-knob-label { font-size: 0.48rem; }
+.ik-knob-sm .ik-knob-value { font-size: 0.56rem; }
+
+/* Mini knob (dense cells with their own text label) */
+.ik-knob-xs { width: 2.1rem; }
+.ik-knob-xs .ik-knob-dial { width: 1.6rem; height: 1.6rem; }
+.ik-knob-xs .ik-knob-label { display: none; }
+.ik-knob-xs .ik-knob-value { font-size: 0.5rem; }
+
+/* Generic discrete-choice pill row (e.g. the Aahs vowel picker). Active state is accent-tinted inline. */
+.gen-pick-row { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.4rem; }
+.gen-pick-pill {
+  font-family: inherit;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.22rem 0.5rem;
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.gen-pick-pill:hover { color: var(--text, #e8e8ea); }
+
+/* Arco string-family picker (violin / fiddle / viola / cello / bass) */
+.arco-voice-row { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.arco-voice-pill {
+  font-family: inherit;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.22rem 0.5rem;
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.arco-voice-pill:hover { border-color: rgba(196, 122, 78, 0.6); color: var(--text, #e8e8ea); }
+.arco-voice-pill-on {
+  background: rgba(196, 122, 78, 0.18);
+  border-color: #c47a4e;
+  color: #e3a877;
+}
+
+.ik-wave-row { display: inline-flex; gap: 0.35rem; flex-wrap: wrap; }
+.ik-wave-btn {
+  width: 2.1rem;
+  height: 2.1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, #2c2c32 0%, #1c1c22 100%);
+  border: 1px solid #0a0a0a;
+  border-top-color: #3c3c44;
+  border-radius: 5px;
+  box-shadow: 0 3px 5px rgba(0,0,0,0.6);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.05s ease, box-shadow 0.05s ease, border-top-color 0.05s ease, background 0.05s ease;
+}
+
+.ik-wave-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  border-top-color: #2c2c32;
+  background: #1a1a20;
+}
+
+.ik-wave-btn-on {
+  transform: translateY(1px);
+  box-shadow: 0 2px 3px rgba(0,0,0,0.6);
+  background: linear-gradient(180deg, #222228 0%, #16161c 100%);
+  border-top-color: #2a2a30;
+}
+.ik-wave-img { width: 1.15rem; height: 1.15rem; display: block; pointer-events: none; }
+
+.ik-env { width: 100%; height: 3.2rem; display: block; }
+
+.ik-card { border: none !important; background: transparent !important; padding: 0 !important; margin: 0 !important; box-shadow: none !important; }
+.ik-card-h { display: none !important; }
+/* Matrix FM / Patch collapse to this launcher in their grid card; it opens their full editor in a modal. */
+.gen-open-modal { width: 100%; padding: 10px 8px; border: 1px dashed var(--border, #2a2a2a); border-radius: 5px; background: rgba(255, 255, 255, 0.03); color: var(--text, #e8e8ea); cursor: pointer; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.gen-open-modal:hover { background: rgba(255, 255, 255, 0.07); border-color: var(--accent, #22d3ee); }
+/* The matrix/patch editor is a UI toggle confined to the instrument area, NOT a screen modal: the backdrop is
+   absolute within .instr-stack-host (the instrument region) and the panel fills it exactly. */
+.instr-stack-host { position: relative; }
+/* Non-blocking prompt/alert modal (replaces window.prompt / window.alert — see PromptModal.tish). */
+.ui-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 6, 10, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 4000;
+  backdrop-filter: blur(1.5px);
+}
+.ui-modal {
+  background: var(--bg, #0e0e12);
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 8px;
+  padding: 16px 16px 14px;
+  width: min(420px, 90vw);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ui-modal-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text, #e8e8ea);
+}
+.ui-modal-msg {
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--muted, #9a9aa4);
+}
+.ui-modal-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 0.6rem;
+  background: #14141a;
+  border: 1px solid #2a2a32;
+  border-radius: 5px;
+  color: var(--text, #e8e8ea);
+  font-family: inherit;
+  font-size: 0.8rem;
+  outline: none;
+}
+.ui-modal-input:focus {
+  border-color: var(--accent, #22d3ee);
+}
+.ui-modal-textarea {
+  min-height: 9rem;
+  resize: vertical;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.72rem;
+}
+.ui-modal-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.ui-modal-btn {
+  padding: 0.4rem 0.9rem;
+  border-radius: 5px;
+  border: 1px solid #2a2a32;
+  background: #14141a;
+  color: var(--text, #e8e8ea);
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ui-modal-btn:hover {
+  background: #1c1c24;
+}
+.ui-modal-ok {
+  border-color: var(--accent, #22d3ee);
+  color: var(--accent, #22d3ee);
+}
+.ui-modal-ok:hover {
+  background: rgba(34, 211, 238, 0.14);
+}
+
+/* Scoped to the center area (.daw-main-stack is position:relative) so the patch editor fills instruments +
+   sequencer + session, leaving the sidebars/header/footer visible — same full-panel takeover look as the
+   sequencer's EUCLID/piano overlays (.sg-piano-takeover). */
+.gen-modal-backdrop { position: absolute; inset: 0; background: rgba(8, 8, 12, 0.86); display: flex; align-items: stretch; justify-content: stretch; padding: 0; z-index: 200; }
+.gen-modal { background: var(--panel-2, #0a0a0c); border: none; border-radius: 0; width: 100%; height: 100%; max-width: none; max-height: 100%; display: flex; flex-direction: column; }
+/* Head + close button match .sg-piano-takeover-head / .sg-piano-takeover-close (the EUCLID & GENERATE overlay). */
+.gen-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 16px; border-bottom: 1px solid #1c1c22; flex-shrink: 0; }
+.gen-modal-title { font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; font-size: 0.78rem; color: var(--accent, #22d3ee); }
+.gen-modal-close { background: transparent; border: 1px solid #2a2a32; border-radius: 4px; color: var(--text, #e8e8ea); cursor: pointer; width: 24px; height: 24px; font-size: 0.85rem; line-height: 1; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+.gen-modal-close:hover { background: rgba(255, 255, 255, 0.08); }
+/* Generic instrument-designer button (FORMANT vowels, lyric pads, etc.) — had NO rule, so it fell back to
+   the browser's light default. Match the app's dark pill buttons (.set-btn / .code-debug-btn): dark fill,
+   subtle border, accent on hover. Inline flex/padding/font-size from the JSX still apply. */
+.ik-btn {
+  background: var(--panel, #15151b);
+  color: var(--text, #e8e8ea);
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+}
+.ik-btn:hover { border-color: var(--accent, #22d3ee); color: var(--accent, #22d3ee); }
+.ik-btn:active { background: rgba(255, 255, 255, 0.06); }
+.gen-modal-body { padding: 5px 8px; overflow-y: auto; }
+/* The modal header already shows the instrument name — drop the panel's own duplicate "MATRIX FM" / "PATCH"
+   title (keep the rest of its header, e.g. the patch View/Edit toggle). */
+.gen-modal .sytrus-panel-title { display: none; }
+/* Inside the modal the panel is NOT its own card — strip the duplicate border / background / padding / margin
+   so the content sits flush in the modal's own frame (no card-in-a-card). The head row, now title-less, also
+   loses its divider + spacing (Patch keeps its View/Edit toggle there). */
+.gen-modal .sytrus-panel { border: none !important; background: transparent !important; padding: 0 !important; border-radius: 0 !important; }
+.gen-modal .matrixfm-panel-wrap,
+.gen-modal .patch-panel-wrap,
+.gen-modal .instr-params-wrap { margin: 0 !important; padding: 0 !important; }
+.gen-modal .sytrus-panel-head { margin-bottom: 0.3rem; padding-bottom: 0; border-bottom: none; }
+.ik-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0.55rem; }
+@media (max-width: 720px) { .ik-cols { grid-template-columns: 1fr; } }
+.ik-wave-pair { display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; margin-bottom: 0.6rem; }
+.ik-wave-lbl { font-size: 0.56rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.gen-params.ik-cols { border: none; padding: 0; }
+
+/* GEN label colour — the GENERATE section header in the Euclid & Generate takeover (.sg-eg-* styles live up
+   near the other takeover-body rules). The old static .sg-euclid / .sg-gen-btn toolbar was removed when Euclid
+   & Generate became a takeover overlay. */
+.sg-gen-label { color: #c08bf0; }

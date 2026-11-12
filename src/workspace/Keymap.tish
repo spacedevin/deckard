@@ -1,0 +1,275 @@
+// Keymap: chord parsing / formatting, event → chord, scoped lookup, conflict detection, user rebinding.
+//
+// A chord is a canonical string "Mod-Ctrl-Alt-Shift-<key>" (modifiers in that order, only those present).
+// `Mod` = Cmd on macOS, Ctrl elsewhere; `Ctrl` is only distinct on macOS. Keys come from KeyboardEvent.code for
+// letters / digits / punctuation, so Shift / Alt never change the key ("Mod-Shift-[" not "Mod-{").
+
+let STORE_KEY = "deckard.keymap.v1"
+let MOD_ORDER = ["Mod", "Ctrl", "Alt", "Shift"]
+
+let CODE_KEYS = {
+  Backquote: "`", Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]", Backslash: "\\",
+  Semicolon: ";", Quote: "'", Comma: ",", Period: ".", Slash: "/", Space: "Space"
+}
+
+let ALIASES = {
+  "esc": "Escape", "escape": "Escape", "enter": "Enter", "return": "Enter", "tab": "Tab", "space": "Space", " ": "Space",
+  "up": "ArrowUp", "down": "ArrowDown", "left": "ArrowLeft", "right": "ArrowRight",
+  "arrowup": "ArrowUp", "arrowdown": "ArrowDown", "arrowleft": "ArrowLeft", "arrowright": "ArrowRight",
+  "backspace": "Backspace", "delete": "Delete", "del": "Delete", "home": "Home", "end": "End",
+  "pageup": "PageUp", "pagedown": "PageDown"
+}
+
+export fn isMacPlatform() {
+  try {
+    let nav = globalThis.navigator
+    if (!nav) {
+      return false
+    }
+    let p = nav.platform ? String(nav.platform) : (nav.userAgent ? String(nav.userAgent) : "")
+    return p.indexOf("Mac") >= 0 || p.indexOf("iPhone") >= 0 || p.indexOf("iPad") >= 0
+  } catch (e) {
+    return false
+  }
+}
+
+fn canonKey(k) {
+  let s = String(k)
+  if (s.length === 1) {
+    return s === " " ? "Space" : s.toLowerCase()
+  }
+  let low = s.toLowerCase()
+  if (ALIASES[low] !== null && ALIASES[low] !== undefined) {
+    return ALIASES[low]
+  }
+  if (low.charAt(0) === "f" && low.length <= 3 && Number(low.substring(1)) > 0) {
+    return "F" + low.substring(1)
+  }
+  return s
+}
+
+/** "cmd+shift+K", "Mod-Shift-k", "Ctrl-Alt-ArrowUp" → canonical chord string. */
+export fn normalizeChord(text) {
+  let s = String(text).trim()
+  if (s.length === 0) {
+    return ""
+  }
+  let parts = []
+  let cur = ""
+  let i = 0
+  while (i < s.length) {
+    let ch = s.charAt(i)
+    // "-" / "+" separate parts, except as the final key itself ("Mod--", "Shift-+").
+    if ((ch === "-" || ch === "+") && cur.length > 0) {
+      parts.push(cur)
+      cur = ""
+    } else {
+      cur = cur + ch
+    }
+    i = i + 1
+  }
+  if (cur.length > 0) {
+    parts.push(cur)
+  }
+  let mods = {}
+  let key = ""
+  parts.forEach((p, ix) => {
+    let low = p.toLowerCase()
+    let isLast = ix === parts.length - 1
+    if (!isLast && (low === "mod" || low === "cmd" || low === "meta" || low === "command" || low === "⌘")) {
+      mods.Mod = true
+    } else if (!isLast && (low === "ctrl" || low === "control")) {
+      mods.Ctrl = true
+    } else if (!isLast && (low === "alt" || low === "option" || low === "opt")) {
+      mods.Alt = true
+    } else if (!isLast && low === "shift") {
+      mods.Shift = true
+    } else {
+      key = canonKey(p)
+    }
+  })
+  let out = []
+  MOD_ORDER.forEach((m) => {
+    if (mods[m] === true) {
+      out.push(m)
+    }
+  })
+  out.push(key)
+  return out.join("-")
+}
+
+/** KeyboardEvent → chord, or null for a bare modifier press. */
+export fn chordFromEvent(e, isMac) {
+  let k = e.key !== null ? String(e.key) : ""
+  if (k === "Shift" || k === "Meta" || k === "Control" || k === "Alt" || k === "OS" || k === "Hyper" || k === "Super") {
+    return null
+  }
+  let code = e.code !== null ? String(e.code) : ""
+  let key = ""
+  if (code.indexOf("Key") === 0 && code.length === 4) {
+    key = code.substring(3).toLowerCase()
+  } else if (code.indexOf("Digit") === 0 && code.length === 6) {
+    key = code.substring(5)
+  } else if (CODE_KEYS[code] !== null && CODE_KEYS[code] !== undefined) {
+    key = CODE_KEYS[code]
+  } else {
+    key = canonKey(k)
+  }
+  let out = []
+  if (isMac ? e.metaKey : e.ctrlKey) {
+    out.push("Mod")
+  }
+  if (isMac && e.ctrlKey) {
+    out.push("Ctrl")
+  }
+  if (e.altKey) {
+    out.push("Alt")
+  }
+  if (e.shiftKey) {
+    out.push("Shift")
+  }
+  out.push(key)
+  return out.join("-")
+}
+
+let MAC_GLYPH = { Mod: "⌘", Ctrl: "⌃", Alt: "⌥", Shift: "⇧" }
+let KEY_LABEL = { ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→", Escape: "Esc", Enter: "↵", Space: "Space", Backspace: "⌫", Delete: "Del" }
+
+/** Human label: "⌘⇧\" on macOS, "Ctrl+Shift+\" elsewhere. "Shift-/" reads as "?". */
+export fn formatChord(chord, isMac) {
+  if (chord === "Shift-/") {
+    return "?"
+  }
+  let parts = String(chord).split("-")
+  // A trailing "-" key splits into an empty last part.
+  if (parts.length > 1 && parts[parts.length - 1] === "" ) {
+    parts.pop()
+    parts[parts.length - 1] = "-"
+  }
+  let key = parts[parts.length - 1]
+  let kl = KEY_LABEL[key] !== null && KEY_LABEL[key] !== undefined ? KEY_LABEL[key] : (key.length === 1 ? key.toUpperCase() : key)
+  let mods = parts.slice(0, parts.length - 1)
+  if (isMac) {
+    return mods.map((m) => (MAC_GLYPH[m] !== null && MAC_GLYPH[m] !== undefined ? MAC_GLYPH[m] : m)).join("") + kl
+  }
+  let named = mods.map((m) => (m === "Mod" ? "Ctrl" : m))
+  named.push(kl)
+  return named.join("+")
+}
+
+/** Effective chords for an action: user override when present, else its defaults. */
+export fn actionChords(action, overrides) {
+  let o = overrides !== null ? overrides[action.id] : null
+  let list = Array.isArray(o) ? o : (Array.isArray(action.keys) ? action.keys : [])
+  return list.map((c) => normalizeChord(c)).filter((c) => c.length > 0)
+}
+
+/**
+ * Build a keymap: chord → [actionId…] in registration order.
+ * `actions` = [{ id, keys: [chord…], when: [scope…] }]; `overrides` = { actionId: [chord…] } (or null).
+ */
+export fn createKeymap(actions, overrides) {
+  let byChord = {}
+  let byId = {}
+  actions.forEach((a) => {
+    byId[a.id] = a
+    actionChords(a, overrides).forEach((c) => {
+      if (byChord[c] === null || byChord[c] === undefined) {
+        byChord[c] = []
+      }
+      byChord[c].push(a.id)
+    })
+  })
+  return { byChord: byChord, byId: byId, overrides: overrides !== null ? overrides : {} }
+}
+
+fn scopesOf(action) {
+  return Array.isArray(action.when) && action.when.length > 0 ? action.when : ["global"]
+}
+
+/** First action bound to `chord` whose `when` scopes are all satisfied by `isActive(scope)`. */
+export fn lookupChord(keymap, chord, isActive) {
+  let ids = keymap.byChord[chord]
+  if (ids === null || ids === undefined) {
+    return null
+  }
+  let i = 0
+  while (i < ids.length) {
+    let a = keymap.byId[ids[i]]
+    let ok = true
+    scopesOf(a).forEach((s) => {
+      if (!isActive(s)) {
+        ok = false
+      }
+    })
+    if (ok) {
+      return a
+    }
+    i = i + 1
+  }
+  return null
+}
+
+/** Chords bound to two or more actions that can be active at the same time (identical scope sets). */
+export fn findConflicts(keymap) {
+  let out = []
+  Object.keys(keymap.byChord).forEach((c) => {
+    let ids = keymap.byChord[c]
+    let seen = {}
+    ids.forEach((id) => {
+      let key = scopesOf(keymap.byId[id]).slice().sort().join("|")
+      if (seen[key] !== null && seen[key] !== undefined) {
+        out.push({ chord: c, actions: [seen[key], id] })
+      } else {
+        seen[key] = id
+      }
+    })
+  })
+  return out
+}
+
+/** New overrides with `actionId` rebound to `chords` (an empty list unbinds it). */
+export fn rebind(overrides, actionId, chords) {
+  let out = {}
+  let base = overrides !== null ? overrides : {}
+  Object.keys(base).forEach((k) => { out[k] = base[k] })
+  out[actionId] = chords.map((c) => normalizeChord(c)).filter((c) => c.length > 0)
+  return out
+}
+
+fn storage() {
+  try {
+    return globalThis.localStorage
+  } catch (e) {
+    return null
+  }
+}
+
+export fn loadKeyOverrides() {
+  let s = storage()
+  if (!s) {
+    return {}
+  }
+  try {
+    let raw = s.getItem(STORE_KEY)
+    if (raw === null || String(raw).length === 0) {
+      return {}
+    }
+    let v = JSON.parse(String(raw))
+    return v !== null && typeof v === "object" ? v : {}
+  } catch (e) {
+    return {}
+  }
+}
+
+export fn saveKeyOverrides(overrides) {
+  let s = storage()
+  if (!s) {
+    return
+  }
+  try {
+    s.setItem(STORE_KEY, JSON.stringify(overrides))
+  } catch (e) {
+    return
+  }
+}

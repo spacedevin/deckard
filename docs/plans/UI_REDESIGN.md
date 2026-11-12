@@ -1,6 +1,7 @@
 # UI/UX Redesign Plan — Decks, Sequencer, and the Cue/Save model
 
-Status: **proposal** · Owner: design · References live in [`docs/inspiritaion/`](../inspiritaion/)
+Status: **proposal** — layout superseded by [UI_OVERHAUL.md](UI_OVERHAUL.md) (Studio/Stage workspace); the
+deck/stem/crossfader model below still applies · Owner: design · References live in [`docs/inspiritaion/`](../inspiritaion/)
 (`deck.tsx`, `sequence.tsx`, and `current-*.png` screenshots).
 
 This plan reworks three things that are currently wonky: the **mixer/deck**, the **sequencer**, and

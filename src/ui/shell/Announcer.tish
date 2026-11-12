@@ -1,0 +1,27 @@
+// Polite screen-reader announcements ("Mixer moved to right of Piano roll") plus a brief visual toast, written
+// imperatively so announcing never costs a render.
+
+let toastTimer = null
+
+export fn announce(text) {
+  if (typeof document === "undefined" || text === null || String(text).length === 0) {
+    return
+  }
+  let live = document.getElementById("ws-announcer")
+  if (live) {
+    live.textContent = ""
+    let t = String(text)
+    requestAnimationFrame(() => { live.textContent = t })
+  }
+  let toast = document.getElementById("ws-toast")
+  if (toast) {
+    toast.textContent = String(text)
+    toast.classList.add("ws-toast-on")
+    if (toastTimer) {
+      clearTimeout(toastTimer)
+    }
+    toastTimer = setTimeout(() => {
+      toast.classList.remove("ws-toast-on")
+    }, 1600)
+  }
+}

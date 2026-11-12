@@ -1,0 +1,89 @@
+// FLIP morph between moods: capture every panel's rect, swap the layout, then animate each panel from where it
+// was to where it is. A panel present in both moods (same id) slides between its homes; new panels bloom in.
+
+fn reducedMotion() {
+  try {
+    return globalThis.matchMedia && globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches
+  } catch (e) {
+    return false
+  }
+}
+
+fn frames() {
+  return document.querySelectorAll(".ws-root .ws-panel[data-panel-id]")
+}
+
+/** Snapshot { panelId: { x, y, w, h } } of every visible panel frame. */
+export fn captureRects() {
+  let out = {}
+  if (typeof document === "undefined") {
+    return out
+  }
+  let list = frames()
+  let i = 0
+  while (i < list.length) {
+    let el = list[i]
+    if (!el.closest(".ws-keepalive")) {
+      let r = el.getBoundingClientRect()
+      if (r.width > 0 && r.height > 0) {
+        out[el.getAttribute("data-panel-id")] = { x: r.left, y: r.top, w: r.width, h: r.height }
+      }
+    }
+    i = i + 1
+  }
+  return out
+}
+
+/** Animate from the captured rects to the current layout. */
+export fn playMorph(prev) {
+  if (typeof document === "undefined" || prev === null || reducedMotion()) {
+    return
+  }
+  let root = document.querySelector(".ws-root")
+  if (root) {
+    root.classList.add("ws-morphing")
+    setTimeout(() => { root.classList.remove("ws-morphing") }, 520)
+  }
+  let list = frames()
+  let moved = []
+  let i = 0
+  while (i < list.length) {
+    let el = list[i]
+    if (!el.closest(".ws-keepalive")) {
+      let id = el.getAttribute("data-panel-id")
+      let r = el.getBoundingClientRect()
+      let p = prev[id]
+      el.style.transition = "none"
+      el.style.transformOrigin = "0 0"
+      if (p !== null && p !== undefined && r.width > 0 && r.height > 0) {
+        let dx = p.x - r.left
+        let dy = p.y - r.top
+        let sx = p.w / r.width
+        let sy = p.h / r.height
+        el.style.transform = "translate(" + String(dx) + "px, " + String(dy) + "px) scale(" + String(sx) + ", " + String(sy) + ")"
+      } else {
+        el.style.transform = "scale(0.96)"
+        el.style.opacity = "0"
+      }
+      moved.push(el)
+    }
+    i = i + 1
+  }
+  // Force the start frame, then release to the end state on the next frame.
+  if (moved.length > 0) {
+    let _flush = moved[0].getBoundingClientRect()
+  }
+  requestAnimationFrame(() => {
+    moved.forEach((el) => {
+      el.style.transition = "transform 420ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 320ms ease-out"
+      el.style.transform = ""
+      el.style.opacity = ""
+    })
+    setTimeout(() => {
+      moved.forEach((el) => {
+        el.style.transition = ""
+        el.style.transformOrigin = ""
+      })
+    }, 460)
+  })
+}

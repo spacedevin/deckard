@@ -1,0 +1,420 @@
+// The ONE action registry. Every way of changing the workspace — dragging a tab, a hotkey, keyboard dock mode,
+// the command palette, a button — calls runAction(id, args). Pointer handlers and key handlers are thin callers.
+//
+// action = { id, label, group, keys: [chord…], when: [scope…], palette: bool, passive: bool, run(ctx, args) }
+//   when     scopes the dispatcher must satisfy ("global" = not typing; "textInput" = also while typing;
+//            "panelFrame" = focus is ON a panel frame; "inPanel" = focus inside a panel; "dockMode" …)
+//   passive  keys are shown (palette, tooltips) but handled by the app's own key handler (transport, undo…)
+//
+// ctx (provided by the shell UI):
+//   state() / mood()                      current mood state / active mood
+//   commitMood(mood, announce)            write a new active mood (persisted + re-rendered)
+//   commitState(state, announce, morph)   write a whole mood state (mood switches morph)
+//   focusedPanelId()                      panel holding focus (or last focused)
+//   focusPanel(id) / panelRects() / stackRects()
+//   enterMode(name, panelId)              "dock" | "resize" | "hints"
+//   openPalette(text) / focusLensChip(id) / announce(text) / viewport()
+//   app                                   transport + editing callbacks from App (playStop, preview, undo, redo…)
+
+import {
+  closePanel, moveToStack, splitAt, resizeSplit, resizeAround, floatPanel, moveFloating, toggleFloat, setActiveTab, cycleTab,
+  toggleMaximize, stackOfPanel, visiblePanelIds, floatingOf, hasPanel
+} from './Layout.tish'
+import { withLayout, withPanel, pushClosed, popClosed, openPanel, setActiveMood, saveMoodAs, resetMood, deleteMood } from './Moods.tish'
+import { panelType, panelTypes, makePanel, followLens, parseLensInput, panelAcceptsLens, lensChipText } from './Panels.tish'
+import { nearestInDirection } from './Spatial.tish'
+
+// Pointer gestures and the keyboard path that reaches the same result. The parity test asserts every gesture
+// maps to a registered action AND that its keyboard path is an action with at least one default chord.
+let DRAG_GESTURES = [
+  { gesture: "tab-drop-center", action: "panel.moveToStack", keyPath: "mode.dock" },
+  { gesture: "tab-drop-edge", action: "panel.split", keyPath: "mode.dock" },
+  { gesture: "tab-reorder", action: "panel.moveToStack", keyPath: "tab.moveRight" },
+  { gesture: "tab-drop-outside", action: "panel.floatAt", keyPath: "panel.float" },
+  { gesture: "tab-click", action: "tab.activate", keyPath: "tab.next" },
+  { gesture: "gutter-drag", action: "split.resize", keyPath: "mode.resize" },
+  { gesture: "float-drag", action: "panel.moveFloating", keyPath: "mode.resize" },
+  { gesture: "float-resize", action: "panel.moveFloating", keyPath: "mode.resize" },
+  { gesture: "float-dock", action: "panel.split", keyPath: "mode.dock" },
+  { gesture: "xfade-drag", action: "mixer.xfadeNudge", keyPath: "mixer.xfadeRight" }
+]
+
+export fn dragGestures() {
+  return DRAG_GESTURES
+}
+
+export fn gestureAction(gesture) {
+  let i = 0
+  while (i < DRAG_GESTURES.length) {
+    if (DRAG_GESTURES[i].gesture === gesture) {
+      return DRAG_GESTURES[i].action
+    }
+    i = i + 1
+  }
+  return null
+}
+
+fn targetPanel(ctx, args) {
+  if (args !== null && args.panelId !== null && args.panelId !== undefined) {
+    return String(args.panelId)
+  }
+  return ctx.focusedPanelId()
+}
+
+fn titleOf(mood, panelId) {
+  let p = mood.panels[panelId]
+  if (p === null || p === undefined) {
+    return String(panelId)
+  }
+  let t = panelType(p.type)
+  let base = t !== null ? t.title : p.type
+  let chip = lensChipText(p.lens)
+  return p.lens.kind === "deck" || p.lens.kind === "peer" || p.lens.kind === "track" ? base + " · " + chip : base
+}
+
+fn layoutOp(ctx, fnOp, announce) {
+  let m = ctx.mood()
+  let next = fnOp(m.layout)
+  if (next === m.layout) {
+    return false
+  }
+  ctx.commitMood(withLayout(m, next), announce)
+  return true
+}
+
+fn focusDir(dir) {
+  return (ctx, args) => {
+    let from = targetPanel(ctx, args)
+    let hit = nearestInDirection(ctx.panelRects(), from, dir)
+    if (hit !== null) {
+      ctx.focusPanel(hit)
+    }
+  }
+}
+
+fn cyclePanels(delta) {
+  return (ctx, args) => {
+    let vis = visiblePanelIds(ctx.mood().layout)
+    if (vis.length === 0) {
+      return
+    }
+    let cur = vis.indexOf(ctx.focusedPanelId())
+    let n = vis.length
+    let next = cur < 0 ? (delta > 0 ? 0 : n - 1) : ((cur + delta) % n + n) % n
+    ctx.focusPanel(vis[next])
+  }
+}
+
+fn moveTabBy(delta) {
+  return (ctx, args) => {
+    let pid = targetPanel(ctx, args)
+    let m = ctx.mood()
+    let s = stackOfPanel(m.layout, pid)
+    if (s === null) {
+      return
+    }
+    let ix = s.tabs.indexOf(pid)
+    let to = ix + delta
+    if (to < 0 || to >= s.tabs.length) {
+      return
+    }
+    layoutOp(ctx, (l) => moveToStack(l, pid, s.id, delta > 0 ? to + 1 : to), titleOf(m, pid) + " moved " + (delta > 0 ? "right" : "left"))
+    ctx.focusPanel(pid)
+  }
+}
+
+fn splitFocused(edge) {
+  return (ctx, args) => {
+    let pid = targetPanel(ctx, args)
+    let m = ctx.mood()
+    let s = stackOfPanel(m.layout, pid)
+    if (s === null) {
+      return
+    }
+    if (s.tabs.length > 1) {
+      layoutOp(ctx, (l) => splitAt(l, s.id, edge, pid), titleOf(m, pid) + " split " + edge)
+      ctx.focusPanel(pid)
+      return
+    }
+    // Alone in its stack: open a second view of the same panel type beside it (a second sequencer pointed at
+    // another deck, say). Unique panels (they own app-wide hooks / canvases) can't be duplicated.
+    let rec = m.panels[pid]
+    let t = rec !== null && rec !== undefined ? panelType(rec.type) : null
+    if (t === null || t.unique === true || t.keepAlive === true) {
+      ctx.announce("Only one " + (t !== null ? t.title : "panel") + " can be open")
+      return
+    }
+    let n = 2
+    let id = rec.type + String(n)
+    while (m.panels[id] !== null && m.panels[id] !== undefined) {
+      n = n + 1
+      id = rec.type + String(n)
+    }
+    let m2 = withPanel(m, makePanel(id, rec.type, followLens()))
+    let lay = moveToStack(m2.layout, id, s.id, null)
+    lay = splitAt(lay, s.id, edge, id)
+    ctx.commitMood(withLayout(m2, lay), "New " + t.title + " view, " + edge)
+    ctx.focusPanel(id)
+  }
+}
+
+fn gotoMood(n) {
+  return (ctx, args) => {
+    let st = ctx.state()
+    if (n - 1 < st.moods.length) {
+      let m = st.moods[n - 1]
+      ctx.commitState(setActiveMood(st, m.id), "Mood: " + m.name, true)
+    }
+  }
+}
+
+fn moodAction(n) {
+  return { id: "mood.goto" + String(n), label: "Go to mood " + String(n), group: "Moods", keys: ["Mod-" + String(n), "Alt-" + String(n)], when: ["textInput"], palette: false, run: gotoMood(n) }
+}
+
+fn baseActions() {
+  let list = [
+    // ---- Focus ----
+    { id: "panel.next", label: "Next panel", group: "Focus", keys: ["F6"], when: ["textInput"], palette: true, run: cyclePanels(1) },
+    { id: "panel.prev", label: "Previous panel", group: "Focus", keys: ["Shift-F6"], when: ["textInput"], palette: true, run: cyclePanels(-1) },
+    { id: "focus.left", label: "Focus panel to the left", group: "Focus", keys: ["Mod-Alt-ArrowLeft", "Alt-Shift-ArrowLeft"], when: ["textInput"], palette: true, run: focusDir("left") },
+    { id: "focus.right", label: "Focus panel to the right", group: "Focus", keys: ["Mod-Alt-ArrowRight", "Alt-Shift-ArrowRight"], when: ["textInput"], palette: true, run: focusDir("right") },
+    { id: "focus.up", label: "Focus panel above", group: "Focus", keys: ["Mod-Alt-ArrowUp", "Alt-Shift-ArrowUp"], when: ["textInput"], palette: true, run: focusDir("up") },
+    { id: "focus.down", label: "Focus panel below", group: "Focus", keys: ["Mod-Alt-ArrowDown", "Alt-Shift-ArrowDown"], when: ["textInput"], palette: true, run: focusDir("down") },
+    { id: "panel.enter", label: "Enter panel (focus its first control)", group: "Focus", keys: ["Enter"], when: ["panelFrame"], palette: false, run: (ctx, args) => { ctx.enterPanel(targetPanel(ctx, args)) } },
+    { id: "panel.exit", label: "Back to the panel frame", group: "Focus", keys: ["Escape"], when: ["inPanel"], palette: false, run: (ctx, args) => { ctx.focusPanel(targetPanel(ctx, args)) } },
+    { id: "lens.focus", label: "Change the panel's lens (what it looks at)", group: "Panels", keys: ["Mod-L"], when: ["textInput"], palette: true, run: (ctx, args) => { ctx.focusLensChip(targetPanel(ctx, args)) } },
+
+    // ---- Moods ----
+    { id: "mood.toggle", label: "Toggle Studio / Stage", group: "Moods", keys: ["`"], when: ["global"], palette: true, run: (ctx, args) => {
+      let st = ctx.state()
+      let target = st.active === "stage" ? "studio" : "stage"
+      ctx.commitState(setActiveMood(st, target), target === "stage" ? "Stage" : "Studio", true)
+    } },
+    { id: "mood.saveAs", label: "Save current layout as a new mood…", group: "Moods", keys: [], when: ["global"], palette: true, run: (ctx, args) => {
+      let name = args !== null && args.name !== null && args.name !== undefined ? String(args.name) : ""
+      if (name.length === 0) {
+        ctx.promptText("Name this mood", "My mood", (nm) => { ctx.run("mood.saveAs", { name: nm }) })
+        return
+      }
+      ctx.commitState(saveMoodAs(ctx.state(), name), "Saved mood " + name, false)
+    } },
+    { id: "mood.reset", label: "Reset this mood to its default layout", group: "Moods", keys: [], when: ["global"], palette: true, run: (ctx, args) => {
+      let st = ctx.state()
+      ctx.commitState(resetMood(st, st.active), "Layout reset", true)
+    } },
+    { id: "mood.delete", label: "Delete this mood", group: "Moods", keys: [], when: ["global"], palette: true, run: (ctx, args) => {
+      let st = ctx.state()
+      ctx.commitState(deleteMood(st, st.active), "Mood deleted", true)
+    } },
+
+    // ---- Panels / layout ----
+    { id: "palette.open", label: "Command palette", group: "Workspace", keys: ["Mod-K"], when: ["textInput"], palette: false, run: (ctx, args) => { ctx.openPalette("") } },
+    { id: "hints.toggle", label: "Show key hints on every control", group: "Workspace", keys: ["Shift-/"], when: ["global"], palette: true, run: (ctx, args) => { ctx.enterMode("hints", null) } },
+    { id: "tab.prev", label: "Previous tab in this stack", group: "Panels", keys: ["Mod-Shift-[", "Alt-["], when: ["textInput"], palette: true, run: (ctx, args) => {
+      let pid = targetPanel(ctx, args)
+      if (layoutOp(ctx, (l) => cycleTab(l, pid, -1), "")) {
+        let s = stackOfPanel(ctx.mood().layout, pid)
+        if (s !== null) { ctx.focusPanel(s.active) }
+      }
+    } },
+    { id: "tab.next", label: "Next tab in this stack", group: "Panels", keys: ["Mod-Shift-]", "Alt-]"], when: ["textInput"], palette: true, run: (ctx, args) => {
+      let pid = targetPanel(ctx, args)
+      if (layoutOp(ctx, (l) => cycleTab(l, pid, 1), "")) {
+        let s = stackOfPanel(ctx.mood().layout, pid)
+        if (s !== null) { ctx.focusPanel(s.active) }
+      }
+    } },
+    { id: "tab.moveLeft", label: "Move tab left", group: "Panels", keys: ["Mod-Alt-Shift-[", "Alt-Shift-["], when: ["global"], palette: true, run: moveTabBy(-1) },
+    { id: "tab.moveRight", label: "Move tab right", group: "Panels", keys: ["Mod-Alt-Shift-]", "Alt-Shift-]"], when: ["global"], palette: true, run: moveTabBy(1) },
+    { id: "tab.activate", label: "Show tab", group: "Panels", keys: [], when: ["global"], palette: false, run: (ctx, args) => {
+      let pid = targetPanel(ctx, args)
+      layoutOp(ctx, (l) => setActiveTab(l, pid), "")
+      ctx.focusPanel(pid)
+    } },
+    { id: "panel.close", label: "Close panel", group: "Panels", keys: ["Mod-W", "Alt-W"], when: ["global"], palette: true, run: (ctx, args) => {
+      let pid = targetPanel(ctx, args)
+      let m = ctx.mood()
+      if (pid === null || !hasPanel(m.layout, pid)) {
+        return
+      }
+      let next = pushClosed(withLayout(m, closePanel(m.layout, pid)), pid)
+      ctx.commitMood(next, titleOf(m, pid) + " closed")
+      let vis = visiblePanelIds(next.layout)
+      if (vis.length > 0) { ctx.focusPanel(vis[0]) }
+    } },
+    { id: "panel.reopen", label: "Reopen last closed panel", group: "Panels", keys: ["Mod-Shift-T", "Alt-Shift-T"], when: ["global"], palette: true, run: (ctx, args) => {
+      let m = ctx.mood()
+      let r = popClosed(m)
+      if (r.panelId === null) {
+        ctx.announce("Nothing to reopen")
+        return
+      }
+      let res = openPanel(r.mood, r.mood.panels[r.panelId].type, r.mood.panels[r.panelId].lens, null)
+      ctx.commitMood(res.mood, titleOf(m, res.panelId) + " reopened")
+      ctx.focusPanel(res.panelId)
+    } },
+    { id: "panel.splitRight", label: "Split right", group: "Panels", keys: ["Mod-\\", "Alt-\\"], when: ["global"], palette: true, run: splitFocused("right") },
+    { id: "panel.splitDown", label: "Split down", group: "Panels", keys: ["Mod-Shift-\\", "Alt-Shift-\\"], when: ["global"], palette: true, run: splitFocused("bottom") },
+    { id: "panel.float", label: "Float / dock panel", group: "Panels", keys: ["Mod-Shift-F", "Alt-Shift-F"], when: ["global"], palette: true, run: (ctx, args) => {
+      let pid = targetPanel(ctx, args)
+      let m = ctx.mood()
+      if (pid === null) {
+        return
+      }
+      let vp = ctx.viewport()
+      let rect = { x: vp.w * 0.25, y: vp.h * 0.18, w: vp.w * 0.5, h: vp.h * 0.6 }
+      let wasFloating = floatingOf(m.layout, pid) !== null
+      layoutOp(ctx, (l) => toggleFloat(l, pid, rect), titleOf(m, pid) + (wasFloating ? " docked" : " floating"))
+      ctx.focusPanel(pid)
+    } },
+    { id: "panel.maximize", label: "Maximise / restore panel", group: "Panels", keys: ["Mod-Shift-Enter", "Alt-Shift-Enter"], when: ["textInput"], palette: true, run: (ctx, args) => {
+      let pid = targetPanel(ctx, args)
+      let m = ctx.mood()
+      let on = m.layout.maximized !== pid
+      layoutOp(ctx, (l) => toggleMaximize(l, pid), titleOf(m, pid) + (on ? " maximised" : " restored"))
+      ctx.focusPanel(pid)
+    } },
+    { id: "mode.dock", label: "Move panel with the keyboard (dock mode)", group: "Panels", keys: ["Mod-M", "Alt-M"], when: ["global"], palette: true, run: (ctx, args) => { ctx.enterMode("dock", targetPanel(ctx, args)) } },
+    { id: "mode.resize", label: "Resize panel with the keyboard", group: "Panels", keys: ["Mod-R", "Alt-R"], when: ["global"], palette: true, run: (ctx, args) => { ctx.enterMode("resize", targetPanel(ctx, args)) } },
+
+    // ---- Gesture targets (pointer + dock mode call these with explicit args) ----
+    { id: "panel.moveToStack", label: "Move panel into stack", group: "Panels", keys: [], when: ["global"], palette: false, run: (ctx, args) => {
+      let m = ctx.mood()
+      let idx = args.index !== null && args.index !== undefined ? args.index : null
+      layoutOp(ctx, (l) => moveToStack(l, args.panelId, args.stackId, idx), titleOf(m, args.panelId) + " moved")
+      ctx.focusPanel(args.panelId)
+    } },
+    { id: "panel.split", label: "Dock panel beside a stack", group: "Panels", keys: [], when: ["global"], palette: false, run: (ctx, args) => {
+      let m = ctx.mood()
+      let next = splitAt(m.layout, args.stackId, args.edge, args.panelId)
+      if (next === m.layout) {
+        ctx.announce("Can't split a panel off itself")
+        return
+      }
+      ctx.commitMood(withLayout(m, next), titleOf(m, args.panelId) + " docked " + (args.edge === "center" ? "as a tab" : args.edge))
+      ctx.focusPanel(args.panelId)
+    } },
+    { id: "panel.floatAt", label: "Float panel", group: "Panels", keys: [], when: ["global"], palette: false, run: (ctx, args) => {
+      let m = ctx.mood()
+      layoutOp(ctx, (l) => floatPanel(l, args.panelId, args.rect), titleOf(m, args.panelId) + " floating")
+      ctx.focusPanel(args.panelId)
+    } },
+    { id: "panel.moveFloating", label: "Move floating panel", group: "Panels", keys: [], when: ["global"], palette: false, run: (ctx, args) => {
+      layoutOp(ctx, (l) => moveFloating(l, args.panelId, args.rect), "")
+    } },
+    { id: "split.resize", label: "Resize split", group: "Panels", keys: [], when: ["global"], palette: false, run: (ctx, args) => {
+      layoutOp(ctx, (l) => resizeSplit(l, args.splitId, args.sizes), "")
+    } },
+    { id: "panel.resizeBy", label: "Grow / shrink panel", group: "Panels", keys: [], when: ["global"], palette: false, run: (ctx, args) => {
+      let pid = targetPanel(ctx, args)
+      let m = ctx.mood()
+      let f = floatingOf(m.layout, pid)
+      if (f !== null) {
+        layoutOp(ctx, (l) => moveFloating(l, pid, { x: f.x + args.dx, y: f.y + args.dy, w: f.w + args.dw, h: f.h + args.dh }), "")
+        return
+      }
+      let s = stackOfPanel(m.layout, pid)
+      if (s === null) {
+        return
+      }
+      let dir = args.dw !== 0 ? "row" : "col"
+      let delta = args.dw !== 0 ? args.dw : args.dh
+      layoutOp(ctx, (l) => resizeAround(l, s.id, dir, delta), "")
+    } },
+    { id: "panel.open", label: "Open panel", group: "Panels", keys: [], when: ["global"], palette: false, run: (ctx, args) => {
+      let m = ctx.mood()
+      let near = ctx.focusedPanelId()
+      let s = near !== null ? stackOfPanel(m.layout, near) : null
+      let res = openPanel(m, args.type, args.lens !== null && args.lens !== undefined ? args.lens : null, s !== null ? s.id : null)
+      ctx.commitMood(res.mood, titleOf(res.mood, res.panelId) + " open")
+      ctx.focusPanel(res.panelId)
+    } },
+    { id: "lens.set", label: "Point panel at…", group: "Panels", keys: [], when: ["global"], palette: false, run: (ctx, args) => {
+      let m = ctx.mood()
+      let pid = targetPanel(ctx, args)
+      let rec = m.panels[pid]
+      if (rec === null || rec === undefined) {
+        return
+      }
+      let lens = args.lens !== null && args.lens !== undefined ? args.lens : parseLensInput(args.text)
+      if (lens === null || !panelAcceptsLens(rec.type, lens.kind)) {
+        ctx.announce("This panel can't look at that")
+        return
+      }
+      ctx.commitMood(withPanel(m, { id: rec.id, type: rec.type, lens: lens }), titleOf(m, pid) + " now on " + lensChipText(lens))
+    } },
+    { id: "lens.pin", label: "Pin / unpin the panel's lens", group: "Panels", keys: [], when: ["global"], palette: true, run: (ctx, args) => {
+      let m = ctx.mood()
+      let pid = targetPanel(ctx, args)
+      let rec = m.panels[pid]
+      if (rec === null || rec === undefined || rec.lens.kind === "none") {
+        return
+      }
+      let l = { kind: rec.lens.kind, ref: rec.lens.ref, pinned: !(rec.lens.pinned === true) }
+      ctx.commitMood(withPanel(m, { id: rec.id, type: rec.type, lens: l }), l.pinned ? "Lens pinned" : "Lens unpinned")
+    } },
+
+    // ---- Mixer (keyboard twin of the XY-pad drag) ----
+    { id: "mixer.xfadeNudge", label: "Nudge the 4-way fader", group: "Perform", keys: [], when: ["global"], palette: false, run: (ctx, args) => { ctx.app.xfadeNudge(args.dx, args.dy) } },
+    { id: "mixer.xfadeLeft", label: "Fader toward A / C", group: "Perform", keys: ["Alt-Shift-Z"], when: ["global"], palette: true, run: (ctx, args) => { ctx.app.xfadeNudge(-0.05, 0) } },
+    { id: "mixer.xfadeRight", label: "Fader toward B / D", group: "Perform", keys: ["Alt-Shift-X"], when: ["global"], palette: true, run: (ctx, args) => { ctx.app.xfadeNudge(0.05, 0) } },
+    { id: "mixer.xfadeUp", label: "Fader toward A / B", group: "Perform", keys: ["Alt-Shift-A"], when: ["global"], palette: true, run: (ctx, args) => { ctx.app.xfadeNudge(0, -0.05) } },
+    { id: "mixer.xfadeDown", label: "Fader toward C / D", group: "Perform", keys: ["Alt-Shift-S"], when: ["global"], palette: true, run: (ctx, args) => { ctx.app.xfadeNudge(0, 0.05) } },
+
+    // ---- Transport / editing: keys owned by the app's key handler; listed here for the palette + hints ----
+    { id: "transport.playStop", label: "Play / stop", group: "Transport", keys: ["Enter"], when: ["global"], passive: true, palette: true, run: (ctx, args) => { ctx.app.playStop() } },
+    { id: "transport.preview", label: "Preview the rack", group: "Transport", keys: ["Space"], when: ["global"], passive: true, palette: true, run: (ctx, args) => { ctx.app.preview() } },
+    { id: "edit.undo", label: "Undo", group: "Edit", keys: ["Mod-Z"], when: ["global"], passive: true, palette: true, run: (ctx, args) => { ctx.app.undo() } },
+    { id: "edit.redo", label: "Redo", group: "Edit", keys: ["Mod-Shift-Z", "Mod-Y"], when: ["global"], passive: true, palette: true, run: (ctx, args) => { ctx.app.redo() } },
+    { id: "fx.echo", label: "Echo throw (hold)", group: "Perform", keys: ["E"], when: ["global"], passive: true, palette: false, run: (ctx, args) => {} },
+    { id: "fx.filter", label: "Filter throw (hold)", group: "Perform", keys: ["F"], when: ["global"], passive: true, palette: false, run: (ctx, args) => {} },
+    { id: "cue.active", label: "Cue the active scene", group: "Perform", keys: ["C"], when: ["global"], passive: true, palette: true, run: (ctx, args) => { ctx.app.cueActive() } },
+    { id: "deck.cut", label: "Cut the jogged deck (hold)", group: "Perform", keys: ["V"], when: ["global"], passive: true, palette: false, run: (ctx, args) => {} },
+    { id: "app.songs", label: "Browse the song library", group: "Library", keys: [], when: ["global"], palette: true, run: (ctx, args) => { ctx.app.openSongs() } },
+    { id: "app.fullscreen", label: "Toggle fullscreen", group: "Workspace", keys: [], when: ["global"], palette: true, run: (ctx, args) => { ctx.app.fullscreen() } }
+  ]
+  let n = 1
+  while (n <= 9) {
+    list.push(moodAction(n))
+    n = n + 1
+  }
+  return list
+}
+
+/** Registry: { list(), get(id), run(id, ctx, args) }. Unknown ids are a no-op that returns false. */
+export fn createActionRegistry(extra) {
+  let actions = baseActions()
+  if (Array.isArray(extra)) {
+    extra.forEach((a) => { actions.push(a) })
+  }
+  let byId = {}
+  actions.forEach((a) => { byId[a.id] = a })
+  return {
+    list: () => actions,
+    get: (id) => (byId[id] !== null && byId[id] !== undefined ? byId[id] : null),
+    run: (id, ctx, args) => {
+      let a = byId[id]
+      if (a === null || a === undefined) {
+        return false
+      }
+      a.run(ctx, args !== null && args !== undefined ? args : {})
+      return true
+    }
+  }
+}
+
+/** Palette entries for opening each panel type (and each deck lens for deck-aware panels). */
+export fn openPanelEntries() {
+  let out = []
+  panelTypes().forEach((t) => {
+    out.push({ id: "open:" + t.type, label: "Open " + t.title, group: "Open panel", args: { type: t.type, lens: null } })
+    if (t.type === "decks" || t.type === "sequencer" || t.type === "session" || t.type === "instruments") {
+      let letters = ["A", "B", "C", "D"]
+      letters.forEach((d) => {
+        out.push({ id: "open:" + t.type + ":" + d, label: "Open " + t.title + " on deck " + d, group: "Open panel", args: { type: t.type, lens: { kind: "deck", ref: d, pinned: true } } })
+      })
+    }
+  })
+  return out
+}

@@ -30,6 +30,7 @@ function copy(from, to) {
 // Entry HTML + global stylesheet.
 copy('index.html', 'index.html')
 copy('styles.css', 'styles.css')
+copy('styles', 'styles')
 
 // The compiled app bundle (index.html loads it from `dist/bundle.js`).
 copy('dist/bundle.js', 'dist/bundle.js')

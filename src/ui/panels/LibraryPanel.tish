@@ -1,0 +1,49 @@
+// Library panel: stations (whole-workspace snapshots), Sets (per-deck player bundles), the song browser
+// launcher and the instrument / beat / sequence / kit browser — everything you load from, in one place.
+
+import { IkSelect } from '../InstrumentKit.tish'
+import { LibraryBrowser } from '../LibraryBrowser.tish'
+
+export fn LibraryPanel(pc, rec, info, onClose) {
+  let lib = pc.library
+  return (
+    <div class="lp">
+      <div class="lp-row" key={"sp-" + String(lib.setListGenKey)}>
+        <span class="lp-label">{"Station"}</span>
+        {IkSelect({
+          class: "set-select",
+          value: "",
+          placeholder: "— load station —",
+          title: "Station presets — full workspace snapshots (instruments, sequences and all)",
+          options: lib.setOpts,
+          onChange: (v) => { if (v && v.length > 0) { lib.onLoadSet(v) } },
+          onDelete: (v) => { if (v && v.length > 0) { lib.onDeleteSet(v) } }
+        })}
+        <button type="button" class="set-btn set-save" onclick={lib.onSaveSet} title="Save the whole workspace as a named station">{"⤓"}</button>
+        <label class="set-btn set-import" title="Import a .deck station file">{"⤒"}
+          <input type="file" accept=".deck,.tpl,.txt" class="sr-only" title="Import station file" onchange={lib.onImportSetFile} />
+        </label>
+      </div>
+      <div class="lp-row" key={"sl-" + String(lib.setLibGenKey)}>
+        <span class="lp-label">{"Set"}</span>
+        {IkSelect({
+          class: "set-select",
+          value: "",
+          placeholder: "— load set —",
+          title: lib.freeSlotCount === 0 ? "All 4 decks occupied — free a deck to load a Set (or drop one onto a deck from its picker)." : "Load a Set into the " + String(lib.freeSlotCount) + " free deck slot" + (lib.freeSlotCount === 1 ? "" : "s"),
+          options: lib.setLibOpts,
+          onChange: (v) => { if (v && v.length > 0) { lib.onLoadSetLib(v) } },
+          onDelete: (v) => { if (v && v.length > 0) { lib.onDeleteSetLib(v) } }
+        })}
+        <button type="button" class="set-btn set-save" onclick={lib.onSaveSetLib} title="Capture the loaded decks (their racks, clips + arrangement) as a named Set">{"⤓"}</button>
+        <label class="set-btn set-import" title="Import a .deck Set file">{"⤒"}
+          <input type="file" accept=".deck,.tpl,.txt" class="sr-only" title="Import set file" onchange={lib.onImportSetLibFile} />
+        </label>
+        <button type="button" class="songs-open-btn" title="Browse the song library — load a full song (kit + patterns) onto any deck" onclick={lib.openSongs}>{"♫ Songs"}</button>
+      </div>
+      <div class="lp-browser">
+        {LibraryBrowser(info.lens.deck, pc.onLibraryPick, onClose)}
+      </div>
+    </div>
+  )
+}

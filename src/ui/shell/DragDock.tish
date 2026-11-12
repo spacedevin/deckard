@@ -1,0 +1,328 @@
+// Imperative pointer gestures for the workspace: drag a tab (tab / split / reorder / float), drag a split
+// gutter, move or resize a floating window. Nothing re-renders during a drag — a ghost + a drop overlay are
+// moved by hand — and the drop commits ONE runAction through the gesture table (the keyboard twin of every
+// gesture is listed there and enforced by test/workspace.tish).
+
+import { gestureAction } from '../../workspace/Actions.tish'
+import { dropZoneAt, dropZoneRect } from '../../workspace/Spatial.tish'
+
+let DRAG_THRESHOLD = 6
+
+fn runGesture(sh, gesture, args) {
+  let id = gestureAction(gesture)
+  if (id !== null) {
+    sh.run(id, args)
+  }
+}
+
+fn el(tag, cls) {
+  let e = document.createElement(tag)
+  e.className = cls
+  return e
+}
+
+/** Show the translucent drop-zone highlight over `rect` with a hint label (shared with keyboard dock mode). */
+export fn showDropOverlay(rect, label) {
+  if (typeof document === "undefined") {
+    return
+  }
+  let ov = document.getElementById("ws-drop-overlay")
+  if (!ov) {
+    ov = el("div", "ws-drop-overlay")
+    ov.id = "ws-drop-overlay"
+    let lb = el("span", "ws-drop-label")
+    ov.appendChild(lb)
+    document.body.appendChild(ov)
+  }
+  ov.style.left = String(Math.round(rect.x)) + "px"
+  ov.style.top = String(Math.round(rect.y)) + "px"
+  ov.style.width = String(Math.round(rect.w)) + "px"
+  ov.style.height = String(Math.round(rect.h)) + "px"
+  ov.firstChild.textContent = label !== null ? String(label) : ""
+  ov.style.display = "flex"
+}
+
+export fn hideDropOverlay() {
+  if (typeof document === "undefined") {
+    return
+  }
+  let ov = document.getElementById("ws-drop-overlay")
+  if (ov) {
+    ov.style.display = "none"
+  }
+}
+
+fn zoneLabel(zone) {
+  if (zone === "center") {
+    return "Drop as a tab"
+  }
+  if (zone === "float") {
+    return "Float"
+  }
+  return "Split " + zone
+}
+
+fn rectFrom(r) {
+  return { x: r.left, y: r.top, w: r.width, h: r.height }
+}
+
+// Where a tab being dragged would land, from the element under the pointer.
+fn dropTargetAt(x, y, panelId) {
+  let under = document.elementFromPoint(x, y)
+  if (!under) {
+    return { kind: "float" }
+  }
+  let strip = under.closest(".ws-tabs")
+  if (strip) {
+    let stackEl = strip.closest(".ws-stack")
+    let tabs = strip.querySelectorAll("[data-panel-tab]")
+    let index = tabs.length
+    let i = 0
+    while (i < tabs.length) {
+      let r = tabs[i].getBoundingClientRect()
+      if (x < r.left + r.width / 2) {
+        index = i
+        break
+      }
+      i = i + 1
+    }
+    let sr = strip.getBoundingClientRect()
+    let markX = index < tabs.length ? tabs[index].getBoundingClientRect().left : (tabs.length > 0 ? tabs[tabs.length - 1].getBoundingClientRect().right : sr.left)
+    return { kind: "reorder", stackId: stackEl.getAttribute("data-stack-id"), index: index, rect: { x: markX - 2, y: sr.top, w: 4, h: sr.height } }
+  }
+  let stackEl2 = under.closest(".ws-stack")
+  if (stackEl2) {
+    let r = rectFrom(stackEl2.getBoundingClientRect())
+    let zone = dropZoneAt(r, x, y)
+    return { kind: "zone", stackId: stackEl2.getAttribute("data-stack-id"), zone: zone, rect: dropZoneRect(r, zone) }
+  }
+  return { kind: "float" }
+}
+
+fn applyDrop(sh, panelId, t, x, y, w, h) {
+  if (t.kind === "reorder") {
+    runGesture(sh, "tab-reorder", { panelId: panelId, stackId: t.stackId, index: t.index })
+  } else if (t.kind === "zone") {
+    if (t.zone === "center") {
+      runGesture(sh, "tab-drop-center", { panelId: panelId, stackId: t.stackId, index: null })
+    } else {
+      runGesture(sh, "tab-drop-edge", { panelId: panelId, stackId: t.stackId, edge: t.zone })
+    }
+  } else {
+    runGesture(sh, "tab-drop-outside", { panelId: panelId, rect: { x: x - 40, y: y - 14, w: w, h: h } })
+  }
+}
+
+/** pointerdown on a tab: a click activates it (via onclick); moving past the threshold starts a dock drag. */
+export fn startTabDrag(e, sh, panelId, title) {
+  if (e.button !== 0) {
+    return
+  }
+  let sx = e.clientX
+  let sy = e.clientY
+  let dragging = false
+  let ghost = null
+  let target = null
+  let panelEl = document.querySelector(".ws-panel[data-panel-id=\"" + String(panelId) + "\"]")
+  let pr = panelEl ? panelEl.getBoundingClientRect() : null
+  let fw = pr !== null ? Math.max(360, Math.min(720, pr.width)) : 520
+  let fh = pr !== null ? Math.max(240, Math.min(560, pr.height)) : 380
+  fn onMove(ev) {
+    let dx = ev.clientX - sx
+    let dy = ev.clientY - sy
+    if (!dragging) {
+      if (dx * dx + dy * dy < DRAG_THRESHOLD * DRAG_THRESHOLD) {
+        return
+      }
+      dragging = true
+      sh.suppressClick = true
+      ghost = el("div", "ws-drag-ghost")
+      ghost.textContent = String(title)
+      document.body.appendChild(ghost)
+      document.body.classList.add("ws-dragging")
+    }
+    ghost.style.transform = "translate(" + String(ev.clientX + 12) + "px, " + String(ev.clientY + 10) + "px)"
+    target = dropTargetAt(ev.clientX, ev.clientY, panelId)
+    if (target.kind === "float") {
+      showDropOverlay({ x: ev.clientX - 40, y: ev.clientY - 14, w: fw, h: fh }, zoneLabel("float"))
+    } else if (target.kind === "reorder") {
+      showDropOverlay(target.rect, "")
+    } else {
+      showDropOverlay(target.rect, zoneLabel(target.zone))
+    }
+  }
+  fn finish(ev, commit) {
+    document.removeEventListener("pointermove", onMove)
+    document.removeEventListener("pointerup", onUp)
+    document.removeEventListener("pointercancel", onCancel)
+    document.removeEventListener("keydown", onKey, true)
+    if (ghost !== null && ghost.parentNode) {
+      ghost.parentNode.removeChild(ghost)
+    }
+    document.body.classList.remove("ws-dragging")
+    hideDropOverlay()
+    if (dragging && commit && target !== null) {
+      applyDrop(sh, panelId, target, ev.clientX, ev.clientY, fw, fh)
+    }
+    if (dragging) {
+      // The click that follows pointerup must not re-activate the tab; clear the flag after it would fire.
+      setTimeout(() => { sh.suppressClick = false }, 0)
+    }
+  }
+  fn onUp(ev) {
+    finish(ev, true)
+  }
+  fn onCancel(ev) {
+    finish(ev, false)
+  }
+  fn onKey(ev) {
+    if (ev.key === "Escape") {
+      ev.preventDefault()
+      ev.stopPropagation()
+      finish({ clientX: sx, clientY: sy }, false)
+    }
+  }
+  document.addEventListener("pointermove", onMove)
+  document.addEventListener("pointerup", onUp)
+  document.addEventListener("pointercancel", onCancel)
+  document.addEventListener("keydown", onKey, true)
+}
+
+/** pointerdown on a split gutter: resize the two neighbouring cells live, commit the sizes on release. */
+export fn startGutterDrag(e, sh, splitId, index) {
+  if (e.button !== 0) {
+    return
+  }
+  e.preventDefault()
+  let gutter = e.currentTarget
+  let split = gutter.parentElement
+  let row = split.getAttribute("data-dir") === "row"
+  let cells = []
+  let kids = split.children
+  let k = 0
+  while (k < kids.length) {
+    if (kids[k].classList.contains("ws-cell")) {
+      cells.push(kids[k])
+    }
+    k = k + 1
+  }
+  if (index + 1 >= cells.length) {
+    return
+  }
+  let px = cells.map((c) => {
+    let r = c.getBoundingClientRect()
+    return row ? r.width : r.height
+  })
+  let total = 0
+  px.forEach((v) => { total = total + v })
+  let a0 = px[index]
+  let b0 = px[index + 1]
+  let start = row ? e.clientX : e.clientY
+  let minPx = 48
+  gutter.classList.add("ws-gutter-active")
+  document.body.classList.add(row ? "ws-resizing-row" : "ws-resizing-col")
+  fn sizesNow() {
+    return cells.map((c) => Number(c.style.flexGrow) > 0 ? Number(c.style.flexGrow) : 0)
+  }
+  fn onMove(ev) {
+    let d = (row ? ev.clientX : ev.clientY) - start
+    if (a0 + d < minPx) {
+      d = minPx - a0
+    }
+    if (b0 - d < minPx) {
+      d = b0 - minPx
+    }
+    cells[index].style.flexGrow = String((a0 + d) / total)
+    cells[index + 1].style.flexGrow = String((b0 - d) / total)
+  }
+  fn onUp(ev) {
+    document.removeEventListener("pointermove", onMove)
+    document.removeEventListener("pointerup", onUp)
+    gutter.classList.remove("ws-gutter-active")
+    document.body.classList.remove("ws-resizing-row")
+    document.body.classList.remove("ws-resizing-col")
+    runGesture(sh, "gutter-drag", { splitId: splitId, sizes: sizesNow() })
+  }
+  // Seed every cell's flex-grow with its measured share so the live writes are consistent.
+  let i = 0
+  while (i < cells.length) {
+    cells[i].style.flexGrow = String(px[i] / total)
+    i = i + 1
+  }
+  document.addEventListener("pointermove", onMove)
+  document.addEventListener("pointerup", onUp)
+}
+
+/** pointerdown on a floating window's title bar: move it; with Shift held, drop it into a stack to dock. */
+export fn startFloatMove(e, sh, panelId) {
+  if (e.button !== 0) {
+    return
+  }
+  if (e.target && e.target.closest && e.target.closest("button, input, select")) {
+    return
+  }
+  e.preventDefault()
+  let win = e.currentTarget.closest(".ws-float")
+  let r = win.getBoundingClientRect()
+  let ox = e.clientX - r.left
+  let oy = e.clientY - r.top
+  let target = null
+  fn onMove(ev) {
+    let nx = ev.clientX - ox
+    let ny = ev.clientY - oy
+    win.style.left = String(Math.round(nx)) + "px"
+    win.style.top = String(Math.round(ny)) + "px"
+    if (ev.shiftKey) {
+      win.style.pointerEvents = "none"
+      let t = dropTargetAt(ev.clientX, ev.clientY, panelId)
+      win.style.pointerEvents = ""
+      target = t.kind === "zone" ? t : null
+      if (target !== null) {
+        showDropOverlay(target.rect, zoneLabel(target.zone))
+      } else {
+        hideDropOverlay()
+      }
+    } else {
+      target = null
+      hideDropOverlay()
+    }
+  }
+  fn onUp(ev) {
+    document.removeEventListener("pointermove", onMove)
+    document.removeEventListener("pointerup", onUp)
+    hideDropOverlay()
+    if (target !== null) {
+      runGesture(sh, "float-dock", { panelId: panelId, stackId: target.stackId, edge: target.zone })
+      return
+    }
+    let fr = win.getBoundingClientRect()
+    runGesture(sh, "float-drag", { panelId: panelId, rect: { x: fr.left, y: fr.top, w: fr.width, h: fr.height } })
+  }
+  document.addEventListener("pointermove", onMove)
+  document.addEventListener("pointerup", onUp)
+}
+
+/** pointerdown on a floating window's corner grip: resize it. */
+export fn startFloatResize(e, sh, panelId) {
+  if (e.button !== 0) {
+    return
+  }
+  e.preventDefault()
+  e.stopPropagation()
+  let win = e.currentTarget.closest(".ws-float")
+  let r = win.getBoundingClientRect()
+  let sx = e.clientX
+  let sy = e.clientY
+  fn onMove(ev) {
+    win.style.width = String(Math.max(200, Math.round(r.width + ev.clientX - sx))) + "px"
+    win.style.height = String(Math.max(120, Math.round(r.height + ev.clientY - sy))) + "px"
+  }
+  fn onUp(ev) {
+    document.removeEventListener("pointermove", onMove)
+    document.removeEventListener("pointerup", onUp)
+    let fr = win.getBoundingClientRect()
+    runGesture(sh, "float-resize", { panelId: panelId, rect: { x: fr.left, y: fr.top, w: fr.width, h: fr.height } })
+  }
+  document.addEventListener("pointermove", onMove)
+  document.addEventListener("pointerup", onUp)
+}
