@@ -1,0 +1,105 @@
+// Decks panel: the jog / vinyl / channel strip for each deck. Follow lens = all four decks stacked; a deck or
+// peer lens = one big deck (Stage gives each deck its own panel this way).
+
+import { h } from '@tishlang/lattish'
+import { channelDeck } from '../../model/DeckRouting.tish'
+import { DeckJog, VinylRow, deckEntries, DeckChannelStrip } from '../deck/DeckMixer.tish'
+
+export fn renderDeckPips(project, deckLetter) {
+  let active = []
+  let i = 0
+  while (i < 16) {
+    active.push(false)
+    i = i + 1
+  }
+  if (project && project.channels) {
+    let j = 0
+    let chs = project.channels
+    while (j < chs.length) {
+      let ch = chs[j]
+      if (ch && channelDeck(project, ch) === deckLetter && ch.steps) {
+        let si = 0
+        let slen = ch.steps.length
+        while (si < 16) {
+          if (si < slen) {
+            let s = ch.steps[si]
+            if (s && s.on) {
+              active[si] = true
+            }
+          }
+          si = si + 1
+        }
+      }
+      j = j + 1
+    }
+  }
+  let pips = []
+  let stepIdx = 0
+  while (stepIdx < 16) {
+    pips.push(<span class={"deck-nav-indicator-sq" + (active[stepIdx] ? " deck-nav-indicator-on" : "")}></span>)
+    stepIdx = stepIdx + 1
+  }
+  return <div class="deck-nav-indicators">{pips}</div>
+}
+
+// A press on the deck's empty area selects it — but not one that lands on a control (jog, faders, knobs, vinyl
+// buttons). Bound to mousedown: a knob drag ending off the control would synthesize a click on the container.
+export fn deckBgClick(e, deck, setActiveDeck) {
+  let t = e !== null ? e.target : null
+  if ((t !== null) && (t.closest !== null) && t.closest("button, input, select, textarea, canvas, .dk-jog, .dk-xfade, .dk-xypad, [class*='knob'], [class*='lever'], [class*='fader']") !== null) {
+    return
+  }
+  setActiveDeck(deck)
+}
+
+/** One deck block: title row (select button + step pips) over the jog / vinyl / channel strip row. */
+export fn renderDeckNav(pc, letter, peerLabel) {
+  let project = pc.project
+  let lc = String(letter).toLowerCase()
+  let hasContent = deckEntries(project, letter).length > 0
+  let isActive = pc.activeDeck === letter
+  return (
+    <div class={"deck-nav-btn deck-" + lc + (isActive ? " deck-active" : "")} onmousedown={(e) => deckBgClick(e, letter, pc.setActiveDeck)} key={"decknav-" + letter}>
+      <div class="deck-nav-title-row">
+        {h("button", {
+          type: "button",
+          class: "deck-nav-select",
+          "aria-pressed": isActive ? "true" : "false",
+          title: "Select deck " + letter + " — panels that follow your selection switch to it",
+          onclick: () => pc.setActiveDeck(letter)
+        }, [
+          <span class="deck-nav-dot"></span>,
+          <span class="deck-nav-text">{"DECK " + letter}</span>
+        ])}
+        {peerLabel !== null ? <span class="deck-nav-peer">{peerLabel}</span> : null}
+        {renderDeckPips(project, letter)}
+      </div>
+      <div class="deck-nav-controls-row">
+        {hasContent ? (
+          <div class="deck-nav-controls">
+            {DeckJog(letter, pc.rt)}
+            {VinylRow(letter, pc.rt)}
+          </div>
+        ) : (
+          <div class="deck-nav-empty">{"(empty)"}</div>
+        )}
+        {DeckChannelStrip(project, letter, pc.setProjectFromUI, pc.touchMixer, pc.rt)}
+      </div>
+    </div>
+  )
+}
+
+export fn DecksPanel(pc, rec, info) {
+  if (rec.lens.kind === "follow") {
+    return (
+      <div class="dp dp-all">
+        {renderDeckNav(pc, "A", null)}
+        {renderDeckNav(pc, "B", null)}
+        {renderDeckNav(pc, "C", null)}
+        {renderDeckNav(pc, "D", null)}
+      </div>
+    )
+  }
+  let peer = rec.lens.kind === "peer" ? "@" + String(rec.lens.ref) : null
+  return <div class={"dp dp-single dp-deck-" + String(info.lens.deck).toLowerCase()}>{renderDeckNav(pc, info.lens.deck, peer)}</div>
+}

@@ -1,0 +1,102 @@
+// Top bar: logo, the transport (unchanged), the mood dial (Studio ⇄ Stage + your saved moods), the booth ring
+// (who's in the room, in their deck colours), the ⌘K palette launcher, key hints and fullscreen.
+
+import { h } from '@tishlang/lattish'
+import { peerDeckMap, peerHue } from '../../workspace/Panels.tish'
+
+fn moodDial(sh) {
+  let st = sh.state
+  let ix = 0
+  let i = 0
+  while (i < st.moods.length) {
+    if (st.moods[i].id === st.active) {
+      ix = i
+    }
+    i = i + 1
+  }
+  let kids = [h("span", { class: "ws-mood-thumb", "aria-hidden": "true" }, [])]
+  st.moods.forEach((m, n) => {
+    let actionId = "mood.goto" + String(n + 1)
+    let chord = n < 9 ? sh.chordText(actionId) : ""
+    let on = m.id === st.active
+    kids.push(h("button", {
+      type: "button",
+      class: "ws-mood" + (on ? " ws-mood-on" : ""),
+      "aria-pressed": on ? "true" : "false",
+      "data-chord": n < 9 ? sh.firstChord(actionId) : null,
+      title: m.name + (chord.length > 0 ? "  (" + chord + ")" : "") + (n < 2 ? " · " + sh.chordText("mood.toggle") + " toggles Studio / Stage" : ""),
+      onclick: () => sh.run(actionId, null)
+    }, [
+      h("span", { class: "ws-mood-glyph", "aria-hidden": "true" }, [m.glyph ? m.glyph : "◇"]),
+      <span class="ws-mood-name">{m.name}</span>
+    ]))
+  })
+  kids.push(h("button", { type: "button", class: "ws-mood-tool", title: "Save this layout as a new mood", "aria-label": "Save layout as a new mood", onclick: () => sh.run("mood.saveAs", null) }, ["＋"]))
+  kids.push(h("button", { type: "button", class: "ws-mood-tool", title: "Reset this mood to its default layout", "aria-label": "Reset layout", onclick: () => sh.run("mood.reset", null) }, ["↺"]))
+  return h("div", { class: "ws-mood-dial", role: "group", "aria-label": "Workspace mood", style: { "--mood-i": String(ix), "--mood-n": String(st.moods.length) } }, kids)
+}
+
+fn boothRing(sh, rt, activeDeck) {
+  let actors = rt && Array.isArray(rt.coDjActors) ? rt.coDjActors : []
+  let host = rt && rt.coDjHostActorId !== null && rt.coDjHostActorId !== undefined ? String(rt.coDjHostActorId) : null
+  let open = () => sh.run("panel.open", { type: "booths", lens: null })
+  if (actors.length === 0) {
+    return h("button", { type: "button", class: "ws-booth-ring ws-booth-solo", title: "Solo session — open Booths", "aria-label": "Booths: solo session", onclick: open }, [
+      h("span", { class: "ws-booth-dot ws-booth-deck-" + String(activeDeck).toLowerCase(), "aria-hidden": "true" }, []),
+      <span class="ws-booth-label">{"solo"}</span>
+    ])
+  }
+  let map = peerDeckMap(host, actors)
+  let ids = Object.keys(map)
+  return h("button", { type: "button", class: "ws-booth-ring", title: "In the room: " + ids.join(", ") + " — open Booths", "aria-label": "Booths: " + String(ids.length) + " in the room", onclick: open },
+    ids.map((id) => h("span", {
+      class: "ws-booth-dot ws-booth-deck-" + map[id].toLowerCase() + (id === host ? " ws-booth-host" : ""),
+      style: { "--peer-hue": String(peerHue(id)) },
+      "aria-hidden": "true"
+    }, [String(id).charAt(0).toUpperCase()]))
+  )
+}
+
+export fn TopBar(sh, rt, activeDeck, transport) {
+  return (
+    <header class="ws-topbar daw-header">
+      <div class="logo-col">
+        <h1 class="logo">{"Deckard"}</h1>
+        <div class="made-by-credit">
+          {"by "}
+          <a href="https://space.la" target="_blank" rel="noopener noreferrer">space.la</a>
+          <span class="made-by-sep">{" · "}</span>
+          <a href="/docs/" class="docs-link">{"Docs"}</a>
+        </div>
+      </div>
+      {transport}
+      {moodDial(sh)}
+      <div class="ws-topbar-right">
+        {boothRing(sh, rt, activeDeck)}
+        {h("button", {
+          type: "button",
+          class: "ws-palette-btn",
+          "data-chord": sh.firstChord("palette.open"),
+          title: "Command palette — every action, panel and mood; >deck line; or talk to the co-DJs",
+          onclick: () => sh.openPalette("")
+        }, [
+          <span class="ws-palette-btn-text">{"Search, act, or ask…"}</span>,
+          <kbd>{sh.chordText("palette.open")}</kbd>
+        ])}
+        {h("button", {
+          type: "button",
+          class: "ws-hints-btn",
+          "data-chord": sh.firstChord("hints.toggle"),
+          title: "Key hints — a badge on every control (" + sh.chordText("hints.toggle") + "). Hold " + (sh.isMac ? "⌘" : "Ctrl") + " to peek at chords.",
+          "aria-label": "Show key hints",
+          onclick: () => sh.run("hints.toggle", null)
+        }, ["?"])}
+        {h("button", { type: "button", class: "daw-fullscreen-btn", title: "Toggle fullscreen", "aria-label": "Toggle fullscreen", onclick: () => sh.run("app.fullscreen", null) }, [
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+          </svg>
+        ])}
+      </div>
+    </header>
+  )
+}

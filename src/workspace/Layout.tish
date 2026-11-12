@@ -1,0 +1,559 @@
+// Workspace layout tree — pure data + operations (no DOM). The shell renders it; every pointer gesture and
+// hotkey mutates it through one of these functions (via runAction), so mouse and keyboard stay identical.
+//
+//   layout = { version, seq, root, floating: [{ panelId, x, y, w, h }], maximized: panelId | null }
+//   node   = { kind: "split", id, dir: "row" | "col", sizes: [fractions…], children: [node…] }
+//          | { kind: "stack", id, tabs: [panelId…], active: panelId | null }
+//
+// Every operation returns a NEW layout (inputs are never mutated) and leaves it normalized: no empty stacks,
+// no single-child splits, no split nested in a split of the same direction, sizes summing to 1.
+
+let LAYOUT_VERSION = 1
+let MIN_SIZE = 0.06
+
+export fn layoutVersion() {
+  return LAYOUT_VERSION
+}
+
+export fn clone(v) {
+  return JSON.parse(JSON.stringify(v))
+}
+
+export fn stackNode(id, tabs, active) {
+  let t = Array.isArray(tabs) ? tabs.slice() : []
+  let a = active !== null && t.indexOf(active) >= 0 ? active : (t.length > 0 ? t[0] : null)
+  return { kind: "stack", id: String(id), tabs: t, active: a }
+}
+
+export fn splitNode(id, dir, sizes, children) {
+  return { kind: "split", id: String(id), dir: dir === "col" ? "col" : "row", sizes: sizes.slice(), children: children.slice() }
+}
+
+export fn makeLayout(root, floating) {
+  let l = { version: LAYOUT_VERSION, seq: 0, root: root, floating: Array.isArray(floating) ? floating : [], maximized: null }
+  l.seq = maxSeq(l)
+  return normalizeLayout(l)
+}
+
+fn idNum(id) {
+  let s = String(id)
+  let i = s.length - 1
+  while (i >= 0 && s.charCodeAt(i) >= 48 && s.charCodeAt(i) <= 57) {
+    i = i - 1
+  }
+  let tail = s.substring(i + 1)
+  return tail.length > 0 ? Number(tail) : 0
+}
+
+fn maxSeq(layout) {
+  let m = typeof layout.seq === "number" ? layout.seq : 0
+  walk(layout.root, (n) => {
+    let k = idNum(n.id)
+    if (k > m) {
+      m = k
+    }
+  })
+  return m
+}
+
+fn freshId(layout, prefix) {
+  layout.seq = maxSeq(layout) + 1
+  return prefix + String(layout.seq)
+}
+
+/** Depth-first visit of every node (splits before their children). */
+export fn walk(node, visit) {
+  if (node === null) {
+    return
+  }
+  visit(node)
+  if (node.kind === "split") {
+    let i = 0
+    while (i < node.children.length) {
+      walk(node.children[i], visit)
+      i = i + 1
+    }
+  }
+}
+
+export fn allStacks(layout) {
+  let out = []
+  walk(layout.root, (n) => {
+    if (n.kind === "stack") {
+      out.push(n)
+    }
+  })
+  return out
+}
+
+export fn findNode(layout, id) {
+  let hit = null
+  walk(layout.root, (n) => {
+    if (hit === null && n.id === id) {
+      hit = n
+    }
+  })
+  return hit
+}
+
+/** The split that directly contains `id`, plus the child index — or null for the root. */
+export fn findParent(layout, id) {
+  let hit = null
+  walk(layout.root, (n) => {
+    if (hit === null && n.kind === "split") {
+      let i = 0
+      while (i < n.children.length) {
+        if (n.children[i].id === id) {
+          hit = { parent: n, index: i }
+        }
+        i = i + 1
+      }
+    }
+  })
+  return hit
+}
+
+/** Chain of splits from the root down to (not including) node `id`. */
+export fn ancestors(layout, id) {
+  let path = []
+  fn rec(node, trail) {
+    if (node.id === id) {
+      path = trail.slice()
+      return true
+    }
+    if (node.kind === "split") {
+      let i = 0
+      while (i < node.children.length) {
+        let t = trail.slice()
+        t.push({ split: node, index: i })
+        if (rec(node.children[i], t)) {
+          return true
+        }
+        i = i + 1
+      }
+    }
+    return false
+  }
+  if (layout.root !== null) {
+    rec(layout.root, [])
+  }
+  return path
+}
+
+export fn stackOfPanel(layout, panelId) {
+  let hit = null
+  walk(layout.root, (n) => {
+    if (hit === null && n.kind === "stack" && n.tabs.indexOf(panelId) >= 0) {
+      hit = n
+    }
+  })
+  return hit
+}
+
+export fn floatingOf(layout, panelId) {
+  let i = 0
+  while (i < layout.floating.length) {
+    if (layout.floating[i].panelId === panelId) {
+      return layout.floating[i]
+    }
+    i = i + 1
+  }
+  return null
+}
+
+/** Every panel id placed in the layout: docked tabs (tree order) then floating windows. */
+export fn panelIds(layout) {
+  let out = []
+  allStacks(layout).forEach((s) => {
+    s.tabs.forEach((t) => { out.push(t) })
+  })
+  layout.floating.forEach((f) => { out.push(f.panelId) })
+  return out
+}
+
+/** Panels actually on screen: each stack's active tab plus floating windows (maximized wins alone). */
+export fn visiblePanelIds(layout) {
+  if (layout.maximized !== null && hasPanel(layout, layout.maximized)) {
+    return [layout.maximized]
+  }
+  let out = []
+  allStacks(layout).forEach((s) => {
+    if (s.active !== null) {
+      out.push(s.active)
+    }
+  })
+  layout.floating.forEach((f) => { out.push(f.panelId) })
+  return out
+}
+
+export fn hasPanel(layout, panelId) {
+  return panelIds(layout).indexOf(panelId) >= 0
+}
+
+fn normSizes(sizes, n) {
+  let out = []
+  let i = 0
+  let total = 0
+  while (i < n) {
+    let v = i < sizes.length ? Number(sizes[i]) : 0
+    if (!(v > 0)) {
+      v = 1 / n
+    }
+    out.push(v)
+    total = total + v
+    i = i + 1
+  }
+  i = 0
+  while (i < n) {
+    out[i] = total > 0 ? out[i] / total : 1 / n
+    i = i + 1
+  }
+  return out
+}
+
+fn normalizeNode(node) {
+  if (node === null) {
+    return null
+  }
+  if (node.kind === "stack") {
+    if (node.tabs.length === 0) {
+      return null
+    }
+    if (node.active === null || node.tabs.indexOf(node.active) < 0) {
+      node.active = node.tabs[0]
+    }
+    return node
+  }
+  let kids = []
+  let sizes = []
+  let i = 0
+  let base = normSizes(node.sizes, node.children.length)
+  while (i < node.children.length) {
+    let c = normalizeNode(node.children[i])
+    if (c !== null) {
+      if (c.kind === "split" && c.dir === node.dir) {
+        // Flatten a same-direction split into its parent, keeping each grandchild's share of the space.
+        let cs = normSizes(c.sizes, c.children.length)
+        let j = 0
+        while (j < c.children.length) {
+          kids.push(c.children[j])
+          sizes.push(base[i] * cs[j])
+          j = j + 1
+        }
+      } else {
+        kids.push(c)
+        sizes.push(base[i])
+      }
+    }
+    i = i + 1
+  }
+  if (kids.length === 0) {
+    return null
+  }
+  if (kids.length === 1) {
+    return kids[0]
+  }
+  node.children = kids
+  node.sizes = normSizes(sizes, kids.length)
+  return node
+}
+
+export fn normalizeLayout(layout) {
+  layout.root = normalizeNode(layout.root)
+  if (layout.root === null) {
+    layout.root = stackNode(freshId(layout, "s"), [], null)
+  }
+  if (!Array.isArray(layout.floating)) {
+    layout.floating = []
+  }
+  if (layout.maximized !== null && !hasPanel(layout, layout.maximized)) {
+    layout.maximized = null
+  }
+  return layout
+}
+
+// Remove a panel from wherever it sits (tab or floating) — WITHOUT normalizing, so callers can still address
+// the original stack ids before the tree collapses.
+fn detach(layout, panelId) {
+  allStacks(layout).forEach((s) => {
+    let ix = s.tabs.indexOf(panelId)
+    if (ix >= 0) {
+      s.tabs.splice(ix, 1)
+      if (s.active === panelId) {
+        s.active = s.tabs.length > 0 ? s.tabs[ix < s.tabs.length ? ix : s.tabs.length - 1] : null
+      }
+    }
+  })
+  let fl = []
+  layout.floating.forEach((f) => {
+    if (f.panelId !== panelId) {
+      fl.push(f)
+    }
+  })
+  layout.floating = fl
+}
+
+/** Close a panel (it leaves the layout; the mood keeps its record so it can be reopened). */
+export fn closePanel(layout, panelId) {
+  let l = clone(layout)
+  detach(l, panelId)
+  if (l.maximized === panelId) {
+    l.maximized = null
+  }
+  return normalizeLayout(l)
+}
+
+/** Add `panelId` as a tab of `stackId` at `index` (end when null), making it active. */
+export fn moveToStack(layout, panelId, stackId, index) {
+  let l = clone(layout)
+  let target = findNode(l, stackId)
+  if (target === null || target.kind !== "stack") {
+    return layout
+  }
+  let before = target.tabs.indexOf(panelId)
+  detach(l, panelId)
+  let at = index !== null && index >= 0 ? index : target.tabs.length
+  // Reordering inside the same stack: the removal shifted later indices left by one.
+  if (before >= 0 && before < at) {
+    at = at - 1
+  }
+  if (at > target.tabs.length) {
+    at = target.tabs.length
+  }
+  target.tabs.splice(at, 0, panelId)
+  target.active = panelId
+  return normalizeLayout(l)
+}
+
+/**
+ * Dock `panelId` beside stack `stackId` on `edge` ("left" | "right" | "top" | "bottom"), in a new stack.
+ * Edge "center" is a tab drop. A panel can't be split off from a stack where it is the only tab (no-op).
+ */
+export fn splitAt(layout, stackId, edge, panelId) {
+  if (edge === "center") {
+    return moveToStack(layout, panelId, stackId, null)
+  }
+  let l = clone(layout)
+  let target = findNode(l, stackId)
+  if (target === null || target.kind !== "stack") {
+    return layout
+  }
+  if (target.tabs.length === 1 && target.tabs[0] === panelId) {
+    return layout
+  }
+  detach(l, panelId)
+  let dir = edge === "left" || edge === "right" ? "row" : "col"
+  let after = edge === "right" || edge === "bottom"
+  let fresh = stackNode(freshId(l, "s"), [panelId], panelId)
+  let pp = findParent(l, stackId)
+  if (pp !== null && pp.parent.dir === dir) {
+    let share = normSizes(pp.parent.sizes, pp.parent.children.length)
+    let half = share[pp.index] / 2
+    share[pp.index] = half
+    let at = after ? pp.index + 1 : pp.index
+    pp.parent.children.splice(at, 0, fresh)
+    share.splice(at, 0, half)
+    pp.parent.sizes = share
+  } else {
+    let wrap = splitNode(freshId(l, "x"), dir, [0.5, 0.5], after ? [target, fresh] : [fresh, target])
+    if (pp === null) {
+      l.root = wrap
+    } else {
+      pp.parent.children[pp.index] = wrap
+    }
+  }
+  if (l.maximized === panelId) {
+    l.maximized = null
+  }
+  return normalizeLayout(l)
+}
+
+/** Replace a split's sizes (clamped so no child collapses below MIN_SIZE). */
+export fn resizeSplit(layout, splitId, sizes) {
+  let l = clone(layout)
+  let s = findNode(l, splitId)
+  if (s === null || s.kind !== "split") {
+    return layout
+  }
+  let n = normSizes(sizes, s.children.length)
+  let i = 0
+  while (i < n.length) {
+    if (n[i] < MIN_SIZE) {
+      n[i] = MIN_SIZE
+    }
+    i = i + 1
+  }
+  s.sizes = normSizes(n, n.length)
+  return l
+}
+
+/**
+ * Grow (delta > 0) or shrink the space of the node holding `nodeId` inside its nearest ancestor split of
+ * direction `dir`, trading with the neighbour after it (or before it, for the last child). Keyboard resize.
+ */
+export fn resizeAround(layout, nodeId, dir, delta) {
+  let chain = ancestors(layout, nodeId)
+  let k = chain.length - 1
+  while (k >= 0) {
+    let link = chain[k]
+    if (link.split.dir === dir) {
+      let sizes = normSizes(link.split.sizes, link.split.children.length)
+      let me = link.index
+      let other = me + 1 < sizes.length ? me + 1 : me - 1
+      if (other < 0) {
+        return layout
+      }
+      let d = delta
+      if (sizes[me] + d < MIN_SIZE) {
+        d = MIN_SIZE - sizes[me]
+      }
+      if (sizes[other] - d < MIN_SIZE) {
+        d = sizes[other] - MIN_SIZE
+      }
+      sizes[me] = sizes[me] + d
+      sizes[other] = sizes[other] - d
+      return resizeSplit(layout, link.split.id, sizes)
+    }
+    k = k - 1
+  }
+  return layout
+}
+
+/** Pull a panel out of the tree into a floating window at `rect` ({ x, y, w, h } in px). */
+export fn floatPanel(layout, panelId, rect) {
+  let l = clone(layout)
+  detach(l, panelId)
+  let r = rect !== null ? rect : { x: 120, y: 90, w: 520, h: 380 }
+  l.floating.push({ panelId: panelId, x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h) })
+  if (l.maximized === panelId) {
+    l.maximized = null
+  }
+  return normalizeLayout(l)
+}
+
+/** Move / resize an existing floating window. */
+export fn moveFloating(layout, panelId, rect) {
+  let l = clone(layout)
+  let f = floatingOf(l, panelId)
+  if (f === null) {
+    return layout
+  }
+  f.x = Math.round(rect.x)
+  f.y = Math.round(rect.y)
+  f.w = Math.max(200, Math.round(rect.w))
+  f.h = Math.max(120, Math.round(rect.h))
+  return l
+}
+
+/** Dock a floating window back into the tree (edge "center" = as a tab). */
+export fn dockFloating(layout, panelId, stackId, edge) {
+  if (floatingOf(layout, panelId) === null) {
+    return layout
+  }
+  return splitAt(layout, stackId, edge, panelId)
+}
+
+/** Float a docked panel, or dock a floating one into the largest stack. */
+export fn toggleFloat(layout, panelId, rect) {
+  if (floatingOf(layout, panelId) !== null) {
+    let stacks = allStacks(layout)
+    if (stacks.length === 0) {
+      return layout
+    }
+    return dockFloating(layout, panelId, stacks[0].id, "center")
+  }
+  return floatPanel(layout, panelId, rect)
+}
+
+export fn setActiveTab(layout, panelId) {
+  let l = clone(layout)
+  let s = stackOfPanel(l, panelId)
+  if (s === null) {
+    return layout
+  }
+  s.active = panelId
+  return l
+}
+
+/** Cycle the active tab of the stack holding `panelId` by `delta`; returns the new layout. */
+export fn cycleTab(layout, panelId, delta) {
+  let s = stackOfPanel(layout, panelId)
+  if (s === null || s.tabs.length < 2) {
+    return layout
+  }
+  let ix = s.tabs.indexOf(s.active)
+  let n = s.tabs.length
+  let next = ((ix + delta) % n + n) % n
+  return setActiveTab(layout, s.tabs[next])
+}
+
+export fn toggleMaximize(layout, panelId) {
+  let l = clone(layout)
+  l.maximized = l.maximized === panelId ? null : panelId
+  return normalizeLayout(l)
+}
+
+/** Insert a panel that isn't placed yet: as a tab of `stackId`, or of the first stack. */
+export fn addPanel(layout, panelId, stackId) {
+  if (hasPanel(layout, panelId)) {
+    return setActiveTab(layout, panelId)
+  }
+  let target = stackId !== null ? findNode(layout, stackId) : null
+  if (target === null || target.kind !== "stack") {
+    let st = allStacks(layout)
+    target = st.length > 0 ? st[0] : null
+  }
+  if (target === null) {
+    return layout
+  }
+  return moveToStack(layout, panelId, target.id, null)
+}
+
+export fn serializeLayout(layout) {
+  return JSON.stringify(layout)
+}
+
+fn validNode(n) {
+  if (n === null || typeof n !== "object") {
+    return false
+  }
+  if (n.kind === "stack") {
+    return typeof n.id === "string" && Array.isArray(n.tabs)
+  }
+  if (n.kind === "split") {
+    if (typeof n.id !== "string" || !Array.isArray(n.children) || !Array.isArray(n.sizes)) {
+      return false
+    }
+    let i = 0
+    while (i < n.children.length) {
+      if (!validNode(n.children[i])) {
+        return false
+      }
+      i = i + 1
+    }
+    return true
+  }
+  return false
+}
+
+/** Parse a stored layout; null if it is missing, corrupt, or from another version. */
+export fn deserializeLayout(text) {
+  if (text === null || String(text).length === 0) {
+    return null
+  }
+  let v = null
+  try {
+    v = JSON.parse(String(text))
+  } catch (e) {
+    return null
+  }
+  return layoutFromValue(v)
+}
+
+export fn layoutFromValue(v) {
+  if (v === null || typeof v !== "object" || v.version !== LAYOUT_VERSION || !validNode(v.root)) {
+    return null
+  }
+  let l = { version: LAYOUT_VERSION, seq: typeof v.seq === "number" ? v.seq : 0, root: v.root, floating: Array.isArray(v.floating) ? v.floating : [], maximized: typeof v.maximized === "string" ? v.maximized : null }
+  return normalizeLayout(l)
+}

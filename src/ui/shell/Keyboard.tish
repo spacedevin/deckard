@@ -1,0 +1,514 @@
+// Global keyboard dispatcher + the keyboard-only modes (dock, resize, key hints, Mod-hold chord peek).
+//
+// Two window listeners:
+//   capture  — runs before any component: modes, and modifier / F-key chords (Mod-K, Mod-\, F6 …), so a
+//              focused control can't swallow a workspace chord.
+//   bubble   — runs after components had their chance (an open dropdown handling Escape, a grid using arrows):
+//              bare keys like Enter-on-a-frame, Escape-to-frame, backtick, ?, and arrow roving inside panels.
+// The app's own transport handler (Space / Enter / E / F / C / V, undo) is registered after these and keeps
+// its keys unless the shell claimed them (see shellOwnsKey).
+
+import { chordFromEvent, lookupChord, formatChord } from '../../workspace/Keymap.tish'
+import { stackOfPanel, floatingOf, allStacks } from '../../workspace/Layout.tish'
+import { nearestInDirection, dropZoneRect } from '../../workspace/Spatial.tish'
+import {
+  isTypingTarget, ownsArrows, isActivatable, panelFrameOf, panelFrameById, moveWithinPanel, stackRects, focusablesIn,
+  setModality, keyboardModality, isVisible
+} from './FocusRing.tish'
+import { showDropOverlay, hideDropOverlay } from './DragDock.tish'
+import { announce } from './Announcer.tish'
+
+let HINT_ALPHABET = "fjdkslaghrueiwoqptyvbcnxmz"
+let peekTimer = null
+
+fn hasModifierChord(chord) {
+  return chord.indexOf("Mod-") === 0 || chord.indexOf("Ctrl-") >= 0 || chord.indexOf("Alt-") >= 0 || chord.indexOf("F") === 0 || chord.indexOf("Shift-F") === 0
+}
+
+fn scopeTest(sh, target) {
+  return (scope) => {
+    if (scope === "textInput") {
+      return true
+    }
+    if (scope === "global") {
+      return !isTypingTarget(target)
+    }
+    if (scope === "panelFrame") {
+      return target !== null && target.matches && target.matches(".ws-panel[data-panel-id]")
+    }
+    if (scope === "inPanel") {
+      let fr = panelFrameOf(target)
+      return fr !== null && fr !== target && !(sh.app && sh.app.hasOverlay && sh.app.hasOverlay())
+    }
+    return false
+  }
+}
+
+/** For the app's legacy key handler: should it leave this key alone (native activation / shell owns it)? */
+export fn shellOwnsKey(e) {
+  let t = e.target
+  if (e.defaultPrevented) {
+    return true
+  }
+  if (t !== null && t.matches && t.matches(".ws-panel[data-panel-id]") && e.key === "Enter") {
+    return true
+  }
+  if ((e.key === " " || e.code === "Space" || e.key === "Enter") && keyboardModality() && isActivatable(t)) {
+    return true
+  }
+  return false
+}
+
+// ---------- Dock mode (keyboard twin of dragging a tab) ----------
+
+fn dockLabel(edge) {
+  let what = edge === "center" ? "Drop as a tab" : "Split " + edge
+  return what + "  ·  arrows: stack  ·  ⇧+arrows: edge  ·  T tab  ·  F float  ·  ↵ drop  ·  Esc cancel"
+}
+
+fn renderDock(sh) {
+  let m = sh.mode
+  let rects = stackRects()
+  let r = null
+  rects.forEach((x) => {
+    if (x.id === m.stackId) {
+      r = x
+    }
+  })
+  if (r === null) {
+    return
+  }
+  showDropOverlay(dropZoneRect(r, m.edge), dockLabel(m.edge))
+}
+
+fn liftClass(panelId, on) {
+  let fr = panelFrameById(panelId)
+  if (fr !== null) {
+    if (on) {
+      fr.classList.add("ws-lifted")
+    } else {
+      fr.classList.remove("ws-lifted")
+    }
+  }
+}
+
+export fn enterDockMode(sh, panelId) {
+  if (panelId === null) {
+    announce("Focus a panel first (F6)")
+    return
+  }
+  let lay = sh.mood().layout
+  let s = stackOfPanel(lay, panelId)
+  let st = allStacks(lay)
+  let stackId = s !== null ? s.id : (st.length > 0 ? st[0].id : null)
+  if (stackId === null) {
+    return
+  }
+  sh.mode = { name: "dock", panelId: panelId, stackId: stackId, edge: "center" }
+  document.body.classList.add("ws-docking")
+  liftClass(panelId, true)
+  renderDock(sh)
+  announce("Dock mode: arrows pick a stack, Enter drops")
+}
+
+fn exitMode(sh, refocus) {
+  let m = sh.mode
+  sh.mode = null
+  document.body.classList.remove("ws-docking")
+  document.body.classList.remove("ws-resizing")
+  hideDropOverlay()
+  clearHints()
+  if (m !== null && m.panelId !== null && m.panelId !== undefined) {
+    liftClass(m.panelId, false)
+    if (refocus) {
+      sh.ctx.focusPanel(m.panelId)
+    }
+  }
+}
+
+fn arrowDir(key) {
+  if (key === "ArrowLeft") {
+    return "left"
+  }
+  if (key === "ArrowRight") {
+    return "right"
+  }
+  if (key === "ArrowUp") {
+    return "up"
+  }
+  if (key === "ArrowDown") {
+    return "down"
+  }
+  return null
+}
+
+fn dockKey(sh, e) {
+  let m = sh.mode
+  let dir = arrowDir(e.key)
+  if (dir !== null) {
+    if (e.shiftKey) {
+      m.edge = dir === "up" ? "top" : (dir === "down" ? "bottom" : dir)
+    } else {
+      let hit = nearestInDirection(stackRects(), m.stackId, dir)
+      if (hit !== null) {
+        m.stackId = hit
+        m.edge = "center"
+      }
+    }
+    renderDock(sh)
+    return
+  }
+  let k = String(e.key).toLowerCase()
+  if (k === "escape") {
+    exitMode(sh, true)
+    announce("Dock cancelled")
+    return
+  }
+  if (k === "t") {
+    m.edge = "center"
+  }
+  if (k === "f") {
+    let pid = m.panelId
+    exitMode(sh, false)
+    if (floatingOf(sh.mood().layout, pid) === null) {
+      sh.run("panel.float", { panelId: pid })
+    }
+    return
+  }
+  if (k === "enter" || k === "t") {
+    let pid = m.panelId
+    let sid = m.stackId
+    let edge = m.edge
+    exitMode(sh, false)
+    if (edge === "center") {
+      sh.run("panel.moveToStack", { panelId: pid, stackId: sid, index: null })
+    } else {
+      sh.run("panel.split", { panelId: pid, stackId: sid, edge: edge })
+    }
+    return
+  }
+}
+
+// ---------- Resize mode ----------
+
+fn renderResize(sh) {
+  let fr = panelFrameById(sh.mode.panelId)
+  if (fr === null) {
+    return
+  }
+  let r = fr.getBoundingClientRect()
+  let floating = floatingOf(sh.mood().layout, sh.mode.panelId) !== null
+  showDropOverlay({ x: r.left, y: r.top, w: r.width, h: r.height }, "←→ width  ·  ↑↓ height  ·  ⇧ bigger steps" + (floating ? "  ·  ⌥+arrows move" : "") + "  ·  ↵ / Esc done")
+}
+
+export fn enterResizeMode(sh, panelId) {
+  if (panelId === null) {
+    announce("Focus a panel first (F6)")
+    return
+  }
+  sh.mode = { name: "resize", panelId: panelId }
+  document.body.classList.add("ws-resizing")
+  renderResize(sh)
+  announce("Resize mode: arrows resize, Enter when done")
+}
+
+fn resizeKey(sh, e) {
+  let k = e.key
+  if (k === "Escape" || k === "Enter") {
+    exitMode(sh, true)
+    return
+  }
+  let dir = arrowDir(k)
+  if (dir === null) {
+    return
+  }
+  let pid = sh.mode.panelId
+  let floating = floatingOf(sh.mood().layout, pid) !== null
+  let step = floating ? (e.shiftKey ? 80 : 20) : (e.shiftKey ? 0.1 : 0.02)
+  let args = { panelId: pid, dx: 0, dy: 0, dw: 0, dh: 0 }
+  if (floating && e.altKey) {
+    if (dir === "left") { args.dx = -step }
+    if (dir === "right") { args.dx = step }
+    if (dir === "up") { args.dy = -step }
+    if (dir === "down") { args.dy = step }
+  } else {
+    if (dir === "left") { args.dw = -step }
+    if (dir === "right") { args.dw = step }
+    if (dir === "up") { args.dh = -step }
+    if (dir === "down") { args.dh = step }
+  }
+  sh.run("panel.resizeBy", args)
+  requestAnimationFrame(() => {
+    if (sh.mode !== null && sh.mode.name === "resize") {
+      renderResize(sh)
+    }
+  })
+}
+
+// ---------- Key hints (Vimium-style badges) + Mod-hold chord peek ----------
+
+fn hintLabels(n) {
+  let out = []
+  if (n <= HINT_ALPHABET.length) {
+    let i = 0
+    while (i < n) {
+      out.push(HINT_ALPHABET.charAt(i))
+      i = i + 1
+    }
+    return out
+  }
+  let a = 0
+  while (a < HINT_ALPHABET.length && out.length < n) {
+    let b = 0
+    while (b < HINT_ALPHABET.length && out.length < n) {
+      out.push(HINT_ALPHABET.charAt(a) + HINT_ALPHABET.charAt(b))
+      b = b + 1
+    }
+    a = a + 1
+  }
+  return out
+}
+
+fn inViewport(el) {
+  let r = el.getBoundingClientRect()
+  let vw = window.innerWidth
+  let vh = window.innerHeight
+  return r.bottom > 0 && r.right > 0 && r.top < vh && r.left < vw
+}
+
+fn hintsHost() {
+  let host = document.getElementById("ws-hints")
+  if (!host) {
+    host = document.createElement("div")
+    host.id = "ws-hints"
+    host.className = "ws-hints"
+    host.setAttribute("aria-hidden", "true")
+    document.body.appendChild(host)
+  }
+  return host
+}
+
+fn clearHints() {
+  if (typeof document === "undefined") {
+    return
+  }
+  let host = document.getElementById("ws-hints")
+  if (host) {
+    host.innerHTML = ""
+    host.style.display = "none"
+  }
+}
+
+fn badge(host, el, text, cls) {
+  let r = el.getBoundingClientRect()
+  let b = document.createElement("span")
+  b.className = cls
+  b.textContent = text
+  b.style.left = String(Math.round(Math.max(0, r.left))) + "px"
+  b.style.top = String(Math.round(Math.max(0, r.top))) + "px"
+  host.appendChild(b)
+  return b
+}
+
+export fn enterHintsMode(sh) {
+  let root = document.querySelector(".daw-root")
+  if (!root) {
+    return
+  }
+  let all = focusablesIn(root).filter((el) => inViewport(el))
+  let labels = hintLabels(all.length)
+  let host = hintsHost()
+  host.innerHTML = ""
+  host.style.display = "block"
+  let items = []
+  let i = 0
+  while (i < all.length) {
+    let chord = all[i].getAttribute("data-chord")
+    let text = labels[i] + (chord !== null ? " " + formatChord(chord, sh.isMac) : "")
+    items.push({ code: labels[i], el: all[i], badge: badge(host, all[i], text, "ws-hint") })
+    i = i + 1
+  }
+  sh.mode = { name: "hints", items: items, typed: "", panelId: null }
+  announce("Key hints: type a badge's letters, Esc to cancel")
+}
+
+fn activateHint(sh, el) {
+  exitMode(sh, false)
+  setModality("keyboard")
+  el.focus()
+  let tag = String(el.tagName).toLowerCase()
+  if (tag === "button" || tag === "a" || (el.getAttribute && el.getAttribute("role") === "tab")) {
+    el.click()
+  }
+}
+
+fn hintsKey(sh, e) {
+  let m = sh.mode
+  if (e.key === "Escape") {
+    exitMode(sh, false)
+    return
+  }
+  if (e.key === "Backspace") {
+    m.typed = m.typed.substring(0, Math.max(0, m.typed.length - 1))
+  } else if (String(e.key).length === 1) {
+    m.typed = m.typed + String(e.key).toLowerCase()
+  } else {
+    return
+  }
+  let live = 0
+  let exact = null
+  m.items.forEach((it) => {
+    let on = it.code.indexOf(m.typed) === 0
+    it.badge.style.display = on ? "" : "none"
+    if (on) {
+      live = live + 1
+    }
+    if (it.code === m.typed) {
+      exact = it
+    }
+  })
+  if (exact !== null) {
+    activateHint(sh, exact.el)
+    return
+  }
+  if (live === 0) {
+    m.typed = ""
+    m.items.forEach((it) => { it.badge.style.display = "" })
+  }
+}
+
+fn enterPeek(sh) {
+  if (sh.mode !== null) {
+    return
+  }
+  let host = hintsHost()
+  host.innerHTML = ""
+  host.style.display = "block"
+  let list = document.querySelectorAll(".daw-root [data-chord]")
+  let i = 0
+  while (i < list.length) {
+    if (isVisible(list[i]) && inViewport(list[i])) {
+      badge(host, list[i], formatChord(list[i].getAttribute("data-chord"), sh.isMac), "ws-hint ws-hint-chord")
+    }
+    i = i + 1
+  }
+  sh.mode = { name: "peek", panelId: null }
+}
+
+fn cancelPeekTimer() {
+  if (peekTimer !== null) {
+    clearTimeout(peekTimer)
+    peekTimer = null
+  }
+}
+
+// ---------- Listeners ----------
+
+export fn onKeyDownCapture(e, sh) {
+  let k = e.key
+  let bareMod = k === "Meta" || k === "Control" || k === "Shift" || k === "Alt"
+  if (!bareMod) {
+    setModality("keyboard")
+  }
+  if (sh.paletteOpen()) {
+    return
+  }
+  if (sh.mode !== null) {
+    let name = sh.mode.name
+    if (name === "peek") {
+      if (bareMod) {
+        return
+      }
+      exitMode(sh, false)
+    } else {
+      e.preventDefault()
+      e.stopPropagation()
+      if (name === "dock") {
+        dockKey(sh, e)
+      } else if (name === "resize") {
+        resizeKey(sh, e)
+      } else if (name === "hints") {
+        hintsKey(sh, e)
+      }
+      return
+    }
+  }
+  let modKey = sh.isMac ? "Meta" : "Control"
+  if (k === modKey && !e.repeat) {
+    cancelPeekTimer()
+    peekTimer = setTimeout(() => { peekTimer = null; enterPeek(sh) }, 700)
+    return
+  }
+  cancelPeekTimer()
+  let chord = chordFromEvent(e, sh.isMac)
+  if (chord === null || !hasModifierChord(chord)) {
+    return
+  }
+  let a = lookupChord(sh.keymap(), chord, scopeTest(sh, e.target))
+  if (a !== null) {
+    e.preventDefault()
+    e.stopPropagation()
+    sh.run(a.id, null)
+  }
+}
+
+export fn onKeyDownBubble(e, sh) {
+  if (e.defaultPrevented || sh.paletteOpen() || sh.mode !== null) {
+    return
+  }
+  let chord = chordFromEvent(e, sh.isMac)
+  if (chord === null || hasModifierChord(chord)) {
+    return
+  }
+  let a = lookupChord(sh.keymap(), chord, scopeTest(sh, e.target))
+  if (a !== null) {
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    sh.run(a.id, null)
+    return
+  }
+  // Level-2 roving: plain arrows move between a panel's controls when navigating by keyboard.
+  let dir = arrowDir(e.key)
+  let t = e.target
+  if (dir !== null && !e.shiftKey && keyboardModality() && t !== null && !ownsArrows(t)) {
+    let fr = panelFrameOf(t)
+    let inChrome = t.closest !== null && t.closest(".ws-topbar, .ws-stack-head, .ws-float-head") !== null
+    if ((fr !== null && fr !== t) || inChrome) {
+      if (moveWithinPanel(t, dir)) {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+      }
+    }
+  }
+}
+
+export fn onKeyUp(e, sh) {
+  let k = e.key
+  if (k === "Meta" || k === "Control") {
+    cancelPeekTimer()
+    if (sh.mode !== null && sh.mode.name === "peek") {
+      exitMode(sh, false)
+    }
+  }
+}
+
+export fn onPointerDown(e, sh) {
+  setModality("pointer")
+  cancelPeekTimer()
+  if (sh.mode !== null && (sh.mode.name === "hints" || sh.mode.name === "peek")) {
+    exitMode(sh, false)
+  }
+}
+
+export fn enterMode(sh, name, panelId) {
+  if (sh.mode !== null) {
+    exitMode(sh, false)
+  }
+  if (name === "dock") {
+    enterDockMode(sh, panelId)
+  } else if (name === "resize") {
+    enterResizeMode(sh, panelId)
+  } else if (name === "hints") {
+    enterHintsMode(sh)
+  }
+}

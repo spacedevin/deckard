@@ -1,0 +1,43 @@
+// Master & I/O panel: master compressor / reverb bus toggles (live readouts are written by the scope loop),
+// audio output devices + cue, and MIDI.
+
+import { h } from '@tishlang/lattish'
+import { AudioRackPanel } from '../AudioRackPanel.tish'
+import { MidiPanel } from '../MidiPanel.tish'
+
+export fn MasterPanel(pc) {
+  let m = pc.master
+  let rt = pc.rt
+  return (
+    <div class="mp">
+      <div class="mp-chips">
+        {h("button", {
+          type: "button",
+          class: m.compOn ? "master-chip master-chip-on" : "master-chip master-chip-off",
+          "aria-pressed": m.compOn ? "true" : "false",
+          title: "COMPRESSOR — master glue compressor; click to bypass. Readout = live gain reduction (dB).",
+          onmousedown: (e) => e.stopPropagation(),
+          onclick: () => { if (rt && rt.emit) { rt.emit("master/comp", !m.compOn) } }
+        }, [
+          <span class="master-chip-name">{"Comp"}</span>,
+          <span class="master-comp-gr">{m.compOn ? "0.0dB" : "BYPASS"}</span>
+        ])}
+        {h("button", {
+          type: "button",
+          class: m.reverbOn ? "master-chip master-chip-on" : "master-chip master-chip-off",
+          "aria-pressed": m.reverbOn ? "true" : "false",
+          title: "REVERB_BUS — shared reverb send bus; click to mute. Readout = channels currently sending.",
+          onmousedown: (e) => e.stopPropagation(),
+          onclick: () => { if (rt && rt.emit) { rt.emit("master/reverb", !m.reverbOn) } }
+        }, [
+          <span class="master-chip-name">{"Reverb"}</span>,
+          <span class="master-rev-state">{m.reverbOn ? ("ON · " + String(m.revSends) + " send" + (m.revSends === 1 ? "" : "s")) : "OFF"}</span>
+        ])}
+      </div>
+      <div class="mp-io">
+        {AudioRackPanel(pc.audioStore)}
+        {MidiPanel(pc.midi, pc.project, pc.midiGen)}
+      </div>
+    </div>
+  )
+}

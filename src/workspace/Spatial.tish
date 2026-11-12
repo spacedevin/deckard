@@ -1,0 +1,126 @@
+// Spatial navigation: from one rectangle, find the nearest rectangle in a direction. Drives Mod-Alt-Arrow panel
+// focus, dock-mode target picking, and arrow-key movement between controls inside a panel.
+//
+//   rects = [{ id, x, y, w, h }]   dir = "left" | "right" | "up" | "down"
+
+fn center(r) {
+  return { x: r.x + r.w / 2, y: r.y + r.h / 2 }
+}
+
+// Overlap of [a0,a1] and [b0,b1] (0 when disjoint).
+fn overlap(a0, a1, b0, b1) {
+  let lo = a0 > b0 ? a0 : b0
+  let hi = a1 < b1 ? a1 : b1
+  return hi > lo ? hi - lo : 0
+}
+
+/** Id of the best rect in `dir` from `fromId`, or null. Prefers rects that share the perpendicular band. */
+export fn nearestInDirection(rects, fromId, dir) {
+  let from = null
+  let i = 0
+  while (i < rects.length) {
+    if (rects[i].id === fromId) {
+      from = rects[i]
+    }
+    i = i + 1
+  }
+  if (from === null) {
+    return null
+  }
+  let fc = center(from)
+  let best = null
+  let bestScore = 0
+  let j = 0
+  while (j < rects.length) {
+    let r = rects[j]
+    if (r.id !== fromId) {
+      let rc = center(r)
+      let primary = 0
+      let secondary = 0
+      let band = 0
+      let ok = false
+      if (dir === "right") {
+        ok = r.x >= from.x + from.w - 2 || rc.x > fc.x + 1
+        primary = r.x - (from.x + from.w)
+        secondary = rc.y - fc.y
+        band = overlap(from.y, from.y + from.h, r.y, r.y + r.h)
+      } else if (dir === "left") {
+        ok = r.x + r.w <= from.x + 2 || rc.x < fc.x - 1
+        primary = from.x - (r.x + r.w)
+        secondary = rc.y - fc.y
+        band = overlap(from.y, from.y + from.h, r.y, r.y + r.h)
+      } else if (dir === "down") {
+        ok = r.y >= from.y + from.h - 2 || rc.y > fc.y + 1
+        primary = r.y - (from.y + from.h)
+        secondary = rc.x - fc.x
+        band = overlap(from.x, from.x + from.w, r.x, r.x + r.w)
+      } else {
+        ok = r.y + r.h <= from.y + 2 || rc.y < fc.y - 1
+        primary = from.y - (r.y + r.h)
+        secondary = rc.x - fc.x
+        band = overlap(from.x, from.x + from.w, r.x, r.x + r.w)
+      }
+      if (ok) {
+        if (primary < 0) {
+          primary = 0
+        }
+        if (secondary < 0) {
+          secondary = -secondary
+        }
+        // Sharing the perpendicular band is worth a lot: moving right from a tall panel should land beside it,
+        // not on a far panel that happens to be closer diagonally.
+        let score = primary + secondary * (band > 0 ? 0.3 : 2) - (band > 0 ? 40 : 0)
+        if (best === null || score < bestScore) {
+          best = r.id
+          bestScore = score
+        }
+      }
+    }
+    j = j + 1
+  }
+  return best
+}
+
+/** Which drop zone of a rect a point falls in: "center" (inner box) or the nearest edge. */
+export fn dropZoneAt(rect, px, py) {
+  let fx = rect.w > 0 ? (px - rect.x) / rect.w : 0.5
+  let fy = rect.h > 0 ? (py - rect.y) / rect.h : 0.5
+  if (fx > 0.28 && fx < 0.72 && fy > 0.28 && fy < 0.72) {
+    return "center"
+  }
+  let dl = fx
+  let dr = 1 - fx
+  let dt = fy
+  let db = 1 - fy
+  let m = dl
+  let zone = "left"
+  if (dr < m) {
+    m = dr
+    zone = "right"
+  }
+  if (dt < m) {
+    m = dt
+    zone = "top"
+  }
+  if (db < m) {
+    zone = "bottom"
+  }
+  return zone
+}
+
+/** The sub-rectangle highlighted for a drop zone (a half of the stack, or the whole stack for "center"). */
+export fn dropZoneRect(rect, zone) {
+  if (zone === "left") {
+    return { x: rect.x, y: rect.y, w: rect.w / 2, h: rect.h }
+  }
+  if (zone === "right") {
+    return { x: rect.x + rect.w / 2, y: rect.y, w: rect.w / 2, h: rect.h }
+  }
+  if (zone === "top") {
+    return { x: rect.x, y: rect.y, w: rect.w, h: rect.h / 2 }
+  }
+  if (zone === "bottom") {
+    return { x: rect.x, y: rect.y + rect.h / 2, w: rect.w, h: rect.h / 2 }
+  }
+  return { x: rect.x, y: rect.y, w: rect.w, h: rect.h }
+}

@@ -1,0 +1,150 @@
+/* ---- Set presets (whole-workspace named save/load, global) ---- */
+.set-presets { display: inline-flex; align-items: center; gap: 0.28rem; }
+/* Push the library/preset clusters (♫ songs + STATION + SET) to the right edge so the header reads as a
+   balanced split — live transport controls on the left, library & presets on the right — instead of all
+   controls packed left with dead space. The auto margin collapses (and the row wraps) only well below spec. */
+.daw-header > .set-presets:not(.set-lib) { margin-left: auto; }
+.set-presets-label { color: var(--muted); font-size: 0.66rem; letter-spacing: 0.08em; }
+.set-select { padding: 0.28rem 0.4rem; background: var(--panel, #15151b); color: var(--fg, #e8e8ea);
+  border: 1px solid var(--border, #2a2a2a); border-radius: 5px; font-size: 0.74rem; max-width: 124px; }
+.set-btn { padding: 0.28rem 0.55rem; background: var(--panel, #15151b); color: var(--fg, #e8e8ea);
+  border: 1px solid var(--border, #2a2a2a); border-radius: 5px; font-size: 0.72rem; cursor: pointer; }
+/* Square icon buttons: Save (⤓) sits next to Import (⤒) in each preset cluster (load ▾ · ⤓ save · ⤒ import). */
+.set-btn.set-save, .set-btn.set-import { width: 26px; padding: 0; display: inline-flex; align-items: center;
+  justify-content: center; font-size: 0.95rem; line-height: 1; }
+.set-import { display: inline-flex; align-items: center; cursor: pointer; }
+
+/* ♫ SONGS button + the dedicated song-browser overlay. */
+.songs-open-btn { padding: 0.28rem 0.5rem; min-width: 26px; display: inline-flex; align-items: center;
+  justify-content: center; background: rgba(34, 211, 238, 0.1); color: var(--deck-a, #22d3ee);
+  border: 1px solid rgba(34, 211, 238, 0.4); border-radius: 5px; font-size: 0.92rem; font-weight: 700;
+  letter-spacing: 0.06em; cursor: pointer; }
+.songs-open-btn:hover { background: rgba(34, 211, 238, 0.2); border-color: var(--deck-a, #22d3ee); }
+.song-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(0, 0, 0, 0.6);
+  display: flex; align-items: center; justify-content: center; }
+.song-panel { width: min(640px, 92vw); max-height: 80vh; display: flex; flex-direction: column;
+  background: #0c0c11; border: 1px solid #2a2a35; border-radius: 10px; box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
+.song-panel-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #1c1c24; }
+.song-panel-title { font-size: 0.9rem; font-weight: 700; letter-spacing: 0.1em; color: var(--deck-a, #22d3ee); }
+.song-search { flex: 1; height: 28px; background: #15151b; border: 1px solid #2a2a32; border-radius: 5px;
+  color: var(--text); font-size: 0.8rem; padding: 0 9px; }
+.song-panel-count { font-size: 0.66rem; color: var(--muted); }
+.song-close { width: 26px; height: 26px; background: none; border: 1px solid #2a2a32; border-radius: 5px;
+  color: var(--muted); cursor: pointer; font-size: 0.9rem; line-height: 1; }
+.song-close:hover { color: #ff7a7a; border-color: #ff7a7a; }
+.song-list { overflow-y: auto; padding: 6px; }
+.song-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px;
+  border-radius: 6px; }
+.song-row:hover { background: #14141a; }
+.song-row-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.song-row-name { font-size: 0.82rem; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.song-row-sub { font-size: 0.66rem; color: var(--muted); }
+.song-row-decks { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+.song-row-load { font-size: 0.6rem; color: #5a5a66; letter-spacing: 0.08em; margin-right: 2px; }
+.song-deck-btn { width: 26px; height: 26px; border-radius: 5px; border: 1px solid #2a2a35; background: #0d0d11;
+  color: var(--text); font-size: 0.74rem; font-weight: 700; cursor: pointer; }
+.song-deck-btn:hover { border-color: currentColor; }
+.song-deck-btn.dk-acc-a { color: var(--deck-a); }
+.song-deck-btn.dk-acc-b { color: var(--deck-b); }
+.song-deck-btn.dk-acc-c { color: var(--deck-c); }
+.song-deck-btn.dk-acc-d { color: var(--deck-d); }
+.song-deck-occ { opacity: 0.55; }
+.song-deck-locked { opacity: 0.28; color: var(--muted) !important; cursor: not-allowed; border-style: dashed; }
+.song-deck-locked:hover { border-color: #2a2a35; }
+.song-empty { padding: 18px; text-align: center; color: var(--muted); font-size: 0.78rem; }
+.song-hint { padding: 9px 14px; border-top: 1px solid #1c1c24; font-size: 0.66rem; color: #5a5a66; }
+
+/* Per-deck JOG PLATTER (in each deck slot). A small turntable wheel + a ⟳ reload, tinted to the deck colour.
+   The marker rotates via direct-DOM transform while you rub; `color` carries the deck accent (marker + glow). */
+.dk-jog { display: flex; align-items: center; justify-content: center; gap: 10px;
+  margin-top: 8px; padding-top: 8px; border-top: 1px solid #18181f; }
+.dk-jog-wheel { position: relative; width: 76px; height: 76px; border-radius: 50%; cursor: grab;
+  background: radial-gradient(circle at 50% 38%, #20202a 0%, #131318 58%, #0a0a0d 100%);
+  border: 2px solid #2a2a35; box-shadow: inset 0 0 16px rgba(0,0,0,0.6), 0 3px 10px rgba(0,0,0,0.5);
+  color: #8a8a92; user-select: none; touch-action: none; flex: 0 0 auto; }
+.dk-jog-wheel:hover { border-color: currentColor; }
+.dk-jog-wheel:active { cursor: grabbing; }
+.dk-jog-wheel.dk-acc-a { color: var(--deck-a); } .dk-jog-wheel.dk-acc-b { color: var(--deck-b); }
+.dk-jog-wheel.dk-acc-c { color: var(--deck-c); } .dk-jog-wheel.dk-acc-d { color: var(--deck-d); }
+.dk-jog-marker { position: absolute; left: 50%; top: 6px; width: 3px; height: 32px; border-radius: 2px;
+  background: linear-gradient(currentColor, rgba(255,255,255,0.04)); box-shadow: 0 0 6px currentColor;
+  transform: translateX(-50%); transform-origin: 50% 32px; pointer-events: none; }
+
+.dk-jog-hub { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px;
+  border-radius: 50%; background: #0c0c10; border: 1px solid #33333e; pointer-events: none; }
+.dk-jog-reload { width: 26px; height: 26px; border-radius: 50%; border: 1px solid #2a2a35; background: #0d0d11;
+  color: #8a8a92; font-size: 0.82rem; line-height: 1; cursor: pointer; flex: 0 0 auto; }
+.dk-jog-reload.dk-acc-a { color: var(--deck-a); } .dk-jog-reload.dk-acc-b { color: var(--deck-b); }
+.dk-jog-reload.dk-acc-c { color: var(--deck-c); } .dk-jog-reload.dk-acc-d { color: var(--deck-d); }
+.dk-jog-reload:hover { border-color: currentColor; }
+
+/* ---- Vinyl performance row (CUT / REV / BRK / SPIN) under the jog ---- */
+.dk-vinyl { display: flex; gap: 3px; justify-content: center; margin-top: 8px; }
+.dk-vinyl.dk-acc-a { --vacc: var(--deck-a); } .dk-vinyl.dk-acc-b { --vacc: var(--deck-b); }
+.dk-vinyl.dk-acc-c { --vacc: var(--deck-c); } .dk-vinyl.dk-acc-d { --vacc: var(--deck-d); }
+.dk-vinyl-btn { flex: 1 1 0; min-width: 0; padding: 4px 1px; border-radius: 5px; border: 1px solid #2a2a35;
+  background: #0d0d11; color: #8a8a92; font-size: 0.56rem; font-weight: 700; letter-spacing: 0.04em;
+  cursor: pointer; touch-action: none; user-select: none; transition: color 0.08s, border-color 0.08s, background 0.08s; }
+.dk-vinyl-btn:hover { border-color: var(--vacc); color: #c8c8d0; }
+.dk-vinyl-btn:active, .dk-vinyl-btn.dk-vinyl-on { color: #0b0b0e; background: var(--vacc); border-color: var(--vacc);
+  box-shadow: 0 0 10px -1px var(--vacc); }
+
+/* ---- Contextual level preset bars (sequence / rack / session) ---- */
+.preset-bars-row { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 0.5rem; }
+.preset-bar { display: inline-flex; align-items: center; gap: 0.35rem; }
+.preset-bar-label { color: var(--muted); font-size: 0.66rem; letter-spacing: 0.06em; text-transform: uppercase; }
+.preset-bar-select {
+  padding: 0.2rem 0.35rem !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  background: #14141a !important;
+  border-color: #2a2a32 !important;
+  border-radius: 4px !important;
+}
+.instr-grid-container .preset-bar-select,
+.instr-grid-container .ik-sel.preset-bar-select {
+  min-width: 0 !important;
+  width: auto !important;
+}
+.preset-bar-select .ik-sel-arrow {
+  display: none !important;
+}
+.preset-bar-select .ik-sel-list {
+  min-width: 120px !important;
+  left: auto !important;
+  right: 0 !important;
+}
+.preset-bar-save {
+  padding: 0.2rem 0.35rem !important;
+  background: #14141a !important;
+  border: 1px solid #2a2a32 !important;
+  border-radius: 4px !important;
+  color: var(--text, #e8e8ea) !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.preset-bar-save:hover {
+  border-color: #3e3e4a !important;
+  background: #1a1a22 !important;
+}
+.preset-bar-scope { color: var(--muted); font-size: 0.66rem; font-style: italic; }
+
+/* Common panel header: title/brand left, load/save (or any control) aligned right. */
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.panel-head-l { display: flex; align-items: baseline; gap: 0.55rem; flex-wrap: wrap; min-width: 0; }
+.panel-head-r { display: flex; align-items: center; gap: 0.4rem; margin-left: auto; flex-wrap: wrap; }
+.panel-head h2 { margin: 0; font-size: 0.8rem; letter-spacing: 0.14em; }
+.panel-head .sg-head-h2 { color: var(--deck-a); }
+.session-head-right { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+/* The PROGRAMS stepper reuses the rack's BARS pager look, but sits inline in the session toolbar (drop the
+   sequencer-specific left offset + bottom margin). */
+.session-prog-pager { padding-left: 0; margin: 0; }

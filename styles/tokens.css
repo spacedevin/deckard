@@ -1,0 +1,34 @@
+/* Design tokens: palette, deck colours, surfaces. */
+:root {
+  --bg: #050507;
+  --panel: #09090d;
+  --border: #14141c;
+  --text: #cccccc;
+  --muted: #55555e;
+  --accent-green: #7cff7c;
+  --accent-warm: #e8945c;
+  /* Aliases for legacy rules across this file */
+  --accent: var(--accent-warm);
+  --mint: var(--accent-green);
+  --range-track: #14141a;
+  --range-fill: var(--accent-green);
+}
+
+:root {
+  --deck-a: #22d3ee;
+  --deck-a-dim: #0e7490;
+  --deck-a-glow: rgba(34, 211, 238, 0.65);
+  --deck-b: #e879f9;
+  --deck-b-dim: #a21caf;
+  --deck-b-glow: rgba(232, 121, 249, 0.6);
+  --deck-c: #f59e0b;
+  --deck-c-dim: #b45309;
+  --deck-c-glow: rgba(245, 158, 11, 0.6);
+  --deck-d: #4ade80;
+  --deck-d-dim: #15803d;
+  --deck-d-glow: rgba(74, 222, 128, 0.6);
+  --accent-orange: #f97316;
+  --panel-2: #0a0a0c;
+  --panel-3: #0c0c10;
+  --grid-line: #18181d;
+}

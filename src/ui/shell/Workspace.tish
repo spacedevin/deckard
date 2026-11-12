@@ -1,0 +1,332 @@
+// The dockable workspace: renders the active mood's layout tree (splits → stacks of tabbed panels), floating
+// windows, the maximised panel, and a hidden keep-alive host for panels that must stay mounted (co-DJ, deck
+// code — they install runtime hooks while rendering).
+//
+// Every panel body renders through h(PanelBody, { key: "panel:<id>" }) so its hooks keep a stable scope while
+// the panel moves between stacks. Pointer gestures (DragDock) and buttons all call sh.run(actionId, args).
+// (Elements carrying data-* / aria-* attributes are built with h(): JSX attribute names can't contain "-".)
+
+import { h } from '@tishlang/lattish'
+import { stackOfPanel, visiblePanelIds } from '../../workspace/Layout.tish'
+import { panelType, panelTypes, resolveLens, lensChipText, deckColorVar, panelAcceptsLens, peerHue } from '../../workspace/Panels.tish'
+import { startTabDrag, startGutterDrag, startFloatMove, startFloatResize } from './DragDock.tish'
+
+fn PanelBody(p) {
+  return p.render()
+}
+
+fn titleFor(rec) {
+  let t = panelType(rec.type)
+  return t !== null ? t.title : rec.type
+}
+
+fn tabTitle(rec) {
+  let k = rec.lens.kind
+  if (rec.type === "decks" && k === "deck") {
+    return "Deck " + String(rec.lens.ref)
+  }
+  if (k === "deck") {
+    return titleFor(rec) + " · " + String(rec.lens.ref)
+  }
+  if (k === "peer") {
+    return titleFor(rec) + " · @" + String(rec.lens.ref)
+  }
+  return titleFor(rec)
+}
+
+fn glyphFor(rec) {
+  let t = panelType(rec.type)
+  return t !== null ? t.glyph : "▫"
+}
+
+fn edgeColor(rec, res) {
+  if (rec.lens.kind === "peer") {
+    return "hsl(" + String(peerHue(rec.lens.ref)) + " 80% 62%)"
+  }
+  if (rec.lens.kind === "none") {
+    return "var(--ws-edge-neutral)"
+  }
+  return deckColorVar(res.deck)
+}
+
+fn tipWithChord(sh, label, actionId) {
+  let c = sh.chordText(actionId)
+  return c.length > 0 ? label + "  (" + c + ")" : label
+}
+
+fn panelBody(sh, rec, info, renderPanel) {
+  let typ = panelType(rec.type)
+  let key = typ !== null && typ.keepAlive === true ? "panel:type:" + rec.type : "panel:" + rec.id
+  return h(PanelBody, { key: key, render: () => renderPanel(rec, info) })
+}
+
+fn renderFrame(sh, rec, env, renderPanel, extra) {
+  let res = resolveLens(rec.lens, env)
+  let info = { lens: res, floating: extra === "float", maximized: extra === "max", visible: true }
+  return h("section", {
+    class: "ws-panel ws-panel-" + rec.type,
+    id: "wsp-" + rec.id,
+    "data-panel-id": rec.id,
+    "data-focus-id": "panel:" + rec.id,
+    tabindex: "0",
+    role: "region",
+    "aria-label": titleFor(rec) + (res.label.length > 0 ? " — " + res.label : ""),
+    style: { "--edge": edgeColor(rec, res) }
+  }, [panelBody(sh, rec, info, renderPanel)])
+}
+
+fn lensPopover(sh, rec) {
+  let pid = rec.id
+  let opts = []
+  if (panelAcceptsLens(rec.type, "follow")) {
+    opts.push({ label: "Follow", lens: { kind: "follow", ref: null, pinned: false }, deck: null })
+  }
+  if (panelAcceptsLens(rec.type, "deck")) {
+    let letters = ["A", "B", "C", "D"]
+    letters.forEach((d) => { opts.push({ label: d, lens: { kind: "deck", ref: d, pinned: true }, deck: d }) })
+  }
+  let quick = opts.map((o) => (
+    <button
+      type="button"
+      class={"ws-lens-opt" + (o.deck !== null ? " ws-lens-deck-" + o.deck.toLowerCase() : "")}
+      onclick={() => {
+        sh.run("lens.set", { panelId: pid, lens: o.lens })
+        sh.closeLens(pid)
+      }}
+    >{o.label}</button>
+  ))
+  quick.push(<button type="button" class="ws-lens-opt" title="Pinned lenses ignore selection changes" onclick={() => { sh.run("lens.pin", { panelId: pid }); sh.closeLens(pid) }}>{rec.lens.pinned === true ? "Unpin" : "Pin"}</button>)
+  return h("div", { class: "ws-lens-pop", role: "dialog", "aria-label": "Point " + titleFor(rec) + " at…" }, [
+    h("input", {
+      class: "ws-lens-input",
+      "data-focus-id": "lensinput:" + pid,
+      placeholder: "follow · a–d · track id · @peer",
+      "aria-label": "Lens: follow, a deck letter, a track id or @peer",
+      onkeydown: (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault()
+          sh.run("lens.set", { panelId: pid, text: e.target.value })
+          sh.closeLens(pid)
+        } else if (e.key === "Escape") {
+          e.preventDefault()
+          e.stopPropagation()
+          sh.closeLens(pid)
+        }
+      }
+    }, []),
+    <div class="ws-lens-quick">{quick}</div>
+  ])
+}
+
+fn toolButton(sh, cls, glyph, label, actionId, pid) {
+  return h("button", {
+    type: "button",
+    class: "ws-tool " + cls,
+    title: tipWithChord(sh, label, actionId),
+    "aria-label": label,
+    "data-chord": sh.firstChord(actionId),
+    onclick: (e) => {
+      e.stopPropagation()
+      sh.run(actionId, { panelId: pid })
+    }
+  }, [glyph])
+}
+
+fn tabButton(sh, stack, mood, env, pid) {
+  let rec = mood.panels[pid]
+  if (rec === null || rec === undefined) {
+    return null
+  }
+  let on = pid === stack.active
+  let r = resolveLens(rec.lens, env)
+  let label = tabTitle(rec)
+  return h("button", {
+    type: "button",
+    role: "tab",
+    class: "ws-tab" + (on ? " ws-tab-on" : ""),
+    "aria-selected": on ? "true" : "false",
+    "aria-controls": "wsp-" + pid,
+    tabindex: on ? "0" : "-1",
+    "data-panel-tab": pid,
+    "data-focus-id": "tab:" + pid,
+    title: label + " — drag to dock anywhere · " + sh.chordText("mode.dock") + " moves it by keyboard",
+    style: { "--edge": edgeColor(rec, r) },
+    onpointerdown: (e) => startTabDrag(e, sh, pid, label),
+    onclick: () => {
+      if (sh.suppressClick) {
+        return
+      }
+      sh.run("tab.activate", { panelId: pid })
+    }
+  }, [
+    h("span", { class: "ws-tab-glyph", "aria-hidden": "true" }, [glyphFor(rec)]),
+    <span class="ws-tab-title">{label}</span>
+  ])
+}
+
+fn lensChip(sh, stack, activeRec, res, editing) {
+  return h("button", {
+    type: "button",
+    class: "ws-lens-chip" + (activeRec.lens.pinned === true ? " ws-lens-pinned" : ""),
+    "data-focus-id": "lens:" + stack.active,
+    "data-chord": sh.firstChord("lens.focus"),
+    title: tipWithChord(sh, "What this panel looks at — " + res.label, "lens.focus"),
+    "aria-label": "Lens: " + res.label + ". Change",
+    "aria-expanded": editing === stack.active ? "true" : "false",
+    style: { "--edge": edgeColor(activeRec, res) },
+    onclick: () => {
+      if (editing === stack.active) {
+        sh.closeLens(stack.active)
+      } else {
+        sh.run("lens.focus", { panelId: stack.active })
+      }
+    }
+  }, [h("span", { class: "ws-lens-dot", "aria-hidden": "true" }, []), shortLens(activeRec, res)])
+}
+
+fn shortLens(rec, res) {
+  let k = rec.lens.kind
+  if (k === "follow") {
+    return "↻ " + res.deck
+  }
+  if (k === "deck") {
+    return res.deck
+  }
+  if (k === "peer") {
+    return "@" + String(rec.lens.ref)
+  }
+  return lensChipText(rec.lens)
+}
+
+fn stackHead(sh, stack, mood, env, floatingPid) {
+  let activeRec = mood.panels[stack.active]
+  let hasRec = activeRec !== null && activeRec !== undefined
+  let showLens = hasRec && !panelAcceptsLens(activeRec.type, "none")
+  let res = hasRec ? resolveLens(activeRec.lens, env) : null
+  let editing = sh.ui().lensEditing
+  return (
+    <div class="ws-stack-head">
+      {h("div", { class: "ws-tabs", role: "tablist", "aria-label": "Panels in this stack" }, stack.tabs.map((pid) => tabButton(sh, stack, mood, env, pid)))}
+      <div class="ws-tools">
+        {showLens ? lensChip(sh, stack, activeRec, res, editing) : null}
+        {floatingPid === null ? toolButton(sh, "ws-tool-split", "◫", "Split right", "panel.splitRight", stack.active) : null}
+        {toolButton(sh, "ws-tool-float", floatingPid !== null ? "⊡" : "⧉", floatingPid !== null ? "Dock" : "Float", "panel.float", stack.active)}
+        {toolButton(sh, "ws-tool-max", "⤢", "Maximise / restore", "panel.maximize", stack.active)}
+        {toolButton(sh, "ws-tool-close", "✕", "Close", "panel.close", stack.active)}
+      </div>
+      {showLens && editing === stack.active ? lensPopover(sh, activeRec) : null}
+    </div>
+  )
+}
+
+fn renderStack(sh, stack, mood, env, renderPanel, extra) {
+  let rec = mood.panels[stack.active]
+  return h("div", { class: "ws-stack" + (extra === "max" ? " ws-stack-max" : ""), "data-stack-id": stack.id, "data-active-panel": stack.active }, [
+    stackHead(sh, stack, mood, env, null),
+    <div class="ws-stack-body">
+      {rec !== null && rec !== undefined ? renderFrame(sh, rec, env, renderPanel, extra) : null}
+    </div>
+  ])
+}
+
+fn renderNode(sh, node, mood, env, renderPanel) {
+  if (node.kind === "stack") {
+    return renderStack(sh, node, mood, env, renderPanel, "")
+  }
+  let kids = []
+  let i = 0
+  while (i < node.children.length) {
+    let grow = node.sizes[i]
+    kids.push(
+      <div class="ws-cell" style={{ flexGrow: String(grow), flexBasis: "0px" }}>
+        {renderNode(sh, node.children[i], mood, env, renderPanel)}
+      </div>
+    )
+    if (i < node.children.length - 1) {
+      let ix = i
+      kids.push(h("div", {
+        class: "ws-gutter ws-gutter-" + node.dir,
+        role: "separator",
+        "aria-orientation": node.dir === "row" ? "vertical" : "horizontal",
+        title: "Drag to resize · " + sh.chordText("mode.resize") + " resizes by keyboard",
+        onpointerdown: (e) => startGutterDrag(e, sh, node.id, ix)
+      }, []))
+    }
+    i = i + 1
+  }
+  return h("div", { class: "ws-split ws-split-" + node.dir, "data-dir": node.dir, "data-split-id": node.id }, kids)
+}
+
+fn renderFloating(sh, f, mood, env, renderPanel) {
+  let rec = mood.panels[f.panelId]
+  if (rec === null || rec === undefined) {
+    return null
+  }
+  let pseudo = { kind: "stack", id: "float:" + f.panelId, tabs: [f.panelId], active: f.panelId }
+  return h("div", {
+    class: "ws-float",
+    role: "dialog",
+    "aria-label": titleFor(rec) + " (floating)",
+    style: { left: String(Math.round(f.x)) + "px", top: String(Math.round(f.y)) + "px", width: String(Math.round(f.w)) + "px", height: String(Math.round(f.h)) + "px" }
+  }, [
+    <div class="ws-float-head" onpointerdown={(e) => startFloatMove(e, sh, f.panelId)} title="Drag to move · hold Shift to dock into a stack">
+      {stackHead(sh, pseudo, mood, env, f.panelId)}
+    </div>,
+    <div class="ws-stack-body">{renderFrame(sh, rec, env, renderPanel, "float")}</div>,
+    h("div", { class: "ws-float-grip", title: "Drag to resize", "aria-hidden": "true", onpointerdown: (e) => startFloatResize(e, sh, f.panelId) }, [])
+  ])
+}
+
+fn keepAliveHost(sh, mood, env, renderPanel) {
+  let vis = visiblePanelIds(mood.layout)
+  let visTypes = {}
+  vis.forEach((pid) => {
+    let r = mood.panels[pid]
+    if (r !== null && r !== undefined) {
+      visTypes[r.type] = true
+    }
+  })
+  let out = []
+  panelTypes().forEach((t) => {
+    if (t.keepAlive === true && visTypes[t.type] !== true) {
+      let rec = { id: "keep-" + t.type, type: t.type, lens: { kind: "none", ref: null, pinned: false } }
+      let info = { lens: resolveLens(rec.lens, env), floating: false, maximized: false, visible: false }
+      out.push(<div class="ws-keepalive-item">{panelBody(sh, rec, info, renderPanel)}</div>)
+    }
+  })
+  return h("div", { class: "ws-keepalive", "aria-hidden": "true", hidden: true }, out)
+}
+
+/**
+ * Workspace(sh, env, renderPanel): env = lens environment (see Panels.resolveLens); renderPanel(rec, info) →
+ * vnode, info = { lens: { deck, chIndex, peerId, label }, floating, maximized, visible }.
+ */
+export fn Workspace(sh, env, renderPanel) {
+  let mood = sh.mood()
+  let lay = mood.layout
+  let main = null
+  let maxId = lay.maximized
+  if (maxId !== null && maxId !== undefined && mood.panels[maxId] !== undefined && mood.panels[maxId] !== null) {
+    let s = stackOfPanel(lay, maxId)
+    let pseudo = { kind: "stack", id: s !== null ? s.id : "max:" + maxId, tabs: [maxId], active: maxId }
+    main = renderStack(sh, pseudo, mood, env, renderPanel, "max")
+  } else if (lay.root !== null) {
+    main = renderNode(sh, lay.root, mood, env, renderPanel)
+  } else {
+    main = (
+      <div class="ws-empty">
+        <p>{"No panels open."}</p>
+        <button type="button" class="ws-empty-btn" onclick={() => sh.openPalette("open ")}>{"Open a panel (" + sh.chordText("palette.open") + ")"}</button>
+        <button type="button" class="ws-empty-btn" onclick={() => sh.run("mood.reset", null)}>{"Reset this mood"}</button>
+      </div>
+    )
+  }
+  let floats = maxId !== null && maxId !== undefined ? [] : lay.floating
+  return h("div", { class: "ws-root ws-mood-" + mood.id, "data-mood": mood.id }, [
+    <div class="ws-main">{main}</div>,
+    <div class="ws-floats">{floats.map((f) => renderFloating(sh, f, mood, env, renderPanel))}</div>,
+    keepAliveHost(sh, mood, env, renderPanel),
+    h("div", { id: "ws-announcer", class: "sr-only", "aria-live": "polite", "aria-atomic": "true" }, []),
+    h("div", { id: "ws-toast", class: "ws-toast", "aria-hidden": "true" }, [])
+  ])
+}

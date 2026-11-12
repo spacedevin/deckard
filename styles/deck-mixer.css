@@ -1,0 +1,611 @@
+/* ---- A/B deck mixer ---- */
+.dk-panel {
+  background: var(--panel-3);
+  border: 1px solid #1c1c22;
+  padding: 0;
+  overflow: hidden;
+}
+.dk-master-strip {
+  display: flex;
+  gap: 16px;
+  height: 92px;
+  border-bottom: 1px solid #1c1c22;
+  background: #050507;
+  padding: 8px 10px;
+}
+.dk-master-info {
+  width: 180px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--grid-line);
+  padding-left: 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  font-size: 0.6rem;
+  color: #5a5a64;
+}
+.dk-master-title {
+  color: var(--accent-orange);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  margin: 0 0 3px;
+}
+.dk-master-scope {
+  flex: 1;
+  position: relative;
+}
+.dk-spectrum {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.dk-desk {
+  display: flex;
+  gap: 18px;
+  padding: 16px;
+  align-items: stretch;
+  justify-content: center;
+}
+.dk-deck {
+  flex: 1;
+  background: #050507;
+  border: 1px solid #26262e;
+  border-radius: 4px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.dk-deck-a {
+  --dk-accent: var(--deck-a);
+  --dk-glow: var(--deck-a-glow);
+}
+.dk-deck-b {
+  --dk-accent: var(--deck-b);
+  --dk-glow: var(--deck-b-glow);
+}
+.dk-deck-c {
+  --dk-accent: var(--deck-c);
+  --dk-glow: var(--deck-c-glow);
+}
+.dk-deck-d {
+  --dk-accent: var(--deck-d);
+  --dk-glow: var(--deck-d-glow);
+}
+.dk-deck-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--grid-line);
+  padding-bottom: 8px;
+}
+.dk-deck-title {
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--dk-accent);
+  text-shadow: 0 0 10px var(--dk-glow);
+}
+.dk-deck-meta {
+  font-size: 0.58rem;
+  color: #5a5a64;
+  letter-spacing: 0.06em;
+}
+.dk-set-select {
+  width: 100%;
+  margin: 6px 0 10px;
+  background: #0a0a0c;
+  color: #b8b8c0;
+  border: 1px solid #2a2a31;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-family: inherit;
+  font-size: 0.62rem;
+  cursor: pointer;
+}
+.dk-deck-a .dk-set-select {
+  border-color: var(--deck-a-dim);
+}
+.dk-deck-b .dk-set-select {
+  border-color: var(--deck-b-dim);
+}
+.dk-fader-row {
+  display: flex;
+  gap: 10px;
+  justify-content: space-around;
+  flex: 1;
+  flex-wrap: wrap;
+}
+.dk-fader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.dk-fader-name {
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #9a9aa2;
+  max-width: 56px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Vertical volume lever: groove + coloured fill + rounded handle, with a segmented level meter beside it. */
+.dk-lever {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  height: 60px;
+}
+.dk-lever-track {
+  position: relative;
+  width: 18px;
+  border-radius: 9px;
+  background: #0a0a0e;
+  border: 1px solid #1e1e26;
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.65);
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+}
+.dk-lever-fill {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  bottom: 3px;
+  border-radius: 6px;
+  opacity: 0.72;
+  pointer-events: none;
+}
+.dk-lever-handle {
+  position: absolute;
+  left: -2px;
+  right: -2px;
+  height: 12px;
+  transform: translateY(50%);
+  border-radius: 4px;
+  background: #16161d;
+  border: 2.2px solid;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dk-lever-handle-line {
+  width: 8px;
+  height: 1px;
+  border-radius: 0.5px;
+  opacity: 0.95;
+}
+.dk-lever-meter {
+  position: relative;
+  width: 4px;
+  border-radius: 2px;
+  background: #0a0a0e;
+  border: 1px solid #18181f;
+  overflow: hidden;
+  --lvl: 0;
+}
+.dk-lever-meter-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc(var(--lvl, 0) * 100%);
+  -webkit-mask-image: repeating-linear-gradient(to top, #000 0 3px, transparent 3px 5px);
+  mask-image: repeating-linear-gradient(to top, #000 0 3px, transparent 3px 5px);
+  transition: height 0.06s linear;
+}
+.dk-fader-db {
+  font-size: 0.56rem;
+  color: #8a8a92;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+/* Centre DJ-mixer: per-deck channel strips (EQ knobs + CUE + volume fader) above the 4-way fader — the
+   "booth". Per-track stem faders stay in the deck slots. */
+.dk-mixer {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  align-items: stretch;
+  margin-bottom: 10px;
+}
+.dk-ch-strip {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  /* Pack the EQ column + volume/CUE together AND to the right edge so the volume/CUE hugs the deck's right side. */
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.dk-ch-strip-empty {
+  opacity: 0.45;
+}
+.dk-ch-left-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 48px;
+  flex-shrink: 0;
+  align-self: stretch;
+}
+.dk-ch-left-col .dk-cue {
+  width: 100%;
+  padding: 4px 0;
+  margin: 0;
+  height: auto;
+  text-align: center;
+}
+.dk-ch-right-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Each EQ knob carries its label BELOW it (tight 0.1rem inner gap). The gap BETWEEN knob groups must be
+     clearly larger than that inner gap, or each label reads as belonging to the knob below it instead of its
+     own knob above. 6px >> the ~1.6px dial→label gap, so labels visually hug their own knob. */
+  gap: 6px;
+  width: 44px;
+  flex-shrink: 0;
+}
+/* Pin the volume fader + its dB readout to the BOTTOM of the strip so all four decks' faders line up on one
+   baseline regardless of how tall the EQ-knob/CUE block above them is (a deck with loaded content can render a
+   taller header than an empty one). margin-top:auto absorbs any height difference above the fader. */
+.dk-ch-vol {
+  display: flex;
+  margin-top: auto;
+}
+/* Deck volume faders are taller than the per-track ones (a proper DJ channel fader) and carry the same
+   segmented level meter beside them. */
+.dk-ch-vol .dk-lever {
+  height: 100px;
+}
+.dk-ch-db {
+  font-size: 0.52rem;
+  color: #8a8a92;
+  font-variant-numeric: tabular-nums;
+}
+.dk-empty {
+  font-size: 0.6rem;
+  color: #44444c;
+  text-align: center;
+  align-self: center;
+  max-width: 200px;
+  line-height: 1.4;
+}
+.dk-center {
+  width: 100%;
+  flex-shrink: 0;
+  border: 1px solid #26262e;
+  border-radius: 4px;
+  background: #050507;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dk-eq-pair {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+}
+.dk-eq-col {
+  flex: 1;
+  background: var(--panel-2);
+  border: 1px solid #1f1f26;
+  border-radius: 4px;
+  padding: 8px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.dk-eq-title {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+}
+.dk-acc-a {
+  color: var(--deck-a);
+}
+.dk-acc-b {
+  color: var(--deck-b);
+}
+.dk-acc-c {
+  color: var(--deck-c);
+}
+.dk-acc-d {
+  color: var(--deck-d);
+}
+.dk-eq-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.dk-eq-label {
+  font-size: 0.52rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #6a6a72;
+}
+.dk-panel .dk-eq-slider {
+  -webkit-appearance: auto;
+  appearance: auto;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 18px;
+  height: 58px;
+  cursor: pointer;
+}
+.dk-eq-slider.dk-acc-a {
+  accent-color: var(--deck-a);
+}
+.dk-eq-slider.dk-acc-b {
+  accent-color: var(--deck-b);
+}
+.dk-eq-slider.dk-acc-c {
+  accent-color: var(--deck-c);
+}
+.dk-eq-slider.dk-acc-d {
+  accent-color: var(--deck-d);
+}
+.dk-eq-val {
+  font-size: 0.5rem;
+  color: #55555c;
+  height: 8px;
+}
+.dk-eq-div {
+  width: 70%;
+  height: 1px;
+  background: #1f1f26;
+  margin: 2px 0;
+}
+.dk-center-gutter {
+  width: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dk-center-label {
+  writing-mode: vertical-rl;
+  font-size: 0.56rem;
+  letter-spacing: 0.18em;
+  color: #44444c;
+  font-weight: 700;
+}
+.dk-xfade {
+  border: none;
+  background: none;
+  padding: 0;
+}
+/* Live FX throw row (above the 4-way fader): hold ECHO to punch a master echo. */
+.dk-fx-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.dk-fx-label {
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #5a5a66;
+}
+.dk-fx-div {
+  height: 24px;
+  background: #0d0d11;
+  border: 1px solid #2a2a35;
+  border-radius: 4px;
+  color: #9a9aa6;
+  font-size: 0.56rem;
+  padding: 0 2px;
+}
+.dk-fx-throw {
+  flex: 1;
+  height: 24px;
+  border: 1px solid #2a2a35;
+  border-radius: 4px;
+  background: #0d0d11;
+  color: #c9a16a;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  user-select: none;
+  transition: background 80ms, box-shadow 80ms, color 80ms;
+}
+.dk-fx-throw:hover {
+  border-color: #4a4a58;
+}
+.dk-fx-throw:active {
+  background: rgba(245, 158, 11, 0.22);
+  border-color: #f59e0b;
+  color: #ffd27a;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.4), inset 0 0 0 1px rgba(245, 158, 11, 0.3);
+}
+.dk-xfade-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.58rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.dk-xfade-mid {
+  color: #6a6a72;
+  letter-spacing: 0.1em;
+}
+.dk-xfade-slider {
+  width: 100%;
+  height: 8px;
+  accent-color: #fff;
+  cursor: pointer;
+}
+
+/* 2-axis touch crossfader: drag the knob; corners = the 4 player slots. */
+.dk-xypad {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-height: 110px;
+  border: 1px solid #2a2a31;
+  border-radius: 5px;
+  /* 4-corner blend so each deck reads as its own colour: A cyan (TL), B magenta (TR), C amber (BL), D green (BR). */
+  background:
+    radial-gradient(circle at top left, rgba(34, 211, 238, 0.22), transparent 62%),
+    radial-gradient(circle at top right, rgba(232, 121, 249, 0.22), transparent 62%),
+    radial-gradient(circle at bottom left, rgba(245, 158, 11, 0.22), transparent 62%),
+    radial-gradient(circle at bottom right, rgba(74, 222, 128, 0.22), transparent 62%),
+    radial-gradient(circle at center, #0b0b10, #060608);
+  cursor: crosshair;
+  touch-action: none;
+  overflow: hidden;
+}
+.dk-xypad::before,
+.dk-xypad::after {
+  content: "";
+  position: absolute;
+  background: #1c1c24;
+}
+.dk-xypad::before {
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+.dk-xypad::after {
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+.dk-xypad-corner {
+  position: absolute;
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #5a5a64;
+  pointer-events: none;
+}
+.dk-xy-tl { left: 5px; top: 4px; color: var(--deck-a); }
+.dk-xy-tr { right: 5px; top: 4px; color: var(--deck-b); }
+.dk-xy-bl { left: 5px; bottom: 4px; color: var(--deck-c); }
+.dk-xy-br { right: 5px; bottom: 4px; color: var(--deck-d); }
+.dk-xypad-knob {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid #0b0b0b;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.6);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/* 4 decks (A/B/C/D): two stacked deck slots per side column. */
+.dk-deck-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+.dk-player,
+.dk-deckslot {
+  border: 1px solid #20202a;
+  border-left-width: 3px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.012);
+  padding: 6px 8px;
+}
+.dk-deck-a.dk-deckslot { border-left-color: var(--deck-a); }
+.dk-deck-b.dk-deckslot { border-left-color: var(--deck-b); }
+.dk-deck-c.dk-deckslot { border-left-color: var(--deck-c); }
+.dk-deck-d.dk-deckslot { border-left-color: var(--deck-d); }
+.dk-eq-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 4px 2px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #18181f;
+}
+.dk-player-empty {
+  border-style: dashed;
+  opacity: 0.6;
+}
+.dk-player-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.dk-player-tag {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #8a8a92;
+}
+.dk-player-meta {
+  font-size: 0.52rem;
+  color: #55555c;
+}
+.dk-deck-a .dk-player-tag { color: var(--deck-a); }
+.dk-deck-b .dk-player-tag { color: var(--deck-b); }
+.dk-deck-c .dk-player-tag { color: var(--deck-c); }
+.dk-deck-d .dk-player-tag { color: var(--deck-d); }
+
+/* deck head: host/client role + per-stem waveform thumbnails */
+.dk-deck-titlewrap {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.dk-deck-role {
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: #55555c;
+  border: 1px solid #2a2a31;
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+.dk-deck-a .dk-deck-role {
+  color: var(--deck-a);
+  border-color: var(--deck-a-dim);
+}
+.dk-deck-b .dk-deck-role {
+  color: var(--deck-b);
+  border-color: var(--deck-b-dim);
+}
+.dk-fader-wave {
+  width: 64px;
+  height: 34px;
+  border: 1px solid #1c1c22;
+  border-radius: 3px;
+  background: #060608;
+  overflow: hidden;
+}
+.dk-stem-wave {
+  width: 100%;
+  height: 100%;
+  display: block;
+}

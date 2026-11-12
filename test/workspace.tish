@@ -1,0 +1,320 @@
+// Workspace shell (pure layer): layout tree ops, normalization, serialization, moods, lenses, keymap, spatial
+// focus, and keyboard parity (every pointer gesture has a key path). Run: npm run test:workspace
+import {
+  makeLayout, stackNode, splitNode, allStacks, findNode, stackOfPanel, panelIds, visiblePanelIds, closePanel,
+  moveToStack, splitAt, resizeSplit, resizeAround, floatPanel, moveFloating, dockFloating, toggleFloat, cycleTab,
+  toggleMaximize, addPanel, serializeLayout, deserializeLayout, normalizeLayout, clone
+} from '../src/workspace/Layout.tish'
+import { parseLensInput, resolveLens, lensChipText, makePanel, panelType, panelTypes, peerDeckMap, panelAcceptsLens } from '../src/workspace/Panels.tish'
+import {
+  builtinMoods, defaultMoodState, activeMood, setActiveMood, saveMoodAs, deleteMood, resetMood, moodStateFromText,
+  moodStateToText, openPanel, pushClosed, popClosed, withLayout, moodById
+} from '../src/workspace/Moods.tish'
+import { normalizeChord, chordFromEvent, formatChord, createKeymap, lookupChord, findConflicts, rebind, actionChords } from '../src/workspace/Keymap.tish'
+import { nearestInDirection, dropZoneAt } from '../src/workspace/Spatial.tish'
+import { createActionRegistry, dragGestures, gestureAction, openPanelEntries } from '../src/workspace/Actions.tish'
+
+let pass = 0
+let fail = 0
+fn check(name, cond) {
+  if (cond) { pass = pass + 1; console.log("  ok   " + name) }
+  else { fail = fail + 1; console.log("  FAIL " + name) }
+}
+fn approx(a, b) {
+  let d = a - b
+  if (d < 0) { d = -d }
+  return d < 0.001
+}
+fn sum(a) {
+  let t = 0
+  a.forEach((v) => { t = t + v })
+  return t
+}
+// Every split in the tree: sizes sum to 1, ≥2 children, never nested in a same-direction split.
+fn wellFormed(layout) {
+  let ok = true
+  fn rec(n, parentDir) {
+    if (n.kind === "split") {
+      if (n.children.length < 2 || !approx(sum(n.sizes), 1) || n.sizes.length !== n.children.length || n.dir === parentDir) {
+        ok = false
+      }
+      n.children.forEach((c) => { rec(c, n.dir) })
+    } else if (n.tabs.length === 0 || n.tabs.indexOf(n.active) < 0) {
+      ok = false
+    }
+  }
+  rec(layout.root, null)
+  return ok
+}
+
+fn base() {
+  return makeLayout(splitNode("x1", "row", [0.5, 0.5], [stackNode("s1", ["a", "b"], "a"), stackNode("s2", ["c"], "c")]), [])
+}
+
+// ---- Layout tree ----
+let L = base()
+check("layout: base is well-formed", wellFormed(L))
+check("layout: panelIds in tree order", panelIds(L).join(",") === "a,b,c")
+check("layout: visible = each stack's active tab", visiblePanelIds(L).join(",") === "a,c")
+
+let m1 = moveToStack(L, "a", "s2", null)
+check("move: a joins s2 as active tab", stackOfPanel(m1, "a").id === "s2" && findNode(m1, "s2").active === "a")
+check("move: source stack keeps b", findNode(m1, "s1").tabs.join(",") === "b")
+check("move: input layout not mutated", stackOfPanel(L, "a").id === "s1")
+
+let m2 = moveToStack(L, "c", "s1", null)
+check("move: emptied stack collapses (root becomes the stack)", m2.root.kind === "stack" && m2.root.tabs.join(",") === "a,b,c")
+check("move: well-formed after collapse", wellFormed(m2))
+
+let r1 = moveToStack(L, "a", "s1", 2)
+check("reorder: a moves to end of its own stack", findNode(r1, "s1").tabs.join(",") === "b,a")
+
+let sp = splitAt(L, "s2", "bottom", "b")
+let s2parent = null
+allStacks(sp).forEach((s) => { if (s.tabs.indexOf("b") >= 0) { s2parent = s } })
+check("split: b in a new stack", s2parent !== null && s2parent.id !== "s1" && s2parent.tabs.length === 1)
+check("split: well-formed (col split nested in row)", wellFormed(sp))
+check("split: three panels still placed", panelIds(sp).length === 3)
+
+let sr = splitAt(L, "s2", "right", "b")
+check("split same-dir: inserts into the parent row (3 children, no nesting)", sr.root.kind === "split" && sr.root.children.length === 3 && wellFormed(sr))
+check("split same-dir: right of s2 is last", sr.root.children[2].tabs !== null && sr.root.children[2].tabs[0] === "b")
+
+check("split: a lone panel can't split off itself (no-op)", splitAt(L, "s2", "left", "c") === L)
+check("split center = tab drop", stackOfPanel(splitAt(L, "s2", "center", "a"), "a").id === "s2")
+
+let c1 = closePanel(L, "c")
+check("close: c gone, s2 collapsed", panelIds(c1).join(",") === "a,b" && c1.root.kind === "stack")
+let cAll = closePanel(closePanel(c1, "a"), "b")
+check("close all: an empty root stack remains (never null)", cAll.root !== null && cAll.root.kind === "stack")
+
+let rs = resizeSplit(L, "x1", [0.8, 0.2])
+check("resize: sizes applied", approx(findNode(rs, "x1").sizes[0], 0.8))
+let rsMin = resizeSplit(L, "x1", [1, 0])
+check("resize: clamped above min", findNode(rsMin, "x1").sizes[1] > 0.05 && approx(sum(findNode(rsMin, "x1").sizes), 1))
+let ra = resizeAround(L, "s1", "row", 0.1)
+check("resizeAround: grows s1 by 0.1", approx(findNode(ra, "x1").sizes[0], 0.6))
+let raLast = resizeAround(L, "s2", "row", 0.1)
+check("resizeAround: last child trades with previous", approx(findNode(raLast, "x1").sizes[1], 0.6))
+check("resizeAround: no col ancestor → unchanged", resizeAround(L, "s1", "col", 0.1) === L)
+
+let fl = floatPanel(L, "b", { x: 10, y: 20, w: 300, h: 200 })
+check("float: b leaves the tree into floating", fl.floating.length === 1 && stackOfPanel(fl, "b") === null)
+check("float: still placed + visible", panelIds(fl).indexOf("b") >= 0 && visiblePanelIds(fl).indexOf("b") >= 0)
+let mf = moveFloating(fl, "b", { x: 50, y: 60, w: 100, h: 50 })
+check("moveFloating: min size enforced", mf.floating[0].w === 200 && mf.floating[0].h === 120 && mf.floating[0].x === 50)
+let df = dockFloating(fl, "b", "s2", "center")
+check("dockFloating: back as tab of s2", df.floating.length === 0 && stackOfPanel(df, "b").id === "s2")
+let tf = toggleFloat(toggleFloat(L, "b", null), "b", null)
+check("toggleFloat twice: docked again", tf.floating.length === 0 && stackOfPanel(tf, "b") !== null)
+
+let ct = cycleTab(L, "a", 1)
+check("cycleTab: s1 active a → b", findNode(ct, "s1").active === "b")
+check("cycleTab: wraps backward", findNode(cycleTab(L, "a", -1), "s1").active === "b")
+
+let mx = toggleMaximize(L, "c")
+check("maximize: only c visible", visiblePanelIds(mx).join(",") === "c")
+check("maximize: toggle restores", visiblePanelIds(toggleMaximize(mx, "c")).length === 2)
+check("maximize cleared when the panel closes", closePanel(mx, "c").maximized === null)
+
+let ap = addPanel(L, "d", "s2")
+check("addPanel: d into s2", stackOfPanel(ap, "d").id === "s2")
+check("addPanel: existing panel just activates", findNode(addPanel(L, "b", null), "s1").active === "b")
+
+// normalize flattens same-direction nesting
+let nested = { version: 1, seq: 9, root: splitNode("x1", "row", [0.5, 0.5], [stackNode("s1", ["a"], "a"), splitNode("x2", "row", [0.5, 0.5], [stackNode("s2", ["b"], "b"), stackNode("s3", ["c"], "c")])]), floating: [], maximized: null }
+let flat = normalizeLayout(clone(nested))
+check("normalize: same-dir split flattened to 3 children", flat.root.children.length === 3 && approx(flat.root.sizes[1], 0.25))
+
+// serialization round-trip
+let ser = serializeLayout(sp)
+let back = deserializeLayout(ser)
+check("serialize: round-trip identical", back !== null && serializeLayout(back) === ser)
+check("deserialize: garbage → null", deserializeLayout("{not json") === null)
+check("deserialize: wrong version → null", deserializeLayout(JSON.stringify({ version: 99, root: L.root })) === null)
+check("deserialize: invalid node → null", deserializeLayout(JSON.stringify({ version: 1, root: { kind: "blob" } })) === null)
+
+// ---- Panels + lenses ----
+check("lens: 'b' → deck B pinned", parseLensInput("b").kind === "deck" && parseLensInput("b").ref === "B" && parseLensInput("b").pinned)
+check("lens: '' → follow", parseLensInput("").kind === "follow")
+check("lens: '@agent-x' → peer", parseLensInput("@agent-x").kind === "peer" && parseLensInput("@agent-x").ref === "agent-x")
+check("lens: 'c3' → track", parseLensInput("c3").kind === "track" && parseLensInput("c3").ref === "c3")
+check("lens: two words → null", parseLensInput("deck z") === null)
+let env = { activeDeck: "A", selectedCh: 0, channels: [{ id: "c0", deck: "A" }, { id: "c1", deck: "B" }, { id: "c2", deck: "B" }], peerDecks: { "agent-x": "C" } }
+check("resolve follow → active deck + selection", resolveLens(parseLensInput("follow"), env).deck === "A" && resolveLens(parseLensInput("follow"), env).chIndex === 0)
+check("resolve deck B → B's first track", resolveLens(parseLensInput("b"), env).deck === "B" && resolveLens(parseLensInput("b"), env).chIndex === 1)
+check("resolve track c2 → its deck + index", resolveLens(parseLensInput("c2"), env).deck === "B" && resolveLens(parseLensInput("c2"), env).chIndex === 2)
+check("resolve peer → the deck they hold", resolveLens(parseLensInput("@agent-x"), env).deck === "C" && resolveLens(parseLensInput("@agent-x"), env).peerId === "agent-x")
+check("resolve missing track → falls back, flags gone", resolveLens(parseLensInput("zz"), env).label.indexOf("gone") >= 0)
+check("lens chip text", lensChipText(parseLensInput("a")) === "deck A" && lensChipText(parseLensInput("@x")) === "@x")
+check("peerDeckMap: host = A, others sorted", peerDeckMap("h", ["z", "h", "m"]).h === "A" && peerDeckMap("h", ["z", "h", "m"]).m === "B" && peerDeckMap("h", ["z", "h", "m"]).z === "C")
+check("panel types: mixer accepts no deck lens", !panelAcceptsLens("mixer", "deck") && panelAcceptsLens("sequencer", "deck"))
+check("panel types: codj + deckEditor keep alive", panelType("codj").keepAlive === true && panelType("deckEditor").keepAlive === true)
+
+// ---- Moods ----
+let st = defaultMoodState()
+check("moods: Studio and Stage built in, Studio active", st.moods.length === 2 && activeMood(st).id === "studio")
+builtinMoods().forEach((m) => {
+  check("mood " + m.id + ": well-formed layout", wellFormed(m.layout))
+  let missing = panelIds(m.layout).filter((id) => m.panels[id] === null || m.panels[id] === undefined)
+  check("mood " + m.id + ": every placed panel has a record", missing.length === 0)
+  let unknown = Object.keys(m.panels).filter((id) => panelType(m.panels[id].type) === null)
+  check("mood " + m.id + ": every panel type exists", unknown.length === 0)
+})
+let studio = moodById(st, "studio")
+let stage = moodById(st, "stage")
+let shared = panelIds(studio.layout).filter((id) => panelIds(stage.layout).indexOf(id) >= 0)
+check("moods: shared panel ids let the morph keep identity (mixer, codj…)", shared.indexOf("mixer") >= 0 && shared.indexOf("codj") >= 0)
+check("moods: Stage puts decks A and B on screen", visiblePanelIds(stage.layout).indexOf("deckA") >= 0 && visiblePanelIds(stage.layout).indexOf("deckB") >= 0)
+let st2 = setActiveMood(st, "stage")
+check("moods: switch active", activeMood(st2).id === "stage")
+check("moods: unknown id ignored", setActiveMood(st, "nope").active === "studio")
+let st3 = saveMoodAs(st2, "B2B with AI")
+check("moods: saveAs clones + activates a user mood", activeMood(st3).name === "B2B with AI" && activeMood(st3).builtin === false && st3.moods.length === 3)
+check("moods: user mood copies the layout", serializeLayout(activeMood(st3).layout) === serializeLayout(stage.layout))
+check("moods: builtin can't be deleted", deleteMood(st, "studio").moods.length === 2)
+check("moods: user mood deleted, active falls back", deleteMood(st3, activeMood(st3).id).moods.length === 2)
+let st4 = moodStateFromText(moodStateToText(st3))
+check("moods: persist round-trip", st4.moods.length === 3 && st4.active === st3.active && serializeLayout(activeMood(st4).layout) === serializeLayout(activeMood(st3).layout))
+check("moods: corrupt storage → defaults", moodStateFromText("garbage").moods.length === 2)
+let broken = JSON.parse(moodStateToText(st))
+broken.moods = [broken.moods[1]]
+check("moods: a missing builtin is restored", moodStateFromText(JSON.stringify(broken)).moods.length === 2)
+let edited = withLayout(studio, closePanel(studio.layout, "library"))
+let st5 = resetMood({ version: 1, active: "studio", moods: [edited, stage] }, "studio")
+check("moods: reset restores the shipped layout", panelIds(activeMood(st5).layout).indexOf("library") >= 0)
+let op = openPanel(studio, "sequencer", { kind: "deck", ref: "B", pinned: true }, "s3")
+check("openPanel: a new sequencer pinned to deck B", op.panelId === "sequencer2" && op.mood.panels.sequencer2.lens.ref === "B" && stackOfPanel(op.mood.layout, "sequencer2").id === "s3")
+let op2 = openPanel(studio, "mixer", null, null)
+check("openPanel: existing mixer reused", op2.panelId === "mixer")
+let closedM = pushClosed(withLayout(studio, closePanel(studio.layout, "playlist")), "playlist")
+let pc = popClosed(closedM)
+check("popClosed: most recent closed panel comes back", pc.panelId === "playlist")
+check("popClosed: nothing placed-closed → null", popClosed(studio).panelId === null)
+
+// ---- Keymap ----
+check("chord: normalize aliases + order", normalizeChord("shift+cmd+k") === "Mod-Shift-k")
+check("chord: Esc alias", normalizeChord("esc") === "Escape")
+check("chord: trailing '-' key", normalizeChord("Mod--") === "Mod--")
+check("chord: backslash", normalizeChord("Mod-\\") === "Mod-\\")
+check("event: mac Cmd+Shift+[ uses code, not '{'", chordFromEvent({ key: "{", code: "BracketLeft", metaKey: true, ctrlKey: false, altKey: false, shiftKey: true }, true) === "Mod-Shift-[")
+check("event: windows Ctrl = Mod", chordFromEvent({ key: "k", code: "KeyK", metaKey: false, ctrlKey: true, altKey: false, shiftKey: false }, false) === "Mod-k")
+check("event: '?' is Shift-/", chordFromEvent({ key: "?", code: "Slash", metaKey: false, ctrlKey: false, altKey: false, shiftKey: true }, true) === "Shift-/")
+check("event: bare modifier → null", chordFromEvent({ key: "Shift", code: "ShiftLeft", metaKey: false, ctrlKey: false, altKey: false, shiftKey: true }, true) === null)
+check("event: Alt+digit stays the digit (mac ¡)", chordFromEvent({ key: "¡", code: "Digit1", metaKey: false, ctrlKey: false, altKey: true, shiftKey: false }, true) === "Alt-1")
+check("format: mac glyphs", formatChord("Mod-Shift-\\", true) === "⌘⇧\\")
+check("format: windows names", formatChord("Mod-Shift-k", false) === "Ctrl+Shift+K")
+check("format: ? label", formatChord("Shift-/", true) === "?")
+
+let reg = createActionRegistry(null)
+let acts = reg.list()
+let km = createKeymap(acts.filter((a) => a.passive !== true), null)
+let scopes = { global: true, textInput: false, panelFrame: false, inPanel: false }
+let isActive = (s) => (s === "textInput" ? true : scopes[s] === true)
+check("lookup: Mod-K → palette", lookupChord(km, "Mod-k", isActive) !== null && lookupChord(km, "Mod-k", isActive).id === "palette.open")
+check("lookup: backtick → mood toggle", lookupChord(km, "`", isActive).id === "mood.toggle")
+check("lookup: Enter off a panel frame is NOT the shell's (play/stop stays the app's)", lookupChord(km, "Enter", isActive) === null)
+scopes.panelFrame = true
+check("lookup: Enter on a panel frame → enter panel", lookupChord(km, "Enter", isActive).id === "panel.enter")
+scopes.global = false
+check("lookup: global-only actions don't fire while typing", lookupChord(km, "`", (s) => s === "textInput") === null)
+check("lookup: Mod-K still fires while typing", lookupChord(km, "Mod-k", (s) => s === "textInput").id === "palette.open")
+let conflicts = findConflicts(createKeymap(acts, null))
+check("keymap: no conflicting default bindings", conflicts.length === 0)
+if (conflicts.length > 0) { console.log("    conflicts: " + JSON.stringify(conflicts)) }
+let ov = rebind(null, "panel.close", ["Alt-Q"])
+check("rebind: override replaces defaults", actionChords(reg.get("panel.close"), ov).join(",") === "Alt-q")
+check("rebind: rebound keymap resolves the new chord", lookupChord(createKeymap(acts, ov), "Alt-q", (s) => true).id === "panel.close")
+
+// plan keymap present
+let want = { "panel.next": "F6", "panel.prev": "Shift-F6", "focus.left": "Mod-Alt-ArrowLeft", "palette.open": "Mod-k", "hints.toggle": "Shift-/",
+  "tab.prev": "Mod-Shift-[", "tab.next": "Mod-Shift-]", "panel.close": "Mod-w", "panel.reopen": "Mod-Shift-t", "panel.splitRight": "Mod-\\",
+  "panel.splitDown": "Mod-Shift-\\", "panel.float": "Mod-Shift-f", "panel.maximize": "Mod-Shift-Enter", "lens.focus": "Mod-l",
+  "mode.dock": "Mod-m", "mode.resize": "Mod-r", "mood.toggle": "`", "mood.goto1": "Mod-1", "mood.goto9": "Mod-9" }
+Object.keys(want).forEach((id) => {
+  let a = reg.get(id)
+  check("keymap: " + id + " bound to " + want[id], a !== null && actionChords(a, null).indexOf(want[id]) >= 0)
+})
+
+// ---- Keyboard parity: every pointer gesture reaches a registered action, and has a keyboard path ----
+dragGestures().forEach((g) => {
+  let a = reg.get(g.action)
+  let k = reg.get(g.keyPath)
+  check("parity: gesture " + g.gesture + " → action " + g.action + " exists", a !== null)
+  check("parity: gesture " + g.gesture + " has a key path (" + g.keyPath + ") with a default chord", k !== null && actionChords(k, null).length > 0)
+})
+check("parity: gestureAction lookup", gestureAction("gutter-drag") === "split.resize" && gestureAction("nope") === null)
+check("palette: an open entry per panel type", openPanelEntries().length >= panelTypes().length)
+check("actions: every action has id, label, run", acts.filter((a) => typeof a.id !== "string" || typeof a.label !== "string" || typeof a.run !== "function").length === 0)
+check("actions: ids unique", acts.length === Object.keys(acts.reduce((o, a) => { o[a.id] = 1; return o }, {})).length)
+
+// ---- Actions run against a fake shell ctx ----
+let shell = { st: defaultMoodState(), focus: "sequencer", said: [] }
+let ctx = {
+  state: () => shell.st,
+  mood: () => activeMood(shell.st),
+  commitMood: (m, msg) => {
+    let out = []
+    shell.st.moods.forEach((x) => { out.push(x.id === m.id ? m : x) })
+    shell.st = { version: shell.st.version, active: shell.st.active, moods: out }
+    if (msg) { shell.said.push(msg) }
+  },
+  commitState: (s, msg, morph) => { shell.st = s; if (msg) { shell.said.push(msg) } },
+  focusedPanelId: () => shell.focus,
+  focusPanel: (id) => { shell.focus = id },
+  enterPanel: (id) => {},
+  panelRects: () => [{ id: "library", x: 0, y: 0, w: 200, h: 400 }, { id: "sequencer", x: 200, y: 0, w: 500, h: 300 }, { id: "instruments", x: 200, y: 300, w: 500, h: 300 }, { id: "mixer", x: 700, y: 0, w: 300, h: 300 }],
+  stackRects: () => [],
+  enterMode: (n, p) => { shell.mode = n },
+  openPalette: (t) => { shell.palette = true },
+  focusLensChip: (id) => { shell.lens = id },
+  announce: (t) => { shell.said.push(t) },
+  viewport: () => ({ w: 1400, h: 900 }),
+  promptText: (title, def, cb) => { cb("Prompted") },
+  run: (id, args) => reg.run(id, ctx, args),
+  app: { xfadeNudge: (dx, dy) => { shell.xf = dx }, playStop: () => {}, preview: () => {}, undo: () => {}, redo: () => {}, cueActive: () => {}, openSongs: () => {}, fullscreen: () => {} }
+}
+reg.run("focus.right", ctx, null)
+check("action focus.right: sequencer → mixer", shell.focus === "mixer")
+reg.run("focus.down", ctx, { panelId: "sequencer" })
+check("action focus.down: sequencer → instruments", shell.focus === "instruments")
+shell.focus = "sequencer"
+reg.run("tab.next", ctx, null)
+check("action tab.next: sequencer stack shows session", findNode(activeMood(shell.st).layout, "s3").active === "session" && shell.focus === "session")
+reg.run("panel.splitRight", ctx, null)
+check("action splitRight: session split off beside sequencer", stackOfPanel(activeMood(shell.st).layout, "session").id !== "s3" && wellFormed(activeMood(shell.st).layout))
+shell.focus = "instruments"
+reg.run("panel.splitRight", ctx, null)
+check("action splitRight on a lone panel: second instruments view", activeMood(shell.st).panels.instruments2 !== null && activeMood(shell.st).panels.instruments2 !== undefined && stackOfPanel(activeMood(shell.st).layout, "instruments2") !== null)
+shell.focus = "mixer"
+let beforeMixers = Object.keys(activeMood(shell.st).panels).length
+reg.run("panel.close", ctx, { panelId: "master" })
+check("action close: focus moves to a visible panel", shell.focus !== "master")
+shell.focus = "mixer"
+reg.run("panel.splitRight", ctx, null)
+check("action splitRight on unique mixer: refused", Object.keys(activeMood(shell.st).panels).length === beforeMixers && shell.said[shell.said.length - 1].indexOf("Only one") === 0)
+reg.run("panel.reopen", ctx, null)
+check("action reopen: master back", visiblePanelIds(activeMood(shell.st).layout).indexOf("master") >= 0 || panelIds(activeMood(shell.st).layout).indexOf("master") >= 0)
+reg.run("panel.float", ctx, { panelId: "library" })
+check("action float: library floating", activeMood(shell.st).layout.floating.length === 1)
+reg.run("panel.float", ctx, { panelId: "library" })
+check("action float again: docked", activeMood(shell.st).layout.floating.length === 0)
+reg.run("lens.set", ctx, { panelId: "sequencer", text: "b" })
+check("action lens.set: sequencer now on deck B", activeMood(shell.st).panels.sequencer.lens.ref === "B")
+reg.run("lens.set", ctx, { panelId: "mixer", text: "b" })
+check("action lens.set: mixer refuses a deck lens", activeMood(shell.st).panels.mixer.lens.kind === "none")
+reg.run("mood.toggle", ctx, null)
+check("action mood.toggle: Stage", shell.st.active === "stage")
+reg.run("mood.goto1", ctx, null)
+check("action mood.goto1: Studio", shell.st.active === "studio")
+reg.run("mood.saveAs", ctx, null)
+check("action mood.saveAs: prompts, saves", activeMood(shell.st).name === "Prompted")
+reg.run("mixer.xfadeRight", ctx, null)
+check("action xfadeRight: nudges via app", shell.xf === 0.05)
+reg.run("panel.open", ctx, { type: "decks", lens: { kind: "deck", ref: "C", pinned: true } })
+check("action panel.open: a deck-C decks panel", activeMood(shell.st).panels[shell.focus].lens.ref === "C")
+check("action unknown id: false", reg.run("nope.nope", ctx, null) === false)
+
+console.log("")
+console.log("PASS=" + String(pass) + " FAIL=" + String(fail))
+if (fail > 0) { throw new Error("workspace tests failed") }

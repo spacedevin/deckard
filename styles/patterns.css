@@ -1,0 +1,319 @@
+/* ---- Pattern bank (cue/save) ---- */
+/* ---- Sequencer + pattern launcher, side by side ---- */
+.seq-session-split {
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+}
+.seq-split-main {
+  flex: 1 1 560px;
+  min-width: 0;
+}
+.seq-split-session {
+  flex: 1 1 460px;
+  min-width: 0;
+}
+.seq-split-main .sg-panel,
+.seq-split-session .session-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+/* Side by side: SEQ + SESSION rows are EXACTLY aligned, so the SEQ already labels each instrument — the
+   session's per-row name is redundant. Collapse the name button to just the ▶ play/pause toggle (widening the
+   clip columns). --sess-name-w also drives the scene-row offset, so the P columns stay aligned with the clips. */
+@media (min-width: 1001px) {
+  .seq-split-session .session-panel { --sess-lead: calc(26px + 0.35rem); }
+  .seq-split-session .session-track-name { display: none; }
+}
+/* Stacked (narrow): SEQ and SESSION drop onto separate lines, so the session shows its own row names again. */
+@media (max-width: 1000px) {
+  .seq-session-split { flex-direction: column; }
+}
+.seq-split-side {
+  flex: 0 0 200px;
+  position: sticky;
+  top: 8px;
+}
+@media (max-width: 1400px) {
+  .seq-split-side {
+    flex-basis: 180px;
+  }
+}
+
+
+/* co-DJ + deck, side by side at the bottom */
+.daw-bottom-split {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.daw-bottom-col {
+  flex: 1 1 0;
+  min-width: 0;
+}
+@media (max-width: 1000px) {
+  .daw-bottom-split {
+    flex-direction: column;
+  }
+}
+
+/* ---- Pattern launcher (P0 = LIVE, P1..N = LOAD / SAVE / LAUNCH) ---- */
+.pb-panel-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--panel-2);
+  border: 1px solid #1c1c22;
+  padding: 12px;
+}
+.pb-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.pb-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--accent-orange);
+}
+.pb-sub {
+  font-size: 0.5rem;
+  letter-spacing: 0.1em;
+  color: #4a4a54;
+}
+.pb-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pb-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid #23232a;
+  border-radius: 5px;
+  background: #0d0d11;
+  transition: border-color 90ms, box-shadow 90ms, background 90ms;
+}
+.pb-card-top {
+  display: flex;
+  align-items: stretch;
+  gap: 5px;
+}
+.pb-split-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+.pb-split-label {
+  flex: 0 0 34px;
+  display: flex;
+  align-items: center;
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #5a5a64;
+}
+.pb-split-row .pb-btn {
+  flex: 1 1 0;
+}
+.pb-btn-grow {
+  flex: 1 1 0;
+}
+.pb-card-n {
+  flex: 0 0 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #8a8a92;
+}
+.pb-card-editing {
+  border-color: var(--accent-orange);
+  box-shadow: inset 0 0 0 1px rgba(249, 115, 22, 0.3);
+}
+.pb-card-live {
+  border-color: var(--accent-green);
+  background: #0c160c;
+}
+.pb-card-queued {
+  border-color: #ffe07a;
+  box-shadow: 0 0 8px rgba(255, 224, 122, 0.28);
+}
+.pb-btn {
+  padding: 5px 4px;
+  border: 1px solid #2a2a31;
+  border-radius: 4px;
+  background: #121217;
+  color: #9a9aa2;
+  font-size: 0.54rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 90ms, border-color 90ms, color 90ms;
+}
+.pb-btn:hover {
+  border-color: #3a3a44;
+  color: #e0e0e6;
+}
+.pb-btn-load:hover {
+  border-color: var(--accent-orange);
+  color: var(--accent-orange);
+}
+.pb-btn-launch:hover {
+  border-color: var(--accent-green);
+  color: var(--accent-green);
+}
+.pb-btn-on.pb-btn-load {
+  border-color: var(--accent-orange);
+  color: var(--accent-orange);
+  background: #1a1208;
+}
+.pb-btn-on.pb-btn-launch {
+  border-color: var(--accent-green);
+  color: #0b0b0b;
+  background: var(--accent-green);
+}
+/* P0 — the live output card. Read-only. */
+.pb-card-p0 {
+  grid-template-columns: 34px 1fr auto;
+  align-items: center;
+  background: #0a0f0a;
+  border-color: #1f2a1f;
+}
+.pb-card-p0 .pb-card-n {
+  color: #6a6a72;
+}
+.pb-live-badge {
+  font-size: 0.54rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #4a5a4a;
+}
+.pb-live-src {
+  font-size: 0.64rem;
+  font-weight: 700;
+  color: #5a5a64;
+}
+.pb-card-live-on {
+  border-color: var(--accent-green);
+  box-shadow: 0 0 10px rgba(124, 255, 124, 0.25);
+}
+.pb-card-live-on .pb-live-badge {
+  color: var(--accent-green);
+}
+.pb-card-live-on .pb-live-src {
+  color: var(--accent-green);
+}
+.pb-hint {
+  font-size: 0.54rem;
+  line-height: 1.5;
+  color: #44444c;
+  letter-spacing: 0.02em;
+}
+.transport-spacer {
+  /* Zero-grow on purpose: a flex:1 spacer here makes .transport-bar expand to eat ALL free header width,
+     leaving the preset clusters no slack so they wrap to a second row. Kept (not deleted) so the trailing
+     undo/redo/export/import buttons keep their position. */
+  flex: 0 0 0;
+  width: 0;
+}
+
+/* ---- Multi-note piano grid ---- */
+.pg-panel {
+  background: var(--panel-2);
+  border: 1px solid #1c1c22;
+  padding: 14px 16px 16px;
+  --pg-accent: var(--deck-a);
+  --pg-glow: var(--deck-a-glow);
+}
+.pg-panel.pg-deck-b {
+  --pg-accent: var(--deck-b);
+  --pg-glow: var(--deck-b-glow);
+}
+.pg-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.pg-head h2 {
+  font-size: 0.8rem;
+  letter-spacing: 0.16em;
+  color: var(--pg-accent);
+  margin: 0;
+}
+.pg-hint {
+  font-size: 0.6rem;
+  color: #555;
+}
+.pg-grid {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--grid-line);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.pg-row {
+  display: flex;
+  align-items: stretch;
+  height: 17px;
+}
+.pg-row-black {
+  background: rgba(0, 0, 0, 0.35);
+}
+.pg-key {
+  width: 52px;
+  flex-shrink: 0;
+  font-size: 0.54rem;
+  color: #5a5a64;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
+  border-right: 1px solid var(--grid-line);
+  background: #08080a;
+}
+.pg-key-c {
+  color: #9a9aa2;
+  font-weight: 700;
+}
+.pg-cells {
+  flex: 1;
+  display: flex;
+}
+.pg-cell {
+  flex: 1;
+  border: 0;
+  border-right: 1px solid #131318;
+  border-bottom: 1px solid #131318;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: background 80ms, box-shadow 80ms;
+}
+.pg-cell.pg-beat {
+  border-left: 1px solid #20202a;
+}
+.pg-cell:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.pg-cell.pg-on {
+  background: var(--pg-accent);
+  box-shadow: inset 0 0 6px var(--pg-glow), 0 0 5px var(--pg-glow);
+  border-radius: 2px;
+}
+.pg-cell.sg-col-active {
+  background: rgba(120, 160, 220, 0.12);
+}
+.pg-cell.pg-on.sg-col-active {
+  background: #fff;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.9);
+}

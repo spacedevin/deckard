@@ -1,0 +1,719 @@
+/* ---- Custom software dropdown (IkSelect) ---- */
+.ik-sel {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.28rem 0.55rem;
+  background: #14141a;
+  border: 1px solid #2a2a32;
+  border-radius: 6px;
+  color: var(--text, #e8e8ea);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  min-width: 3.5rem;
+  transition: border-color 0.1s ease, background 0.1s ease;
+}
+.ik-sel:hover {
+  border-color: #3e3e4a;
+  background: #1a1a22;
+}
+.ik-sel-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ik-sel-arrow { font-size: 0.6rem; color: var(--muted, #777); flex-shrink: 0; }
+.ik-sel-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  max-height: 220px;
+  overflow-y: auto;
+  background: #18181f;
+  border: 1px solid #34343e;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  z-index: 120;
+  padding: 3px 0;
+  scrollbar-width: thin;
+  scrollbar-color: #3a3a44 transparent;
+}
+.ik-sel-opt {
+  padding: 0.32rem 0.6rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text, #e8e8ea);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.06s ease;
+}
+.ik-sel-opt:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.ik-sel-opt-on {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Option rows with a delete affordance: text on the left, a ✕ on the right. */
+.ik-sel-opt-del-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ik-sel-opt-del-row .ik-sel-opt-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ik-sel-opt-del {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: #6a6a74;
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 1px 3px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.ik-sel-opt-del:hover {
+  background: rgba(255, 80, 80, 0.18);
+  color: #ff6b6b;
+}
+
+.ik-sel-opt-header {
+  padding: 0.28rem 0.6rem;
+  font-size: 0.58rem;
+  font-weight: 800;
+  color: #5a5a64;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: rgba(0, 0, 0, 0.15);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  cursor: default;
+  user-select: none;
+}
+
+/* ---- Instrument stack compact default styles (applied to single & grid view) ---- */
+.instr-stack-panel {
+  padding: 8px 10px !important;
+  margin: 4px 0 !important;
+}
+
+.instr-stack-panel .instr-desc {
+  display: none !important;
+}
+
+.instr-stack-panel .ik-env,
+.instr-stack-panel .ik-env-svg {
+  height: 26px !important;
+}
+
+/* 3x2 Grid layout for active single deck instruments */
+.instr-grid-container {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px !important;
+  width: 100%;
+  align-items: stretch;
+}
+
+/* Each instrument panel's header row can't shrink below ~290px, so three columns need a wide main area.
+   Below that, drop to two columns so the grid never overflows into the CO-DJ sidebar. */
+@media (max-width: 1500px) {
+  .instr-grid-container {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Header one-line floor guard — below 1620px shave the last few px so the top bar holds ONE line down to
+   ~1500px. It keeps flex-wrap:wrap, so anything narrower still degrades gracefully to two rows rather than
+   clipping. */
+@media (max-width: 1620px) {
+  .daw-header { gap: 0.5rem; }
+  .transport-bar { gap: 0.4rem; }
+  .mode-seg { padding: 0.4rem 0.45rem; }
+}
+
+/* Empty instrument slots filling out the grid — a slightly-different background marks this as a reserved
+   zone (something fun goes here later). Faint so it reads as "available", not as a broken/missing panel. */
+.instr-grid-container .instr-empty-slot {
+  min-height: 120px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.022);
+  border: 1px dashed rgba(255, 255, 255, 0.055);
+}
+
+/* Compact rules when instruments are inside the grid */
+.instr-grid-container .instr-stack-panel {
+  margin: 0 !important;
+  padding: 4px 0px !important;
+  display: flex;
+  flex-direction: column;
+  background: transparent !important;
+  border: none !important;
+  border-top: 2px solid var(--accent) !important;
+  border-radius: 0 !important;
+}
+
+.instr-grid-container .panel-head {
+  margin-bottom: 2px !important;
+  gap: 4px !important;
+}
+
+.instr-grid-container .panel-head h2 {
+  font-size: 0.68rem !important;
+  margin: 0 !important;
+}
+
+.instr-grid-container .panel-head-l {
+  gap: 4px !important;
+}
+
+.instr-grid-container .panel-head-r {
+  gap: 4px !important;
+}
+
+.instr-grid-container .preset-bar {
+  gap: 0.2rem !important;
+}
+
+.instr-grid-container .preset-bar-label {
+  font-size: 0.6rem !important;
+}
+
+.instr-grid-container .ik-sel {
+  padding: 0.12rem 0.35rem !important;
+  font-size: 0.65rem !important;
+  min-width: 2.8rem !important;
+  gap: 0.2rem !important;
+}
+
+.instr-grid-container .preset-bar-save {
+  padding: 0.12rem 0.35rem !important;
+  font-size: 0.65rem !important;
+}
+
+.instr-grid-container .btn-deck {
+  padding: 0.2rem 0.35rem !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 0 !important;
+  width: auto !important;
+}
+/* The header link (SYNC/STORE) button matches the thinnest 17px chip — flat vertical padding, fixed height. */
+.instr-grid-container .btn-deck.btn-deck-outline {
+  height: 17px !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* SOUND and FX stack as two ROWS (each full panel width) instead of two side-by-side columns. SOUND on top,
+   FX below, divided by a faint rule. Full width per row lets FX sit as a single horizontal strip of knobs. */
+.instr-grid-container .instr-modules-row {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 4px !important;
+  align-items: stretch !important;
+}
+
+.instr-grid-container .instr-module {
+  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border-radius: 0 !important;
+}
+.instr-grid-container .instr-module:last-child {
+  border-bottom: none !important;
+}
+
+/* Code (raw deck) view takes over the whole panel: hide the sibling row, let the editor fill the width + grow. */
+.instr-grid-container .instr-modules-row:has(.instr-module-raw-active) .instr-module:not(.instr-module-raw-active) {
+  display: none !important;
+}
+.instr-grid-container .instr-module-raw-active {
+  border-bottom: none !important;
+}
+.instr-grid-container .instr-module-raw-active .instr-module-body {
+  padding: 3px 0 0 !important;
+}
+.instr-grid-container .instr-module-raw-active .rich-tpl-stack .tpl-song-input-layer {
+  min-height: 12rem !important;
+}
+
+.instr-grid-container .instr-module-head {
+  padding: 2px 0px !important;
+  gap: 3px !important;
+  background: transparent !important;
+  border: none !important;
+}
+
+.instr-grid-container .instr-module-title {
+  font-size: 0.6rem !important;
+  letter-spacing: 0.06em !important;
+}
+
+.instr-grid-container .instr-module-tpl {
+  font-size: 0.55rem !important;
+}
+
+.instr-grid-container .instr-module-body {
+  padding: 3px 0px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+}
+
+.instr-grid-container .ik-card {
+  padding: 3px 5px !important;
+  border-radius: 4px !important;
+}
+
+.instr-grid-container .ik-card-h {
+  margin-bottom: 2px !important;
+  gap: 3px !important;
+  font-size: 0.5rem !important;
+}
+
+.instr-grid-container .ik-cols {
+  gap: 4px !important;
+}
+
+/* Compact Knobs inside active deck grid */
+.instr-grid-container .ik-knob {
+  width: 2.7rem !important;
+  gap: 0px !important;
+}
+.instr-grid-container .ik-knob-dial {
+  width: 1.7rem !important;
+  height: 1.7rem !important;
+}
+.instr-grid-container .ik-knob-label {
+  font-size: 0.44rem !important;
+}
+.instr-grid-container .ik-knob-value {
+  font-size: 0.52rem !important;
+}
+
+/* Compact wave picker */
+.instr-grid-container .ik-wave-row {
+  gap: 2px !important;
+}
+.instr-grid-container .ik-wave-btn {
+  width: 1.35rem !important;
+  height: 1.35rem !important;
+  border-radius: 3px !important;
+}
+.instr-grid-container .ik-wave-img {
+  width: 0.8rem !important;
+  height: 0.8rem !important;
+}
+.instr-grid-container .ik-wave-pair {
+  margin-bottom: 0.2rem !important;
+  gap: 1px !important;
+}
+
+/* Env display compact */
+.instr-grid-container .ik-env,
+.instr-grid-container .ik-env-svg {
+  height: 22px !important;
+}
+
+/* Hide descriptions */
+.instr-grid-container .instr-desc {
+  display: none !important;
+}
+
+/* Scroll limits for larger panels */
+.instr-grid-container .matrixfm-panel-wrap,
+.instr-grid-container .patch-panel-wrap,
+.instr-grid-container .macro-panel-wrap {
+  max-height: 110px !important;
+  overflow-y: auto;
+}
+
+.instr-grid-container .instr-params-wrap {
+  margin-bottom: 2px !important;
+}
+
+.instr-grid-container .instr-pitch-knobs {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 4px 2px !important;
+  padding: 0 !important;
+}
+
+/* Instrument Header micro-fader and scope */
+.instr-head-mixer {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.instr-head-mixer .dk-fader-wave {
+  height: 20px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+}
+.instr-head-mixer .dk-stem-wave {
+  height: 20px !important;
+  /* Fill the container width — a fixed 40px canvas left it sitting in a 64px box with dead space on the
+     right (the "cut off / misaligned" look). drawMiniWave sizes the bitmap to the canvas's CSS width, so
+     100% makes the trace span the whole box. Punchier via the filter below (the shared-worker scope canvas
+     keys on the channel id that also feeds the deck waveform, so intensity is dialed here in CSS). */
+  width: 100% !important;
+  border: none !important;
+  border-radius: 3px !important;
+  background: rgba(0, 0, 0, 0.2) !important;
+  display: block !important;
+  filter: brightness(1.55) saturate(1.4) contrast(1.12) !important;
+}
+.instr-head-mixer .dk-lever {
+  height: 24px !important;
+  display: inline-flex !important;
+  align-items: stretch !important;
+  gap: 3px !important;
+}
+.instr-head-mixer .dk-lever-track {
+  width: 14px !important;
+  border-radius: 7px !important;
+  background: #08080c !important;
+  border: 1px solid #1c1c24 !important;
+}
+.instr-head-mixer .dk-lever-fill {
+  left: 2px !important;
+  right: 2px !important;
+  bottom: 2px !important;
+  border-radius: 5px !important;
+}
+.instr-head-mixer .dk-lever-handle {
+  height: 6px !important;
+  left: -1px !important;
+  right: -1px !important;
+  border-radius: 2px !important;
+  border-width: 1px !important;
+  background: #14141a !important;
+}
+.instr-head-mixer .dk-lever-handle-line {
+  display: none !important;
+}
+.instr-head-mixer .dk-lever-meter {
+  width: 4px !important;
+  border-radius: 2px !important;
+  background: #08080c !important;
+  border: 1px solid #181820 !important;
+}
+.instr-head-mixer .dk-fader-db {
+  font-size: 0.55rem !important;
+  font-weight: 700 !important;
+  min-width: 32px !important;
+  text-align: right !important;
+  color: var(--muted, #666) !important;
+}
+
+/* Voice dropdown styled as a badge */
+.voice-badge-select {
+  font-size: 0.55rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  border-radius: 4px !important;
+  /* Match the thinnest header chip (17px); flat padding + line-height:1 so the label centres in that height. */
+  height: 17px !important;
+  padding: 0 0.32rem !important;
+  line-height: 1 !important;
+  box-sizing: border-box !important;
+  min-width: 0 !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  transition: opacity 0.1s ease !important;
+}
+.voice-badge-select:hover {
+  opacity: 0.85 !important;
+}
+.voice-badge-select .ik-sel-arrow {
+  display: none !important;
+}
+.voice-badge-select .ik-sel-label {
+  white-space: nowrap !important;
+}
+.voice-badge-select .ik-sel-list {
+  min-width: 140px !important;
+}
+
+/* Custom styling for native HTML elements */
+input[type="text"],
+input[type="number"],
+input[type="search"],
+input[type="email"],
+input[type="password"],
+input[type="url"],
+input:not([type]),
+.bpm-input,
+.codj-input {
+  -webkit-appearance: none;
+  appearance: none;
+  font-family: inherit;
+  font-size: 0.72rem !important;
+  padding: 0.28rem 0.55rem !important;
+  background: #14141a !important;
+  border: 1px solid #2a2a32 !important;
+  border-radius: 4px !important;
+  color: var(--text, #e8e8ea) !important;
+  outline: none !important;
+  transition: border-color 0.1s ease, background 0.1s ease !important;
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="search"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+input[type="url"]:focus,
+input:not([type]):focus,
+.bpm-input:focus,
+.codj-input:focus {
+  border-color: var(--accent-warm, #e8945c) !important;
+  background: #1a1a22 !important;
+  box-shadow: 0 0 0 1px rgba(232, 148, 92, 0.2) !important;
+}
+
+textarea:not(.tpl-song-input-layer) {
+  -webkit-appearance: none;
+  appearance: none;
+  font-family: inherit;
+  font-size: 0.72rem !important;
+  padding: 0.28rem 0.55rem !important;
+  background: #14141a !important;
+  border: 1px solid #2a2a32 !important;
+  border-radius: 4px !important;
+  color: var(--text, #e8e8ea) !important;
+  outline: none !important;
+  transition: border-color 0.1s ease, background 0.1s ease !important;
+}
+
+textarea:not(.tpl-song-input-layer):focus {
+  border-color: var(--accent-warm, #e8945c) !important;
+  background: #1a1a22 !important;
+  box-shadow: 0 0 0 1px rgba(232, 148, 92, 0.2) !important;
+}
+
+select {
+  -webkit-appearance: none;
+  appearance: none;
+  font-family: inherit;
+  font-size: 0.72rem !important;
+  padding: 0.28rem 1.5rem 0.28rem 0.55rem !important;
+  background: #14141a !important;
+  border: 1px solid #2a2a32 !important;
+  border-radius: 4px !important;
+  color: var(--text, #e8e8ea) !important;
+  outline: none !important;
+  cursor: pointer !important;
+  transition: border-color 0.1s ease, background 0.1s ease !important;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a8a92' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 0.5rem center !important;
+  background-size: 0.75rem !important;
+}
+
+select:hover {
+  border-color: #3e3e4a !important;
+  background-color: #1a1a22 !important;
+}
+
+select:focus {
+  border-color: var(--accent-warm, #e8945c) !important;
+  background-color: #1a1a22 !important;
+  box-shadow: 0 0 0 1px rgba(232, 148, 92, 0.2) !important;
+}
+
+input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 0.85rem !important;
+  height: 0.85rem !important;
+  background: #14141a !important;
+  border: 1px solid #2a2a32 !important;
+  border-radius: 3px !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: background 0.1s ease, border-color 0.1s ease !important;
+  vertical-align: middle !important;
+  margin: 0 0.35rem 0 0 !important;
+}
+
+input[type="checkbox"]:hover {
+  border-color: #3e3e4a !important;
+  background: #1a1a22 !important;
+}
+
+input[type="checkbox"]:focus {
+  outline: none !important;
+  border-color: var(--accent-warm, #e8945c) !important;
+  box-shadow: 0 0 0 1px rgba(232, 148, 92, 0.2) !important;
+}
+
+input[type="checkbox"]:checked {
+  background: var(--accent-warm, #e8945c) !important;
+  border-color: var(--accent-warm, #e8945c) !important;
+}
+
+input[type="checkbox"]:checked::after {
+  content: "✓" !important;
+  color: #0b0b0e !important;
+  font-size: 0.65rem !important;
+  font-weight: 900 !important;
+}
+
+input[type="radio"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 0.85rem !important;
+  height: 0.85rem !important;
+  background: #14141a !important;
+  border: 1px solid #2a2a32 !important;
+  border-radius: 50% !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: background 0.1s ease, border-color 0.1s ease !important;
+  vertical-align: middle !important;
+  margin: 0 0.35rem 0 0 !important;
+}
+
+input[type="radio"]:hover {
+  border-color: #3e3e4a !important;
+  background: #1a1a22 !important;
+}
+
+input[type="radio"]:focus {
+  outline: none !important;
+  border-color: var(--accent-warm, #e8945c) !important;
+  box-shadow: 0 0 0 1px rgba(232, 148, 92, 0.2) !important;
+}
+
+input[type="radio"]:checked {
+  border-color: var(--accent-warm, #e8945c) !important;
+}
+
+input[type="radio"]:checked::after {
+  content: "" !important;
+  width: 0.35rem !important;
+  height: 0.35rem !important;
+  background: var(--accent-warm, #e8945c) !important;
+  border-radius: 50% !important;
+}
+
+/* Range sliders thumb interactions */
+input[type="range"]::-webkit-slider-thumb:hover {
+  background: var(--accent-warm, #e8945c) !important;
+  box-shadow: 0 0 0 2px rgba(232, 148, 92, 0.45) !important;
+}
+input[type="range"]::-webkit-slider-thumb:active {
+  background: var(--accent-warm, #e8945c) !important;
+  transform: scale(1.1) !important;
+}
+input[type="range"]::-moz-range-thumb:hover {
+  background: var(--accent-warm, #e8945c) !important;
+}
+input[type="range"]::-moz-range-thumb:active {
+  background: var(--accent-warm, #e8945c) !important;
+  transform: scale(1.1) !important;
+}
+
+/* Inline track/instrument name editor styling */
+input[type="text"].instr-name-input {
+  background: transparent !important;
+  border: none !important;
+  color: #fff !important;
+  font-size: 0.68rem !important;
+  font-weight: 700 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  width: 90px !important;
+  font-family: inherit !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.08em !important;
+  outline: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+input[type="text"].instr-name-input:hover {
+  background: transparent !important;
+  border: none !important;
+  text-decoration: underline !important;
+  box-shadow: none !important;
+}
+input[type="text"].instr-name-input:focus {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid var(--accent-warm, #e8945c) !important;
+  outline: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+/* Credit + Docs link under the Deckard logo in the top bar. */
+.logo-col { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; }
+.made-by-credit {
+  font-size: 9px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--muted, #55555e);
+  opacity: 0.7;
+  user-select: none;
+  white-space: nowrap;
+}
+.made-by-credit:hover { opacity: 1; }
+.made-by-credit a { color: inherit; text-decoration: none; }
+.made-by-credit a:hover { color: var(--accent, #e8945c); text-decoration: underline; }
+.made-by-credit a.docs-link { color: var(--mint, #7cff7c); }
+.made-by-credit a.docs-link:hover { color: var(--mint, #7cff7c); text-decoration: underline; }
+.made-by-sep { opacity: 0.6; }
+
+/* Deck-cycler chip is non-interactive in a co-DJ session (deck↔player mapping is fixed) */
+.sg-deck-chip-locked { opacity: 0.45; cursor: not-allowed; filter: grayscale(0.4); }
+
+/* Host "leave or merge decks" inline prompt in the Co-DJ panel */
+.codj-deck-prompt {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--accent-warm, #e8945c);
+  border-radius: 4px;
+  background: rgba(232, 148, 92, 0.08);
+}
+.codj-deck-prompt-msg { font-size: 11px; color: var(--text, #cccccc); line-height: 1.35; margin-bottom: 7px; }
+.codj-deck-prompt-btns { display: flex; gap: 6px; }
+.btn-codj-primary { background: var(--accent-warm, #e8945c); color: #111111; border-color: var(--accent-warm, #e8945c); font-weight: 600; }
+
+/* Per-track load (folder dropdown) icon in the sequencer row tool group — sized to match the .sg-tog icons */
+.sg-track-load { width: 17px; min-width: 17px; height: 17px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.sg-track-load .ik-sel-label { padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.sg-track-load .ik-sel-arrow { display: none; }
+
+/* Per-track row tools (sequencer rows only) wrap into 2 rows instead of one long strip */
+.sg-row .sg-gutter-ctl { flex-wrap: wrap; max-width: 80px; row-gap: 3px; }
+
+/* Session "Stop all clips" is now a compact square stop icon (was a wide text button) */
+.btn-session-stop-all { padding: 0; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.62rem; }
+
+/* Fullscreen toggle — pinned to the very top-right corner of the app */
+.daw-fullscreen-btn { position: absolute; top: 7px; right: 8px; z-index: 60;
+  display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;
+  background: #14141a; border: 1px solid #2a2a32; border-radius: 5px; color: var(--muted); cursor: pointer; }
+.daw-fullscreen-btn:hover { color: var(--text); border-color: #3a3a44; }
+
+/* SOUND-module knobs sat 3px lower than PITCH's — .instr-grid-container .ik-card forces a 3px top pad (!important)
+   that the PITCH knobs (not in an ik-card) lack. Override it for the sound params so the two columns align. */
+.instr-params-wrap .gen-params .ik-card { padding-top: 0 !important; }

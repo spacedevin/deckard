@@ -1,0 +1,98 @@
+// Booths: everyone in the room, each in their deck colour, with one-click peeks (a decks / sequencer /
+// instruments panel pointed at that performer). Solo, the four local decks are the booths.
+
+import { channelDeck } from '../../model/DeckRouting.tish'
+import { peerDeckMap, peerHue } from '../../workspace/Panels.tish'
+
+fn rosterEntry(roster, id) {
+  let i = 0
+  while (i < roster.length) {
+    if (roster[i] && String(roster[i].actorId) === String(id)) {
+      return roster[i]
+    }
+    i = i + 1
+  }
+  return null
+}
+
+fn deckTrackCount(project, letter) {
+  let n = 0
+  let chs = project && project.channels ? project.channels : []
+  let i = 0
+  while (i < chs.length) {
+    if (channelDeck(project, chs[i]) === letter) {
+      n = n + 1
+    }
+    i = i + 1
+  }
+  return n
+}
+
+fn peekButtons(sh, lens, who) {
+  return (
+    <div class="bp-peeks">
+      <button type="button" class="bp-peek" title={"Open a Decks panel on " + who} onclick={() => sh.run("panel.open", { type: "decks", lens: lens })}>{"◉ Deck"}</button>
+      <button type="button" class="bp-peek" title={"Open a Sequencer on " + who} onclick={() => sh.run("panel.open", { type: "sequencer", lens: lens })}>{"▦ Steps"}</button>
+      <button type="button" class="bp-peek" title={"Open Instruments on " + who} onclick={() => sh.run("panel.open", { type: "instruments", lens: lens })}>{"♒ Rack"}</button>
+    </div>
+  )
+}
+
+export fn BoothsPanel(pc, sh) {
+  let rt = pc.rt
+  let project = pc.project
+  let actors = rt && Array.isArray(rt.coDjActors) ? rt.coDjActors : []
+  let roster = rt && Array.isArray(rt.coDjRoster) ? rt.coDjRoster : []
+  let host = rt && rt.coDjHostActorId !== null && rt.coDjHostActorId !== undefined ? String(rt.coDjHostActorId) : null
+  let self = rt && rt.coDjActorId ? String(rt.coDjActorId) : null
+  if (actors.length === 0) {
+    let letters = ["A", "B", "C", "D"]
+    return (
+      <div class="bp">
+        <p class="bp-note">{"Solo session — your four decks are the booths. Connect in Co-DJ to see other performers here."}</p>
+        <ul class="bp-list">
+          {letters.map((d) => (
+            <li class={"bp-booth bp-deck-" + d.toLowerCase()}>
+              <span class="bp-swatch">{d}</span>
+              <span class="bp-name">{"Deck " + d}</span>
+              <span class="bp-meta">{String(deckTrackCount(project, d)) + " tracks"}</span>
+              {peekButtons(sh, { kind: "deck", ref: d, pinned: true }, "deck " + d)}
+            </li>
+          ))}
+        </ul>
+        <button type="button" class="bp-connect" onclick={() => sh.run("panel.open", { type: "codj", lens: null })}>{"Open Co-DJ to connect"}</button>
+      </div>
+    )
+  }
+  let map = peerDeckMap(host, actors)
+  let ids = Object.keys(map)
+  return (
+    <div class="bp">
+      <ul class="bp-list">
+        {ids.map((id) => {
+          let e = rosterEntry(roster, id)
+          let name = e !== null && e.displayName ? String(e.displayName) : id
+          let d = map[id]
+          let tags = []
+          if (id === host) {
+            tags.push("host")
+          }
+          if (id === self) {
+            tags.push("you")
+          }
+          if (e !== null && e.kind === "agent") {
+            tags.push("AI")
+          }
+          return (
+            <li class={"bp-booth bp-deck-" + d.toLowerCase()} style={{ "--peer-hue": String(peerHue(id)) }}>
+              <span class="bp-swatch">{d}</span>
+              <span class="bp-name">{name}</span>
+              <span class="bp-meta">{tags.join(" · ") + (tags.length > 0 ? " · " : "") + String(deckTrackCount(project, d)) + " tracks"}</span>
+              {peekButtons(sh, { kind: "peer", ref: id, pinned: true }, name)}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
