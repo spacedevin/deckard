@@ -1,7 +1,7 @@
 import { ImageResponse } from "@vercel/og"
 import type { ReactNode } from "react"
 
-export const config = { runtime: "edge" }
+// Node.js runtime (the default on Vercel; Edge is deprecated).
 
 const W = 1200
 const H = 630
@@ -265,7 +265,7 @@ async function loadFont(): Promise<ArrayBuffer | null> {
   }
 }
 
-export default async function handler(req: Request): Promise<Response> {
+export async function GET(req: Request): Promise<Response> {
   const { searchParams } = new URL(req.url)
   const title = searchParams.get("title") ?? "Deckard"
   const description =
