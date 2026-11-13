@@ -1,0 +1,247 @@
+// "Log in with Hypery" in the browser: PKCE popup (redirect fallback), session storage, silent refresh.
+// The callback page is public/auth/callback.html — it hands {code,state} back to the opener (postMessage) or, with
+// no opener (popup blocked → full redirect), returns to the app with ?hypery_code=…&hypery_state=… which
+// hyperyHandleRedirectReturn() finishes on boot.
+
+import { hyperyConfig, hyperyExchangeCode, hyperyRefresh, hyperyUserInfo, hyperyTokenFresh, hyperyTeams } from './Hypery.tish'
+
+let SESSION_KEY = "deckard.hypery.session"
+let PENDING_KEY = "deckard.hypery.pkce"
+let TEAM_KEY = "deckard.hypery.team"
+
+fn store() {
+  let ls = globalThis.localStorage
+  return ls ? ls : null
+}
+
+fn readJson(key) {
+  let s = store()
+  if (s === null) {
+    return null
+  }
+  let raw = s.getItem(key)
+  if (!raw) {
+    return null
+  }
+  try {
+    return JSON.parse(raw)
+  } catch (e) {
+    return null
+  }
+}
+
+fn writeJson(key, v) {
+  let s = store()
+  if (s === null) {
+    return
+  }
+  if (v === null) {
+    s.removeItem(key)
+  } else {
+    s.setItem(key, JSON.stringify(v))
+  }
+}
+
+/** Deckard's browser OAuth config: a page can override the client id / gateway via globalThis.DECKARD_HYPERY. */
+export fn browserHyperyConfig() {
+  let o = globalThis.DECKARD_HYPERY ? globalThis.DECKARD_HYPERY : {}
+  return hyperyConfig(o)
+}
+
+fn redirectUri() {
+  let loc = globalThis.location
+  return loc.origin + "/auth/callback.html"
+}
+
+fn randomHex(n) {
+  let a = new Uint8Array(n)
+  globalThis.crypto.getRandomValues(a)
+  let s = ""
+  let i = 0
+  while (i < a.length) {
+    let h = a[i].toString(16)
+    s = s + (h.length < 2 ? "0" + h : h)
+    i = i + 1
+  }
+  return s
+}
+
+async fn pkceChallenge(verifier) {
+  let data = new TextEncoder().encode(verifier)
+  let hash = await globalThis.crypto.subtle.digest("SHA-256", data)
+  let bytes = new Uint8Array(hash)
+  let bin = ""
+  let i = 0
+  while (i < bytes.length) {
+    bin = bin + String.fromCharCode(bytes[i])
+    i = i + 1
+  }
+  return btoa(bin).split("+").join("-").split("/").join("_").split("=").join("")
+}
+
+/** The stored session { accessToken, refreshToken, expiresAt, user: {id,name,email} } or null. */
+export fn hyperyBrowserSession() {
+  return readJson(SESSION_KEY)
+}
+
+/** The Hypery team that pays for agent model calls (null = the user's personal team). */
+export fn hyperyBrowserTeam() {
+  let s = store()
+  let v = s !== null ? s.getItem(TEAM_KEY) : null
+  return v && v.length > 0 ? v : null
+}
+
+export fn setHyperyBrowserTeam(teamId) {
+  let s = store()
+  if (s === null) {
+    return
+  }
+  if (teamId && String(teamId).trim().length > 0) {
+    s.setItem(TEAM_KEY, String(teamId).trim())
+  } else {
+    s.removeItem(TEAM_KEY)
+  }
+}
+
+export fn hyperyLogout() {
+  writeJson(SESSION_KEY, null)
+  teamsState = { data: null, error: null, loading: false }
+}
+
+let teamsState = { data: null, error: null, loading: false }
+
+/** Team-list state for the UI: { data: { activeTeamId, teams } | null, error: string | null, loading }. */
+export fn hyperyBrowserTeamsState() {
+  return teamsState
+}
+
+/** Fetch (and cache) the signed-in user's Hypery teams; failures land in hyperyBrowserTeamsState().error. */
+export async fn loadHyperyBrowserTeams() {
+  teamsState = { data: teamsState.data, error: null, loading: true }
+  try {
+    let token = await hyperyBrowserAccessToken()
+    if (token === null) {
+      throw new Error("Hypery session expired, sign in again")
+    }
+    teamsState = { data: await hyperyTeams(browserHyperyConfig(), token), error: null, loading: false }
+  } catch (e) {
+    teamsState = { data: teamsState.data, error: String(e && e.message ? e.message : e), loading: false }
+  }
+  return teamsState
+}
+
+async fn finishLogin(cfg, code, state) {
+  let pending = readJson(PENDING_KEY)
+  if (pending === null || pending.state !== state) {
+    throw new Error("Hypery sign-in state mismatch — try again")
+  }
+  writeJson(PENDING_KEY, null)
+  let tokens = await hyperyExchangeCode(cfg, code, pending.verifier, pending.redirectUri)
+  let user = await hyperyUserInfo(cfg, tokens.accessToken)
+  let session = { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, expiresAt: tokens.expiresAt, scope: tokens.scope, user: user }
+  writeJson(SESSION_KEY, session)
+  return session
+}
+
+/**
+ * Open the Hypery consent popup and resolve with the new session. If the popup is blocked the page navigates to
+ * Hypery instead (the app finishes the login on return via hyperyHandleRedirectReturn) and this never resolves.
+ */
+export async fn hyperyLoginPopup() {
+  let cfg = browserHyperyConfig()
+  let verifier = randomHex(32)
+  let state = randomHex(16)
+  let challenge = await pkceChallenge(verifier)
+  let ru = redirectUri()
+  writeJson(PENDING_KEY, { verifier: verifier, state: state, redirectUri: ru })
+  let q = "client_id=" + encodeURIComponent(cfg.clientId) +
+    "&response_type=code" +
+    "&redirect_uri=" + encodeURIComponent(ru) +
+    "&scope=" + encodeURIComponent(cfg.scopes.join(" ")) +
+    "&code_challenge=" + encodeURIComponent(challenge) +
+    "&code_challenge_method=S256" +
+    "&state=" + encodeURIComponent(state)
+  let url = cfg.gatewayUrl + "/api/oauth/authorize?" + q
+  let w = 520
+  let h = 680
+  let left = Math.max(0, Math.floor((globalThis.screen.width - w) / 2))
+  let top = Math.max(0, Math.floor((globalThis.screen.height - h) / 2))
+  let popup = globalThis.open(url, "hypery-login", "width=" + String(w) + ",height=" + String(h) + ",left=" + String(left) + ",top=" + String(top))
+  if (!popup) {
+    globalThis.location.href = url
+    return new Promise((resolve) => {})
+  }
+  return new Promise((resolve, reject) => {
+    let done = false
+    fn onMsg(ev) {
+      let d = ev.data
+      if (ev.origin !== globalThis.location.origin || d === null || typeof d !== "object" || d.type !== "hypery:auth") {
+        return
+      }
+      done = true
+      globalThis.removeEventListener("message", onMsg)
+      if (d.error) {
+        reject(new Error(String(d.error)))
+        return
+      }
+      finishLogin(cfg, String(d.code), String(d.state)).then(resolve, reject)
+    }
+    globalThis.addEventListener("message", onMsg)
+    let iv = setInterval(() => {
+      if (done) {
+        clearInterval(iv)
+      } else if (popup.closed) {
+        clearInterval(iv)
+        globalThis.removeEventListener("message", onMsg)
+        reject(new Error("sign-in window closed"))
+      }
+    }, 600)
+  })
+}
+
+/** On boot: finish a redirect-mode login (?hypery_code=…&hypery_state=…). Resolves with the session or null. */
+export async fn hyperyHandleRedirectReturn() {
+  let loc = globalThis.location
+  if (!loc || !loc.search || loc.search.indexOf("hypery_code=") < 0) {
+    return null
+  }
+  let params = new URLSearchParams(loc.search)
+  let code = params.get("hypery_code")
+  let state = params.get("hypery_state")
+  params.delete("hypery_code")
+  params.delete("hypery_state")
+  let rest = params.toString()
+  globalThis.history.replaceState(null, "", loc.pathname + (rest.length > 0 ? "?" + rest : "") + loc.hash)
+  try {
+    return await finishLogin(browserHyperyConfig(), String(code), String(state))
+  } catch (e) {
+    console.warn("[hypery] redirect sign-in failed:", e)
+    return null
+  }
+}
+
+/** A valid access token (refreshing when within 5 min of expiry), or null when signed out / the grant is gone. */
+export async fn hyperyBrowserAccessToken() {
+  let s = hyperyBrowserSession()
+  if (s === null) {
+    return null
+  }
+  if (hyperyTokenFresh(s, 300000)) {
+    return s.accessToken
+  }
+  if (!s.refreshToken) {
+    hyperyLogout()
+    return null
+  }
+  try {
+    let t = await hyperyRefresh(browserHyperyConfig(), s.refreshToken)
+    s.accessToken = t.accessToken
+    s.refreshToken = t.refreshToken ? t.refreshToken : s.refreshToken
+    s.expiresAt = t.expiresAt
+    writeJson(SESSION_KEY, s)
+    return s.accessToken
+  } catch (e) {
+    hyperyLogout()
+    return null
+  }
+}

@@ -19,10 +19,12 @@ Deckard is the product. **deck** is the language (`.deck` files, header `deck 1`
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): Vision, subsystems, end-to-end path
 - [`@spacedevin/deck` grammar](node_modules/@spacedevin/deck/docs/DECK_GRAMMAR.md): Canonical streamable patch language
 - [docs/DECK_GRAMMAR.md](docs/DECK_GRAMMAR.md): Deckard overlay (UI, ownership, clamps, generator spellings)
-- [docs/DECK_AGENT_GRAMMAR.md](docs/DECK_AGENT_GRAMMAR.md): Co-DJ lane subset (lockstep with worker SYSTEM_PROMPT)
+- [docs/DECK_AGENT_GRAMMAR.md](docs/DECK_AGENT_GRAMMAR.md): Co-DJ lane subset (baked into the agent prompt)
 - [docs/DECK_EXTENSION.md](docs/DECK_EXTENSION.md): Deckard `gen_block` patch / matrix engines
 - [docs/WS_AND_AGENTS.md](docs/WS_AND_AGENTS.md): Gateway, actors, streaming
 - [docs/STREAM_PROTOCOL.md](docs/STREAM_PROTOCOL.md): Envelope, scheduling, control
+- [docs/CODJ_API.md](docs/CODJ_API.md): Co-DJ scripts — the `codj.*` API, LLM/MCP tools, browser/CLI hosts (generated from the registry)
+- [public/codj.d.ts](public/codj.d.ts): Co-DJ script API types
 - [docs/DJ_SKILLS.md](docs/DJ_SKILLS.md): Skill gating / master-scope denylist
 - [skills/README.md](skills/README.md): Host/client roles and skill file format
 - [docs/GENERATORS.md](docs/GENERATORS.md): Adding instrument modules
@@ -35,7 +37,10 @@ Deckard is the product. **deck** is the language (`.deck` files, header `deck 1`
 - [DeckIds.tish](https://github.com/spacedevin/deck/blob/main/packages/synths/src/DeckIds.tish): Host registry boot
 - [https://github.com/spacedevin/deck/tree/main/packages/synths/src/](https://github.com/spacedevin/deck/tree/main/packages/synths/src/): Instrument registry and modules
 - [src/codj/](src/codj/): Merge, Skills, DeckJoin, Launch
-- [services/agent-worker/main.tish](services/agent-worker/main.tish): LLM co-DJ worker
+- [src/agentkit/](src/agentkit/): Co-DJ runtime (mirror, gated writes, command registry, script host, Hypery agent loop)
+- [services/codj-runner/main.tish](services/codj-runner/main.tish): `codj` CLI — Hypery login, run a co-DJ script / agent
+- [services/mcp/README.md](services/mcp/README.md): MCP server — the same co-DJ peer for external agents
+- [examples/codj/](examples/codj/): Example co-DJ scripts
 - [services/gateway/main.tish](services/gateway/main.tish): WebSocket hub
 - [projects/default.deckard.deck](projects/default.deckard.deck): Bundled demo song
 - [content/docs/](content/docs/): Sources for the published https://deckard.lol/docs site

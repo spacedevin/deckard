@@ -1,0 +1,519 @@
+// The creative director of an AI co-DJ: a second model that never writes code. Before a pass it reads the room,
+// the set so far and its persona, draws constraint cards, and answers with a brief (what the music should do next
+// and why). The producer — the tool-calling agent in Agent.tish — carries the brief out with the codj API.
+// Cards live in skills/_personas.md, skills/_constraints.md and skills/_idioms.md (bundled into PromptAssets).
+
+import { promptAssets } from './PromptAssets.tish'
+
+fn hashStr(s) {
+  let h = 2166136261
+  let str = String(s)
+  let i = 0
+  while (i < str.length) {
+    h = Math.imul(h ^ str.charCodeAt(i), 16777619) >>> 0
+    i = i + 1
+  }
+  return h
+}
+
+fn stripFrontmatter(md) {
+  let s = String(md !== null && md !== undefined ? md : "")
+  if (s.indexOf("---") === 0) {
+    let end = s.indexOf("\n---", 3)
+    if (end > 0) {
+      return s.substring(end + 4).trim()
+    }
+  }
+  return s.trim()
+}
+
+/** `## id: Title` sections of a card file → [{ id, title, body }]. The text before the first card is skipped. */
+export fn parseCards(md) {
+  let chunks = ("\n" + stripFrontmatter(md)).split("\n## ")
+  let out = []
+  let i = 1
+  while (i < chunks.length) {
+    let c = chunks[i]
+    let nl = c.indexOf("\n")
+    let head = (nl >= 0 ? c.substring(0, nl) : c).trim()
+    let body = nl >= 0 ? c.substring(nl + 1).trim() : ""
+    let colon = head.indexOf(":")
+    let id = (colon >= 0 ? head.substring(0, colon) : head).trim()
+    let title = colon >= 0 ? head.substring(colon + 1).trim() : id
+    if (id.length > 0) {
+      out.push({ id: id, title: title, body: body })
+    }
+    i = i + 1
+  }
+  return out
+}
+
+fn assetCards(assets, key) {
+  let a = assets ? assets : promptAssets()
+  return a.skills && a.skills[key] ? parseCards(a.skills[key]) : []
+}
+
+export fn personaCards(assets) {
+  return assetCards(assets, "_personas")
+}
+
+export fn constraintCards(assets) {
+  return assetCards(assets, "_constraints")
+}
+
+export fn idiomCards(assets) {
+  return assetCards(assets, "_idioms")
+}
+
+/** The persona for an agent: a named one if `id` matches, otherwise seeded by actorId (stable for that agent). */
+export fn personaFor(actorId, assets, id) {
+  let all = personaCards(assets)
+  if (all.length === 0) {
+    return { id: "dj", title: "The DJ", body: "" }
+  }
+  if (id) {
+    let named = all.find((p) => p.id === String(id))
+    if (named) {
+      return named
+    }
+  }
+  return all[hashStr(actorId) % all.length]
+}
+
+/** n constraint cards, none of the ids in `avoid`. `rand` is () => [0, 1). */
+export fn drawConstraints(cards, n, avoid, rand) {
+  let r = rand ? rand : () => Math.random()
+  let pool = cards.filter((c) => !Array.isArray(avoid) || avoid.indexOf(c.id) < 0)
+  if (pool.length < n) {
+    pool = cards.slice()
+  }
+  let out = []
+  while (out.length < n && pool.length > 0) {
+    let k = Math.floor(r() * pool.length)
+    out.push(pool[k])
+    pool.splice(k, 1)
+  }
+  return out
+}
+
+fn jaccard(a, b) {
+  if (a.length === 0 && b.length === 0) {
+    return 0
+  }
+  let both = a.filter((x) => b.indexOf(x) >= 0).length
+  let either = a.length + b.length - both
+  return either > 0 ? both / either : 0
+}
+
+fn isChapter(e) {
+  return e.kind === "start" || e.kind === "message" || e.kind === "prepare"
+}
+
+/**
+ * What the set is repeating, read from the memory (entries {bar, kind, move, deck, bpm, gens, title, cards}).
+ * Plain sentences for the director and check_my_work; empty when the set is moving.
+ */
+export fn noveltyNotes(memory, nowBar) {
+  let m = Array.isArray(memory) ? memory : []
+  let notes = []
+  if (m.length === 0) {
+    return notes
+  }
+  let last = m[m.length - 1]
+  let gens = Array.isArray(last.gens) ? last.gens : []
+  if (gens.length >= 3) {
+    let i = m.length - 2
+    while (i >= 0) {
+      let e = m[i]
+      let eg = Array.isArray(e.gens) ? e.gens : []
+      if (isChapter(e) && (e.deck !== last.deck || nowBar - e.bar >= 64) && jaccard(gens, eg) >= 0.8) {
+        notes.push("The instruments now (" + gens.join(", ") + ") are nearly the ones from " + (e.title ? "'" + e.title + "'" : "the chapter") + " at bar " + String(e.bar) + ". Change the palette, not only the notes.")
+        i = -1
+      }
+      i = i - 1
+    }
+  }
+  let bpms = m.filter((e) => typeof e.bpm === "number").map((e) => ({ bar: e.bar, bpm: e.bpm }))
+  if (bpms.length >= 3) {
+    let first = bpms[0]
+    let flat = bpms.every((e) => Math.abs(e.bpm - first.bpm) <= 1)
+    if (flat && nowBar - first.bar >= 96) {
+      notes.push("The tempo has sat at " + String(Math.round(first.bpm)) + " bpm since bar " + String(first.bar) + ". A new chapter could travel (halftime feel, or 8+ bpm away).")
+    }
+  }
+  let moves = m.filter((e) => e.move).map((e) => e.move)
+  if (moves.length >= 3 && moves[moves.length - 1] === moves[moves.length - 2] && moves[moves.length - 2] === moves[moves.length - 3]) {
+    notes.push("The last three moves were all '" + moves[moves.length - 1] + "'. Do something of a different kind.")
+  }
+  let chapters = m.filter(isChapter)
+  let lastChapter = chapters.length > 0 ? chapters[chapters.length - 1] : null
+  if (lastChapter !== null && nowBar - lastChapter.bar >= 128) {
+    notes.push("The same chapter has run since bar " + String(lastChapter.bar) + (lastChapter.title ? " ('" + lastChapter.title + "')" : "") + ". A new chapter or a big change is due.")
+  }
+  let recentCards = []
+  m.slice(-4, -1).forEach((e) => {
+    (Array.isArray(e.cards) ? e.cards : []).forEach((c) => recentCards.push(c))
+  })
+  let repeated = (Array.isArray(last.cards) ? last.cards : []).filter((c) => recentCards.indexOf(c) >= 0)
+  if (repeated.length > 0) {
+    notes.push("The constraint '" + repeated[0] + "' was just used. Draw a different one.")
+  }
+  return notes
+}
+
+/** Pairs of decks whose instruments are nearly the same set: [{a, b, shared}] (each deck needs 4+ instruments). */
+export fn paletteClones(gensByDeck) {
+  let decks = Object.keys(gensByDeck).sort()
+  let out = []
+  let i = 0
+  while (i < decks.length) {
+    let j = i + 1
+    while (j < decks.length) {
+      let a = gensByDeck[decks[i]]
+      let b = gensByDeck[decks[j]]
+      if (a.length >= 4 && b.length >= 4 && jaccard(a, b) >= 0.85) {
+        out.push({ a: decks[i], b: decks[j], shared: a.filter((x) => b.indexOf(x) >= 0) })
+      }
+      j = j + 1
+    }
+    i = i + 1
+  }
+  return out
+}
+
+fn str(v) {
+  return v === null || v === undefined ? "" : String(v).trim()
+}
+
+fn strList(v, max) {
+  if (!Array.isArray(v)) {
+    return typeof v === "string" && v.trim().length > 0 ? [v.trim()] : []
+  }
+  return v.map((x) => typeof x === "string" ? x.trim() : (x !== null && typeof x === "object" ? JSON.stringify(x) : String(x))).filter((x) => x.length > 0).slice(0, max)
+}
+
+fn intIn(v, lo, hi) {
+  let n = Number(v)
+  if (v === null || v === undefined || n !== n) {
+    return null
+  }
+  return Math.max(lo, Math.min(hi, Math.round(n)))
+}
+
+fn styleOf(v) {
+  let s = str(v).toLowerCase()
+  return s === "blend" || s === "cut" || s === "echo" ? s : ""
+}
+
+fn crateOf(v) {
+  if (!Array.isArray(v)) {
+    return []
+  }
+  return v.filter((c) => c !== null && typeof c === "object").slice(0, 3).map((c) => ({
+    kit: str(c.kit),
+    title: str(c.title).substring(0, 60),
+    bars: intIn(c.bars, 32, 256),
+    style: styleOf(c.style),
+    blendBars: intIn(c.blendBars, 4, 64),
+    why: str(c.why).substring(0, 160)
+  })).filter((c) => c.kit.length > 0)
+}
+
+fn blendOf(v) {
+  if (v === null || typeof v !== "object" || Array.isArray(v)) {
+    return null
+  }
+  return { at: intIn(v.at, 0, 100000), bars: intIn(v.bars, 4, 64), style: styleOf(v.style), length: intIn(v.length, 32, 256) }
+}
+
+/** The director's answer → a brief, or null when it holds no JSON object with an idea. */
+export fn parseBrief(text) {
+  let s = String(text !== null && text !== undefined ? text : "")
+  let start = s.indexOf("{")
+  let end = s.lastIndexOf("}")
+  if (start < 0 || end <= start) {
+    return null
+  }
+  let raw = null
+  try {
+    raw = JSON.parse(s.substring(start, end + 1))
+  } catch (e) {
+    return null
+  }
+  if (raw === null || typeof raw !== "object" || str(raw.idea).length === 0) {
+    return null
+  }
+  let energy = Number(raw.energy)
+  let bpm = Number(raw.bpm)
+  return {
+    title: str(raw.title).substring(0, 60),
+    move: str(raw.move),
+    idea: str(raw.idea),
+    why: str(raw.why),
+    style: str(raw.style),
+    kit: str(raw.kit),
+    palette: strList(raw.palette, 8),
+    key: str(raw.key),
+    bpm: bpm > 30 && bpm < 300 ? bpm : null,
+    signature: str(raw.signature),
+    cards: strList(raw.cards, 2),
+    steps: strList(raw.steps, 6),
+    avoid: strList(raw.avoid, 4),
+    energy: energy >= 0 && energy <= 1 ? energy : null,
+    arc: strList(raw.arc, 8),
+    blend: blendOf(raw.blend),
+    crate: crateOf(raw.crate)
+  }
+}
+
+/** The brief as the producer reads it, under its situation. */
+export fn briefBlock(brief, persona, cards) {
+  let lines = ["DIRECTOR'S BRIEF — the creative call for this pass" + (persona ? " (" + persona.title + ")" : "") + ". Carry it out with your tools so a listener hears the idea, the signature and the constraint. The room's rules, the cue and the self-check still hold; if a step is impossible, do the closest thing and say what you changed."]
+  let head = []
+  if (brief.title.length > 0) {
+    head.push("chapter: " + brief.title)
+  }
+  if (brief.style.length > 0) {
+    head.push("style: " + brief.style)
+  }
+  if (brief.energy !== null) {
+    head.push("energy: " + String(brief.energy))
+  }
+  if (brief.key.length > 0) {
+    head.push("key: " + brief.key)
+  }
+  if (brief.bpm !== null) {
+    head.push("bpm: " + String(brief.bpm))
+  }
+  if (head.length > 0) {
+    lines.push("  " + head.join(" · "))
+  }
+  if (brief.move.length > 0) {
+    lines.push("  move: " + brief.move)
+  }
+  lines.push("  idea: " + brief.idea)
+  if (brief.why.length > 0) {
+    lines.push("  why now: " + brief.why)
+  }
+  if (brief.signature.length > 0) {
+    lines.push("  signature: " + brief.signature)
+  }
+  if (brief.kit.length > 0) {
+    lines.push("  kit: " + brief.kit)
+  }
+  if (brief.palette.length > 0) {
+    lines.push("  palette: " + brief.palette.join(", "))
+  }
+  let all = Array.isArray(cards) ? cards : []
+  brief.cards.forEach((id) => {
+    let c = all.find((x) => x.id === id)
+    lines.push("  constraint: " + id + (c ? " — " + c.body.split("\n")[0] : ""))
+  })
+  if (brief.steps.length > 0) {
+    lines.push("  steps:")
+    brief.steps.forEach((s) => lines.push("    - " + s))
+  }
+  if (brief.avoid.length > 0) {
+    lines.push("  avoid:")
+    brief.avoid.forEach((s) => lines.push("    - " + s))
+  }
+  if (brief.blend !== null) {
+    let b = brief.blend
+    lines.push("  the mix in: " + (b.style.length > 0 ? b.style : "blend") + (b.bars !== null ? " over " + String(b.bars) + " bars" : "") + (b.at !== null ? " at bar " + String(b.at) : "") + (b.length !== null ? ", then it plays " + String(b.length) + " bars" : "") + " (already in book.next)")
+  }
+  if (brief.crate.length > 0) {
+    lines.push("  coming up after (already in book.crate): " + brief.crate.map((c) => (c.title.length > 0 ? c.title + " (" + c.kit + ")" : c.kit) + (c.why.length > 0 ? " — " + c.why : "")).join(" → "))
+  }
+  if (brief.arc.length > 0) {
+    lines.push("  the night's arc: " + brief.arc.join(" → "))
+  }
+  return lines.join("\n")
+}
+
+/** The director's system prompt: who it is, how it thinks about a set, and the style idioms it draws on. */
+export fn directorSystem(persona, role, assets) {
+  let a = assets ? assets : promptAssets()
+  let idioms = a.skills && a.skills["_idioms"] ? stripFrontmatter(a.skills["_idioms"]) : ""
+  return [
+    "You are the creative director inside an AI " + (role === "host" ? "DJ hosting a live set" : "co-DJ producing parts in a live set") + " in Deckard, a multiplayer DAW.",
+    "A producer model carries out your calls with code; you never write code. You decide what the music does next and why,",
+    "concretely enough that the producer can do it with tracks, short numbered clips, session scenes, instrument knobs,",
+    "filter rides, the mixer and the decks.",
+    "",
+    "## Your persona — " + persona.title,
+    persona.body,
+    "",
+    "## How you think about a set",
+    "- A set is a night, built incrementally: chapters (songs) on decks, each one a different place, joined by bridges.",
+    "  You are producer and DJ at once: write the next part, and decide when the room needs a change.",
+    "- One idea per chapter or move, and make it audible: a hook, a groove trick, a timbre that evolves, a surprise.",
+    "  Name the thing a listener would notice. 'Make it better' is not an idea.",
+    "- Contrast with what has been played. Read the set memory and the novelty notes; do not repeat a palette, a tempo",
+    "  feel or a kind of move the set just did. Bring back an earlier hook on purpose, not by accident.",
+    "- Space is a move. If the headphones say busy or cluttered, the idea removes or replaces; it never adds.",
+    "- Energy has an arc across the night: warm up, rise, peak briefly, release, then a new chapter somewhere else.",
+    "- Think two records ahead, like a DJ who already has the next track in the headphones. The next track is cued",
+    "  on another deck while the live one is young; you decide what it becomes, the bar it comes in on, and how",
+    "  (a long blend for two grooves at one tempo, a cut on the one or an echo-out for a jump in tempo or style, a",
+    "  short blend from a breakdown into an intro). Keep the crate one or two tracks deep, so the night has a road.",
+    "  Every pass, glance at what is coming: a move on the live deck can set up the next track (tease its hook, thin",
+    "  the low end before a bass swap, bring the energy to where the next one starts).",
+    "- Work from the room's library (kits per style, instruments, sequences), and say how to make it ours: a changed",
+    "  root, a knob that moves, a rhythm moved off the grid, an instrument in an unexpected job.",
+    "- Play the constraint cards you choose for real. Choose 0–2 of the cards offered, and only ones that fit.",
+    "",
+    "## Style idioms you can draw on",
+    idioms,
+    "",
+    "## Answer",
+    "Reply with ONE JSON object and nothing else:",
+    "{",
+    "  \"title\": \"2–5 word name for this chapter or move\",",
+    "  \"move\": \"(move passes) one id from the move menu\",",
+    "  \"idea\": \"one sentence: what the listener will notice\",",
+    "  \"why\": \"one sentence: why now, from the room, the memory and the arc\",",
+    "  \"style\": \"a style or a hybrid of two\",",
+    "  \"kit\": \"(new chapters) a library kit id, or empty\",",
+    "  \"palette\": [\"instrument gens or library ids for the parts that matter\"],",
+    "  \"key\": \"e.g. F minor (root 41), or empty to keep\",",
+    "  \"bpm\": null or a number (host only, new chapters),",
+    "  \"signature\": \"the one detail that makes it ours\",",
+    "  \"cards\": [\"0–2 constraint ids from the ones offered\"],",
+    "  \"steps\": [\"2–5 concrete steps for the producer: which track, which clip number, which knob, which bars\"],",
+    "  \"avoid\": [\"what not to do, from the memory and the headphones\"],",
+    "  \"energy\": 0.0–1.0,",
+    "  \"blend\": (next track) { \"at\": the bar it comes in on (a multiple of 8), \"bars\": 4–64, \"style\": \"blend\" | \"cut\" | \"echo\", \"length\": bars it plays once in },",
+    "  \"crate\": [ (opening, next track, crate moves) the 1–2 tracks after this one: { \"kit\": a library kit id, \"title\", \"bars\", \"style\", \"blendBars\", \"why\" } ],",
+    "  \"arc\": [\"(opening only) 4–6 chapter sketches for the night\"]",
+    "}"
+  ].join("\n")
+}
+
+/**
+ * The director's request. ctx: { role, trigger, clock, book, memory, novelty, cue, tracks, session, menu,
+ * suggested, kits, arc, chat }. kind: open | chapter | request | move.
+ */
+export fn directorRequest(kind, ctx, offered) {
+  let lines = []
+  let what = kind === "open"
+    ? "OPENING. The set starts now. Decide the first chapter and sketch the night's arc."
+    : (kind === "request"
+      ? "REQUEST. Someone in the room asked for something. Turn it into the next call, in your persona's way."
+      : (kind === "chapter"
+        ? "NEXT TRACK. The next track is cued, silent, on another deck (see decks in the set book). Decide what it becomes — a different place from the live one, with a bridge into it — the bar and the way it comes in (blend), and what follows it (crate)."
+        : "MOVE. The set has been running. Decide the one move to make now."))
+  lines.push(what)
+  if (ctx.trigger) {
+    lines.push("trigger: " + String(ctx.trigger))
+  }
+  if (ctx.clock) {
+    lines.push("clock: " + ctx.clock)
+  }
+  if (ctx.book && ctx.book.length > 0) {
+    lines.push(ctx.book)
+  }
+  if (ctx.arc && ctx.arc.length > 0) {
+    lines.push("the night's arc you sketched: " + ctx.arc.join(" → "))
+  }
+  let mem = Array.isArray(ctx.memory) ? ctx.memory.slice(-10) : []
+  if (mem.length > 0) {
+    lines.push("set memory (oldest → newest):")
+    mem.forEach((e) => {
+      lines.push("  bar " + String(e.bar) + " " + (e.move ? e.move : e.kind) + (e.title ? " '" + e.title + "'" : "") + (e.deck ? " deck " + e.deck : "") + (e.bpm ? " " + String(Math.round(e.bpm)) + " bpm" : "") + (Array.isArray(e.gens) && e.gens.length > 0 ? " [" + e.gens.join(", ") + "]" : "") + (e.idea ? " — " + e.idea : ""))
+    })
+  } else {
+    lines.push("set memory: nothing played yet.")
+  }
+  if (Array.isArray(ctx.novelty) && ctx.novelty.length > 0) {
+    lines.push("novelty notes:")
+    ctx.novelty.forEach((n) => lines.push("  - " + n))
+  }
+  lines.push("in the headphones: " + (ctx.cue ? ctx.cue : "nothing on cue"))
+  if (ctx.tracks && ctx.tracks.length > 0) {
+    lines.push("in the room:")
+    ctx.tracks.forEach((t) => lines.push("  " + t))
+  } else {
+    lines.push("in the room: no tracks yet")
+  }
+  if (ctx.session && ctx.session.length > 0) {
+    lines.push("session: " + ctx.session)
+  }
+  if (Array.isArray(ctx.chat) && ctx.chat.length > 0) {
+    lines.push("recent chat:")
+    ctx.chat.forEach((c) => lines.push("  " + c))
+  }
+  if (Array.isArray(ctx.menu) && ctx.menu.length > 0) {
+    lines.push("move menu (pick one id for \"move\"):")
+    ctx.menu.forEach((m) => lines.push("  " + m.id + " — " + m.text))
+    if (ctx.suggested) {
+      lines.push("the room's suggestion: " + ctx.suggested + " (take it only if it is the right call)")
+    }
+  }
+  if (Array.isArray(ctx.kits) && ctx.kits.length > 0) {
+    lines.push("library kits: " + ctx.kits.join(" "))
+  }
+  if (Array.isArray(offered) && offered.length > 0) {
+    lines.push("constraint cards offered (choose 0–2):")
+    offered.forEach((c) => lines.push("  " + c.id + " — " + c.body.split("\n")[0]))
+  }
+  lines.push("Answer with the JSON object only.")
+  return lines.join("\n")
+}
+
+/**
+ * opts: { callModel, role, actorId, persona? (id), assets?, log?, random? }
+ * Returns { persona, cards, direct(kind, ctx) → Promise<brief | null>, last(), arc() }.
+ */
+export fn createDirector(opts) {
+  let assets = opts.assets ? opts.assets : promptAssets()
+  let log = opts.log ? opts.log : (s) => {}
+  let persona = personaFor(opts.actorId, assets, opts.persona ? opts.persona : null)
+  let cards = constraintCards(assets)
+  let system = directorSystem(persona, opts.role, assets)
+  let last = null
+  let arc = []
+
+  async fn direct(kind, ctx) {
+    let recent = []
+    let mem = ctx && Array.isArray(ctx.memory) ? ctx.memory.slice(-3) : []
+    mem.forEach((e) => {
+      (Array.isArray(e.cards) ? e.cards : []).forEach((c) => recent.push(c))
+    })
+    let offered = drawConstraints(cards, 3, recent, opts.random ? opts.random : null)
+    let withArc = {}
+    Object.keys(ctx ? ctx : {}).forEach((k) => {
+      withArc[k] = ctx[k]
+    })
+    withArc.arc = arc
+    let messages = [
+      { role: "system", content: system },
+      { role: "user", content: directorRequest(kind, withArc, offered) }
+    ]
+    let turn = null
+    try {
+      turn = await opts.callModel(messages, null, null, null, null)
+    } catch (e) {
+      log("✖ director: " + (e && e.message ? String(e.message) : String(e)))
+      return null
+    }
+    let brief = parseBrief(turn && turn.text ? turn.text : "")
+    if (brief === null) {
+      log("✖ director: no brief in its answer")
+      return null
+    }
+    brief.cards = brief.cards.filter((id) => cards.some((c) => c.id === id))
+    if (brief.arc.length > 0) {
+      arc = brief.arc
+    }
+    last = brief
+    return brief
+  }
+
+  return {
+    persona: persona,
+    cards: cards,
+    direct: direct,
+    last: () => last,
+    arc: () => arc.slice()
+  }
+}

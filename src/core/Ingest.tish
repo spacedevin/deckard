@@ -158,6 +158,16 @@ export fn createIngest(store) {
       applyCoDjTplSource(p, "deck 1\n" + docSrc + "\n", actorId, authorId, perfStep, skillIds)
       syncActiveClipsInstrumentsFromChannels(p, store.runtime)
       echo(docSrc, "doc", c)
+      // Booth EQ/filter lives on deckEq until it is copied onto each channel. The on-screen knobs do that
+      // in commitDeckMix; an agent `deck_mix` line has to take the same path or the move is stored and unheard.
+      if (docSrc.indexOf("deck_mix ") >= 0 && store.runtime && store.runtime.reconcileDeckMix) {
+        store.runtime.reconcileDeckMix()
+      }
+      // remove_track splices channels out from under the index-keyed buses, so the starter loop would keep
+      // sounding on the old graph. Rebuild the buses whenever tracks actually leave.
+      if (docSrc.indexOf("remove_track ") >= 0 && store.runtime && store.runtime.resyncAudio) {
+        store.runtime.resyncAudio()
+      }
     }
 
     // Bump per-slice revision counters (in place — ref stays stable) so memo'd panels re-render only the

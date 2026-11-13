@@ -1,0 +1,419 @@
+// Page side of the browser AI co-DJs: spawns /codj-worker.js per co-DJ and connects it to the music.
+//
+//   • In a room (connected to the gateway): the worker joins the room itself over WebSocket with the user's Hypery
+//     token — the gateway binds it as this user's agent (`hy-…-agent-<name>`), exactly like a CLI co-DJ.
+//   • Solo (or before connecting): loopback — the page runs a LocalHost over its own fold (rt.ingestAs / onIngestOut)
+//     and the worker talks to it over postMessage with the same wire frames. Agent edits fold through the page's one
+//     gated ingest as the agent's actor, so they also stream to a room if one is connected later.
+//
+// Watchdog: the worker heartbeats every second; one silent for 6 s (a script stuck in a loop) is terminated and
+// respawned with its last script. Hypery tokens are re-sent every 4 minutes (the browser refreshes them).
+
+import { createLocalHost } from './LocalHost.tish'
+import { hyperyBrowserAccessToken, hyperyBrowserSession, hyperyBrowserTeam, setHyperyBrowserTeam, browserHyperyConfig } from '../auth/HyperyBrowser.tish'
+import { ensureCoDjMeta } from '../codj/CoDjMeta.tish'
+import { channelDeck } from '../model/DeckRouting.tish'
+
+let NAMES = ["Nova", "Rook", "Vex", "Juno", "Kite", "Moss", "Orbit", "Pixel", "Sable", "Tempo"]
+
+/** What a new script co-DJ starts with (examples/codj/hat-evolver.js), so adding one is heard straight away. */
+export fn starterCoDjScript() {
+  return [
+  "// A hat that evolves: offbeats, a busier pattern every other phrase, a fill on the last bar of every 8.",
+  "// Edit and press Apply script — hooks hot-reload on the next bar. API: /codj.d.ts",
+  "",
+  "const GROOVES = ['..x...x...x...x.', '..x.x.x...x.x.xx', 'x.x.x.x.x.x.x.x.']",
+  "const FILL = 'x.xxx.xxx.xxxxxx'",
+  "",
+  "export function setup(codj) {",
+  "  if (!codj.owned().length) {",
+  "    codj.state.hat = codj.addTrack({ name: 'Hat', gen: 'noise_burst', steps: GROOVES[0], gain: 0.55, pan: 0.2 }).id",
+  "  } else {",
+  "    codj.state.hat = codj.owned()[0]",
+  "  }",
+  "  codj.log('hat on', codj.state.hat)",
+  "}",
+  "",
+  "export function onBar(codj, ctx) {",
+  "  const phrase = Math.floor(ctx.bar / 8)",
+  "  const pattern = ctx.bar % 8 === 7 ? FILL : GROOVES[phrase % GROOVES.length]",
+  "  if (pattern !== codj.state.last) {",
+  "    codj.setSteps(codj.state.hat, pattern)",
+  "    codj.state.last = pattern",
+  "  }",
+  "}",
+  "",
+  "// Messages sent to this co-DJ (its card's box, or @Name in chat) land here.",
+  "export function onMessage(codj, ctx) {",
+  "  const m = ctx.message",
+  "  if (!m.toMe) return",
+  "  const t = m.text.toLowerCase()",
+  "  if (t.includes('drop') || t.includes('stop')) codj.state.muted = true",
+  "  else if (t.includes('back') || t.includes('start')) codj.state.muted = false",
+  "  else return codj.say(\"I'm a script co-DJ: I know 'drop' and 'back'. Teach me more in onMessage.\", m.from)",
+  "  codj.mix(codj.state.hat, { mute: !!codj.state.muted })",
+  "  codj.say(codj.state.muted ? 'hat out' : 'hat back in', m.from)",
+  "}",
+  ""
+  ].join("\n")
+}
+
+/** The tracks a co-DJ owns in `project`: [{ id, name, deck }] (deck = the A/B/C/D deck they play on). */
+export fn aiCoDjTracks(project, hd) {
+  if (!project || !Array.isArray(project.channels)) {
+    return []
+  }
+  ensureCoDjMeta(project)
+  let ids = [hd.id]
+  if (hd.status && hd.status.actorId) {
+    ids.push(String(hd.status.actorId))
+  }
+  let out = []
+  let i = 0
+  while (i < project.channels.length) {
+    let ch = project.channels[i]
+    let meta = project.coDjMeta.tracks[ch.id]
+    if (meta && meta.ownerActorId && ids.indexOf(String(meta.ownerActorId)) >= 0) {
+      out.push({ id: ch.id, name: ch.name ? String(ch.name) : ch.id, deck: channelDeck(project, ch) })
+    }
+    i = i + 1
+  }
+  return out
+}
+
+fn slugName(s) {
+  let lower = String(s).toLowerCase()
+  let out = ""
+  let i = 0
+  while (i < lower.length && out.length < 16) {
+    let c = lower.charAt(i)
+    out = out + (((c >= "a" && c <= "z") || (c >= "0" && c <= "9")) ? c : "-")
+    i = i + 1
+  }
+  return out
+}
+
+fn bump(rt) {
+  if (rt.coDjBumpUi) {
+    rt.coDjBumpUi()
+  }
+}
+
+fn pushChat(rt, from, to, text) {
+  if (!Array.isArray(rt.coDjChat)) {
+    rt.coDjChat = []
+  }
+  rt.coDjChat.push({ from: String(from), to: to !== null ? String(to) : null, text: String(text) })
+  if (rt.coDjChat.length > 60) {
+    rt.coDjChat.shift()
+  }
+  bump(rt)
+}
+
+/** Display name for a chat target id in the loopback room: "you" for the page's user, else the co-DJ's name. */
+fn loopName(rt, actorId) {
+  if (actorId === null) {
+    return null
+  }
+  if (actorId === rt.coDjLoopHostId) {
+    return "you"
+  }
+  let list = Array.isArray(rt.aiCoDjs) ? rt.aiCoDjs : []
+  let hit = list.filter((h) => h.id === actorId)
+  return hit.length > 0 ? hit[0].name : String(actorId)
+}
+
+/** The page's in-process loopback room (one per page, created on first use). */
+fn ensureLoopHost(rt) {
+  if (rt.coDjLoopHost) {
+    return rt.coDjLoopHost
+  }
+  let hostId = rt.coDjActorId ? String(rt.coDjActorId) : "human"
+  let host = createLocalHost({
+    hostActorId: hostId,
+    hostName: rt.coDjDisplayName ? rt.coDjDisplayName : "you",
+    getProject: () => rt.currentProject(),
+    ingest: (src, ctx) => rt.ingestAs(src, ctx),
+    onOut: (cb) => rt.onIngestOut(cb),
+    onChat: (c) => pushChat(rt, c.fromName, loopName(rt, c.to), c.text)
+  })
+  rt.coDjLoopHost = host
+  rt.coDjLoopHostId = hostId
+  rt.coDjLocalTick = (perfStep, bpm) => host.tick(perfStep, bpm)
+  return host
+}
+
+fn wsConnected(rt) {
+  return rt.coDjWs && rt.coDjWs.readyState === 1
+}
+
+/**
+ * Add an AI co-DJ. opts: { agent: bool (needs Hypery login), script?: string, model?, role?, name? }
+ * Returns the handle (also pushed onto rt.aiCoDjs): { id, name, mode, logs, script, status, alive, stop(), load(src), ask(text) }
+ */
+export async fn spawnAiCoDj(rt, opts) {
+  let o = opts !== null ? opts : {}
+  if (!Array.isArray(rt.aiCoDjs)) {
+    rt.aiCoDjs = []
+  }
+  let used = rt.aiCoDjs.map((h) => h.name)
+  let name = o.name ? String(o.name) : NAMES.filter((n) => used.indexOf(n) < 0)[0]
+  if (!name) {
+    name = "CoDJ" + String(rt.aiCoDjs.length + 1)
+  }
+  let token = o.agent === true || wsConnected(rt) ? await hyperyBrowserAccessToken() : null
+  if (o.agent === true && token === null) {
+    throw new Error("Log in with Hypery to add an AI co-DJ")
+  }
+  let mode = wsConnected(rt) && token !== null ? "ws" : "loopback"
+  let cfg = browserHyperyConfig()
+  let handle = {
+    id: "agent-" + slugName(name) + "-" + String(Math.floor(Math.random() * 46656)),
+    name: name,
+    mode: mode,
+    agent: o.agent === true,
+    logs: [],
+    script: o.script ? String(o.script) : (o.agent === true ? null : starterCoDjScript()),
+    lastError: null,
+    draft: null,
+    draftDirty: false,
+    status: null,
+    role: o.role === "host" ? "host" : "client",
+    alive: true,
+    lastBeat: Date.now(),
+    respawns: 0,
+    worker: null,
+    detach: null,
+    timers: []
+  }
+  let config = {
+    mode: mode,
+    wsUrl: rt.coDjWsUrl,
+    sessionId: rt.coDjSessionId ? rt.coDjSessionId : "default",
+    actorId: handle.id,
+    displayName: name,
+    role: o.role ? String(o.role) : "client",
+    agent: handle.agent,
+    model: o.model ? String(o.model) : (rt.coDjAiModel ? rt.coDjAiModel : null),
+    directorModel: o.directorModel ? String(o.directorModel) : (rt.coDjAiDirectorModel ? rt.coDjAiDirectorModel : null),
+    team: hyperyBrowserTeam(),
+    gatewayUrl: cfg.gatewayUrl,
+    token: token,
+    script: handle.script,
+    vendorUrl: "/vendor/hypery-agents.js"
+  }
+
+  fn pushLog(line) {
+    handle.logs.push(String(line))
+    if (handle.logs.length > 120) {
+      handle.logs.shift()
+    }
+  }
+
+  fn boot() {
+    let w = new Worker("/codj-worker.js")
+    handle.worker = w
+    handle.lastBeat = Date.now()
+    let frameSubs = []
+    if (mode === "loopback") {
+      let end = {
+        kind: "port",
+        send: (frame) => w.postMessage({ codj: frame }),
+        onMessage: (cb) => frameSubs.push(cb),
+        onOpen: (cb) => {},
+        onClose: (cb) => {},
+        close: () => {}
+      }
+      handle.detach = ensureLoopHost(rt).attach(end)
+    }
+    w.onmessage = (ev) => {
+      let m = ev.data
+      if (m === null || typeof m !== "object") {
+        return
+      }
+      if (m.codj !== null) {
+        let i = 0
+        while (i < frameSubs.length) {
+          frameSubs[i](m.codj)
+          i = i + 1
+        }
+        return
+      }
+      if (m.ctl === "beat" || m.ctl === "status") {
+        handle.lastBeat = Date.now()
+        let prev = handle.status
+        handle.status = m.status
+        let s = m.status
+        let changed = prev === null || s === null || prev.agentBusy !== s.agentBusy || prev.joined !== s.joined ||
+          (prev.clock && s.clock ? prev.clock.bar !== s.clock.bar || prev.clock.playing !== s.clock.playing : true)
+        if (m.ctl === "status" || changed) {
+          bump(rt)
+        }
+      } else if (m.ctl === "log") {
+        pushLog(m.line)
+        bump(rt)
+      } else if (m.ctl === "script") {
+        handle.script = m.source
+        if (!handle.draftDirty) {
+          handle.draft = m.source
+        }
+        bump(rt)
+      } else if (m.ctl === "loaded") {
+        pushLog(m.result && m.result.ok ? "✔ script applied" : "✖ script rejected: " + (m.result ? m.result.error : "?"))
+        bump(rt)
+      } else if (m.ctl === "activity") {
+        let e = m.entry
+        if (e && e.kind === "error") {
+          handle.lastError = String(e.error)
+        } else if (e && e.kind === "pass") {
+          handle.lastError = null
+        }
+        bump(rt)
+      }
+    }
+    w.onerror = (e) => {
+      pushLog("✖ worker error: " + String(e && e.message ? e.message : e))
+      bump(rt)
+    }
+    let c2 = Object.assign({}, config)
+    c2.script = handle.script
+    c2.team = hyperyBrowserTeam()
+    w.postMessage({ ctl: "init", config: c2 })
+  }
+
+  fn teardownWorker() {
+    if (handle.detach !== null) {
+      handle.detach()
+      handle.detach = null
+    }
+    if (handle.worker !== null) {
+      handle.worker.terminate()
+      handle.worker = null
+    }
+  }
+
+  boot()
+
+  handle.timers.push(setInterval(() => {
+    if (!handle.alive) {
+      return
+    }
+    if (Date.now() - handle.lastBeat > 6000) {
+      teardownWorker()
+      handle.respawns = handle.respawns + 1
+      if (handle.respawns > 3) {
+        handle.alive = false
+        pushLog("✖ the co-DJ kept hanging — stopped (fix its script and add it again)")
+      } else {
+        pushLog("↻ the co-DJ stopped responding (a hook looping?) — restarted with its last script")
+        boot()
+      }
+      bump(rt)
+    }
+  }, 2000))
+
+  if (token !== null) {
+    handle.timers.push(setInterval(() => {
+      hyperyBrowserAccessToken().then((t) => {
+        if (handle.worker !== null && t !== null) {
+          handle.worker.postMessage({ ctl: "token", token: t })
+        }
+      })
+    }, 240000))
+  }
+
+  handle.stop = () => {
+    handle.alive = false
+    let i = 0
+    while (i < handle.timers.length) {
+      clearInterval(handle.timers[i])
+      i = i + 1
+    }
+    if (handle.worker !== null) {
+      handle.worker.postMessage({ ctl: "stop" })
+    }
+    teardownWorker()
+    rt.aiCoDjs = rt.aiCoDjs.filter((h) => h !== handle)
+    bump(rt)
+  }
+  handle.load = (src) => {
+    handle.draftDirty = false
+    if (handle.worker !== null) {
+      handle.worker.postMessage({ ctl: "load", source: String(src) })
+    }
+  }
+  // Wake the agent with a message (no chat line); a no-op log in a script-only co-DJ.
+  handle.wake = (text) => {
+    if (handle.agent && handle.worker !== null) {
+      let who = hyperyBrowserSession()
+      let from = who && who.user && who.user.name ? who.user.name : "you"
+      handle.worker.postMessage({ ctl: "ask", text: from + ": " + String(text) })
+    }
+  }
+  // A direct message from the page's user. In the loopback room it is a real chat frame to this co-DJ, so a
+  // script's onMessage hook sees it (toMe) and an agent wakes on it; in a room the worker is asked directly.
+  handle.ask = (text) => {
+    pushChat(rt, "you", name, text)
+    if (handle.mode === "loopback" && rt.coDjLoopHost) {
+      rt.coDjLoopHost.say(String(text), handle.id)
+    } else {
+      handle.wake(text)
+    }
+  }
+
+  rt.aiCoDjs.push(handle)
+  bump(rt)
+  return handle
+}
+
+/** Chat while no room is connected: "@Name …" goes to that co-DJ, anything else to every in-page co-DJ. */
+export fn chatLocalCoDjs(rt, text) {
+  let t = String(text).trim()
+  let list = Array.isArray(rt.aiCoDjs) ? rt.aiCoDjs : []
+  if (t.length === 0 || list.length === 0) {
+    return
+  }
+  if (t.charAt(0) === "@") {
+    let sp = t.indexOf(" ")
+    let who = (sp > 0 ? t.substring(1, sp) : t.substring(1)).toLowerCase()
+    let hit = list.filter((h) => String(h.name).toLowerCase() === who)
+    if (hit.length > 0) {
+      hit[0].ask(sp > 0 ? t.substring(sp + 1) : "")
+      return
+    }
+  }
+  pushChat(rt, "you", null, t)
+  if (rt.coDjLoopHost) {
+    rt.coDjLoopHost.say(t, null)
+  }
+  let i = 0
+  while (i < list.length) {
+    list[i].wake(t)
+    i = i + 1
+  }
+}
+
+/** Choose the Hypery team that pays for AI co-DJ model calls (null = Hypery's active team); applies to running ones. */
+export fn setAiCoDjTeam(rt, teamId) {
+  setHyperyBrowserTeam(teamId)
+  let t = hyperyBrowserTeam()
+  let list = Array.isArray(rt.aiCoDjs) ? rt.aiCoDjs : []
+  let i = 0
+  while (i < list.length) {
+    if (list[i].worker !== null) {
+      list[i].worker.postMessage({ ctl: "team", team: t })
+      list[i].lastError = null
+    }
+    i = i + 1
+  }
+  bump(rt)
+}
+
+export fn stopAllAiCoDjs(rt) {
+  let list = Array.isArray(rt.aiCoDjs) ? rt.aiCoDjs.slice() : []
+  let i = 0
+  while (i < list.length) {
+    list[i].stop()
+    i = i + 1
+  }
+}

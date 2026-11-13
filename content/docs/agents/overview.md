@@ -16,7 +16,7 @@ This is the editing contract for LLM agents working on Deckard (same intent as r
 ## Co-DJ
 
 - Agents emit **only their lane** (track ids prefixed with `actorId`, e.g. `ai-a_hat`)
-- Master-scope lines (`bpm`, version header, `master_mix`, `auto`, …) need `master_mixer` — see [skills](/docs/agents/skills/)
+- Master-scope lines (`bpm`, version header, `master_mix`, `auto`, the booth, transport, …) need `master_mixer`. The browser that hosts the session is the master, and an AI host added there holds the skill. A client lane does not — see [skills](/docs/agents/skills/)
 - Prompt composition: [roles & skills](/docs/agents/roles/) + agent grammar
 
 ## Invariants

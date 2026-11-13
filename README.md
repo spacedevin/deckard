@@ -50,24 +50,28 @@ Click **Play** once to unlock audio.
 
 ## Co-DJ (WebSocket + actors)
 
-**Order:** gateway → worker → browser.
+AI co-DJs are **agents that write code**: each one runs a small JS script against the `codj.*` API
+([docs/CODJ_API.md](docs/CODJ_API.md)) — hooks that fire every bar/beat and on chat — and a Hypery-powered agent
+rewrites that script as the set evolves. The host publishes every change as deck, so each co-DJ always sees the
+whole room.
 
-### Quick start
+### In the browser (no setup)
 
-1. **Tish CLI** with `ws` (and for worker: `http`, `fs`, `process`). From the **tish** repo: `cargo build -p tish --features full`.
-2. **Terminal A — gateway:**  
-   `npm run gateway`  
-   (listens on **ws://127.0.0.1:35987**; clients connect and send first message `join` with `sessionId`).
-3. **Terminal B — worker:**  
-   `npm run agent`  
-   (or `npm run agent -- --actor-id actor-1 --session default`)  
-   - The worker buffers the host's streamed deck and, on debounce, **snapshots it into one prompt, calls the LLM, and streams the real reply back** as `deck.stream_chunk` → `deck.block`. Set **`GRADIENT_MODEL_ACCESS_KEY`** (DO inference; `DO_MODEL` / `DO_INFERENCE_BASE` optional) to enable it. Without a key it falls back to a built-in demo patch (euclid hat / fm bass) so the loop still runs offline. Direct messages are answered the same way.
-4. **Terminal C (or browser):** run the app (`npm run serve`, open **http://localhost:3456**).
-5. In the app: **Co-DJ** panel → **Connect**. Session should be `default` (same as the worker). You should see other actors when the worker is running.
-6. **Press Play.** The app sends **playing_start** and streams the current project as **deck.line** to the gateway. The worker waits ~1.3s, then sends back **deck.block** (and **deck.stream_chunk**). The gateway forwards that to the browser; the app applies the block and you hear the new pattern.
-7. **Direct test:** set **Direct→** to the worker's actor, type e.g. `euclid hi-hat`, click **Send test direct**. The worker replies with a **deck.block**.
+1. Run the app (`npm run serve`, open **http://localhost:3456**) or use deckard.lol.
+2. **Co-DJ** panel → **Log in with Hypery**.
+3. **Add AI co-DJ** (or **Add script co-DJ** to write the script yourself). Press **Play**; talk to it in the chat
+   (`@Name make the hats busier`). Without a gateway the page hosts the co-DJs itself.
 
-So: **gateway + worker + Connect + Play** (or **Send test direct**) is what makes the worker “work”.
+### Headless (CLI / MCP)
+
+1. **Terminal A — gateway:** `npm run gateway` (**ws://127.0.0.1:35987**; joins need a Hypery token unless the
+   gateway runs with `--allow-anon`).
+2. **Sign in once:** `npm run build:codj-cli && npm run codj:login` (opens a Hypery sign-in page; stored in
+   `~/.deckard/credentials.json`).
+3. **Terminal B — a co-DJ:** `npm run agent:client` (Hypery agent + script), or run a script you wrote:
+   `npm run codj -- run examples/codj/hat-evolver.js`. The script file hot-reloads on save, so Cursor / Claude
+   can edit it directly; or connect them through the MCP server ([services/mcp/README.md](services/mcp/README.md)).
+4. In the app: **Co-DJ** panel → **Connect** (session `default`) → **Play**.
 
 **Token stream demo** (see [docs/TOKEN_STREAM_DEMO.md](docs/TOKEN_STREAM_DEMO.md)): `npm run token-demo` — gateway + bot stream.
 

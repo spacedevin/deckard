@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Deckard · Hypery sign-in</title>
+  <meta name="robots" content="noindex" />
+  <style>
+    body { background: #0b0d10; color: #cfd6df; font: 14px/1.5 system-ui, sans-serif; display: grid; place-items: center; height: 100vh; margin: 0; }
+  </style>
+</head>
+<body>
+  <p id="msg">Finishing Hypery sign-in…</p>
+  <script>
+    // OAuth redirect target for "Log in with Hypery" (src/auth/HyperyBrowser.tish). Popup mode: hand the code to
+    // the opener and close. Redirect mode (popup blocked): return to the app, which finishes the exchange on boot.
+    (function () {
+      var p = new URLSearchParams(location.search);
+      var code = p.get('code');
+      var state = p.get('state');
+      var error = p.get('error_description') || p.get('error');
+      if (window.opener && window.opener !== window) {
+        window.opener.postMessage({ type: 'hypery:auth', code: code, state: state, error: error }, location.origin);
+        window.close();
+        document.getElementById('msg').textContent = error ? 'Sign-in failed: ' + error : 'Signed in — you can close this window.';
+        return;
+      }
+      if (error || !code) {
+        document.getElementById('msg').textContent = 'Sign-in failed: ' + (error || 'no authorization code');
+        return;
+      }
+      location.replace('/?hypery_code=' + encodeURIComponent(code) + '&hypery_state=' + encodeURIComponent(state || ''));
+    })();
+  </script>
+</body>
+</html>

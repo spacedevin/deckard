@@ -1,0 +1,117 @@
+// "Log in with Hypery" — the platform-neutral half: OAuth token exchange / refresh and user info. Pure fetch + JSON,
+// so the browser (HyperyBrowser.tish), the headless co-DJ runner and the MCP server share it. Deckard is a public
+// PKCE client: it never holds the app's client secret.
+// Endpoints: <gateway>/api/oauth/{authorize,token}, <gateway>/api/user/me, <gateway>/api/auth/list_memberships.
+
+/**
+ * Defaults for Deckard's Hypery OAuth app. Its registered redirect URIs: `<origin>/auth/callback.html` for each site
+ * that serves Deckard (browser), and `http://127.0.0.1/callback` (CLI; Hypery matches loopback on any port).
+ */
+export fn hyperyConfig(overrides) {
+  let o = overrides !== null ? overrides : {}
+  let gw = o.gatewayUrl ? String(o.gatewayUrl) : "https://hypery.ai"
+  while (gw.length > 0 && gw.charAt(gw.length - 1) === "/") {
+    gw = gw.substring(0, gw.length - 1)
+  }
+  return {
+    clientId: o.clientId ? String(o.clientId) : "app_1792046663165_s5emtpgb2",
+    gatewayUrl: gw,
+    scopes: Array.isArray(o.scopes) ? o.scopes : ["read", "ai:chat", "ai:models"],
+    fetch: o.fetch ? o.fetch : null
+  }
+}
+
+fn doFetch(cfg, url, init) {
+  if (cfg.fetch) {
+    return cfg.fetch(url, init)
+  }
+  return fetch(url, init)
+}
+
+/** Token response → the session shape Deckard stores: { accessToken, refreshToken, expiresAt (ms), scope }. */
+export fn normalizeTokens(json) {
+  let ttl = json.expires_in !== null ? Number(json.expires_in) : 3600
+  return {
+    accessToken: String(json.access_token),
+    refreshToken: json.refresh_token ? String(json.refresh_token) : null,
+    expiresAt: Date.now() + ttl * 1000,
+    scope: json.scope ? String(json.scope) : ""
+  }
+}
+
+/** True while the access token has at least `skewMs` (default 5 min) of life left. */
+export fn hyperyTokenFresh(session, skewMs) {
+  if (session === null || !session.accessToken) {
+    return false
+  }
+  let skew = skewMs !== null ? skewMs : 300000
+  return typeof session.expiresAt !== "number" || session.expiresAt - skew > Date.now()
+}
+
+async fn postToken(cfg, body) {
+  let resp = await doFetch(cfg, cfg.gatewayUrl + "/api/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    body: JSON.stringify(body)
+  })
+  let json = null
+  try {
+    json = await resp.json()
+  } catch (e) {
+    json = {}
+  }
+  return { status: resp.status, ok: resp.status >= 200 && resp.status < 300, json: json !== null ? json : {} }
+}
+
+/** Authorization-code (PKCE) exchange. Throws with Hypery's error_description on failure. */
+export async fn hyperyExchangeCode(cfg, code, verifier, redirectUri) {
+  let r = await postToken(cfg, { grant_type: "authorization_code", code: code, code_verifier: verifier, client_id: cfg.clientId, redirect_uri: redirectUri })
+  if (!r.ok) {
+    throw new Error(r.json.error_description ? r.json.error_description : (r.json.error ? r.json.error : "Hypery sign-in failed"))
+  }
+  return normalizeTokens(r.json)
+}
+
+/** Refresh an access token. Returns the new token set (the refresh token rotates). Throws when the grant is gone. */
+export async fn hyperyRefresh(cfg, refreshToken) {
+  let r = await postToken(cfg, { grant_type: "refresh_token", refresh_token: refreshToken, client_id: cfg.clientId })
+  if (!r.ok) {
+    throw new Error(r.json.error_description ? r.json.error_description : "Hypery session expired — sign in again")
+  }
+  return normalizeTokens(r.json)
+}
+
+/** The signed-in user: { id, name, email? } (null when the token is rejected). */
+export async fn hyperyUserInfo(cfg, accessToken) {
+  let resp = await doFetch(cfg, cfg.gatewayUrl + "/api/user/me", { method: "GET", headers: { "Authorization": "Bearer " + accessToken, "Accept": "application/json" } })
+  if (resp.status !== 200) {
+    return null
+  }
+  let u = await resp.json()
+  return { id: String(u.id), name: u.name ? String(u.name) : "", email: u.email ? String(u.email) : null }
+}
+
+/**
+ * The teams the user belongs to: { activeTeamId, teams: [{ id, name, personal, role }] } (personal team first).
+ * activeTeamId is the team Hypery bills when a request names none. Throws on a rejected token.
+ */
+export async fn hyperyTeams(cfg, accessToken) {
+  let resp = await doFetch(cfg, cfg.gatewayUrl + "/api/auth/list_memberships", { method: "GET", headers: { "Authorization": "Bearer " + accessToken, "Accept": "application/json" } })
+  if (resp.status !== 200) {
+    throw new Error("Hypery teams request failed (" + String(resp.status) + ")")
+  }
+  let body = await resp.json()
+  let list = Array.isArray(body.memberships) ? body.memberships : []
+  let teams = list.map((m) => ({ id: String(m.team.id), name: String(m.team.name), personal: m.team.isPersonal === true, role: m.team.role ? String(m.team.role) : "" }))
+  teams.sort((a, b) => (a.personal === b.personal ? 0 : (a.personal ? -1 : 1)))
+  return { activeTeamId: body.activeOrganizationId ? String(body.activeOrganizationId) : null, teams: teams }
+}
+
+/** Headers for Hypery API calls (bearer + the team that pays, when one is chosen). */
+export fn hyperyHeaders(accessToken, teamId) {
+  let h = { "Authorization": "Bearer " + accessToken }
+  if (teamId !== null && String(teamId).length > 0) {
+    h["x-hypery-active-organization-id"] = String(teamId)
+  }
+  return h
+}

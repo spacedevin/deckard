@@ -1,0 +1,1424 @@
+// The AI co-DJ — a Hypery agent (`@hyperyai/sdk/agents` runAgentLoop + createHyperyModel) whose main move is to
+// WRITE CODE: it authors the co-DJ script (hooks over the `codj` API) and hot-reloads it, instead of steering the
+// music one tool call at a time. Read tools + `run_script` (a one-off snippet with `codj` in scope) let it look
+// before it writes; every registry command is also a tool for the odd direct edit.
+//
+// It wakes on triggers, not a timer loop: joining the room (write the first script), being addressed in chat, the
+// script throwing, and an evolve pass every N bars (with some jitter) while the music plays — the DJ makes one
+// deliberate move: remix, resound a track, add stems, queue a song on another deck, mix the decks. One loop runs at a
+// time; triggers that arrive meanwhile are coalesced into the next.
+//
+// The SDK is injected (`opts.agents`) — the Node runner requires it, the browser worker gets the vendored IIFE —
+// so this file stays platform-neutral.
+
+import { toolSpecs, runTool } from './Commands.tish'
+import { promptAssets } from './PromptAssets.tish'
+import { codjDefaultModel, codjDefaultDirectorModel } from '../codj/CoDjModels.tish'
+import { createDirector, briefBlock, noveltyNotes, paletteClones, personaFor } from './Director.tish'
+import { libraryIndex } from './Library.tish'
+
+// The moves an evolve pass picks from, the way a DJ reaches for something every minute or two.
+let HOST_MOVES = [
+  { id: "subtract", text: "Take something away. Cue the live scene (cue_listen) and listen for what crowds it: stopClip one part for a phrase, swap a busy part to a sparser clip number (codj.launchClip), or rewrite a scene with one part fewer. A DJ pulls the hats or the bass out as often as they bring something in — space makes the next entrance hit." },
+  { id: "mix", text: "Remix what is playing: ride the live deck's booth (hi/mid/lo/flt), rebalance two tracks with codj.mix (gain, eq), nudge the master EQ. Small, audible moves." },
+  { id: "sound", text: "Play an instrument: codj.knobs(trackId) lists every knob on the track with its range. Ride one or two across the next phrase with codj.ride (a cutoff opening, a decay stretching, an FM index climbing, reverb swelling) and set another with codj.set(id, 'gen/<knob>', v) — the part keeps playing and its sound changes under the listener." },
+  { id: "instrument", text: "Change an instrument: codj.swap(trackId, gen or library instrument id) gives a part a new voice while its pattern carries on (a pluck hook becomes a pad, the 808 becomes a reese, the hat moves to a different noise voice). Pick from codj.instruments() / codj.library('instrument'), then shape it with codj.knobs + codj.set." },
+  { id: "stems", text: "Grow the song without making it louder: add a numbered clip to a track (codj.clips) that VARIES a part — sparser, a fill, an answer phrase — or a new session column composed from the existing numbers. Cue it with change first; a new column should have no more parts than the busiest one you already have." },
+  { id: "tease", text: "Tease what is coming: the next track is cued on another deck (book.next). For one phrase let a piece of it peek in — nudge codj.crossfade a fifth of the way toward its corner with its booth lo at -12 so only its hats or hook come through, then back — or give the live deck a variation clip that hints at the next track's hook. The room should feel the next record before it lands." },
+  { id: "crate", text: "Dig the crate: decide the track after the cued one, and why, from where the night has been. Put it in codj.state.book.crate ({ kit, title, bars, style: 'blend' | 'cut' | 'echo', blendBars }) and codj.log the reason. Reorder or replace what is there if the room has moved." },
+  { id: "harmony", text: "Move the harmony or the pocket: change a sequence's root, transpose a part, swap the bass or hook to another library sequence, or glide swing / bpm a little." }
+]
+let CLIENT_MOVES = [
+  { id: "sound", text: "Play one of your instruments: codj.knobs(trackId) lists every knob with its range; ride one with codj.ride over the next phrase and set another with codj.set(id, 'gen/<knob>', v)." },
+  { id: "instrument", text: "Give one of your parts a new voice with codj.swap(trackId, gen or library instrument id) — the pattern keeps playing — then shape it with codj.knobs + codj.set." },
+  { id: "pattern", text: "Vary a part: write a new pattern for one of your tracks (a fill, a busier or sparser rhythm, a new phrase) — a library beat or sequence, or your own steps / notes." },
+  { id: "add", text: "Add one part only if the music is missing it: cue it first (cue_listen with change: { name: { gen, beat | sequence } }) and add it only if the verdict stays balanced or sparse — otherwise vary a part you already have." },
+  { id: "subtract", text: "Take something away: cue the room, and thin out or drop the part of yours that crowds it most (fewer hits, a higher or lower octave, or remove it)." },
+  { id: "mix", text: "Rebalance your tracks: gain, pan and EQ so they sit with everyone else's." },
+  { id: "harmony", text: "Move the harmony: change the root or voicing of one melodic part so it answers what the room is playing." }
+]
+
+let CAPABILITIES = ["beats", "bass", "melody", "harmony-chords", "texture-atmos", "vocal", "groove-humanize", "mixing", "arrangement", "style-genre"]
+
+// What a session clip plays (its hits and notes), so two clips with different ids but the same pattern match.
+fn clipSignature(ch, clipId) {
+  let clip = ch && Array.isArray(ch.sessionClips) ? ch.sessionClips.find((c) => String(c.id) === String(clipId)) : null
+  if (!clip) {
+    return String(clipId)
+  }
+  let notes = Array.isArray(clip.pianoNotes) ? clip.pianoNotes.map((n) => String(n.pitch) + "@" + String(n.startBeat) + ":" + String(n.durBeats)).join(",") : ""
+  let steps = Array.isArray(clip.steps) ? clip.steps.map((s) => (s && s.on ? "x" : ".")).join("") : ""
+  return String(clip.bars) + "|" + steps + "|" + notes
+}
+
+fn hashStr(s) {
+  let h = 2166136261
+  let i = 0
+  let str = String(s)
+  while (i < str.length) {
+    h = Math.imul(h ^ str.charCodeAt(i), 16777619) >>> 0
+    i = i + 1
+  }
+  return h
+}
+
+/** A seeded persona: 3 capability skills picked from the library by actorId (stable per agent, varied across agents). */
+export fn seededSkillBlend(actorId, role) {
+  let pool = role === "host" ? ["mixing", "arrangement", "style-genre", "groove-humanize"] : CAPABILITIES.filter((c) => c !== "mixing")
+  let h = hashStr(actorId)
+  let picked = []
+  let guard = 0
+  while (picked.length < 3 && guard < 40) {
+    let c = pool[h % pool.length]
+    if (picked.indexOf(c) < 0) {
+      picked.push(c)
+    }
+    h = (Math.imul(h, 1103515245) + 12345) >>> 0
+    guard = guard + 1
+  }
+  return picked
+}
+
+fn stripFrontmatter(md) {
+  let s = String(md)
+  if (s.indexOf("---") === 0) {
+    let end = s.indexOf("\n---", 3)
+    if (end > 0) {
+      return s.substring(end + 4).trim()
+    }
+  }
+  return s.trim()
+}
+
+/**
+ * The system prompt: how a co-DJ works (code-first) + its role + its capability skills + the deck grammar + the
+ * codj API (.d.ts). opts: { role, actorId, displayName, skills?: string[], assets? }
+ */
+export fn composeAgentPrompt(opts) {
+  let a = opts.assets ? opts.assets : promptAssets()
+  let role = opts.role === "host" ? "host" : "client"
+  let skills = Array.isArray(opts.skills) && opts.skills.length > 0 ? opts.skills : CAPABILITIES
+  let me = String(opts.actorId)
+  let parts = []
+  parts.push("You are " + (opts.displayName ? String(opts.displayName) : me) + ", an AI co-DJ in a live Deckard session (actorId `" + me + "`).")
+  parts.push([
+    "## How you work: you write a program, not a stream of tool calls",
+    "Your music lives in ONE JavaScript co-DJ script that runs every bar, in real time, inside the room. You change the",
+    "music by rewriting that script with `write_script` (it hot-reloads on the next bar; a broken script is rejected and",
+    "the old one keeps playing). Use `run_script` to inspect the room (`return codj.tracks().filter(t => !t.mine)`).",
+    "",
+    "The standard of the material is a finished phrase, the kind a producer would bounce — not a loop with one note in it.",
+    "A track has a RHYTHM SECTION that locks (kick, bass, hats, clap/snare), a HARMONIC BED (chords or a pad), a HOOK",
+    "(a melody someone could hum), and an ARRANGEMENT over time (intro, build, drop, break). If the room is empty,",
+    "build all of that. If parts already play, add the layers that are missing and arrange around them.",
+    "",
+    "Rules:",
+    "- Build it in ONE script with `codj.arrange([{…}, {…}])`: every track in one call, each a MULTI-BAR phrase",
+    "  (`bars: 4` or `8`) with its notes written across the phrase (`start` runs 0.." + "bars*4, in quarter-note beats).",
+    "  `arrange` replaces the tracks you already own, so rewriting the script never stacks duplicates.",
+    "- Then make it MOVE. `onBar` fires every bar forever: mute and unmute layers to carve sections, swap a pattern for",
+    "  a fill on the last bar of a phrase (`ctx.bar % 8 === 7`), open a filter across a build, answer chat in onMessage.",
+    "  A script that sets everything once in `setup` and leaves `onBar` empty is a loop, not a track.",
+    "- Hooks (`setup`, `onBar(ctx.bar)`, `onBeat`, `onMessage(ctx.message)`, `onEvent`) must stay under 50 ms and be",
+    "  idempotent. Remember phrase position and section in `codj.state` (it survives reloads).",
+    "- Writes made in onBar land on the NEXT bar. Only edit tracks you own (`codj.owned()`); `addTrack`/`arrange` prefix",
+    "  ids with your actorId. `codj.preview(text)` dry-runs a line against the gate.",
+    "- After `write_script`, read `yourTracksNow` in its result and `script_logs`. A line starting `✖` is a write the",
+    "  room refused. A script that did not load, or whose log shows it built nothing, is not done — fix it first.",
+    "- Never say a part is in unless `yourTracksNow` lists it. Your chat is checked against your tracks before it is",
+    "  posted, and a claim that is not on the deck sends you back to fix it.",
+    "",
+    "Work in a loop, and do not stop after one try:",
+    "1. PLAN. Before the first write, write 3–6 short lines: what the brief asks for, which library kit, the parts, and",
+    "   (host) each session scene and what plays in it, and how onBar moves between them.",
+    "2. CUE. Before you add anything, put the headphones on: `cue_listen` ({ scene, deck, change: {…} }) tells",
+    "   you how the scene sounds now and how it WOULD sound after the change — parts, low / mid / high bands, hits a",
+    "   bar, warnings, verdict. If the verdict after would be busy or cluttered, don't add: take a part out, swap it",
+    "   for a sparser clip, or put it in a different scene. More parts is not more music; space is a move.",
+    "3. BUILD. One `write_script`.",
+    "4. CHECK. Call `check_my_work`. It reads the room itself: your tracks, your session scenes (and how cluttered",
+    "   each one sounds), the transport, the script's errors and refused writes. Compare it line by line with your plan.",
+    "5. RETHINK. For every problem, or every gap between the plan and the room, say in a sentence why it happened",
+    "   (which call, what you assumed). Then change the script so the cause is gone, and CHECK again. A fix that",
+    "   failed once will fail again — change the approach.",
+    "You are done when `check_my_work` returns no problems and the room matches the plan. The room checks you after",
+    "every pass too, and sends you back with what it found.",
+    "- When someone addresses you, answer with `say` AND do the thing: rewrite the arrangement to what they asked for.",
+    "- Don't double a part that already plays, and don't fight the kick with the bass. Leave mix headroom (gain 0.3–0.85).",
+    "",
+    "Shape, don't just sequence. A bare `steps` row with one pitch sounds like a metronome:",
+    "- Percussion: `step_vel` (accents 110–124, ghosts 40–70), `step_prob` (0.6–0.9 on hats so the loop lives),",
+    "  `step_nudge` (push the off-beats late, ±0.02..0.12, for swing feel), `step_ratchet` (rolls into a fill).",
+    "- Harmony: one `note` plus `voice: { chord: 'min7' }` spells a whole chord — don't hand-stack every pitch.",
+    "- Bass and leads move. A bassline is several pitches over the phrase; a lead is a motif with rests, then a variation.",
+    "- Timbre is most of the sound. Every generator is a different instrument with its own knobs. Do not invent knob",
+    "  names: `codj.preset(id).params` is the list. Set them in the track spec, and keep moving them with",
+    "  `codj.set(id, 'gen/<knob>', value)`. The channel strip is separate from the instrument: `fx` cutoff (Hz), res,",
+    "  drive, reverb_send, filter_type, plus eq_lo/mid/hi in dB. A static patch is unfinished.",
+    "",
+    "Worked example — the shape of a real arrangement (write your own notes, don't copy these):",
+    "```js",
+    "const PHRASE = 8",
+    "const TRACKS = [",
+    "  { id: 'kick', name: 'Kick', gen: 'kick_edm', gain: 0.9,",
+    "    steps: [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0],",
+    "    step_vel: [120,1,1,1, 104,1,1,1, 116,1,1,1, 104,1,1,1] },",
+    "  { id: 'hat', name: 'Hat', gen: 'noise_burst', gain: 0.45, pan: 0.25,",
+    "    params: { attack: 0.001, decay: 0.045, tone: 0.85, pitch_follow: 0.1 },",
+    "    steps: 'euclid 11', step_prob: [1,0.7,0.9,0.6, 1,0.75,0.9,0.65, 1,0.7,0.85,0.6, 1,0.8,0.9,0.7] },",
+    "  { id: 'bass', name: 'Bass', gen: 'sub808', bars: 4, gain: 0.8, params: { decay: 0.5, drive: 0.2 },",
+    "    notes: [ // pitches walk; rests (no note) are as important as hits",
+    "      { pitch: 33, start: 0, dur: 0.5, vel: 112 }, { pitch: 33, start: 1.5, dur: 0.25, vel: 90 },",
+    "      { pitch: 31, start: 4, dur: 1, vel: 108 }, { pitch: 36, start: 8, dur: 0.5, vel: 112 },",
+    "      { pitch: 34, start: 12, dur: 1.5, vel: 100 } ] },",
+    "  { id: 'pad', name: 'Pad', gen: 'pad', bars: 4, gain: 0.32,",
+    "    params: { detune: 14, cutoff: 1400, attack: 0.8, release: 1.6 },",
+    "    voice: { chord: 'min7', octave: -1 }, fx: { reverb_send: 0.5, cutoff: 1800 },",
+    "    notes: [{ pitch: 57, start: 0, dur: 8, vel: 74 }, { pitch: 55, start: 8, dur: 8, vel: 74 }] },",
+    "  { id: 'lead', name: 'Hook', gen: 'syncLead', bars: 4, gain: 0.55,",
+    "    params: { cutoff: 3200, sweepAmt: 12, sweepDecay: 0.3 }, fx: { reverb_send: 0.2 },",
+    "    notes: [ // a motif, a rest, then the motif answered a step higher",
+    "      { pitch: 72, start: 0, dur: 0.5, vel: 104 }, { pitch: 75, start: 0.75, dur: 0.25, vel: 92 },",
+    "      { pitch: 79, start: 1.5, dur: 1, vel: 110 },",
+    "      { pitch: 74, start: 8, dur: 0.5, vel: 104 }, { pitch: 77, start: 8.75, dur: 0.25, vel: 92 },",
+    "      { pitch: 81, start: 9.5, dur: 1.5, vel: 112 } ] }",
+    "]",
+    "export function setup(codj) {",
+    "  codj.state.section = 'drop'",
+    "  codj.arrange(TRACKS)",
+    "}",
+    "export function onBar(codj, ctx) {",
+    "  const pos = ctx.bar % PHRASE",
+    "  if (pos === 0) {                       // section changes only on the phrase boundary",
+    "    const next = codj.state.section === 'break' ? 'drop' : (ctx.bar % 32 === 24 ? 'break' : 'drop')",
+    "    if (next !== codj.state.section) {",
+    "      codj.state.section = next",
+    "      for (const id of ['bass', 'pad']) codj.mix(codj.state.ids[id], { mute: next === 'break' })",
+    "    }",
+    "  }",
+    "  if (pos === 7) codj.setSteps(codj.state.ids.hat, 'xxxxxxxxxxxxxxxx')  // hat fill into the drop",
+    "  else if (pos === 0) codj.setSteps(codj.state.ids.hat, 'euclid 11')",
+    "}",
+    "```",
+    "`codj.arrange` returns `{ids}` mapping your spec ids to the real track ids and stores it on `codj.state.ids`,",
+    "which is why the hooks above can find their tracks after a reload.",
+    "If you are the host, that `onBar` is only a sketch. The set you write is the one in your role: a book of what",
+    "you have already played, a vibe, and a next scene that is never the one you just left. The night does not end",
+    "when the tracks exist.",
+    "",
+    "## Library — start from a reference, then make it yours",
+    "`codj.library()` lists factory instruments, drum beats, melodic sequences and full kits. `codj.library('kit')`",
+    "narrows it. `codj.preset(id)` is one entry, including every knob on an instrument.",
+    "The catalog is large: a starter kit per style (`pack_kit_house`, `pack_kit_lofi`, `pack_kit_techno`,",
+    "`pack_kit_dnb`, `pack_kit_trap`, `pack_kit_acid`, and the rest `codj.library('kit')` returns), plus",
+    "kicks, hats, snares, claps, basses, pads, keys and hooks for each. Prefer one of those over inventing a kit.",
+    "A kit's `.parts` is an arrange() argument: `codj.arrange(codj.preset('pack_kit_house').parts)`.",
+    "Or borrow one piece: `{ id: 'bass', name: 'Bass', preset: 'factory_808_long', sequence: 'root-fifth', root: 33 }`.",
+    "Sequence events are semitones above `root` (0 is the root, 3 a minor third, 7 a fifth). Change the root to",
+    "change the key, then edit. Do not hand-write a four-on-the-floor when `four-on-the-floor` is already in the library."
+  ].join("\n"))
+  let roleKey = role === "host" ? "_role-host" : "_role-client"
+  if (a.skills[roleKey]) {
+    parts.push(stripFrontmatter(a.skills[roleKey]).split("<me>").join(me))
+  }
+  if (opts.persona) {
+    parts.push([
+      "## Your persona — " + opts.persona.title,
+      "This is your taste for the whole night. The rules above decide what is correct; your persona decides what is",
+      "yours. When a pass carries a DIRECTOR'S BRIEF, that is the creative call for it (from your own creative lead):",
+      "make its idea, its signature and its constraint audible, in your persona's way.",
+      "",
+      opts.persona.body
+    ].join("\n"))
+  }
+  let i = 0
+  while (i < skills.length) {
+    if (a.skills[skills[i]]) {
+      parts.push(stripFrontmatter(a.skills[skills[i]]).split("<me>").join(me))
+    }
+    i = i + 1
+  }
+  parts.push("## deck grammar (what `codj.send` and the track helpers emit)\n" + a.grammar)
+  parts.push("## The codj API your script codes against\n```ts\n" + a.dts + "```")
+  if (role === "host") {
+    parts.push([
+      "## You are mid-set. This is the job.",
+      "Take the instruction as the brief. Write ONE script that (1) composes a song in Session mode: arrange a library",
+      "kit's tracks, give every track 2–4 short numbered clips with `codj.clips(track, [...])`, and build at least five",
+      "columns from those numbers with `codj.scene(n, { kick: 1, hat: 2, bass: 1 }, name, { deck })` — the parts change",
+      "what they play from scene to scene, not only whether they play. Never one long sequence per track. Then",
+      "(2) DJs it for as long as the transport plays: `codj.launch(n, deck)` on the phrase, a stem move inside every",
+      "phrase (`launchClip` to a variation in the track's bank, `stopClip` to drop a part out), and the booth and fader.",
+      "A single column with tracks muted on and off is not a set, and the self-check rejects it.",
+      "(3) Thinks two records ahead. Two phrases into a track, the next one is already cued, silent, on a free deck",
+      "(`book.next`, with the bar it comes in on), and the crate (`book.crate`) holds the one after. At that bar",
+      "`codj.blend(to, { bar, bars, style })` schedules the whole mix on its own. You produce the cued track while the",
+      "live one plays — never at the moment of the mix.",
+      "The page opens on a starter loop (Kick, Snare, HiHat, Bass). If `codj.placeholder()` is true, `codj.clear()`",
+      "and set `codj.state.ids = null` before `arrange`, so your sequence replaces that demo. If they ask for a clean",
+      "slate, `codj.clear()` removes every track, then you build again. Keep the set book either way.",
+      "`codj.state.book` is your memory and it survives a reload: `brief`, `vibe`, `energy` (0..1), `now`, `live`,",
+      "`next`, `crate`, `songs` and `played` (append-only, cap 16, each entry `{bar, scene, energy, vibe}`). `setup`",
+      "keeps an existing book. Replacing it forgets the night.",
+      "`onBar` decides on the phrase boundary only (`ctx.bar % 8 === 0`). Never repeat the last scene. Rise, peak,",
+      "break, then come back in a different groove. Each move rides the booth filter and EQ, and a throw only into a",
+      "drop. Log the phrase with `codj.log`. `codj.say` on a break or a drop, not every bar.",
+      "`onMessage` writes their new words into `book.brief` and shifts `book.vibe`. It does not clear `played`.",
+      "On a check-in, read the book below the trigger. If the arc is moving and the vibe still matches the brief,",
+      "do not rewrite. If the same scene is repeating, energy is flat, or the brief changed, write the next chapter",
+      "only. The script in your Host role is the shape to keep."
+    ].join("\n"))
+  }
+  return parts.join("\n\n")
+}
+
+/** Live → mixing → cued → crate, in one line: what is playing and what is coming, two records ahead. */
+export fn deckPlanLine(book) {
+  if (book === null || typeof book !== "object") {
+    return ""
+  }
+  let parts = []
+  let songs = Array.isArray(book.songs) ? book.songs : []
+  let live = songs.length > 0 ? songs[songs.length - 1] : null
+  if (book.live) {
+    let title = live && live.deck === book.live && live.title ? " '" + String(live.title) + "'" : (live && live.kit ? " " + String(live.kit) : "")
+    let since = live && typeof live.bar === "number" ? " since bar " + String(live.bar) + (live.bars ? " (" + String(live.bars) + " bars)" : "") : ""
+    parts.push("live " + String(book.live) + title + since)
+  }
+  if (book.mix) {
+    parts.push("mixing " + String(book.mix.from) + " → " + String(book.mix.to) + " until bar " + String(book.mix.end))
+  }
+  let n = book.next
+  if (n && typeof n === "object") {
+    parts.push("next " + String(n.deck) + " '" + String(n.title ? n.title : n.kit) + "' in at bar " + String(n.at) + " (" + String(n.style ? n.style : "blend") + (n.style === "cut" || n.style === "echo" ? "" : " " + String(n.blendBars ? n.blendBars : 16)) + ")" + (n.produced ? "" : ", not produced yet"))
+  }
+  let crate = Array.isArray(book.crate) ? book.crate : []
+  if (crate.length > 0) {
+    parts.push("crate: " + crate.slice(0, 4).map((c) => String(c && c.title ? c.title : (c && c.kit ? c.kit : "?"))).join(", "))
+  } else if (book.live) {
+    parts.push("crate: empty")
+  }
+  return parts.join(" · ")
+}
+
+/** One block of the set book for the situation the model sees on every pass. Empty when the night has not started. */
+export fn describeSetBook(state) {
+  let book = state && state.book ? state.book : null
+  if (book === null || typeof book !== "object") {
+    return ""
+  }
+  let energy = book.energy !== null && book.energy !== undefined ? String(book.energy) : "?"
+  let lines = ["set book (your memory — do not reset it):"]
+  lines.push("  brief: " + (book.brief ? String(book.brief) : "(none yet)"))
+  lines.push("  vibe: " + (book.vibe ? String(book.vibe) : "(unset)") + "  energy: " + energy + "  now: " + (book.now ? String(book.now) : "(none)"))
+  let plan = deckPlanLine(book)
+  if (plan.length > 0) {
+    lines.push("  decks: " + plan)
+  }
+  let played = Array.isArray(book.played) ? book.played : []
+  if (played.length === 0) {
+    lines.push("  played: (nothing yet)")
+  } else {
+    lines.push("  played (oldest → newest):")
+    let i = 0
+    while (i < played.length) {
+      let p = played[i]
+      let bar = p && p.bar !== null && p.bar !== undefined ? String(p.bar) : "?"
+      let scene = p && p.scene ? String(p.scene) : "?"
+      let en = p && p.energy !== null && p.energy !== undefined ? String(p.energy) : "?"
+      let vibe = p && p.vibe ? String(p.vibe) : ""
+      lines.push("    bar " + bar + " " + scene + " energy " + en + " — " + vibe)
+      i = i + 1
+    }
+  }
+  return lines.join("\n")
+}
+
+// The parts a co-DJ can claim in chat, and what a track that really is that part looks like (name or gen).
+let PART_ROLES = [
+  { role: "kick", said: /\bkicks?\b/, have: /kick|bd\b/ },
+  { role: "snare/clap", said: /\bsnares?\b|\bclaps?\b|backbeat/, have: /snare|clap|snr|rim/ },
+  { role: "hats", said: /hi-?hats?|hihats?|\bhats?\b|shaker/, have: /hat|hh|shak|noise_burst|cymbal/ },
+  { role: "bass", said: /\bbass(line)?s?\b|\bsub\b|\b808\b/, have: /bass|sub|808|acid|reese/ },
+  { role: "pad/chords", said: /\bpads?\b|\bchords?\b|rhodes|\bkeys\b/, have: /pad|chord|key|rhodes|stab|tine|halo|aether|ep\b/ },
+  { role: "lead/melody", said: /\blead\b|melod|\bhook\b|pluck|\barp\b|topline/, have: /lead|melod|hook|pluck|arp|bell|tine|sync/ }
+]
+
+/** Drop the forward-looking sentences ("next I would…") — those are plans, not claims. */
+fn claimSentences(text) {
+  let parts = String(text).toLowerCase().split(/[.!?\n]+/)
+  return parts.filter((s) => !/\b(next|would|will|could|plan|going to|might|later|want to)\b/.test(s)).join(" ")
+}
+
+/** Parts the text says are in, which none of `tracks` ({name, gen}) actually is. */
+export fn missingClaimedParts(text, tracks) {
+  let said = claimSentences(text)
+  let have = tracks.map((t) => (String(t.name) + " " + String(t.gen)).toLowerCase())
+  let out = []
+  let i = 0
+  while (i < PART_ROLES.length) {
+    let r = PART_ROLES[i]
+    if (r.said.test(said) && !have.some((h) => r.have.test(h))) {
+      out.push(r.role)
+    }
+    i = i + 1
+  }
+  return out
+}
+
+fn starterScript() {
+  return [
+    "// Co-DJ script — hooks run against the live room. Rewritten by the agent with write_script.",
+    "export function setup(codj) {",
+    "  codj.log('ready', codj.tracks().length, 'tracks in the room')",
+    "}",
+    "",
+    "export function onBar(codj, ctx) {",
+    "}",
+    ""
+  ].join("\n")
+}
+
+fn safeJson(v, max) {
+  let s = ""
+  try {
+    s = v === null ? "null" : (typeof v === "string" ? v : JSON.stringify(v, null, 1))
+  } catch (e) {
+    s = String(v)
+  }
+  if (s === null) {
+    s = "null"
+  }
+  return s.length > max ? s.substring(0, max) + "\n…(truncated)" : s
+}
+
+/**
+ * opts: {
+ *   runtime, scriptHost, agents: { runAgentLoop, createHyperyModel },
+ *   token: async () => string, model?, team?, gatewayUrl?, fetch?,
+ *   director?: false (no creative director), directorModel? ("off" also turns it off), persona? (persona id),
+ *   role?, skills?, displayName?, evolveEveryBars? (alias reviewEveryBars; 16, or 32 for a host; 0 = off),
+ *   maxRounds? (12),
+ *   evalSnippet?: (code, codj) => any,     run_script engine (Node passes a vm-backed one)
+ *   onScript?: (source) => void,           persist the script (the CLI writes the watched file)
+ *   log?: (line) => void, onActivity?: (entry) => void
+ * }
+ */
+export fn createCoDjAgent(opts) {
+  let rt = opts.runtime
+  let host = opts.scriptHost
+  let log = opts.log ? opts.log : (s) => {}
+  let activity = opts.onActivity ? opts.onActivity : (e) => {}
+  let evolveEvery = opts.evolveEveryBars !== null && opts.evolveEveryBars !== undefined
+    ? Math.floor(Number(opts.evolveEveryBars))
+    : (opts.reviewEveryBars !== null && opts.reviewEveryBars !== undefined ? Math.floor(Number(opts.reviewEveryBars)) : (opts.role === "host" ? 32 : 16))
+  let busy = false
+  let queue = []
+  let history = []
+  let stopped = false
+  let nextEvolveBar = evolveEvery > 0 ? evolveEvery : -1
+  let moves = []
+  let preparedFor = ""
+  let lastErrorAt = 0
+  let started = false
+  let chat = []
+  let deferredSays = null
+  let passRejects = null
+
+  host.onLog((line) => {
+    if (passRejects !== null && String(line).indexOf("✖") === 0) {
+      passRejects.push(String(line))
+    }
+  })
+
+  fn myTracks() {
+    let tracks = []
+    try {
+      tracks = runTool(rt.kit, "list_tracks", {})
+    } catch (e) {
+      tracks = []
+    }
+    return tracks.filter((t) => t.mine)
+  }
+
+  fn sessionGrid() {
+    try {
+      return runTool(rt.kit, "get_session", {})
+    } catch (e) {
+      return null
+    }
+  }
+
+  // The session columns that hold at least one of my clips (on `deck`, or any deck): {scene, label, parts}.
+  fn myScenes(deck) {
+    let g = sessionGrid()
+    if (g === null) {
+      return []
+    }
+    let out = []
+    let s = 0
+    while (s < g.scenes) {
+      let parts = []
+      let label = ""
+      let i = 0
+      while (i < g.rows.length) {
+        let r = g.rows[i]
+        if (r.mine && r.slots[s] && (deck === null || deck === undefined || r.deck === deck)) {
+          parts.push(r.name)
+          if (label.length === 0) {
+            label = r.slots[s]
+          }
+        }
+        i = i + 1
+      }
+      if (parts.length > 0) {
+        let names = host.state && host.state.sceneNames ? host.state.sceneNames : {}
+        let named = names[String(deck !== null && deck !== undefined ? deck : "") + String(s)]
+        if (!named) {
+          let dk = Object.keys(names).find((k) => k.substring(1) === String(s) && k.length === String(s).length + 1)
+          named = dk ? names[dk] : null
+        }
+        out.push({ scene: s, label: named ? String(named) : label, parts: parts })
+      }
+      s = s + 1
+    }
+    return out
+  }
+
+  fn distinctScenes(scenes) {
+    let seen = []
+    let i = 0
+    while (i < scenes.length) {
+      let sig = scenes[i].parts.slice().sort().join(",")
+      if (seen.indexOf(sig) < 0) {
+        seen.push(sig)
+      }
+      i = i + 1
+    }
+    return seen.length
+  }
+
+  fn sessionLine(scenes) {
+    return scenes.map((s) => "P" + String(s.scene + 1) + " " + s.label + " (" + s.parts.join(", ") + ")").join(" · ")
+  }
+
+  fn myDecks() {
+    let g = sessionGrid()
+    return g !== null && g.decks ? Object.keys(g.decks).sort() : []
+  }
+
+  // The next evolve move: mix the decks when a second song is loaded, queue one when a song has run a while,
+  // otherwise something not done in the last two moves — so the set keeps changing in different ways.
+  // The headphones: how the live scene sounds right now (host: its live deck; client: the room).
+  fn liveCue() {
+    let deck = null
+    if (opts.role === "host") {
+      let book = host.state && host.state.book ? host.state.book : null
+      deck = book && book.live ? book.live : (myDecks().length > 0 ? myDecks()[0] : null)
+    }
+    try {
+      return runTool(rt.kit, "cue_listen", { opts: deck !== null ? { deck: deck } : {} })
+    } catch (e) {
+      return null
+    }
+  }
+
+  fn cueLine(c) {
+    if (c === null) {
+      return ""
+    }
+    return c.verdict + " — " + String(c.parts) + " parts, " + String(c.hitsPerBar) + " hits a bar, low: " + (c.bands.low.length > 0 ? c.bands.low.join(", ") : "none") + (c.warnings.length > 0 ? "; " + c.warnings.slice(0, 3).join("; ") : "")
+  }
+
+  fn pickMove() {
+    let menu = opts.role === "host" ? HOST_MOVES : CLIENT_MOVES
+    let heard = liveCue()
+    if (heard !== null && (heard.verdict === "busy" || heard.verdict === "cluttered")) {
+      return menu.find((m) => m.id === "subtract")
+    }
+    let recent = moves.slice(-2).map((m) => m.move)
+    let lastOf = (id) => {
+      let i = moves.length - 1
+      while (i >= 0) {
+        if (moves[i].move === id) {
+          return moves.length - 1 - i
+        }
+        i = i - 1
+      }
+      return 99
+    }
+    if (opts.role === "host") {
+      let book = host.state && host.state.book ? host.state.book : null
+      let crate = book && Array.isArray(book.crate) ? book.crate : []
+      if (book && book.next && crate.length === 0 && lastOf("crate") >= 3) {
+        return HOST_MOVES.find((m) => m.id === "crate")
+      }
+    }
+    let sparse = heard !== null && (heard.verdict === "sparse" || heard.verdict === "silent")
+    let hasNext = opts.role === "host" && host.state && host.state.book && host.state.book.next ? true : false
+    let pool = menu.filter((m) => recent.indexOf(m.id) < 0 && !(sparse && m.id === "subtract") && !(m.id === "tease" && !hasNext))
+    if (pool.length === 0) {
+      pool = menu.filter((m) => m.id !== "tease" || hasNext)
+    }
+    return pool[Math.floor(Math.random() * pool.length)]
+  }
+
+  fn evolveNote(bar, move) {
+    let past = moves.slice(-4).map((m) => "bar " + String(m.bar) + " " + m.move + (m.text.length > 0 ? " (" + m.text + ")" : "")).join("; ")
+    let heard = liveCue()
+    let lines = [
+      "bar " + String(bar) + " — time to evolve. A DJ never leaves a set alone for long: make ONE deliberate move now that a listener would notice.",
+      "In the headphones right now: " + (heard !== null ? cueLine(heard) : "nothing on cue") + ".",
+      "Suggested move — " + move.id + ": " + move.text,
+      "Cue your change with cue_listen change before you commit it. If it would leave the scene busy or cluttered, make it a subtraction instead.",
+      "Pick a different move if the room clearly needs it more, but make a move. Your recent moves: " + (past.length > 0 ? past : "none yet") + ".",
+      "Read the room first (codj.session(), tracks, " + (opts.role === "host" ? "codj.state.book" : "what the others play") + "). Use direct tools or run_script for a one-off change; write_script when the move changes the plan (a new chapter, a song on another deck) — keep codj.state.book.",
+      "Then call check_my_work, and say one short line naming the move."
+    ]
+    return lines.join("\n")
+  }
+
+  // One line per deck when the host runs more than one.
+  fn sessionByDeck() {
+    let ds = myDecks()
+    if (ds.length <= 1) {
+      let all = myScenes(null)
+      return all.length > 0 ? sessionLine(all) : ""
+    }
+    return ds.map((d) => {
+      let sc = myScenes(d)
+      return "deck " + d + ": " + (sc.length > 0 ? sessionLine(sc) : "no scenes")
+    }).join(" | ")
+  }
+
+  fn deckLine(mine) {
+    if (mine.length === 0) {
+      return "Nothing of mine is on the deck yet."
+    }
+    let names = mine.map((t) => String(t.name) + (t.mute ? " (muted)" : ""))
+    let c = rt.mirror.clock()
+    let letters = []
+    mine.forEach((t) => {
+      if (t.onDeck && letters.indexOf(String(t.onDeck)) < 0) {
+        letters.push(String(t.onDeck))
+      }
+    })
+    let deck = letters.length > 0 ? " (deck " + letters.join(" + ") + ")" : ""
+    let out = "On my deck now: " + names.join(", ") + deck + "."
+    if (opts.role === "host") {
+      let sess = sessionByDeck()
+      out = out + (sess.length > 0 ? " Session: " + sess + "." : " No session scenes yet.")
+    }
+    return out + (c.playing ? "" : " Transport is stopped — press Play to hear it.")
+  }
+
+  fn isPlaceholder() {
+    try {
+      return runTool(rt.kit, "is_placeholder", {}) === true
+    } catch (e) {
+      return false
+    }
+  }
+
+  // Everything a finished pass must be true of, checked against the room — not against what the model said.
+  fn audit(trigger, claimText, rejects) {
+    let problems = []
+    let mine = myTracks()
+    let err = host.lastError()
+    if (err !== null) {
+      problems.push("Your script threw in " + String(err.hook) + ": " + String(err.message))
+    }
+    if (rejects.length > 0) {
+      problems.push("The room refused these writes:\n  " + rejects.slice(0, 6).join("\n  "))
+    }
+    let missing = missingClaimedParts(claimText, mine)
+    if (missing.length > 0) {
+      problems.push("You said the set has " + missing.join(", ") + ", but none of your tracks is that part.")
+    }
+    let building = trigger.kind === "start" || trigger.kind === "message"
+    if (building && mine.length === 0) {
+      problems.push("You own no tracks, so nothing of yours is audible.")
+    }
+    if (opts.role === "host" && mine.length > 0) {
+      let src = host.source() !== null ? host.source() : ""
+      let decks = myDecks()
+      if (decks.length === 0) {
+        decks = [null]
+      }
+      decks.forEach((d) => {
+        let scenes = myScenes(d)
+        let distinct = distinctScenes(scenes)
+        if (distinct < 3) {
+          problems.push((d !== null && decks.length > 1 ? "Deck " + d + ": session" : "Session mode") + " has " + String(scenes.length) + " scene(s) with your clips, " + String(distinct) + " of them different" + (scenes.length > 0 ? " (" + sessionLine(scenes) + ")" : "") + ". Give each track numbered clips with codj.clips, then compose at least four different columns from them with codj.scene(n, { kick: 1, hat: 2 }, name" + (d !== null && decks.length > 1 ? ", { deck: '" + d + "' }" : "") + ") — intro, groove, drop, break — and move between them with codj.launch(n" + (d !== null ? ", '" + d + "'" : "") + ").")
+        }
+      })
+      let g = sessionGrid()
+      if (g !== null) {
+        let flat = []
+        let playedRows = 0
+        let proj = rt.mirror.project()
+        g.rows.filter((r) => r.mine).forEach((r) => {
+          let ch = proj.channels.find((c) => String(c.id) === r.trackId)
+          let used = []
+          r.slots.forEach((c) => {
+            let sig = c && c.length > 0 && c !== "rest" ? clipSignature(ch, c) : null
+            if (sig !== null && used.indexOf(sig) < 0) {
+              used.push(sig)
+            }
+          })
+          let inScenes = r.slots.filter((c) => c && c.length > 0 && c !== "rest").length
+          if (inScenes >= 2) {
+            playedRows = playedRows + 1
+            if (used.length < 2) {
+              flat.push(r.name)
+            }
+          }
+        })
+        if (playedRows > 0 && flat.length * 2 > playedRows) {
+          problems.push("Composed like one long sequence: " + flat.join(", ") + " play the same clip in every scene they are in. Give each track 2–4 short numbered clips with codj.clips(track, [...]) (library beats / sequences by role, or your own steps / notes; 1, 2 or 4 bars), then compose the scenes from the numbers — codj.scene(1, { kick: 1, hat: 2, bass: 1 }), codj.scene(3, { kick: 2, hat: 3, bass: 2, hook: 1 }) — so each scene changes what the parts play, not only which parts play.")
+        }
+      }
+      let crowded = []
+      decks.forEach((d) => {
+        myScenes(d).forEach((s) => {
+          let c = null
+          try {
+            c = runTool(rt.kit, "cue_listen", { opts: d !== null ? { scene: s.scene, deck: d } : { scene: s.scene } })
+          } catch (e) {
+            c = null
+          }
+          if (c !== null && c.verdict === "cluttered") {
+            crowded.push((d !== null && decks.length > 1 ? d + " " : "") + "P" + String(s.scene + 1) + " " + s.label + " (" + c.warnings.slice(0, 2).join("; ") + ")")
+          }
+        })
+      })
+      if (decks.length >= 2 && decks[0] !== null) {
+        let byDeck = {}
+        decks.forEach((d) => {
+          byDeck[d] = gensOn(d)
+        })
+        paletteClones(byDeck).forEach((p) => {
+          problems.push("Deck " + p.a + " and deck " + p.b + " play nearly the same instruments (" + p.shared.join(", ") + "). A new chapter needs its own sound: a different kit, or swap at least half the parts for other instruments (codj.swap). Keep one shared element as the bridge if you want one.")
+        })
+      }
+      if (crowded.length > 0) {
+        problems.push("Too much at once — cued, these scenes are cluttered: " + crowded.join(" · ") + ". Take parts out of them (fewer parts per scene, one kick and one bass in the low end, one lead), or move a part into a different scene. Cue each scene again until none is cluttered.")
+      }
+      if (src.indexOf("launch(") < 0) {
+        problems.push("The script never calls codj.launch(n, deck), so the set never changes scene.")
+      }
+      if (src.indexOf("launchClip(") < 0 && src.indexOf("stopClip(") < 0) {
+        problems.push("The script never moves a single stem. Between scene changes, swap one track's clip (codj.launchClip(id, clipId)) or drop it out (codj.stopClip(id)) and bring it back — that is what keeps a scene alive for minutes instead of a loop.")
+      }
+      if (src.indexOf("onBar") < 0) {
+        problems.push("The script has no onBar, so nobody is DJing after setup.")
+      }
+      if (!rt.mirror.clock().playing && src.indexOf("play(") < 0) {
+        problems.push("The transport is stopped and the script never calls codj.play('song').")
+      }
+      if (isPlaceholder()) {
+        problems.push("The page-load starter (c0–c3 Kick, Snare, HiHat, Bass) is still in the room next to your set. codj.clear() it in setup, then arrange.")
+      }
+      let book = host.state && host.state.book ? host.state.book : null
+      let played = book && Array.isArray(book.played) ? book.played : []
+      if (played.length >= 3) {
+        let a = played[played.length - 1].scene
+        if (played[played.length - 2].scene === a && played[played.length - 3].scene === a) {
+          problems.push("The last three phrases all played '" + String(a) + "'. chooseNext is stuck — the set is not moving.")
+        }
+      }
+    }
+    return { problems: problems, mine: mine, missing: missing }
+  }
+
+  let callModel = opts.agents.createHyperyModel({
+    fetch: opts.fetch ? opts.fetch : (url, init) => globalThis.fetch(url, init),
+    token: opts.token,
+    model: opts.model ? opts.model : codjDefaultModel(),
+    gatewayUrl: opts.gatewayUrl ? opts.gatewayUrl : null,
+    team: opts.team ? opts.team : null
+  })
+
+  // The creative lead: a second model with no tools, asked for a brief before every start, request and evolve pass.
+  let directorModel = opts.directorModel ? String(opts.directorModel) : codjDefaultDirectorModel()
+  let director = null
+  let directorOn = opts.director !== false && directorModel !== "off"
+  let persona = personaFor(rt.me().actorId, null, opts.persona ? opts.persona : null)
+  fn theDirector() {
+    if (director === null && directorOn) {
+      director = createDirector({
+        callModel: opts.agents.createHyperyModel({
+          fetch: opts.fetch ? opts.fetch : (url, init) => globalThis.fetch(url, init),
+          token: opts.token,
+          model: directorModel,
+          gatewayUrl: opts.gatewayUrl ? opts.gatewayUrl : null,
+          team: opts.team ? opts.team : null
+        }),
+        role: opts.role,
+        actorId: rt.me().actorId,
+        persona: persona.id,
+        log: log
+      })
+    }
+    return director
+  }
+
+  // The set memory: one entry per pass that changed the music, read from the room (not from what the model said).
+  // Kept on codj.state so a reloaded script or a restarted page still knows the night.
+  let memory = []
+  fn setMemory() {
+    if (memory.length === 0 && host.state && Array.isArray(host.state.setMemory)) {
+      memory = host.state.setMemory.slice()
+    }
+    return memory
+  }
+
+  fn gensOn(deck) {
+    let gens = []
+    myTracks().forEach((t) => {
+      if ((deck === null || String(t.onDeck) === String(deck)) && gens.indexOf(String(t.gen)) < 0) {
+        gens.push(String(t.gen))
+      }
+    })
+    return gens.sort()
+  }
+
+  fn liveDeck() {
+    let book = host.state && host.state.book ? host.state.book : null
+    if (book && book.live) {
+      return String(book.live)
+    }
+    let ds = myDecks()
+    return ds.length > 0 ? ds[ds.length - 1] : null
+  }
+
+  fn remember(trigger, brief) {
+    let c = rt.mirror.clock()
+    let book = host.state && host.state.book ? host.state.book : null
+    let deck = opts.role !== "host" ? null : (trigger.kind === "prepare" && book && book.next ? String(book.next.deck) : liveDeck())
+    setMemory().push({
+      bar: c.bar,
+      kind: trigger.kind,
+      move: trigger.move ? trigger.move : null,
+      deck: deck,
+      bpm: c.bpm,
+      gens: gensOn(deck),
+      title: brief ? brief.title : null,
+      style: brief ? brief.style : null,
+      idea: brief ? brief.idea.substring(0, 140) : null,
+      cards: brief ? brief.cards : []
+    })
+    while (memory.length > 24) {
+      memory.shift()
+    }
+    if (host.state && typeof host.state === "object") {
+      host.state.setMemory = memory.slice()
+    }
+  }
+
+  fn novelty() {
+    return noveltyNotes(setMemory(), rt.mirror.clock().bar)
+  }
+
+  fn directorContext(trigger) {
+    let c = rt.mirror.clock()
+    let tracks = []
+    try {
+      tracks = runTool(rt.kit, "list_tracks", {})
+    } catch (e) {
+      tracks = []
+    }
+    let menu = opts.role === "host" ? HOST_MOVES : CLIENT_MOVES
+    return {
+      role: opts.role,
+      trigger: trigger.kind === "evolve" ? "bar " + String(trigger.bar) + ", time for a move" : trigger.text,
+      clock: "bar " + String(c.bar) + ", " + String(c.bpm) + " bpm" + (c.playing ? ", playing" : ", stopped"),
+      book: describeSetBook(host.state),
+      memory: setMemory(),
+      novelty: novelty(),
+      cue: cueLine(liveCue()),
+      tracks: tracks.slice(0, 20).map((t) => "'" + t.name + "' gen " + t.gen + (t.mine ? " (mine" + (t.onDeck ? ", deck " + String(t.onDeck) : "") + ")" : " (" + String(t.owner) + ")") + (t.mute ? " muted" : "")),
+      session: opts.role === "host" ? sessionByDeck() : "",
+      chat: chat.slice(-5),
+      menu: trigger.kind === "evolve" ? menu : [],
+      suggested: trigger.kind === "evolve" ? trigger.move : null,
+      kits: libraryIndex("kit").map((r) => r.id)
+    }
+  }
+
+  // Ask the director for this pass. An evolve may come back with a different move; the note follows it.
+  async fn directPass(trigger) {
+    let d = theDirector()
+    if (d === null || !(trigger.kind === "start" || trigger.kind === "message" || trigger.kind === "evolve" || trigger.kind === "prepare")) {
+      return null
+    }
+    let kind = trigger.kind === "start" ? "open" : (trigger.kind === "message" ? "request" : (trigger.kind === "prepare" ? "chapter" : "move"))
+    activity({ kind: "directing", persona: persona.title })
+    let brief = await d.direct(kind, directorContext(trigger))
+    if (brief === null) {
+      return null
+    }
+    if (trigger.kind === "evolve" && brief.move.length > 0 && brief.move !== trigger.move) {
+      let menu = opts.role === "host" ? HOST_MOVES : CLIENT_MOVES
+      let chosen = menu.find((m) => m.id === brief.move)
+      if (chosen) {
+        trigger.move = chosen.id
+        trigger.text = evolveNote(trigger.bar !== null && trigger.bar !== undefined ? trigger.bar : 0, chosen)
+      }
+    }
+    planFromBrief(trigger, brief)
+    log("◆ director (" + persona.title + "): " + (brief.title.length > 0 ? brief.title + " — " : "") + brief.idea.substring(0, 140))
+    activity({ kind: "brief", persona: persona.title, brief: brief })
+    return brief
+  }
+
+  // The director's look ahead lands in the book before the producer runs: the crate, and on a prepare pass, how
+  // and when the cued track comes in. The script reads both, so the plan holds even if the producer runs late.
+  fn planFromBrief(trigger, brief) {
+    let book = opts.role === "host" && host.state && host.state.book ? host.state.book : null
+    if (book === null) {
+      return
+    }
+    let kits = libraryIndex("kit").map((r) => r.id)
+    let crate = brief.crate.filter((c) => kits.indexOf(c.kit) >= 0)
+    if (crate.length > 0) {
+      book.crate = crate
+    }
+    let n = book.next
+    if (trigger.kind === "prepare" && n && typeof n === "object" && brief.blend !== null) {
+      let b = brief.blend
+      let bar = rt.mirror.clock().bar
+      if (b.at !== null && b.at >= bar + 16) {
+        n.at = Math.round(b.at / 8) * 8
+      }
+      if (b.bars !== null) {
+        n.blendBars = b.bars
+      }
+      if (b.style.length > 0) {
+        n.style = b.style
+      }
+      if (b.length !== null) {
+        n.bars = b.length
+      }
+      if (brief.title.length > 0) {
+        n.title = brief.title
+      }
+    }
+  }
+
+  fn prepareNote(book) {
+    let n = book.next
+    let c = rt.mirror.clock()
+    let ids = host.state && host.state.decks && host.state.decks[n.deck] ? host.state.decks[n.deck] : {}
+    return [
+      "The next track is cued and silent on deck " + String(n.deck) + ": '" + String(n.title) + "' (" + String(n.kit) + "), in at bar " + String(n.at) + " — " + String(Math.max(0, n.at - c.bar)) + " bars from now — " + String(n.style) + (n.style === "blend" ? " over " + String(n.blendBars) + " bars" : "") + ". The room hears only deck " + String(book.live) + ". This is your time in the headphones.",
+      "Produce deck " + String(n.deck) + " into the next chapter, not a copy of the live one: its tracks are " + JSON.stringify(ids) + ". Swap instruments (codj.swap), set knobs, re-root, rewrite clips (codj.clips(id, [...], { deck: '" + String(n.deck) + "' })) and its scenes (codj.scene(n, parts, name, { deck: '" + String(n.deck) + "' })), or rebuild the deck from another kit with codj.arrange(parts, { deck: '" + String(n.deck) + "' }) then clips and scenes on that deck. Cue it: codj.cue({ deck: '" + String(n.deck) + "', scene: 0 }) and scene 1.",
+      "Then plan the mix in codj.state.book.next (at: a bar on the phrase, style 'blend' | 'cut' | 'echo', blendBars, bars: how long it plays, title) and keep codj.state.book.crate holding the track after this one.",
+      "Work only on deck " + String(n.deck) + " and the book: leave deck " + String(book.live) + ", the fader and the transport alone — the script mixes on the bar. Use run_script or direct tools; keep the script. Then check_my_work."
+    ].join("\n")
+  }
+
+  fn evalSnippet(code) {
+    if (opts.evalSnippet) {
+      return opts.evalSnippet(code, host.codj)
+    }
+    let src = String(code)
+    let f = null
+    try {
+      f = new Function("codj", "\"use strict\";\nreturn (" + src + "\n)")
+    } catch (e) {
+      f = new Function("codj", "\"use strict\";\n" + src)
+    }
+    return f(host.codj)
+  }
+
+  // Agent-only tools (code + script lifecycle) on top of the registry.
+  let EXTRA = [
+    {
+      name: "write_script", readOnly: false,
+      description: "Replace your co-DJ script (full JS source exporting hooks). Hot-reloads on the next bar; rejected (old script kept) if it fails to compile or setup() throws.",
+      inputSchema: { type: "object", properties: { source: { type: "string", description: "complete JS source" } }, required: ["source"] },
+      run: (a) => {
+        let r = host.load(String(a.source))
+        if (r.ok && opts.onScript) {
+          opts.onScript(String(a.source))
+        }
+        let mine = myTracks().map((t) => t.name + " (" + t.gen + (t.mute ? ", muted" : "") + ")")
+        return { ok: r.ok, error: r.error !== null ? r.error : null, logs: host.logs().slice(-8), yourTracksNow: mine }
+      }
+    },
+    {
+      name: "read_script", readOnly: true,
+      description: "Your current co-DJ script source.",
+      inputSchema: { type: "object", properties: {}, required: [] },
+      run: (a) => ({ source: host.source() })
+    },
+    {
+      name: "run_script", readOnly: false,
+      description: "Run a one-off JS snippet with `codj` in scope and get its value back (an expression, or statements with `return`). Use it to inspect the room or make a burst of edits in one call.",
+      inputSchema: { type: "object", properties: { code: { type: "string", description: "JS — e.g. return codj.tracks().map(t => t.id + ' ' + t.steps)" } }, required: ["code"] },
+      run: (a) => ({ value: evalSnippet(a.code) })
+    },
+    {
+      name: "check_my_work", readOnly: true,
+      description: "Audit what is really in the room against what a finished set needs: your tracks, your session scenes, the transport, the script's errors, refused writes, and anything you said that is not on the deck. Call it after every write_script. You are done only when problems is empty.",
+      inputSchema: { type: "object", properties: {}, required: [] },
+      run: (a) => {
+        let said = deferredSays !== null ? deferredSays.map((s) => s.text).join(" ") : ""
+        let rep = audit({ kind: "start" }, said, passRejects !== null ? passRejects : [])
+        return {
+          problems: rep.problems,
+          yourTracks: rep.mine.map((t) => t.name + " (" + t.gen + (t.mute ? ", muted" : "") + ", deck " + String(t.onDeck) + ")"),
+          session: opts.role === "host" ? sessionByDeck() : null,
+          decks: opts.role === "host" ? myDecks() : null,
+          novelty: novelty(),
+          playing: rt.mirror.clock().playing,
+          logs: host.logs().slice(-6)
+        }
+      }
+    },
+    {
+      name: "script_logs", readOnly: true,
+      description: "The script's recent log lines, its last error and its run status.",
+      inputSchema: { type: "object", properties: { lines: { type: "number", description: "how many (default 30)" } }, required: [] },
+      run: (a) => ({ logs: host.logs().slice(-(a.lines ? Math.floor(Number(a.lines)) : 30)), lastError: host.lastError(), status: host.status() })
+    }
+  ]
+
+  fn allTools() {
+    let reg = toolSpecs().map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, readOnly: t.readOnly }))
+    return reg.concat(EXTRA.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, readOnly: t.readOnly })))
+  }
+
+  fn loopTools() {
+    return allTools().map((t) => ({
+      spec: { type: "function", "function": { name: t.name, description: t.description, parameters: t.inputSchema } },
+      readOnly: t.readOnly,
+      acts: !t.readOnly
+    }))
+  }
+
+  async fn execTool(call) {
+    let args = {}
+    try {
+      args = call.argsText && String(call.argsText).trim().length > 0 ? JSON.parse(call.argsText) : {}
+    } catch (e) {
+      return { id: call.id, name: call.name, argsText: call.argsText, ok: false, summary: "bad JSON arguments", content: JSON.stringify({ error: "arguments were not valid JSON" }) }
+    }
+    if (call.name === "say" && deferredSays !== null) {
+      deferredSays.push({ text: args.text !== null ? String(args.text) : "", to: args.to !== null ? String(args.to) : null })
+      return { id: call.id, name: call.name, argsText: call.argsText, ok: true, summary: "say queued", content: JSON.stringify({ ok: true, note: "Posted once your tracks are checked. Say only what list_owned shows." }) }
+    }
+    try {
+      let extra = EXTRA.find((t) => t.name === call.name)
+      let out = extra ? extra.run(args) : runTool(rt.kit, call.name, args)
+      let rej = out && Array.isArray(out.rejected) ? out.rejected : []
+      let ok = !(out && (out.ok === false || out.sent === false)) && rej.length === 0
+      if (passRejects !== null && rej.length > 0) {
+        passRejects.push("✖ " + call.name + ": " + rej.slice(0, 3).map((x) => String(x.code) + " " + String(x.reason)).join("; "))
+      }
+      activity({ kind: "tool", name: call.name, ok: ok })
+      return { id: call.id, name: call.name, argsText: call.argsText, ok: ok, summary: call.name + (ok ? " ok" : (rej.length > 0 ? " — " + String(rej.length) + " line(s) rejected" : " failed")), content: safeJson(out, 12000) }
+    } catch (e) {
+      let msg = e && e.message ? String(e.message) : String(e)
+      activity({ kind: "tool", name: call.name, ok: false, error: msg })
+      return { id: call.id, name: call.name, argsText: call.argsText, ok: false, summary: msg, content: JSON.stringify({ error: msg }) }
+    }
+  }
+
+  fn situation(trigger) {
+    let me = rt.me()
+    let c = rt.mirror.clock()
+    let tracks = runTool(rt.kit, "list_tracks", {})
+    let lines = []
+    lines.push("TRIGGER: " + trigger.kind + (trigger.text ? " — " + trigger.text : ""))
+    lines.push("clock: bar " + String(c.bar) + (c.playing ? " (playing, " + String(c.bpm) + " bpm)" : " (stopped)"))
+    lines.push("tracks (" + String(tracks.length) + "):")
+    let i = 0
+    while (i < tracks.length && i < 24) {
+      let t = tracks[i]
+      lines.push("  " + t.id + " '" + t.name + "' gen " + t.gen + " owner " + String(t.owner) + (t.mine ? " (MINE)" : "") + " steps " + t.steps + " notes " + String(t.notes) + (t.mute ? " muted" : ""))
+      i = i + 1
+    }
+    if (chat.length > 0) {
+      lines.push("recent chat:")
+      let ci = Math.max(0, chat.length - 8)
+      while (ci < chat.length) {
+        lines.push("  " + chat[ci])
+        ci = ci + 1
+      }
+    }
+    let err = host.lastError()
+    if (err !== null) {
+      lines.push("last script error (" + err.hook + "): " + err.message)
+    }
+    lines.push("your script:\n```js\n" + (host.source() !== null ? host.source() : "(none)") + "\n```")
+    let lg = host.logs().slice(-10)
+    if (lg.length > 0) {
+      lines.push("script log tail:\n" + lg.join("\n"))
+    }
+    if (history.length > 0) {
+      lines.push("your earlier passes:\n" + history.slice(-4).map((h) => "- " + h).join("\n"))
+    }
+    let book = describeSetBook(host.state)
+    if (book.length > 0) {
+      lines.push(book)
+    }
+    lines.push("Your actorId is " + me.actorId + "; your skills: " + (me.skillIds.length > 0 ? me.skillIds.join(", ") : "(none — track edits on your own lane only)") + ".")
+    return lines.join("\n")
+  }
+
+  // A script that never calls arrange/addTrack (and owns nothing yet) produces silence, whatever it logs.
+  fn busyArrangement(h) {
+    let src = h.source()
+    if (src === null) {
+      return false
+    }
+    if (src.indexOf("arrange(") >= 0 || src.indexOf("addTrack(") >= 0) {
+      return true
+    }
+    if (opts.role === "host" && (src.indexOf("clip(") >= 0 || src.indexOf("play(") >= 0 || src.indexOf("launch(") >= 0 || src.indexOf("booth(") >= 0 || src.indexOf("crossfade(") >= 0 || src.indexOf("throwFx(") >= 0)) {
+      return true
+    }
+    let owned = []
+    try {
+      owned = runTool(rt.kit, "list_owned", {})
+    } catch (e) {
+      owned = []
+    }
+    return Array.isArray(owned) && owned.length > 0
+  }
+
+  fn scriptHasBook() {
+    let src = host.source()
+    if (src !== null && src.indexOf("state.book") >= 0) {
+      return true
+    }
+    return host.state && host.state.book ? true : false
+  }
+
+  fn actionRequired(trigger) {
+    if (trigger.kind === "start" || trigger.kind === "message") {
+      let message = opts.role === "host"
+        ? (trigger.kind === "message"
+          ? "They just gave you the brief. Write your plan (brief, kit, each scene and what plays in it), then call write_script NOW. Keep codj.state.book if it exists (do not clear played). If they asked for a clean slate, or codj.placeholder() is still true, codj.clear() before you arrange and set codj.state.ids = null. Otherwise keep their tracks. Set book.brief to their words, build or retarget the sequence from a library kit that fits, rebuild the session columns with codj.scene, and keep onBar DJing every phrase with codj.launch(n): next scene is never the last one, energy and vibe move, booth and a throw perform it. Then call check_my_work and fix until it is clean. Then say one line."
+          : "You have not started the set. Write your plan (kit, each scene and what plays in it), then call write_script NOW. If codj.placeholder() is true, setup() calls codj.clear() first so the page-load Kick/Snare/HiHat/Bass is gone, then picks a library kit, arranges its tracks on a deck (codj.arrange(parts, { deck })), gives every track 2–4 short numbered clips with codj.clips(track, [...]) (library beats / sequences of the same role at the kit's root), composes at least five session columns from those numbers with codj.scene(n, { kick: 1, hat: 2, bass: 1 }, name, { deck }), codj.launch(0, deck), codj.play('song'), and creates codj.state.book. onBar DJs forever from that book: codj.launch(n, deck) on the phrase, a stem move (launchClip / stopClip) inside it, log every phrase to played, never repeat the last scene, ride the booth and fader, two phrases into each track cue the next one silent on a free deck (book.next with the bar it comes in on, book.crate for the one after), and at that bar codj.blend takes the room there. Then call check_my_work and fix until it is clean.")
+        : "You have not written any music yet. Write your plan, then call write_script (or arrange / add_track) NOW. Start from codj.library() — a kit or a preset plus a beat — and build the full arrangement: rhythm section, bass, chords and a hook, with the instrument knobs set. Then call check_my_work and fix until it is clean."
+      return { nudges: 2, message: message }
+    }
+    if (trigger.kind === "evolve" && opts.role === "host" && !scriptHasBook()) {
+      return {
+        nudges: 1,
+        message: "There is no set book, so the night has no memory. Rewrite the script so setup keeps codj.state.book and onBar logs every phrase to played, moves vibe and energy, and does not repeat the last scene."
+      }
+    }
+    if (trigger.kind === "evolve") {
+      return { nudges: 1, message: "You have not made a move. Make the one change you picked now — a direct tool call, run_script, or write_script — then check_my_work." }
+    }
+    if (trigger.kind === "prepare") {
+      return { nudges: 1, message: "The cued deck is unchanged. Produce it now — swap, knobs, clips, scenes on that deck only — cue it, set book.next and the crate, then check_my_work." }
+    }
+    return false
+  }
+
+  async fn runPass(trigger) {
+    let brief = await directPass(trigger)
+    let system = composeAgentPrompt({ role: opts.role, actorId: rt.me().actorId, displayName: rt.me().displayName, skills: opts.skills, persona: persona })
+    let ask = situation(trigger)
+    if (brief !== null) {
+      ask = ask + "\n\n" + briefBlock(brief, persona, theDirector().cards)
+    }
+    let messages = [{ role: "system", content: system }, { role: "user", content: ask }]
+    activity({ kind: "pass", trigger: trigger.kind })
+    log("◆ agent pass: " + trigger.kind)
+    let wrote = false
+    deferredSays = []
+    passRejects = []
+    fn trackingExec(call) {
+      if (call.name === "write_script" || call.name === "arrange" || call.name === "add_track" || call.name === "clear_tracks" || call.name === "remove_track") {
+        wrote = true
+      }
+      return execTool(call)
+    }
+    try {
+      await passBody(trigger, messages, trackingExec, () => wrote)
+    } finally {
+      deferredSays = null
+      passRejects = null
+      if (trigger.kind === "prepare") {
+        let book = host.state && host.state.book ? host.state.book : null
+        if (book && book.next && typeof book.next === "object") {
+          book.next.produced = true
+        }
+      }
+      if (trigger.kind === "start" || trigger.kind === "message" || trigger.kind === "evolve" || trigger.kind === "prepare") {
+        remember(trigger, brief)
+      }
+    }
+  }
+
+  async fn passBody(trigger, messages, trackingExec, didWrite) {
+    let outcome = await opts.agents.runAgentLoop({
+      messages: messages,
+      tools: loopTools(),
+      callModel: callModel,
+      execTool: trackingExec,
+      maxRounds: opts.maxRounds !== null ? opts.maxRounds : 24,
+      stopped: () => stopped,
+      requireAction: actionRequired(trigger),
+      hooks: {
+        onToolStart: (call) => log("  → " + call.name)
+      }
+    })
+    let text = outcome && outcome.text ? String(outcome.text).trim() : ""
+    if (text.length > 0) {
+      history.push(trigger.kind + ": " + text.split("\n")[0].substring(0, 160))
+      if (history.length > 12) {
+        history.shift()
+      }
+    }
+    let wrote = didWrite()
+    let building = trigger.kind === "start" || trigger.kind === "message"
+    if (building && wrote && !busyArrangement(host) && !(outcome && outcome.stopped)) {
+      log("◆ the script built nothing — sending it back")
+      messages.push({ role: "assistant", content: text })
+      messages.push({ role: "user", content: opts.role === "host"
+        ? "Your script loaded but it is not a set. Rewrite it: arrange a library kit that matches the brief, give every track 2–4 short numbered clips with codj.clips, compose at least five session columns from those numbers with codj.scene(n, { kick: 1, hat: 2 }, name), codj.launch(0), codj.play('song'), and keep codj.state.book. onBar must DJ every phrase from that book — log played, move vibe and energy, never repeat the last scene, and ride the booth, the filter and a throw. Do not wipe the book if it already exists."
+        : "Your script loaded but it creates no tracks: nothing is audible. Rewrite it so setup() calls codj.arrange(...) — start from codj.preset('house-loop').parts or another library kit — with kick, hats, bass, chords and a hook, and set the instrument knobs. Then check script_logs again." })
+      outcome = await opts.agents.runAgentLoop({
+        messages: messages,
+        tools: loopTools(),
+        callModel: callModel,
+        execTool: trackingExec,
+        maxRounds: 12,
+        stopped: () => stopped
+      })
+      text = outcome && outcome.text ? String(outcome.text).trim() : text
+    }
+
+    // Check the work against the room, rethink, fix, and check again — until it holds or the rounds run out.
+    // Nothing reaches the chat until this is done.
+    let maxChecks = opts.maxChecks !== null && opts.maxChecks !== undefined ? Math.floor(Number(opts.maxChecks)) : 3
+    let claim = deferredSays.map((s) => s.text).join(" ") + " " + text
+    let rep = audit(trigger, claim, passRejects.slice())
+    let checks = 0
+    let tried = []
+    let auditable = didWrite() || ((trigger.kind === "evolve" || trigger.kind === "prepare") && opts.role === "host")
+    while (rep.problems.length > 0 && auditable && checks < maxChecks && !(outcome && outcome.stopped) && !stopped) {
+      checks = checks + 1
+      log("◆ self-check " + String(checks) + "/" + String(maxChecks) + ": " + String(rep.problems.length) + " problem(s) — " + rep.problems[0].split("\n")[0].substring(0, 120))
+      activity({ kind: "check", round: checks, problems: rep.problems })
+      let src = host.source()
+      if (src !== null) {
+        tried.push(src)
+      }
+      let sess = opts.role === "host" ? sessionByDeck() : ""
+      let fix = [
+        "SELF-CHECK " + String(checks) + " of " + String(maxChecks) + ". I looked at the room itself, not at what you said. It does not match a finished set:",
+        rep.problems.map((p) => "- " + p).join("\n"),
+        "Your tracks right now: " + (rep.mine.length > 0 ? rep.mine.map((t) => t.name + " (" + t.gen + ", deck " + String(t.onDeck) + ")").join(", ") : "none") + ".",
+        opts.role === "host" ? "Your session right now: " + (sess.length > 0 ? sess : "no scenes with your clips") + "." : "",
+        "Rethink before you touch anything. In two or three sentences, say why each problem happened: which call caused it and what you assumed that was wrong. Remember codj.arrange replaces EVERY track you own (or every track on opts.deck), so a second arrange() deletes the first.",
+        "Then fix the cause with write_script, call check_my_work, and keep going until its problems list is empty. " + (checks > 1 ? "Your last fix did not work, so change the approach — do not resend the same script. " : "") + "Say only what check_my_work shows."
+      ]
+      messages.push({ role: "assistant", content: text.length > 0 ? text : "(done)" })
+      messages.push({ role: "user", content: fix.filter((l) => l.length > 0).join("\n") })
+      deferredSays.splice(0, deferredSays.length)
+      passRejects.splice(0, passRejects.length)
+      outcome = await opts.agents.runAgentLoop({
+        messages: messages,
+        tools: loopTools(),
+        callModel: callModel,
+        execTool: trackingExec,
+        maxRounds: 12,
+        stopped: () => stopped,
+        requireAction: { nudges: 1, message: "You have not fixed it. Call write_script with the corrected script now, then check_my_work." }
+      })
+      text = outcome && outcome.text ? String(outcome.text).trim() : ""
+      claim = deferredSays.map((s) => s.text).join(" ") + " " + text
+      rep = audit(trigger, claim, passRejects.slice())
+      if (host.source() !== null && tried.indexOf(host.source()) >= 0 && rep.problems.length > 0) {
+        log("◆ self-check: the fix resent a script that already failed")
+      }
+    }
+    if (checks > 0) {
+      log(rep.problems.length === 0 ? "◆ self-check passed after " + String(checks) + " fix(es)" : "◆ self-check still failing after " + String(checks) + " fix(es)")
+    }
+    let missing = rep.missing
+
+    let to = deferredSays.length > 0 && deferredSays[deferredSays.length - 1].to !== null ? deferredSays[deferredSays.length - 1].to : (trigger.from !== null ? trigger.from : null)
+    let words = deferredSays.length > 0 ? deferredSays.map((s) => s.text).join(" ") : (trigger.kind === "message" ? text.split("\n")[0] : "")
+    if (missing.length > 0) {
+      words = "I could not get " + missing.join(", ") + " onto the deck."
+    } else if (rep.problems.length > 0 && auditable && checks > 0) {
+      words = (words.trim().length > 0 ? words.trim() + " " : "") + "Still fixing: " + rep.problems[0].split("\n")[0].substring(0, 140)
+    }
+    if (trigger.kind === "evolve") {
+      let said = words.trim().length > 0 ? words.trim() : text.split("\n")[0]
+      moves.push({ bar: trigger.bar !== null && trigger.bar !== undefined ? trigger.bar : 0, move: trigger.move ? trigger.move : "?", text: said.substring(0, 100) })
+      if (moves.length > 12) {
+        moves.shift()
+      }
+      log("◆ evolve: " + (trigger.move ? trigger.move : "?") + " — " + said.substring(0, 100))
+    }
+    if (words.trim().length > 0 || (didWrite() && trigger.kind !== "evolve")) {
+      let post = words.trim().length > 0 ? words.trim().substring(0, 280) : ""
+      if (didWrite()) {
+        if (post.length > 0 && !/[.!?]$/.test(post)) {
+          post = post + "."
+        }
+        post = (post.length > 0 ? post + " " : "") + deckLine(myTracks())
+      }
+      rt.say(post, to)
+    }
+    log("◆ pass done (" + String(outcome ? outcome.rounds : 0) + " rounds)")
+  }
+
+  async fn drain() {
+    if (busy || stopped) {
+      return
+    }
+    busy = true
+    while (queue.length > 0 && !stopped) {
+      let next = queue.shift()
+      try {
+        await runPass(next)
+      } catch (e) {
+        let msg = e && e.message ? String(e.message) : String(e)
+        log("✖ agent: " + msg)
+        activity({ kind: "error", error: msg })
+        if (e && (e.code === "unauthorized" || e.status === 401)) {
+          stopped = true
+        }
+      }
+    }
+    busy = false
+  }
+
+  /** Queue a pass. kind: start | message | script_error | evolve | prepare | manual. Same-kind triggers coalesce. */
+  fn trigger(kind, text, from, extra) {
+    if (stopped) {
+      return
+    }
+    let existing = queue.find((q) => q.kind === kind)
+    if (existing) {
+      if (kind === "evolve") {
+        return
+      }
+      if (text) {
+        existing.text = existing.text ? existing.text + " / " + text : text
+      }
+    } else {
+      let q = { kind: kind, text: text !== null ? text : null, from: from !== null ? from : null }
+      if (extra) {
+        q.bar = extra.bar
+        q.move = extra.move
+      }
+      queue.push(q)
+    }
+    drain()
+  }
+
+  /** A track just got cued (book.next, not produced yet): produce it now, while the live one has most of its run left. Once per cue. */
+  fn prepare() {
+    let book = opts.role === "host" && host.state && host.state.book ? host.state.book : null
+    if (book === null || !book.next || typeof book.next !== "object" || book.next.produced || book.mix) {
+      return false
+    }
+    let key = String(book.next.deck) + "@" + String(book.next.at)
+    if (key === preparedFor) {
+      return false
+    }
+    preparedFor = key
+    trigger("prepare", prepareNote(book), null, { bar: rt.mirror.clock().bar, move: null })
+    return true
+  }
+
+  /** Evolve now (the interval does this on its own): one deliberate move, optionally a named one. */
+  fn evolve(moveId) {
+    let clock = null
+    try {
+      clock = runTool(rt.kit, "get_clock", {})
+    } catch (e) {
+      clock = null
+    }
+    let bar = clock && typeof clock.bar === "number" ? clock.bar : 0
+    let menu = opts.role === "host" ? HOST_MOVES : CLIENT_MOVES
+    let move = moveId ? menu.find((m) => m.id === moveId) : null
+    if (!move) {
+      move = pickMove()
+    }
+    trigger("evolve", evolveNote(bar, move), null, { bar: bar, move: move.id })
+  }
+
+  rt.on((ev) => {
+    if (ev.type === "snapshot" && !started) {
+      started = true
+      if (host.source() === null) {
+        host.load(starterScript())
+      }
+      trigger("start", "you just joined — look at the room and write your first script", null)
+      return
+    }
+    if (ev.type === "chat") {
+      chat.push(ev.fromName + (ev.to ? " → " + rt.nameOf(ev.to) : "") + ": " + ev.text)
+      if (chat.length > 30) {
+        chat.shift()
+      }
+      let me = rt.me()
+      let mention = me.displayName && ev.text.toLowerCase().indexOf("@" + String(me.displayName).toLowerCase()) >= 0
+      if (ev.toMe || mention) {
+        trigger("message", ev.fromName + " says: " + ev.text, ev.from)
+      }
+      return
+    }
+    if (ev.type === "tick" && ev.perfStep % 16 === 0) {
+      let bar = Math.floor(ev.perfStep / 16)
+      if (nextEvolveBar > 0 && bar < nextEvolveBar - evolveEvery * 2) {
+        nextEvolveBar = bar + evolveEvery
+      }
+      let book = opts.role === "host" && host.state && host.state.book ? host.state.book : null
+      if (prepare()) {
+        return
+      }
+      // Hands off the decks while a mix runs or is about to.
+      let mixing = book && (book.mix || (book.next && typeof book.next.at === "number" && book.next.at - bar <= 8 && book.next.at - bar >= 0))
+      if (mixing && nextEvolveBar > 0 && bar >= nextEvolveBar) {
+        nextEvolveBar = bar + 8
+      }
+      if (nextEvolveBar > 0 && bar >= nextEvolveBar && !busy) {
+        // On a phrase, every `evolveEvery` bars give or take a phrase, so the moves do not land like a metronome.
+        let jitter = evolveEvery >= 16 ? (Math.floor(Math.random() * 3) - 1) * 8 : 0
+        nextEvolveBar = bar + Math.max(8, evolveEvery + jitter)
+        let move = pickMove()
+        trigger("evolve", evolveNote(bar, move), null, { bar: bar, move: move.id })
+      }
+    }
+  })
+
+  // A failing script wakes the agent — at most once per 20 s, so a broken fix can't spin the loop.
+  host.onError((err) => {
+    let t = Date.now()
+    if (t - lastErrorAt >= 20000) {
+      lastErrorAt = t
+      trigger("script_error", err.hook + ": " + err.message, null)
+    }
+  })
+
+  return {
+    trigger: trigger,
+    evolve: evolve,
+    prepare: prepare,
+    moves: () => moves.slice(),
+    persona: () => persona,
+    brief: () => (director !== null ? director.last() : null),
+    memory: () => setMemory().slice(),
+    busy: () => busy,
+    tools: allTools,
+    history: () => history.slice(),
+    stop: () => {
+      stopped = true
+      queue = []
+    }
+  }
+}

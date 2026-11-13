@@ -1,0 +1,100 @@
+// Node built-ins for the JS-target co-DJ runner. `tish build --target js` can't import `node:*`, so this reaches
+// them at runtime through process.getBuiltinModule (Node ≥ 22.3) — the one place the runner touches Node.
+
+fn proc() {
+  return globalThis.process
+}
+
+export fn nodeModule(name) {
+  return proc().getBuiltinModule(name)
+}
+
+export fn nodeFs() {
+  return nodeModule("node:fs")
+}
+
+export fn nodePath() {
+  return nodeModule("node:path")
+}
+
+export fn nodeOs() {
+  return nodeModule("node:os")
+}
+
+export fn nodeVm() {
+  return nodeModule("node:vm")
+}
+
+export fn argv() {
+  return proc().argv
+}
+
+export fn env(name) {
+  let e = proc().env
+  let v = e[name]
+  return v !== null && String(v).length > 0 ? String(v) : null
+}
+
+export fn exitProcess(code) {
+  proc().exit(code)
+}
+
+export fn stdoutWrite(s) {
+  proc().stdout.write(String(s))
+}
+
+/** require() relative to the running script (so a checkout's node_modules resolve wherever cwd is). */
+export fn nodeRequire(spec) {
+  let mod = nodeModule("node:module")
+  let base = proc().argv.length > 1 ? proc().argv[1] : proc().cwd() + "/"
+  let req = mod.createRequire(base)
+  return req(spec)
+}
+
+/** The Hypery agent core (@hyperyai/sdk/agents): runAgentLoop, createHyperyModel, … */
+export fn loadHyperyAgents() {
+  return nodeRequire("@hyperyai/sdk/agents")
+}
+
+/** The repo root (the directory holding skills/ + docs/) — from DECKARD_ROOT, else walk up from the script. */
+export fn repoRoot() {
+  let fromEnv = env("DECKARD_ROOT")
+  if (fromEnv !== null) {
+    return fromEnv
+  }
+  let fs = nodeFs()
+  let path = nodePath()
+  let dir = path.dirname(path.resolve(proc().argv.length > 1 ? proc().argv[1] : proc().cwd()))
+  let guard = 0
+  while (guard < 12) {
+    if (fs.existsSync(path.join(dir, "skills")) && fs.existsSync(path.join(dir, "docs", "DECK_AGENT_GRAMMAR.md"))) {
+      return dir
+    }
+    let up = path.dirname(dir)
+    if (up === dir) {
+      guard = 99
+    } else {
+      dir = up
+    }
+    guard = guard + 1
+  }
+  return proc().cwd()
+}
+
+export fn readText(file) {
+  return String(nodeFs().readFileSync(file, "utf8"))
+}
+
+export fn readTextOr(file, fallback) {
+  try {
+    return readText(file)
+  } catch (e) {
+    return fallback
+  }
+}
+
+export fn sleepMs(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}

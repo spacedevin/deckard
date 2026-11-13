@@ -13,6 +13,13 @@ import { emitProject, deckMixLine } from '../deckfile/Emit.tish'
 import { loadProjectFromTpl } from '../model/ProjectLoad.tish'
 import { ensureCoDjMeta, setTrackOwner } from '../codj/CoDjMeta.tish'
 import { projectEligibleToContribute, rehomeJoinerChannels, projectHasActorPrefixedTracks } from '../codj/DeckJoin.tish'
+import { deckPutSource } from '../codj/DeckPut.tish'
+import { coDjGateReport } from '../codj/Gate.tish'
+import { deltaFrame, editResultFrame, chatFrame, focusFrame, joinFrame, rosterEntry } from '../codj/Protocol.tish'
+import { hyperyBrowserSession, hyperyBrowserAccessToken, hyperyLoginPopup, hyperyLogout, hyperyHandleRedirectReturn } from '../auth/HyperyBrowser.tish'
+import { chatLocalCoDjs } from '../agentkit/BrowserHost.tish'
+import { AiCoDjSection, HyperyTeamPicker, coDjChatOnCard } from './AiCoDjSection.tish'
+import { freshRoomName, rememberRoomName } from '../codj/RoomName.tish'
 import { IkSelect } from './InstrumentKit.tish'
 
 // Default gateway URL. Locally that's the dev gateway on 35987; when served from a real host (the DigitalOcean
@@ -45,6 +52,15 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
         }
       }, 350)
     }
+    if (!rt.hyperyBootChecked) {
+      rt.hyperyBootChecked = true
+      hyperyHandleRedirectReturn().then((s) => {
+        if (s !== null) {
+          pushLog("signed in with Hypery as " + (s.user && s.user.name ? s.user.name : "?"))
+          setPoll((p) => p + 1)
+        }
+      })
+    }
     if (rt.coDjLog.length === 0 && !rt.coDjLogSeeded) {
       rt.coDjLogSeeded = true
       rt.coDjLog.push(String(Date.now()).slice(-8) + " Co-DJ: Connect to gateway")
@@ -60,6 +76,53 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       rt.coDjLog.shift()
     }
     rt.coDjLogDirty = true
+  }
+  fn pushChat(from, target, text) {
+    if (!rt) {
+      return
+    }
+    if (!Array.isArray(rt.coDjChat)) {
+      rt.coDjChat = []
+    }
+    rt.coDjChat.push({ from: String(from), to: target !== null ? String(target) : null, text: String(text) })
+    while (rt.coDjChat.length > 60) {
+      rt.coDjChat.shift()
+    }
+    rt.coDjLogDirty = true
+  }
+  // `@bass` → the actor whose id or display name starts with/contains "bass" (null when nobody matches).
+  fn resolveActorRef(name) {
+    let n = String(name).toLowerCase()
+    if (n.length === 0) {
+      return null
+    }
+    let roster = rt && Array.isArray(rt.coDjRoster) ? rt.coDjRoster : []
+    let i = 0
+    while (i < roster.length) {
+      let e = roster[i]
+      let dn = e && e.displayName ? String(e.displayName).toLowerCase() : ""
+      if (String(e.actorId).toLowerCase() === n || dn === n) {
+        return String(e.actorId)
+      }
+      i = i + 1
+    }
+    let actors = rt && Array.isArray(rt.coDjActors) ? rt.coDjActors : []
+    let j = 0
+    while (j < actors.length) {
+      if (String(actors[j]).toLowerCase().indexOf(n) >= 0) {
+        return String(actors[j])
+      }
+      j = j + 1
+    }
+    let k = 0
+    while (k < roster.length) {
+      let dn2 = roster[k] && roster[k].displayName ? String(roster[k].displayName).toLowerCase() : ""
+      if (dn2.indexOf(n) >= 0) {
+        return String(roster[k].actorId)
+      }
+      k = k + 1
+    }
+    return null
   }
   // Force a full app re-render (App.setProjectFromUI → bumpAllRev) when available, else the plain setter.
   // Used on connect/disconnect/merge so memo'd panels (e.g. the deck-routing lock) reflect the new state.
@@ -109,6 +172,59 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       } else {
         sendDeckPut()
       }
+    }
+    // Host: stream each LOCAL edit as the exact deck fragment its ingest folded (App wires ingest.onOut here).
+    // Snapshots stay the keyframe for late joiners/resync; deltas let agents follow every edit as it happens.
+    // Control directives are not re-sent here — they already travel as deck.block via coDjPushControl.
+    rt.coDjPublishDelta = (fragment, kind, ctx) => {
+      if (kind !== "doc" || rt.coDjIsHost !== true || !(rt.coDjWs && rt.coDjWs.readyState === 1)) {
+        return
+      }
+      let rev = (typeof rt.coDjDeltaRev === "number" ? rt.coDjDeltaRev : 0) + 1
+      rt.coDjDeltaRev = rev
+      let gen = typeof rt.coDjSnapGen === "number" ? rt.coDjSnapGen : 0
+      let ps = ctx && ctx.perfStep !== null ? ctx.perfStep : (typeof rt.perfStep === "number" ? rt.perfStep : 0)
+      // The local user's edits fold as "human" until co-DJ assigns an actorId — publish those as this host.
+      let author = ctx && ctx.actorId !== null && ctx.actorId !== "human" ? ctx : { actorId: rt.coDjActorId, skillIds: ctx ? ctx.skillIds : null }
+      rt.coDjWs.send(JSON.stringify(deltaFrame(rt.coDjActorId, rev, gen, fragment, ps, author)))
+    }
+    // Host: tell the room what the fold did with a peer's frame (so an agent learns WHY a line didn't land).
+    rt.coDjPublishEditResult = (fromId, src, skillIds, status, ref) => {
+      if (rt.coDjIsHost !== true || !(rt.coDjWs && rt.coDjWs.readyState === 1)) {
+        return
+      }
+      let p = rt.project ? rt.project : project
+      let report = status === "late" ? { accepted: 0, rejected: [{ line: "*", code: "LATE", reason: "arrived after its submit deadline" }] } : coDjGateReport(p, src, fromId, skillIds)
+      rt.coDjWs.send(JSON.stringify(editResultFrame(rt.coDjActorId, fromId, ref, report, status)))
+    }
+    rt.coDjPublishFocus = (trackId) => {
+      if (rt.coDjIsHost !== true || !(rt.coDjWs && rt.coDjWs.readyState === 1)) {
+        return
+      }
+      if (rt.coDjLastFocus === trackId) {
+        return
+      }
+      rt.coDjLastFocus = trackId
+      rt.coDjWs.send(JSON.stringify(focusFrame(rt.coDjActorId, trackId)))
+    }
+    // Chat: `@<actor> text` addresses one actor (an AI co-DJ treats it as an instruction); plain text is room chat.
+    rt.coDjSendChat = (text) => {
+      let s = String(text === null ? "" : text).trim()
+      if (s.length === 0 || !(rt.coDjWs && rt.coDjWs.readyState === 1)) {
+        return
+      }
+      let target = null
+      if (s.charAt(0) === "@") {
+        let sp = s.indexOf(" ")
+        let name = sp < 0 ? s.substring(1) : s.substring(1, sp)
+        target = resolveActorRef(name)
+        if (target !== null && sp > 0) {
+          s = s.substring(sp + 1).trim()
+        }
+      }
+      let me = rt.coDjActorId ? rt.coDjActorId : "actor"
+      rt.coDjWs.send(JSON.stringify(chatFrame(me, rt.coDjDisplayName ? rt.coDjDisplayName : me, s, target)))
+      pushChat(rt.coDjDisplayName ? rt.coDjDisplayName : "you", target, s)
     }
     rt.coDjNotifyPlaying = (playing) => {
       let ws = rt.coDjWs
@@ -175,6 +291,7 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
     if (t === "presence") {
       if (rt) {
         rt.coDjActors = msg.actors ? msg.actors : []
+        rt.coDjRoster = Array.isArray(msg.roster) ? msg.roster : []
         // Only (re)resolve role on a CONCRETE hostActorId. A transient null (host died, gateway mid-reassign)
         // is IGNORED — never demote the real host on a momentary null, which would drop its transport.
         if (msg.hostActorId !== null) {
@@ -212,9 +329,10 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
         // removed on their side (e.g. a song load drop-and-replaced their deck). Prepend remove_track for each so
         // the sender's deck on every peer MATCHES theirs (add new + drop gone), not just accumulates. Without this
         // a client loading a new song would leave its old tracks orphaned on the host.
-        let keep = deckPutKeepIds(dlines)
-        let rmLines = staleOwnedRemoveLines(p, fromId, keep)
-        let src = "deck 1\n" + rmLines.concat(dlines).join("\n") + "\n"
+        let src = deckPutSource(p, fromId, dlines)
+        if (rt.coDjPublishEditResult) {
+          rt.coDjPublishEditResult(fromId, src, msg.skillIds, "applied", msg.ref !== null ? msg.ref : msg.seq)
+        }
         applyCoDjTplSource(p, src, fromId, fromId, ps, msg.skillIds)
         // Bump the per-slice rev counters so the memo'd panels re-render on a remote edit to an EXISTING track
         // (a name/knob change keeps the channel count the same → channelsRev wouldn't move without this, and
@@ -261,6 +379,9 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
         rt,
         msg.skillIds
       )
+      if (rt && rt.coDjPublishEditResult && actorId !== rt.coDjActorId) {
+        rt.coDjPublishEditResult(actorId, r.status === "late" ? "" : r.tpl, msg.skillIds, r.status === "late" ? "late" : (r.status === "queued" ? "queued" : "applied"), msg.ref !== null ? msg.ref : msg.seq)
+      }
       if (r.status === "late") {
         return
       }
@@ -369,6 +490,21 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       pushLog("direct→" + (msg.targetActorId ? msg.targetActorId : "?"))
       return
     }
+    if (t === "chat") {
+      let who = msg.displayName ? msg.displayName : (msg.actorId ? msg.actorId : "?")
+      pushChat(who, msg.targetActorId, msg.text !== null ? msg.text : "")
+      if (rt && rt.coDjBumpUi) {
+        rt.coDjBumpUi()
+      }
+      return
+    }
+    if (t === "edit.result") {
+      let rej = Array.isArray(msg.rejected) ? msg.rejected : []
+      if (rej.length > 0 && rt && msg.fromActorId === rt.coDjActorId) {
+        pushLog("host dropped " + String(rej.length) + " line(s): " + String(rej[0].code) + " " + String(rej[0].line).slice(0, 48))
+      }
+      return
+    }
     if (t === "control" && msg.op === "clear_overlay") {
       coDjClearOverlays(project)
       setProject(project)
@@ -457,55 +593,13 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
     // and any re-order harmless.
     let g = (typeof rt.coDjSnapGen === "number" ? rt.coDjSnapGen : 0) + 1
     rt.coDjSnapGen = g
-    rt.coDjWs.send(JSON.stringify({ type: "state.snapshot", actorId: aid, authorId: aid, lines: lines, owners: owners, gen: g }))
+    // `rev` = the last deck.delta this snapshot already contains, so a mirror skips deltas at or below it.
+    let rev = typeof rt.coDjDeltaRev === "number" ? rt.coDjDeltaRev : 0
+    rt.coDjWs.send(JSON.stringify({ type: "state.snapshot", actorId: aid, authorId: aid, lines: lines, owners: owners, gen: g, rev: rev }))
     if (typeof console !== "undefined" && console.log) {
       console.log("[Co-DJ UI] OUTPUT state.snapshot (" + String(lines.length) + " lines, gen " + String(g) + ")")
     }
     pushLog("pushed host snapshot (" + String(p.channels.length) + " tracks, gen " + String(g) + ")")
-  }
-
-  // The set of track ids carried in a deck.put frame (the positional id token before " gen " in each header).
-  fn deckPutKeepIds(dlines) {
-    let keep = {}
-    let i = 0
-    while (i < dlines.length) {
-      let ln = dlines[i]
-      let isIndented = ln.length > 0 && (ln.charAt(0) === " " || ln.charAt(0) === "\t")
-      if (!isIndented && ln.trim().indexOf("track ") === 0) {
-        let genIdx = ln.indexOf(" gen ")
-        if (genIdx >= 0) {
-          let head = ln.substring(0, genIdx)
-          let lastSp = head.lastIndexOf(" ")
-          if (lastSp >= 0) {
-            keep[head.substring(lastSp + 1)] = true
-          }
-        }
-      }
-      i = i + 1
-    }
-    return keep
-  }
-
-  // remove_track lines for every channel I currently hold that is OWNED BY `fromId` but ABSENT from this deck.put.
-  // A deck.put is the sender's whole deck, so a sender-owned track not in it was dropped on their side (a song
-  // load replaces the deck) and must be dropped here too — otherwise it lingers orphaned (the host's stale-track bug).
-  fn staleOwnedRemoveLines(p, fromId, keep) {
-    let out = []
-    if (!p || !p.coDjMeta || !p.coDjMeta.tracks || !Array.isArray(p.channels)) {
-      return out
-    }
-    let ci = 0
-    while (ci < p.channels.length) {
-      let ch = p.channels[ci]
-      let cid = String(ch.id)
-      let m = p.coDjMeta.tracks[cid]
-      let owner = m && m.ownerActorId ? String(m.ownerActorId) : ""
-      if (owner === String(fromId) && keep[cid] !== true) {
-        out.push("remove_track " + cid)
-      }
-      ci = ci + 1
-    }
-    return out
   }
 
   // From a live project, return the track blocks (header + indented body, deck-line dropped) for the tracks
@@ -860,8 +954,13 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
           }
         }
         rt.coDjActors = msg.actors ? msg.actors : []
+        rt.coDjRoster = Array.isArray(msg.roster) ? msg.roster : []
         rt.coDjHostActorId = msg.hostActorId !== null ? msg.hostActorId : null
         rt.coDjIsHost = rt.coDjActorId !== null && msg.hostActorId === rt.coDjActorId
+        let me = rosterEntry(rt.coDjRoster, rt.coDjActorId)
+        if (me !== null && me.displayName) {
+          rt.coDjDisplayName = me.displayName
+        }
         syncPlayerRoster()
         rt.coDjPairingDirty = true
       }
@@ -963,17 +1062,30 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
         rt.coDjLineStreams = {}
       }
       if (sock && sock.send) {
-        let joinPayload = JSON.stringify({
-          type: "join",
-          sessionId: sess,
-          actorId: actorId,
-          channelIds: ["default"],
-          skillIds: ["add_track", "adjust_instrument", "pattern_steps", "pattern_piano", "channel_mix", "master_mixer"]
+        // Signed in with Hypery → the join carries the access token; the gateway verifies it and binds this
+        // actor to the user (the actorId it hands back in `joined` wins). Signed out → an anonymous join.
+        hyperyBrowserAccessToken().then((tok) => {
+          let sess0 = hyperyBrowserSession()
+          let dn = sess0 && sess0.user && sess0.user.name ? sess0.user.name : null
+          if (rt && dn !== null) {
+            rt.coDjDisplayName = dn
+          }
+          let joinPayload = JSON.stringify(joinFrame({
+            sessionId: sess,
+            actorId: actorId,
+            skillIds: ["add_track", "adjust_instrument", "pattern_steps", "pattern_piano", "channel_mix", "master_mixer"],
+            displayName: dn,
+            kind: "human",
+            role: "host",
+            token: tok
+          }))
+          if (typeof console !== "undefined" && console.log) {
+            console.log("[Co-DJ UI] OUTPUT wsSend join (" + (tok !== null ? "signed in" : "anonymous") + ")")
+          }
+          if (sock.readyState === 1) {
+            sock.send(joinPayload)
+          }
         })
-        if (typeof console !== "undefined" && console.log) {
-          console.log("[Co-DJ UI] OUTPUT wsSend join:", joinPayload)
-        }
-        sock.send(joinPayload)
       }
     }
     sock.onmessage = handleWsMessage
@@ -1056,10 +1168,54 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
   }
   let actorSummary = "— connect to see actors"
   if (rt && rt.coDjActors && rt.coDjActors.length > 0) {
-    actorSummary = rt.coDjActors.join(", ")
+    let names = []
+    let ai = 0
+    while (ai < rt.coDjActors.length) {
+      let e = rosterEntry(rt.coDjRoster, rt.coDjActors[ai])
+      let label = e !== null && e.displayName ? e.displayName : rt.coDjActors[ai]
+      names.push(e !== null && e.kind === "agent" ? label + " (AI)" : label)
+      ai = ai + 1
+    }
+    actorSummary = names.join(", ")
+  }
+  let hySession = hyperyBrowserSession()
+  let chatEls = []
+  let chats = rt && Array.isArray(rt.coDjChat) ? rt.coDjChat : []
+  let ci2 = chats.length > 12 ? chats.length - 12 : 0
+  while (ci2 < chats.length) {
+    let c = chats[ci2]
+    if (!coDjChatOnCard(rt, c)) {
+      chatEls.push(<div class="codj-chat-line"><strong>{c.from}</strong>{c.to !== null ? " → " + c.to : ""}{": " + c.text}</div>)
+    }
+    ci2 = ci2 + 1
   }
   return <section class="panel codj-panel">
     <h2>{"Co-DJ (WebSocket)"}</h2>
+    <div class="codj-row codj-account">
+      {hySession !== null ? (
+        <span class="codj-account-chip">{"Hypery · " + (hySession.user && hySession.user.name ? hySession.user.name : "signed in")}</span>
+      ) : (
+        <span class="codj-account-chip codj-account-anon">{"Not signed in (anonymous co-DJ)"}</span>
+      )}
+      {HyperyTeamPicker(rt)}
+      {hySession !== null ? (
+        <button type="button" class="btn-codj" onclick={() => {
+          hyperyLogout()
+          pushLog("signed out of Hypery")
+          setPoll((p) => p + 1)
+        }}>{"Log out"}</button>
+      ) : (
+        <button type="button" class="btn-codj btn-codj-primary" onclick={() => {
+          hyperyLoginPopup().then((s) => {
+            pushLog("signed in with Hypery as " + (s.user && s.user.name ? s.user.name : "?"))
+            setPoll((p) => p + 1)
+          }, (e) => {
+            pushLog("Hypery sign-in: " + String(e && e.message ? e.message : e))
+          })
+        }}>{"Log in with Hypery"}</button>
+      )}
+    </div>
+    {AiCoDjSection(rt)}
     <p class="codj-pairing"><strong>{"Session actors"}</strong>{" · "}{actorSummary}</p>
     {rt !== null && rt.coDjHostDeckPrompt === true ? (
       <div class="codj-deck-prompt">
@@ -1094,11 +1250,21 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
       </div>
     </div>
     <div class="codj-row">
-      <label>{"Room "}<input type="text" class="codj-input" placeholder="default (room id, max 4 players)" oninput={(e) => {
+      <label>{"Room "}<input type="text" class="codj-input" title="Two-word name for this session. Anyone who connects with the same name joins it (max 4)." value={rt && rt.coDjSessionId ? rt.coDjSessionId : ""} oninput={(e) => {
         if (rt) {
           rt.coDjSessionId = e.target.value
+          rememberRoomName(e.target.value)
         }
       }} /></label>
+      <button type="button" class="btn-codj" title="Fill in another two-word room name" onclick={() => {
+        if (!rt) {
+          return
+        }
+        let name = freshRoomName()
+        rt.coDjSessionId = name
+        rememberRoomName(name)
+        setPoll((p) => p + 1)
+      }}>{"New name"}</button>
     </div>
     <div class="codj-row">
       <label class="codj-follow-toggle" title={"Follow the host's transport — play/stop and song position lock to the host. Turn off to run your deck independently (model A)."}>
@@ -1125,6 +1291,21 @@ export fn CoDjPanel(project, setProject, tplMirrorFlush, rt) {
         coDjClearOverlays(project)
         setProject(project)
       }}>{"Clear overlays"}</button>
+    </div>
+    <div class="codj-chat">
+      <div class="codj-chat-lines">{chatEls}</div>
+      <input type="text" class="codj-input codj-chat-input" placeholder={wsConnected || (rt && Array.isArray(rt.aiCoDjs) && rt.aiCoDjs.length > 0) ? "Chat — @name to direct a co-DJ (Enter to send)" : "Connect (or add an AI co-DJ) to chat"} onkeydown={(e) => {
+        if (e.key !== "Enter" || !rt) {
+          return
+        }
+        if (wsConnected && rt.coDjSendChat) {
+          rt.coDjSendChat(e.target.value)
+        } else {
+          chatLocalCoDjs(rt, e.target.value)
+        }
+        e.target.value = ""
+        setPoll((p) => p + 1)
+      }} />
     </div>
     <div class="codj-log">{logEls}</div>
     <span class="codj-poll-hid" style={{ display: "none" }}>{String(poll)}</span>

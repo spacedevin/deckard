@@ -1,0 +1,840 @@
+// Headless co-DJ agentkit: mirror convergence over the real wire protocol (LocalHost + in-memory pair), delta-gap
+// resync, the write gate (client report + host fold), bar-boundary queuing, optimistic writes surviving a stale
+// keyframe, ScriptHost hot reload / rollback / budget, and the Hypery agent loop driven by a fake model.
+import { loadDefaultDeckardProject } from '../src/model/ProjectLoad.tish'
+import { emitProject } from '../src/deckfile/Emit.tish'
+import { createIngest } from '../src/core/Ingest.tish'
+import { createEditor } from '../src/core/Edit.tish'
+import { createLocalHost } from '../src/agentkit/LocalHost.tish'
+import { localPair } from '../src/agentkit/Transport.tish'
+import { createCoDjRuntime } from '../src/agentkit/Runtime.tish'
+import { createMirror } from '../src/agentkit/Mirror.tish'
+import { createScriptHost, vmEngine } from '../src/agentkit/ScriptHost.tish'
+import { createCoDjAgent, composeAgentPrompt, describeSetBook, missingClaimedParts } from '../src/agentkit/Agent.tish'
+import { libraryIndex, libraryEntry, channelLoadSource, kitLoadSource } from '../src/agentkit/Library.tish'
+import { personaCards, constraintCards, idiomCards, personaFor, parseBrief, noveltyNotes, paletteClones } from '../src/agentkit/Director.tish'
+
+let pass = 0
+let fail = 0
+fn check(name, cond) {
+  if (cond) { pass = pass + 1; console.log("  ok   " + name) }
+  else { fail = fail + 1; console.log("  FAIL " + name) }
+}
+
+fn sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms))
+}
+
+fn stepsOf(ch) {
+  return ch.steps.map((s) => (s === true || (s && s.on) ? "x" : ".")).join("")
+}
+
+fn findCh(p, id) {
+  let i = 0
+  while (i < p.channels.length) {
+    if (p.channels[i].id === id) {
+      return p.channels[i]
+    }
+    i = i + 1
+  }
+  return null
+}
+
+fn hasCode(rejected, code) {
+  let i = 0
+  while (i < rejected.length) {
+    if (rejected[i].code === code) {
+      return true
+    }
+    i = i + 1
+  }
+  return false
+}
+
+fn room() {
+  let store = { project: loadDefaultDeckardProject().project, runtime: {} }
+  let ing = createIngest(store)
+  let chats = []
+  let host = createLocalHost({ hostActorId: "host1", getProject: () => store.project, ingest: ing.ingest, onOut: ing.onOut, onChat: (c) => chats.push(c) })
+  let pair = localPair(null)
+  host.attach(pair.a)
+  let rtm = createCoDjRuntime({ transport: pair.b, actorId: "agent-bot", skillIds: ["add_track"], displayName: "Bot" })
+  return { store: store, ing: ing, host: host, rtm: rtm, chats: chats }
+}
+
+async fn convergence() {
+  console.log("mirror convergence")
+  let r = room()
+  await sleep(5)
+  let api = r.rtm.api
+  check("runtime joined", r.rtm.joined())
+  check("mirror starts equal to host", emitProject(r.rtm.mirror.project()) === emitProject(r.store.project))
+  let add = api.addTrack({ name: "Hat", gen: "noise_burst", steps: "..x...x...x...x." })
+  check("addTrack id is actor-prefixed", add.id === "agent_bot_hat")
+  check("host has the agent track", findCh(r.store.project, add.id) !== null)
+  api.setNotes(add.id, [{ pitch: 40, start: 0, dur: 0.5 }])
+  check("host notes follow setNotes", findCh(r.store.project, add.id).pianoNotes.length === 1)
+  api.setSteps(add.id, "x.x.x.x.x.x.x.x.")
+  api.mix(add.id, { gain: 0.3, pan: -0.5 })
+  api.set(add.id, "fx/cutoff", 900)
+  check("host steps follow setSteps (which turns a note track back into a step track)", stepsOf(findCh(r.store.project, add.id)) === "x.x.x.x.x.x.x.x.")
+  check("host mix follows mix()", findCh(r.store.project, add.id).gain === 0.3)
+  let ed = createEditor(r.store, r.ing.ingest, () => ({ actorId: "human", skillIds: ["master_mixer"], perfStep: 0 }))
+  ed.emit("bpm", 133)
+  ed.emit("track/" + r.store.project.channels[0].id + "/mix/gain", 0.42)
+  check("host edits reach the mirror (bpm)", r.rtm.mirror.project().bpm === 133)
+  check("mirror is byte-equal to host after both sides edit", emitProject(r.rtm.mirror.project()) === emitProject(r.store.project))
+
+  console.log("write gate")
+  let w1 = r.rtm.write("bpm 150", null)
+  check("bpm without master_mixer → SKILL_DENIED, not sent", w1.sent === false && hasCode(w1.rejected, "SKILL_DENIED"))
+  let w2 = r.rtm.write("remove_track " + r.store.project.channels[0].id, null)
+  check("removing someone else's track → NOT_OWNER", w2.sent === false && hasCode(w2.rejected, "NOT_OWNER"))
+  let w3 = r.rtm.write("track ??? id", null)
+  check("garbage → PARSE_FAIL", w3.sent === false && hasCode(w3.rejected, "PARSE_FAIL"))
+  check("host bpm untouched by rejected writes", r.store.project.bpm === 133)
+  let pv = api.preview("track X id agent_bot_x gen fm\n  steps x . . .\nbpm 99")
+  check("preview reports the add and the rejected header", pv.rejected.length === 1 && JSON.stringify(pv).indexOf("agent_bot_x") >= 0)
+
+  // A peer that skips the client-side gate: the host's own fold must still refuse.
+  let raw = localPair(null)
+  let got = []
+  raw.b.onMessage((m) => got.push(m))
+  r.host.attach(raw.a)
+  raw.b.send({ type: "join", actorId: "agent-rogue", skillIds: ["master_mixer"], displayName: "Rogue", kind: "agent" })
+  raw.b.send({ type: "deck.block", actorId: "agent-rogue", lines: ["bpm 60"], ref: 7, asap: true })
+  let res = got.filter((m) => m.type === "edit.result" && m.ref === 7)
+  check("host strips master_mixer from agent joins and rejects bpm", r.store.project.bpm === 133 && res.length === 1 && res[0].rejected.length > 0)
+
+  console.log("bar-boundary queue")
+  r.host.tick(16, 120)
+  let q = api.setSteps(add.id, "xxxx............")
+  check("write while playing is scheduled for the next bar", q.at === 32)
+  check("host has not applied it yet", stepsOf(findCh(r.store.project, add.id)) === "x.x.x.x.x.x.x.x.")
+  r.host.tick(32, 120)
+  check("host applies it on the bar", stepsOf(findCh(r.store.project, add.id)) === "xxxx............")
+  check("still converged after queued write", emitProject(r.rtm.mirror.project()) === emitProject(r.store.project))
+
+  console.log("arrange")
+  let arr = api.arrange([
+    { id: "kick", name: "Kick", gen: "kick_edm", steps: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], step_vel: [120, 1, 1, 1, 100, 1, 1, 1, 120, 1, 1, 1, 100, 1, 1, 1] },
+    { id: "bass", name: "Bass", gen: "sub808", bars: 2, gain: 0.8, params: { decay: 0.4 }, notes: [{ pitch: 33, start: 0, dur: 1.5, vel: 110 }, { pitch: 36, start: 4, dur: 1, vel: 100, p: 0.8 }] },
+    { id: "pad", name: "Pad", gen: "pad", bars: 2, gain: 0.3, voice: { chord: "min7", octave: -1 }, fx: { reverb_send: 0.4 }, adsr: { a: 0.6, d: 0.3, s: 0.8, r: 1 }, notes: [{ pitch: 57, start: 0, dur: 8, vel: 70 }] }
+  ])
+  check("arrange returns ids for every spec id", arr.ids.kick === "agent_bot_kick" && arr.ids.bass === "agent_bot_bass" && arr.ids.pad === "agent_bot_pad")
+  if (arr.at !== null) {
+    r.host.tick(arr.at, 120)
+  }
+  check("arrange replaced the earlier hat instead of stacking", findCh(r.store.project, add.id) === null)
+  let bass = findCh(r.store.project, arr.ids.bass)
+  check("multi-bar phrase survived", bass.patternBars === 2 && bass.pianoNotes.length === 2 && bass.pianoNotes[1].startBeat === 4)
+  let pad = findCh(r.store.project, arr.ids.pad)
+  check("voice, fx and adsr survived", pad.chord === "min7" && pad.reverbSend === 0.4 && pad.generatorParams.attack === 0.6)
+  check("step accents survived", findCh(r.store.project, arr.ids.kick).steps[0].vel === 120)
+  let again = api.arrange([{ id: "kick", name: "Kick", gen: "kick_edm", steps: "x...x...x...x..." }])
+  if (again.at !== null) {
+    r.host.tick(again.at, 120)
+  }
+  check("arranging again replaces, leaving exactly the new track", r.rtm.api.owned().length === 1 && r.rtm.api.owned()[0] === again.ids.kick && findCh(r.store.project, arr.ids.bass) === null && findCh(r.store.project, again.ids.kick) !== null)
+
+  console.log("library")
+  let beats = api.library("beat")
+  let sawBeat = false
+  let bi = 0
+  while (bi < beats.length) {
+    if (beats[bi].id === "four-on-the-floor") {
+      sawBeat = true
+    }
+    bi = bi + 1
+  }
+  check("library lists named beats", sawBeat && api.preset("house-loop").parts.length === 5)
+  let fromLib = api.arrange([{ id: "sub", name: "Sub", preset: "factory_808_long", beat: "four-on-the-floor" }])
+  if (fromLib.at !== null) {
+    r.host.tick(fromLib.at, 120)
+  }
+  let sub = findCh(r.store.project, fromLib.ids.sub)
+  check("a preset plus a beat becomes a sounding track", sub !== null && sub.generatorParams.punch === 48 && stepsOf(sub).indexOf("x") === 0 && sub.steps[0].vel === 124)
+  let denied = api.crossfade(0, 0)
+  check("a client cannot move the 4-way fader", denied.sent === false && r.store.project.transportCrossfade === 0.5)
+
+  console.log("chat")
+  r.rtm.say("hello room", null)
+  check("chat reaches the host", r.chats.length === 1 && r.chats[0].text === "hello room")
+  r.rtm.close()
+}
+
+async fn hostBooth() {
+  console.log("host booth")
+  let r = room()
+  await sleep(5)
+  let pair = localPair(null)
+  r.host.attach(pair.a)
+  let dj = createCoDjRuntime({
+    transport: pair.b,
+    actorId: "agent-host",
+    skillIds: ["add_track", "adjust_instrument", "pattern_steps", "pattern_piano", "channel_mix", "master_mixer"],
+    displayName: "DJ",
+    role: "host"
+  })
+  await sleep(5)
+  check("a host-role agent keeps master_mixer", dj.me().skillIds.indexOf("master_mixer") >= 0)
+  let barePair = localPair(null)
+  r.host.attach(barePair.a)
+  let bare = createCoDjRuntime({
+    transport: barePair.b,
+    actorId: "agent-bare-host",
+    skillIds: ["add_track"],
+    displayName: "Bare",
+    role: "host"
+  })
+  await sleep(5)
+  check("a host in this browser is granted master_mixer", bare.me().skillIds.indexOf("master_mixer") >= 0)
+  dj.api.setGlobal("bpm", 140)
+  check("a host agent can set bpm", r.store.project.bpm === 140)
+  dj.api.crossfade(0.25, 0.8)
+  check("4-way fader moves", r.store.project.transportCrossfade === 0.25 && r.store.project.transportCrossfadeY === 0.8)
+  dj.api.booth("B", { hi: 3, mid: -2, lo: 1, flt: -0.4, vol: 0.7 })
+  let de = r.store.project.deckEq && r.store.project.deckEq.B ? r.store.project.deckEq.B : null
+  check("booth EQ, filter and volume land on the deck", de !== null && de.hi === 3 && de.mid === -2 && de.lo === 1 && de.flt === -0.4 && de.vol === 0.7)
+  let trackId = r.store.project.channels[0].id
+  let slotted = dj.api.clip(trackId, { clip: "drop", scene: 1, name: "Drop", beat: "four-on-the-floor" })
+  let ch = findCh(r.store.project, trackId)
+  let clip = null
+  if (ch && ch.sessionClips) {
+    let ci = 0
+    while (ci < ch.sessionClips.length) {
+      if (ch.sessionClips[ci].id === "drop") {
+        clip = ch.sessionClips[ci]
+      }
+      ci = ci + 1
+    }
+  }
+  let slot = r.store.project.session && r.store.project.session.slots ? r.store.project.session.slots[0] : null
+  check("a host slots a library beat into a scene", slotted.clipId === "drop" && clip !== null && clip.steps[0].on === true && slot !== null && slot[1] === "drop")
+  let played = null
+  let thrown = null
+  r.store.runtime.onTransportPlay = (pm) => { played = pm }
+  r.store.runtime.triggerMasterFx = (type, on, params) => { thrown = type + ":" + String(on) + ":" + String(params && params.freq) }
+  dj.api.play("song")
+  dj.api.throwFx("filter", true, { freq: 420 })
+  check("play and the filter throw reach the transport", played === "song" && thrown === "filter:true:420")
+  dj.close()
+  r.rtm.close()
+}
+
+fn gapResync() {
+  console.log("delta gap resync")
+  let p = loadDefaultDeckardProject().project
+  let lines = emitProject(p).split("\n")
+  let m = createMirror({ actorId: "agent-x", skillIds: [], displayName: "X" })
+  m.handle({ type: "joined", you: { actorId: "agent-x" }, hostActorId: "host1", roster: [] })
+  let ev0 = m.handle({ type: "state.snapshot", actorId: "host1", lines: lines, owners: {}, gen: 1, rev: 5 })
+  check("snapshot adopted", ev0.length === 1 && ev0[0].type === "snapshot" && m.syncState().rev === 5)
+  let ev1 = m.handle({ type: "deck.delta", actorId: "host1", authorId: "human", rev: 6, text: "bpm 101" })
+  check("in-order delta applied", ev1.length === 1 && ev1[0].type === "deck" && m.project().bpm === 101)
+  check("stale delta skipped", m.handle({ type: "deck.delta", actorId: "host1", rev: 6, text: "bpm 50" }).length === 0 && m.project().bpm === 101)
+  let ev2 = m.handle({ type: "deck.delta", actorId: "host1", authorId: "human", rev: 9, text: "bpm 102" })
+  check("gap reported as resync", ev2.length === 1 && ev2[0].type === "resync" && m.syncState().resyncing)
+  check("deltas while resyncing are ignored", m.handle({ type: "deck.delta", actorId: "host1", rev: 10, text: "bpm 103" }).length === 0 && m.project().bpm === 101)
+  let fresh = lines.join("\n").replace(/^bpm .*$/m, "bpm 104").split("\n")
+  let ev3 = m.handle({ type: "state.snapshot", actorId: "host1", lines: fresh, owners: {}, gen: 1, rev: 10 })
+  check("keyframe ends the resync (even at the same gen)", ev3.length === 1 && !m.syncState().resyncing && m.project().bpm === 104)
+  check("next delta applies after resync", m.handle({ type: "deck.delta", actorId: "host1", rev: 11, text: "bpm 105" }).length === 1 && m.project().bpm === 105)
+}
+
+async fn staleKeyframe() {
+  console.log("optimistic write vs stale keyframe")
+  let lines = emitProject(loadDefaultDeckardProject().project).split("\n")
+  let pair = localPair(null)
+  let rtm = createCoDjRuntime({ transport: pair.b, actorId: "agent-bot", skillIds: [], displayName: "Bot" })
+  pair.a.send({ type: "joined", you: { actorId: "agent-bot" }, hostActorId: "host1", roster: [] })
+  pair.a.send({ type: "state.snapshot", actorId: "host1", lines: lines, owners: {}, gen: 1, rev: 0 })
+  let add = rtm.api.addTrack({ name: "Hat", gen: "noise_burst", steps: "x..." })
+  pair.a.send({ type: "state.snapshot", actorId: "host1", lines: lines, owners: {}, gen: 2, rev: 0 })
+  check("own unacknowledged track survives a keyframe that predates it", findCh(rtm.mirror.project(), add.id) !== null)
+  rtm.close()
+}
+
+async fn scripts() {
+  console.log("script host")
+  let r = room()
+  await sleep(5)
+  let sh = createScriptHost({ runtime: r.rtm, engine: vmEngine(process.getBuiltinModule("node:vm"), 50, "t.js") })
+  let v1 = "export function setup(codj) {\n  codj.state.n = codj.state.n || 0\n  if (!codj.owned().length) codj.state.hat = codj.addTrack({ name: 'Hat', gen: 'noise_burst', steps: 'x...x...x...x...' }).id\n}\nexport function onBar(codj, ctx) {\n  codj.state.n++\n  codj.setSteps(codj.state.hat, ctx.bar % 2 ? 'x.x.x.x.x.x.x.x.' : 'xxxx............')\n}"
+  check("v1 loads", sh.load(v1).ok === true)
+  check("setup ran against the room", findCh(r.store.project, "agent_bot_hat") !== null)
+  r.host.tick(0, 120)
+  r.host.tick(16, 120)
+  r.host.tick(32, 120)
+  check("onBar writes land on the host", stepsOf(findCh(r.store.project, "agent_bot_hat")) === "x.x.x.x.x.x.x.x.")
+  let bad = sh.load("export function onBar( {")
+  check("syntax error is reported", bad.ok === false && bad.error.length > 0)
+  check("running script kept after a bad load", sh.source() === v1)
+  let v2 = v1.replace("codj.state.n++", "codj.state.n++; if (codj.state.n > 3) throw new Error('boom')")
+  check("v2 hot-reloads and keeps state", sh.load(v2).ok === true && sh.state.n === 3)
+  r.host.tick(48, 120)
+  r.host.tick(64, 120)
+  r.host.tick(80, 120)
+  check("3 errors in a row roll back to the last good script", sh.source() === v1)
+  sh.load("export function onBeat() { while (true) {} }")
+  r.host.tick(84, 120)
+  check("runaway hook is cut off by the vm timeout", sh.lastError() !== null && sh.status().calls > 0)
+  check("mirror still equals host after all that", emitProject(r.rtm.mirror.project()) === emitProject(r.store.project))
+  sh.load("export function onMessage(codj, ctx) {\n  if (ctx.message.toMe) codj.say('got ' + ctx.message.text, ctx.message.from)\n}")
+  let before = r.chats.length
+  r.host.say("drop", "agent-bot")
+  r.host.say("for everyone", null)
+  let replies = r.chats.slice(before)
+  check("host chat to a co-DJ reaches its onMessage hook, and the reply comes back", replies.length === 1 && replies[0].text === "got drop" && replies[0].to === "host1")
+  sh.stop()
+  r.rtm.close()
+}
+
+async fn agentLoop() {
+  console.log("agent loop (fake model)")
+  let req = process.getBuiltinModule("node:module").createRequire(process.cwd() + "/")
+  let agents = req("@hyperyai/sdk/agents")
+  let r = room()
+  let sh = createScriptHost({ runtime: r.rtm })
+  let script = "export function setup(codj){ if(!codj.owned().length) codj.state.id = codj.addTrack({name:'Bass', gen:'sub808', notes:[{pitch:36,start:0,dur:1}]}).id }"
+  let turns = [
+    { text: "", toolCalls: [{ id: "1", name: "run_script", arguments: JSON.stringify({ code: "codj.tracks().map(t => t.id)" }) }] },
+    { text: "", toolCalls: [{ id: "2", name: "write_script", arguments: JSON.stringify({ source: script }) }, { id: "3", name: "say", arguments: JSON.stringify({ text: "bass in" }) }] },
+    { text: "Added a sub bass.", toolCalls: [] }
+  ]
+  let calls = 0
+  let fake = { runAgentLoop: agents.runAgentLoop, createHyperyModel: (o) => async (messages, tools) => { calls = calls + 1; return turns.length > 0 ? turns.shift() : { text: "done", toolCalls: [] } } }
+  let ag = createCoDjAgent({ runtime: r.rtm, scriptHost: sh, agents: fake, token: async () => "t", director: false })
+  check("prompt is composed from skills + grammar + d.ts", composeAgentPrompt({ role: "client", actorId: "agent-bot" }).indexOf("codj.") >= 0)
+  let hostPrompt = composeAgentPrompt({ role: "host", actorId: "agent-host" })
+  check("host prompt runs an indefinite set from a book", hostPrompt.indexOf("codj.state.book") >= 0 && hostPrompt.indexOf("played") >= 0 && hostPrompt.indexOf("does not end") >= 0)
+  let bookText = describeSetBook({ book: { brief: "dark techno", vibe: "rolling — dark techno", energy: 0.55, now: "groove", played: [{ bar: 0, scene: "intro", energy: 0.28, vibe: "held back — dark techno" }, { bar: 8, scene: "groove", energy: 0.55, vibe: "rolling — dark techno" }] } })
+  check("set book lists what already played, oldest first", bookText.indexOf("dark techno") >= 0 && bookText.indexOf("bar 0 intro") >= 0 && bookText.indexOf("bar 0 intro") < bookText.indexOf("bar 8 groove"))
+  check("agent exposes registry tools plus script tools", ag.tools().length >= 23)
+  await sleep(300)
+  check("model was called", calls >= 3)
+  check("agent's script put a track on the host", findCh(r.store.project, "agent_bot_bass") !== null)
+  check("agent spoke in chat, with what is really on its deck", r.chats.length >= 1 && r.chats[0].text.indexOf("bass in") === 0 && r.chats[0].text.indexOf("On my deck now: Bass") >= 0)
+  check("agent's script is the one it wrote", sh.source() === script)
+  ag.stop()
+  sh.stop()
+  r.rtm.close()
+}
+
+async fn honestClaims() {
+  console.log("agent claims are checked against the deck")
+  let lofi = [{ name: "Pad Atmosphere", gen: "pad" }, { name: "Melody Lead", gen: "syncLead" }]
+  let said = "I have set up a relaxed lo-fi groove with kick, snare, hi-hat, and bass patterns. I added an atmospheric pad and a melodic lead. Next, I would add vinyl crackle and a bass drop."
+  let miss = missingClaimedParts(said, lofi)
+  check("a claimed kick/snare/hats/bass that is not on the deck is caught", miss.indexOf("kick") >= 0 && miss.indexOf("snare/clap") >= 0 && miss.indexOf("hats") >= 0 && miss.indexOf("bass") >= 0 && miss.indexOf("pad/chords") < 0 && miss.indexOf("lead/melody") < 0)
+  check("plans are not claims", missingClaimedParts("Next I will add a kick.", lofi).length === 0)
+
+  let req = process.getBuiltinModule("node:module").createRequire(process.cwd() + "/")
+  let agents = req("@hyperyai/sdk/agents")
+  let r = room()
+  let sh = createScriptHost({ runtime: r.rtm })
+  let twoArranges = "export function setup(codj){ codj.arrange([{id:'kick', name:'Kick', gen:'kick_edm', steps:'x...x...x...x...'}]); codj.arrange([{id:'pad', name:'Pad', gen:'pad', notes:[{pitch:57,start:0,dur:4,vel:70}]}]) }"
+  let oneArrange = "export function setup(codj){ codj.arrange([{id:'kick', name:'Kick', gen:'kick_edm', steps:'x...x...x...x...'}, {id:'pad', name:'Pad', gen:'pad', notes:[{pitch:57,start:0,dur:4,vel:70}]}]) }"
+  let turns = [
+    { text: "", toolCalls: [{ id: "1", name: "write_script", arguments: JSON.stringify({ source: twoArranges }) }, { id: "2", name: "say", arguments: JSON.stringify({ text: "I set up a kick and a pad" }) }] },
+    { text: "Kick and pad are in.", toolCalls: [] },
+    { text: "", toolCalls: [{ id: "3", name: "write_script", arguments: JSON.stringify({ source: oneArrange }) }, { id: "4", name: "say", arguments: JSON.stringify({ text: "Fixed: kick and pad" }) }] },
+    { text: "done", toolCalls: [] }
+  ]
+  let fake = { runAgentLoop: agents.runAgentLoop, createHyperyModel: (o) => async (messages, tools) => (turns.length > 0 ? turns.shift() : { text: "done", toolCalls: [] }) }
+  let ag = createCoDjAgent({ runtime: r.rtm, scriptHost: sh, agents: fake, token: async () => "t", director: false })
+  await sleep(400)
+  let texts = r.chats.map((c) => c.text)
+  check("a second arrange that wiped the kick is logged", sh.logs().some((l) => l.indexOf("arrange replaced 1 track(s)") >= 0))
+  check("the false claim never reached the chat", !texts.some((t) => t.indexOf("I set up a kick and a pad") >= 0))
+  let names = r.store.project.channels.map((c) => c.name)
+  check("after the fix the kick and pad are both on the deck", names.indexOf("Kick") >= 0 && names.indexOf("Pad") >= 0)
+  check("the chat says what is really there", texts.length === 1 && texts[0].indexOf("Fixed: kick and pad") === 0 && texts[0].indexOf("On my deck now: Kick, Pad") >= 0)
+  ag.stop()
+  sh.stop()
+  r.rtm.close()
+}
+
+fn libraryPack() {
+  console.log("library pack")
+  let all = libraryIndex(null)
+  check("library is a large catalog", all.length > 400)
+  let hk = libraryEntry("pack_kick_house_0")
+  check("house pack kick is a drum", hk !== null && hk.params.pitch_env > 0)
+  let kit = libraryEntry("pack_kit_lofi")
+  check("lofi pack kit has six parts", kit !== null && kit.parts.length === 6)
+  let src = channelLoadSource({ id: "c0", name: "Kick", generatorId: "drumSynth" }, libraryEntry("lofi-kick"), null)
+  check("a beat loads onto the selected track", src.indexOf("steps") >= 0 && src.indexOf("id c0") >= 0)
+  let seq = channelLoadSource({ id: "c1", name: "Bass", generatorId: "sub808" }, libraryEntry("pack_seq_house_bass"), 40)
+  check("a sequence honors the typed root", seq.indexOf("note 40") >= 0)
+  let placed = kitLoadSource(libraryEntry("pack_kit_house"), ["k", "h", "c", "b", "p", "o"], "B")
+  check("a kit on deck B uses slot 1", placed.indexOf("deck B slot 1") >= 0 && placed.indexOf("slot 0") < 0)
+}
+
+async fn cleanSlate() {
+  console.log("clean slate")
+  let r = room()
+  await sleep(5)
+  check("page load is the starter sequence", r.rtm.api.placeholder() === true)
+  let clientWipe = r.rtm.api.clear()
+  check("a client cannot clear the starter", findCh(r.store.project, "c0") !== null && clientWipe.removed.length === 0)
+  let pair = localPair(null)
+  r.host.attach(pair.a)
+  let dj = createCoDjRuntime({
+    transport: pair.b,
+    actorId: "agent-host",
+    skillIds: ["master_mixer"],
+    displayName: "DJ",
+    role: "host"
+  })
+  await sleep(5)
+  check("host sees the starter", dj.api.placeholder() === true)
+  let wiped = dj.api.clear()
+  check("a host clears the starter for a clean slate", r.store.project.channels.length === 0 && wiped.removed.length === 4 && findCh(r.store.project, "c0") === null)
+  check("an empty deck is not the starter", dj.api.placeholder() === false)
+  dj.close()
+  r.rtm.close()
+}
+
+fn hostIn(r) {
+  let pair = localPair(null)
+  r.host.attach(pair.a)
+  return createCoDjRuntime({
+    transport: pair.b,
+    actorId: "agent-host",
+    skillIds: ["add_track", "channel_mix", "master_mixer"],
+    displayName: "DJ",
+    role: "host"
+  })
+}
+
+fn slotOf(p, trackId, scene) {
+  let i = 0
+  while (i < p.channels.length) {
+    if (p.channels[i].id === trackId) {
+      return p.session && p.session.slots && p.session.slots[i] ? p.session.slots[i][scene] : null
+    }
+    i = i + 1
+  }
+  return null
+}
+
+async fn sessionScenes() {
+  console.log("session scenes")
+  let r = room()
+  await sleep(5)
+  let dj = hostIn(r)
+  await sleep(5)
+  dj.api.clear()
+  let sh = createScriptHost({ runtime: dj })
+  sh.load("export function setup(codj){ codj.arrange([{id:'kick', name:'Kick', gen:'kick_edm', steps:'x...x...x...x...'}, {id:'hat', name:'Hat', gen:'noise_burst', steps:'..x...x...x...x.'}, {id:'pad', name:'Pad', gen:'pad', notes:[{pitch:57,start:0,dur:4,vel:70}]}]) }")
+  let ids = sh.state.ids
+  check("arrange stored the ids a scene can use", ids && ids.kick && ids.pad)
+  sh.codj.scene(0, { kick: true, hat: "offbeat-hat" }, "intro")
+  sh.codj.scene(1, { kick: true, hat: true, pad: true }, "groove")
+  sh.codj.scene(4, { pad: true }, "break")
+  let p = r.store.project
+  check("a scene slots each part it names", slotOf(p, ids.kick, 0) === "intro" && slotOf(p, ids.hat, 0) === "intro" && slotOf(p, ids.pad, 1) === "groove")
+  let kickRest = findCh(p, ids.kick).sessionClips.filter((c) => c.id === "rest")[0]
+  check("a track left out of a scene gets a silent rest clip there", slotOf(p, ids.pad, 0) === "rest" && slotOf(p, ids.kick, 4) === "rest" && kickRest && !kickRest.steps.some((s) => s && s.on))
+  check("a scene past the end grows the session", p.session.sceneCount === 5)
+  let pad = findCh(p, ids.pad)
+  let padClip = pad.sessionClips.filter((c) => c.id === "break")[0]
+  check("true copies the track's own pattern into the clip", padClip && padClip.pianoNotes && padClip.pianoNotes.length === 1 && padClip.pianoNotes[0].pitch === 57)
+  let g = sh.codj.session()
+  check("session() counts my clips per scene", g.filled[0] === 2 && g.filled[1] === 3 && g.filled[2] === 0 && g.filled[4] === 1 && g.deck !== null)
+  check("tracks() says which deck a track is on", sh.codj.tracks().filter((t) => t.mine)[0].onDeck === g.deck)
+  let nc = sh.codj.clips("kick", ["four-on-the-floor", { steps: "x.......x......." }, "halftime-kick"])
+  check("clips writes a numbered bank", nc.clips.join(",") === "c1,c2,c3" && findCh(p, ids.kick).sessionClips.filter((c) => /^c\d$/.test(c.id)).length === 3)
+  check("numbered clips stay out of the scenes until used", slotOf(p, ids.kick, 2) !== "c2")
+  sh.codj.clips("hat", ["offbeat-hat", "house-shaker"])
+  sh.codj.scene(2, { kick: 2, hat: 1 }, "lift")
+  sh.codj.scene(3, { kick: 3, hat: 2 }, "drop")
+  check("a scene composes from clip numbers", slotOf(p, ids.kick, 2) === "c2" && slotOf(p, ids.hat, 2) === "c1" && slotOf(p, ids.kick, 3) === "c3" && slotOf(p, ids.hat, 3) === "c2" && slotOf(p, ids.pad, 3) === "rest")
+  let missingNum = false
+  try { sh.codj.scene(2, { pad: 2 }) } catch (e) { missingNum = String(e.message).indexOf("no clip #2") >= 0 }
+  check("a number the track does not have is an error", missingNum)
+  let tooLong = false
+  try { sh.codj.clips("pad", [{ notes: [{ pitch: 57, start: 0, dur: 4, vel: 70 }], bars: 8 }]) } catch (e) { tooLong = String(e.message).indexOf("keep clips short") >= 0 }
+  check("clips are short", tooLong)
+  check("scene names are kept for the summary", sh.state.sceneNames && Object.keys(sh.state.sceneNames).some((k) => sh.state.sceneNames[k] === "lift"))
+
+  let quiet = sh.codj.cue({ scene: 0 })
+  check("cue hears what a scene plays", quiet.parts === 2 && quiet.verdict === "sparse" && quiet.bands.low.indexOf("Kick") >= 0 && quiet.bands.high.indexOf("Hat") >= 0)
+  sh.codj.launch(2)
+  check("cue defaults to the scene last launched", sh.codj.cue().scene === 2)
+  let crowd = sh.codj.cue({ scene: 3, change: { pad: true, sub: { gen: "sub808", sequence: "root-fifth" }, reese: { gen: "bass_reese", sequence: "minor-walk" }, keys: { gen: "pad", sequence: "axis-min7" } } })
+  check("cue previews a change without sending it", crowd.parts === 6 && crowd.before && crowd.before.parts === 2 && findCh(p, "sub") === null && sh.codj.cue({ scene: 3 }).parts === 2)
+  check("cue warns about mud and parts fighting", crowd.verdict === "cluttered" && crowd.warnings.some((w) => w.indexOf("low end") >= 0) && crowd.warnings.some((w) => w.indexOf("two chords parts") >= 0 || w.indexOf("two bass parts") >= 0))
+  let less = sh.codj.cue({ scene: 3, change: { hat: null } })
+  check("cue hears a part taken out", less.parts === 1 && less.before.parts === 2)
+  sh.stop()
+  dj.close()
+  r.rtm.close()
+}
+
+async fn hostTemplate() {
+  console.log("host skill template")
+  let fs = process.getBuiltinModule("node:fs")
+  let md = fs.readFileSync("skills/_role-host.md", "utf8")
+  let start = md.indexOf("```js\n")
+  let src = md.substring(start + 6, md.indexOf("```", start + 6))
+  let r = room()
+  await sleep(5)
+  let dj = hostIn(r)
+  await sleep(5)
+  let sh = createScriptHost({ runtime: dj })
+  sh.load(src)
+  let p = r.store.project
+  let book = sh.state.book
+  if (sh.lastError() !== null) {
+    console.log("  template error: " + JSON.stringify(sh.lastError()))
+  }
+  check("the template runs without throwing", sh.lastError() === null)
+  check("the template clears the starter and builds a song", findCh(p, "c0") === null && book && book.live && sh.state.decks[book.live])
+  let ids = sh.state.decks[book.live]
+  let kick = findCh(p, ids.kick)
+  let bass = findCh(p, ids.bass)
+  check("every part gets numbered clips", kick && bass && kick.sessionClips.filter((c) => c.id === "c2").length === 1 && bass.sessionClips.filter((c) => c.id === "c3").length === 1)
+  check("scenes are composed from different numbers", slotOf(p, ids.bass, 1) === "c1" && slotOf(p, ids.bass, 2) === "c2" && slotOf(p, ids.bass, 3) === "c3" && slotOf(p, ids.bass, 4) === "rest")
+  let g = sh.codj.session()
+  check("the song has six scenes", g.decks[book.live].filled.filter((n) => n > 0).length === 6)
+  check("the tracks carry no long sequence of their own", !kick.steps.some((s) => s && s.on) && (!Array.isArray(bass.pianoNotes) || bass.pianoNotes.length === 0))
+  let verdicts = [0, 1, 2, 3, 4, 5].map((n) => sh.codj.cue({ scene: n, deck: book.live }).verdict)
+  console.log("  template cue: " + verdicts.join(", "))
+  check("cued, no scene of the template is cluttered", verdicts.indexOf("cluttered") < 0 && verdicts[0] === "sparse")
+
+  let first = book.live
+  book.crate = [{ kit: "pack_kit_techno", title: "Steel", bars: 64, style: "blend", blendBars: 16 }]
+  sh.invoke("onBar", { bar: 8 })
+  check("nothing is cued while the first track settles", !book.next)
+  sh.invoke("onBar", { bar: 16 })
+  let nx = book.next
+  check("two phrases in, the next track is cued from the crate on another deck", nx && nx.deck !== first && nx.kit === "pack_kit_techno" && nx.title === "Steel" && nx.at === 96 && book.crate.length === 0 && sh.state.decks[nx.deck] && sh.state.decks[nx.deck].kick)
+  check("the cued deck is silent: fader on the live corner, its bass cut", p.deckEq && p.deckEq[nx.deck] && p.deckEq[nx.deck].lo === -12 && sh.codj.session().decks[nx.deck].filled.filter((n) => n > 0).length === 6)
+  sh.invoke("onBar", { bar: 88 })
+  check("the phrase before the mix is a groove to mix out of", book.now === "groove" || book.now === "return")
+  sh.invoke("onBar", { bar: 96 })
+  check("the mix waits for the cued track to be produced", !book.mix)
+  nx.produced = true
+  sh.invoke("onBar", { bar: 104 })
+  check("on the bar, blend takes the room to the cued deck", book.mix && book.mix.to === nx.deck && sh.state.blend && sh.state.blend.to === nx.deck && book.songs[book.songs.length - 1].title === "Steel")
+  sh.invoke("onBar", { bar: 105 })
+  check("after the mix the old deck is free and the new one is live", book.live === nx.deck && !book.mix && !book.next && !sh.codj.session().decks[first])
+  sh.invoke("onBar", { bar: 121 })
+  check("and the track after that is cued on the freed deck", book.next && book.next.deck === first && book.next.kit === "pack_kit_house")
+  sh.stop()
+  dj.close()
+  r.rtm.close()
+}
+
+fn trackIndex(p, id) {
+  let i = 0
+  while (i < p.channels.length) {
+    if (p.channels[i].id === id) {
+      return i
+    }
+    i = i + 1
+  }
+  return -1
+}
+
+async fn multiDeck() {
+  console.log("multi-deck host")
+  let r = room()
+  await sleep(5)
+  let dj = hostIn(r)
+  await sleep(5)
+  dj.api.clear()
+  let sh = createScriptHost({ runtime: dj })
+  sh.load("export function setup(codj){ codj.arrange([{id:'kick', name:'Kick', gen:'kick_edm', steps:'x...x...x...x...'}, {id:'hat', name:'Hat', gen:'noise_burst', steps:'..x...x...x...x.'}]) }")
+  let c = sh.codj
+  let p = r.store.project
+  let rt = r.store.runtime
+  let live = c.session().deck
+  let free = c.session().free
+  check("session() lists decks the host may load", free.length >= 2 && free.indexOf(live) >= 0)
+  let next = free.filter((d) => d !== live)[0]
+  c.scene(0, { kick: true, hat: true }, "intro")
+  c.scene(1, { kick: true }, "solo")
+  c.arrange([{ id: "pad", name: "Pad", gen: "pad", notes: [{ pitch: 57, start: 0, dur: 4, vel: 70 }] }, { id: "bass", name: "Bass", gen: "sub808", steps: "x.......x......." }], { deck: next })
+  let ids2 = sh.state.decks[next]
+  let g = c.session()
+  check("arrange on another deck keeps the live song", findCh(p, sh.state.ids.kick) !== null && ids2 && ids2.pad && g.decks[live].tracks.length === 2 && g.decks[next].tracks.length === 2)
+  check("the queued song sits on its own deck", c.tracks().filter((t) => t.trackId === ids2.pad || t.id === ids2.pad)[0].onDeck === next)
+  c.scene(0, { pad: true }, "next-intro", { deck: next })
+  check("a deck scene silences only that deck's left-out tracks", slotOf(p, ids2.bass, 0) === "rest" && slotOf(p, sh.state.ids.kick, 0) === "intro")
+  c.launch(0, next)
+  check("a deck launch pins that deck", rt.deckScenes && rt.deckScenes[next] === 0 && rt.trackOverrides[trackIndex(p, ids2.pad)] === "next_intro" && rt.trackOverrides[trackIndex(p, sh.state.ids.kick)] === null)
+  c.launch(1)
+  check("a shared launch leaves the pinned deck playing", rt.trackOverrides[trackIndex(p, ids2.pad)] === "next_intro" && rt.songScene === 1)
+  c.clip(sh.state.ids.hat, { clip: "busy", beat: "house-shaker" })
+  check("clip without a scene goes to the bank only", c.session().rows.filter((x) => x.trackId === sh.state.ids.hat)[0].clips.indexOf("busy") >= 0 && slotOf(p, sh.state.ids.hat, 0) === "intro")
+  c.deckCtl(next, "stop")
+  check("deckCtl stop silences the deck", rt.deckScenes[next] === -1 && rt.trackOverrides[trackIndex(p, ids2.pad)] === "" && rt.trackOverrides[trackIndex(p, ids2.bass)] === "")
+  c.quantize("4bar")
+  c.follow(0, "repeat", { other: "next", chance: 70 })
+  c.song([{ scene: 0, repeat: 2 }, { scene: 1 }])
+  check("quantize writes launch_quant", p.launchQuant === 64)
+  check("follow and song write the session tables", JSON.stringify(p.session.follow).indexOf("repeat") >= 0 && Array.isArray(p.session.song) && p.session.song.length === 2)
+  c.crossfade(live === "A" || live === "C" ? 0 : 1, live === "A" || live === "B" ? 0 : 1)
+  let realClock = dj.mirror.clock
+  dj.mirror.clock = () => ({ perfStep: 160, bar: 10, beat: 0, step: 0, bpm: 124, playing: true })
+  let plan = c.blend(next, { bars: 16, from: live })
+  dj.mirror.clock = realClock
+  check("blend plans the mix ahead, on a phrase at least 8 bars out", plan.from === live && plan.to === next && plan.startBar === 24 && plan.swapBar === 32 && plan.endBar === 40 && plan.writes >= 12 && sh.state.blend.endBar === 40)
+  check("nothing of a planned blend lands before its bar", p.deckEq === undefined || !p.deckEq[next] || p.deckEq[next].lo !== -12)
+  let cutPlan = c.blend(next, { style: "cut", from: live })
+  check("blend while stopped cuts straight to the deck", cutPlan.style === "cut" && Math.abs(p.transportCrossfade - (next === "A" || next === "C" ? 0 : 1)) < 0.01)
+  c.clear({ deck: next })
+  check("clear on a deck removes only that song", findCh(p, ids2.pad) === null && findCh(p, ids2.bass) === null && findCh(p, sh.state.ids.kick) !== null)
+
+  let kn = c.knobs(sh.state.ids.kick)
+  let knobVal = (id, key) => c.knobs(id).knobs.filter((k) => k.knob === key)[0].value
+  let pe = kn.knobs.filter((k) => k.knob === "pitch")[0]
+  check("knobs lists a macro voice's knobs with ranges", kn.gen === "kick_edm" && kn.knobs.length >= 2 && pe && typeof pe.value === "number" && pe.max > pe.min)
+  c.set(sh.state.ids.kick, "gen/pitch", 90)
+  check("a macro knob turns in real time and keeps the rest", knobVal(sh.state.ids.kick, "pitch") === 90 && findCh(p, sh.state.ids.kick).macroName === "kick_edm")
+  c.ride(sh.state.ids.kick, "gen/decay", 0.9, { bars: 4 })
+  check("ride while stopped lands on the target", knobVal(sh.state.ids.kick, "decay") === 0.9 && knobVal(sh.state.ids.kick, "pitch") === 90)
+  let pk = c.knobs(sh.state.ids.hat)
+  check("knobs lists a generator's knobs from its defaults", pk.knobs.length >= 3 && pk.knobs.every((k) => k.knob.length > 0))
+  c.set(sh.state.ids.hat, "gen/tone", 0.8)
+  check("a generator knob turns in real time", knobVal(sh.state.ids.hat, "tone") === 0.8)
+  let stepsBefore = JSON.stringify(findCh(p, sh.state.ids.hat).steps.map((s) => s && s.on))
+  c.swap(sh.state.ids.hat, "pad", { cutoff: 900 })
+  let hat = findCh(p, sh.state.ids.hat)
+  check("swap changes the instrument and keeps the pattern", hat.generatorId === "pad" && hat.generatorParams.cutoff === 900 && JSON.stringify(hat.steps.map((s) => s && s.on)) === stepsBefore)
+  let inst = c.library("instrument")[0]
+  c.swap(sh.state.ids.hat, inst.id)
+  check("swap to a library preset brings its instrument", findCh(p, sh.state.ids.hat).generatorId !== "pad" || inst.gen === "pad")
+  sh.stop()
+  dj.close()
+  r.rtm.close()
+}
+
+async fn evolvePass() {
+  console.log("evolve pass")
+  let req = process.getBuiltinModule("node:module").createRequire(process.cwd() + "/")
+  let agents = req("@hyperyai/sdk/agents")
+  let r = room()
+  let sh = createScriptHost({ runtime: r.rtm })
+  let src = "export function setup(codj){ if (!codj.state.ids) codj.arrange([{id:'kick', name:'Kick', gen:'kick_edm', steps:'x...x...x...x...'}]) }"
+  let seen = []
+  let turns = [
+    { text: "", toolCalls: [{ id: "1", name: "write_script", arguments: JSON.stringify({ source: src }) }] },
+    { text: "done", toolCalls: [] }
+  ]
+  let fake = { runAgentLoop: agents.runAgentLoop, createHyperyModel: (o) => async (messages, tools) => { seen.push(messages[messages.length - 1].content); return turns.length > 0 ? turns.shift() : { text: "done", toolCalls: [] } } }
+  let ag = createCoDjAgent({ runtime: r.rtm, scriptHost: sh, agents: fake, token: async () => "t", director: false, evolveEveryBars: 0 })
+  await sleep(300)
+  let kick = sh.state.ids ? sh.state.ids.kick : null
+  check("the agent built its part before evolving", kick !== null && findCh(r.store.project, kick) !== null)
+  turns.push({ text: "", toolCalls: [{ id: "2", name: "set_param", arguments: JSON.stringify({ trackId: kick, address: "gen/decay", value: 0.8 }) }, { id: "3", name: "say", arguments: JSON.stringify({ text: "longer kick decay" }) }] })
+  turns.push({ text: "done", toolCalls: [] })
+  seen = []
+  ag.evolve("sound")
+  await sleep(300)
+  check("an evolve pass suggests a move and lists the knobs to play", seen.some((m) => typeof m === "string" && m.indexOf("Suggested move — sound") >= 0 && m.indexOf("codj.knobs") >= 0))
+  check("the move lands on the instrument", sh.codj.knobs(kick).knobs.filter((k) => k.knob === "decay")[0].value === 0.8)
+  let mv = ag.moves()
+  check("the agent remembers the move so the next one differs", mv.length === 1 && mv[0].move === "sound" && mv[0].text.indexOf("longer kick decay") >= 0)
+  ag.stop()
+  sh.stop()
+  r.rtm.close()
+}
+
+async fn directorPass() {
+  console.log("creative director")
+  check("eight personas, thirty constraint cards, a style idiom for each kit family", personaCards(null).length === 8 && constraintCards(null).length >= 30 && idiomCards(null).length >= 12)
+  check("a persona is stable per agent and varies across agents", personaFor("agent-a", null, null).id === personaFor("agent-a", null, null).id && ["a", "b", "c", "d", "e", "f"].map((x) => personaFor("agent-" + x, null, null).id).filter((v, i, all) => all.indexOf(v) === i).length >= 3)
+  check("a named persona wins over the seed", personaFor("agent-a", null, "squelch").title === "The Squelch")
+  let fenced = parseBrief("Here you go:\n```json\n{\"title\":\"Night Bus\",\"idea\":\"a three-note bell hook over a skipping kick\",\"cards\":[\"three-notes\"],\"energy\":0.4,\"bpm\":\"128\"}\n```")
+  check("a brief is read out of a fenced answer", fenced !== null && fenced.title === "Night Bus" && fenced.cards[0] === "three-notes" && fenced.energy === 0.4 && fenced.bpm === 128)
+  check("an answer with no idea is not a brief", parseBrief("{\"title\":\"x\"}") === null && parseBrief("no json") === null)
+  let mem = [
+    { bar: 0, kind: "start", deck: "A", bpm: 124, gens: ["kick_edm", "noise_burst", "sub808", "tine"], title: "Warm Up", cards: ["long-intro"] },
+    { bar: 64, kind: "evolve", move: "sound", deck: "A", bpm: 124, gens: ["kick_edm", "noise_burst", "sub808", "tine"], cards: [] },
+    { bar: 128, kind: "prepare", move: null, deck: "B", bpm: 124, gens: ["kick_edm", "noise_burst", "sub808", "tine"], cards: ["long-intro"] }
+  ]
+  let notes = noveltyNotes(mem, 140)
+  check("novelty notes catch a cloned palette, a flat tempo and a reused card", notes.some((n) => n.indexOf("nearly the ones from 'Warm Up'") >= 0) && notes.some((n) => n.indexOf("124 bpm since bar 0") >= 0) && notes.some((n) => n.indexOf("'long-intro' was just used") >= 0))
+  check("two decks with the same instruments are a clone", paletteClones({ A: ["a", "b", "c", "d"], B: ["a", "b", "c", "d"], C: ["a", "x", "y", "z"] }).length === 1)
+
+  let req = process.getBuiltinModule("node:module").createRequire(process.cwd() + "/")
+  let agents = req("@hyperyai/sdk/agents")
+  let r = room()
+  let sh = createScriptHost({ runtime: r.rtm })
+  let src = "export function setup(codj){ if (!codj.state.ids) codj.arrange([{id:'kick', name:'Kick', gen:'kick_edm', steps:'x...x...x...x...'}, {id:'bell', name:'Bell', gen:'bell', notes:[{pitch:72,start:0,dur:1},{pitch:75,start:2,dur:1},{pitch:79,start:3,dur:1}]}]) }"
+  let briefs = [
+    { title: "Glass Station", idea: "a three-note bell hook that answers the kick", why: "the room is empty", style: "minimal house", palette: ["bell", "kick_edm"], signature: "the bell's third note lands late", cards: ["three-notes", "not-a-card"], steps: ["arrange a kick and a bell", "give the bell three pitches"], avoid: ["pads"], energy: 0.3, arc: ["glass station", "night bus", "sunrise"] },
+    { move: "instrument", title: "New Voice", idea: "the bell hook moves to a warmer voice", why: "the bell has played for a while", cards: [], steps: ["swap the bell"], energy: 0.45 }
+  ]
+  let asked = []
+  let producerSaw = []
+  let systems = []
+  let turns = [
+    { text: "", toolCalls: [{ id: "1", name: "write_script", arguments: JSON.stringify({ source: src }) }] },
+    { text: "done", toolCalls: [] }
+  ]
+  let fake = {
+    runAgentLoop: agents.runAgentLoop,
+    createHyperyModel: (o) => async (messages, tools) => {
+      if (o.model === "test/director") {
+        asked.push(messages[1].content)
+        return { text: JSON.stringify(briefs.length > 0 ? briefs.shift() : { idea: "hold" }), toolCalls: [] }
+      }
+      systems.push(messages[0].content)
+      producerSaw.push(messages[messages.length - 1].content)
+      return turns.length > 0 ? turns.shift() : { text: "done", toolCalls: [] }
+    }
+  }
+  let ag = createCoDjAgent({ runtime: r.rtm, scriptHost: sh, agents: fake, token: async () => "t", directorModel: "test/director", persona: "reductionist", evolveEveryBars: 0 })
+  await sleep(300)
+  check("the director is asked first, with the memory and three cards to choose from", asked.length === 1 && asked[0].indexOf("OPENING") === 0 && asked[0].indexOf("set memory: nothing played yet") >= 0 && asked[0].indexOf("constraint cards offered") >= 0 && asked[0].indexOf("pack_kit_lofi") >= 0)
+  check("the producer gets the brief under its situation", producerSaw.length >= 1 && producerSaw[0].indexOf("DIRECTOR'S BRIEF") >= 0 && producerSaw[0].indexOf("idea: a three-note bell hook") >= 0 && producerSaw[0].indexOf("constraint: three-notes — The hook uses only three pitches") >= 0 && producerSaw[0].indexOf("not-a-card") < 0)
+  check("the producer prompt carries the persona", systems.length >= 1 && systems[0].indexOf("## Your persona — The Reductionist") >= 0)
+  let kick = sh.state.ids ? sh.state.ids.kick : null
+  turns.push({ text: "", toolCalls: [{ id: "2", name: "set_param", arguments: JSON.stringify({ trackId: kick, address: "gen/decay", value: 0.7 }) }, { id: "3", name: "say", arguments: JSON.stringify({ text: "warmer voice on the hook" }) }] })
+  turns.push({ text: "done", toolCalls: [] })
+  producerSaw = []
+  ag.evolve("sound")
+  await sleep(300)
+  check("the director can overrule the suggested move", producerSaw.length >= 1 && producerSaw[0].indexOf("Suggested move — instrument") >= 0 && ag.moves()[0].move === "instrument")
+  check("the move request lists the menu and the memory of the opening", asked.length === 2 && asked[1].indexOf("MOVE.") === 0 && asked[1].indexOf("'Glass Station'") >= 0 && asked[1].indexOf("instrument — ") >= 0 && asked[1].indexOf("the night's arc you sketched: glass station") >= 0)
+  let m = ag.memory()
+  check("the set memory records each pass from the room, on codj.state", m.length === 2 && m[0].title === "Glass Station" && m[0].gens.length === 2 && m[1].move === "instrument" && Array.isArray(sh.state.setMemory) && sh.state.setMemory.length === 2)
+  check("the agent exposes its persona and last brief", ag.persona().id === "reductionist" && ag.brief().title === "New Voice")
+  ag.stop()
+  sh.stop()
+  r.rtm.close()
+}
+
+async fn preparePass() {
+  console.log("thinking ahead: the prepare pass")
+  let req = process.getBuiltinModule("node:module").createRequire(process.cwd() + "/")
+  let agents = req("@hyperyai/sdk/agents")
+  let fs = process.getBuiltinModule("node:fs")
+  let md = fs.readFileSync("skills/_role-host.md", "utf8")
+  let start = md.indexOf("```js\n")
+  let src = md.substring(start + 6, md.indexOf("```", start + 6))
+  let r = room()
+  await sleep(5)
+  let dj = hostIn(r)
+  await sleep(5)
+  let sh = createScriptHost({ runtime: dj })
+  sh.load(src)
+  let book = sh.state.book
+  sh.invoke("onBar", { bar: 16 })
+  let nx = book.next
+  check("the template cued a next track before the agent joined", nx && nx.produced === false)
+  let asked = []
+  let producerSaw = []
+  let turns = []
+  let fake = {
+    runAgentLoop: agents.runAgentLoop,
+    createHyperyModel: (o) => async (messages, tools) => {
+      if (o.model === "test/director") {
+        let q = messages[1].content
+        asked.push(q)
+        if (q.indexOf("NEXT TRACK") === 0) {
+          return { text: JSON.stringify({ title: "Night Shift", idea: "the deep house track enters on a filtered organ stab", why: "the live groove has peaked", blend: { at: 129, bars: 32, style: "blend", length: 80 }, crate: [{ kit: "pack_kit_dnb", title: "Rush", style: "cut", why: "a tempo jump to wake the room" }, { kit: "not_a_kit" }] }), toolCalls: [] }
+        }
+        return { text: JSON.stringify({ title: "Warm Up", idea: "hold the house groove back" }), toolCalls: [] }
+      }
+      producerSaw.push(messages[messages.length - 1].content)
+      return turns.length > 0 ? turns.shift() : { text: "done", toolCalls: [] }
+    }
+  }
+  let ag = createCoDjAgent({ runtime: dj, scriptHost: sh, agents: fake, token: async () => "t", role: "host", directorModel: "test/director", evolveEveryBars: 0, maxChecks: 0 })
+  await sleep(300)
+  turns.push({ text: "", toolCalls: [{ id: "p1", name: "run_script", arguments: JSON.stringify({ code: "codj.set(codj.state.decks['" + nx.deck + "'].bass, 'fx/cutoff', 900); return 1" }) }] })
+  turns.push({ text: "done", toolCalls: [] })
+  producerSaw = []
+  check("a cued track that is not produced wakes a prepare pass", ag.prepare() === true)
+  await sleep(300)
+  check("only once per cue", ag.prepare() === false)
+  check("the director plans the next track: what, when, how, and what follows", asked.some((q) => q.indexOf("NEXT TRACK") === 0 && q.indexOf("next " + nx.deck) >= 0))
+  check("the producer works the cued deck from the headphones", producerSaw.some((m) => m.indexOf("TRIGGER: prepare") >= 0 && m.indexOf("cued and silent on deck " + nx.deck) >= 0 && m.indexOf("the mix in: blend over 32 bars at bar 129") >= 0 && m.indexOf("coming up after (already in book.crate): Rush (pack_kit_dnb)") >= 0))
+  check("the plan lands in the book on the phrase", book.next.at === 128 && book.next.blendBars === 32 && book.next.bars === 80 && book.next.title === "Night Shift" && book.next.produced === true)
+  check("the crate keeps only real kits", book.crate.length === 1 && book.crate[0].kit === "pack_kit_dnb" && book.crate[0].style === "cut")
+  check("the set book shows the road ahead", describeSetBook(sh.state).indexOf("next " + nx.deck + " 'Night Shift' in at bar 128 (blend 32)") >= 0 && describeSetBook(sh.state).indexOf("crate: Rush") >= 0)
+  let mem = ag.memory()
+  check("the memory records the prepared track on its deck", mem.length >= 1 && mem[mem.length - 1].title === "Night Shift" && mem[mem.length - 1].kind === "prepare" && mem[mem.length - 1].deck === nx.deck)
+  ag.stop()
+  sh.stop()
+  dj.close()
+  r.rtm.close()
+}
+
+async fn selfCheck() {
+  console.log("self-check loop")
+  let req = process.getBuiltinModule("node:module").createRequire(process.cwd() + "/")
+  let agents = req("@hyperyai/sdk/agents")
+  let r = room()
+  await sleep(5)
+  let dj = hostIn(r)
+  let sh = createScriptHost({ runtime: dj })
+  let arrange = "codj.arrange([{id:'kick', name:'Kick', gen:'kick_edm', steps:'x...x...x...x...'}, {id:'hat', name:'Hat', gen:'noise_burst', steps:'..x...x...x...x.'}, {id:'pad', name:'Pad', gen:'pad', notes:[{pitch:57,start:0,dur:4,vel:70}]}])"
+  let oneScene = "export function setup(codj){ " + arrange + "; codj.clip(codj.state.ids.kick, { clip: 'main', scene: 0, beat: 'four-on-the-floor' }); codj.play('song') }\nexport function onBar(codj, ctx){ }"
+  let stillBad = "export function setup(codj){ if (codj.placeholder()) { codj.clear(); codj.state.ids = null } if (!codj.state.ids) " + arrange + "; codj.scene(0, { kick: true, hat: true, pad: true }, 'all'); codj.play('song') }\nexport function onBar(codj, ctx){ }"
+  let numbered = "codj.clips('kick', ['four-on-the-floor', 'halftime-kick']); codj.clips('hat', ['offbeat-hat', { steps: 'x.x.x.x.x.x.x.x.' }]); codj.clips('pad', [{ notes: [{ pitch: 57, start: 0, dur: 4, vel: 70 }] }, { notes: [{ pitch: 60, start: 0, dur: 2, vel: 70 }, { pitch: 55, start: 2, dur: 2, vel: 70 }] }])"
+  let good = "export function setup(codj){ if (codj.placeholder()) { codj.clear(); codj.state.ids = null } if (!codj.state.ids) " + arrange + "; " + numbered + "; codj.scene(0, { kick: 1, hat: 1 }, 'intro'); codj.scene(1, { kick: 1, hat: 2, pad: 1 }, 'groove'); codj.scene(2, { pad: 2 }, 'break'); codj.scene(3, { kick: 2, hat: 2, pad: 1 }, 'drop'); codj.launch(0); codj.play('song') }\nexport function onBar(codj, ctx){ if (ctx.bar % 8 === 6) codj.stopClip(codj.state.ids.kick); if (ctx.bar % 8 === 0) codj.launch((ctx.bar / 8) % 4) }"
+  let seen = []
+  let turns = [
+    { text: "Plan: kick, hat, pad; one loop.", toolCalls: [{ id: "1", name: "write_script", arguments: JSON.stringify({ source: oneScene }) }, { id: "2", name: "say", arguments: JSON.stringify({ text: "Full set with intro, groove, drop and break is running" }) }] },
+    { text: "Done.", toolCalls: [] },
+    { text: "The starter was left in and I only built one scene.", toolCalls: [{ id: "3", name: "write_script", arguments: JSON.stringify({ source: stillBad }) }] },
+    { text: "Fixed.", toolCalls: [] },
+    { text: "One column with every part is still one scene. Four columns, launched on the phrase.", toolCalls: [{ id: "4", name: "write_script", arguments: JSON.stringify({ source: good }) }, { id: "5", name: "check_my_work", arguments: "{}" }, { id: "6", name: "say", arguments: JSON.stringify({ text: "Four scenes: intro, groove, break, drop" }) }] },
+    { text: "done", toolCalls: [] }
+  ]
+  let fake = { runAgentLoop: agents.runAgentLoop, createHyperyModel: (o) => async (messages, tools) => { seen.push(messages[messages.length - 1].content); return turns.length > 0 ? turns.shift() : { text: "done", toolCalls: [] } } }
+  let logs = []
+  let ag = createCoDjAgent({ runtime: dj, scriptHost: sh, agents: fake, token: async () => "t", director: false, role: "host", log: (l) => logs.push(String(l)) })
+  await sleep(600)
+  let checks = seen.filter((m) => typeof m === "string" && m.indexOf("SELF-CHECK") === 0)
+  check("the first self-check catches a one-scene set and the leftover starter", checks.length >= 1 && checks[0].indexOf("Session mode has 1 scene") >= 0 && checks[0].indexOf("page-load starter") >= 0 && checks[0].indexOf("codj.launch") >= 0)
+  check("it asks the model to explain why before fixing", checks.length >= 1 && checks[0].indexOf("Rethink before you touch anything") >= 0)
+  check("a fix that still fails gets checked again, and told to change approach", checks.length === 2 && checks[1].indexOf("SELF-CHECK 2 of 3") === 0 && checks[1].indexOf("change the approach") >= 0)
+  check("the loop ends once the room passes", logs.some((l) => l.indexOf("self-check passed after 2 fix(es)") >= 0))
+  let g = sh.codj.session()
+  check("the set really has four different scenes", g.filled.filter((n) => n > 0).length === 4)
+  check("the starter is gone", findCh(r.store.project, "c0") === null)
+  let texts = r.chats.filter((c) => c.from === "agent-host" || c.actorId === "agent-host" || String(c.text).indexOf("On my deck now") >= 0).map((c) => c.text)
+  check("the false 'full set' claim never reached the chat", !r.chats.some((c) => String(c.text).indexOf("Full set with intro") >= 0))
+  check("the chat lists the real session", texts.length === 1 && texts[0].indexOf("Four scenes") === 0 && texts[0].indexOf("Session: P1 intro (Kick, Hat)") >= 0 && texts[0].indexOf("P3 break (Pad)") >= 0)
+  ag.stop()
+  sh.stop()
+  dj.close()
+  r.rtm.close()
+}
+
+async fn runAll() {
+  libraryPack()
+  await cleanSlate()
+  await convergence()
+  await hostBooth()
+  gapResync()
+  await staleKeyframe()
+  await scripts()
+  await agentLoop()
+  await honestClaims()
+  await sessionScenes()
+  await multiDeck()
+  await hostTemplate()
+  await evolvePass()
+  await directorPass()
+  await preparePass()
+  await selfCheck()
+  console.log("")
+  console.log("PASS=" + String(pass) + " FAIL=" + String(fail))
+  if (fail > 0) {
+    throw new Error("agentkit tests failed")
+  }
+}
+
+runAll().then(() => {}, (e) => {
+  console.log(String(e && e.stack ? e.stack : e))
+  process.exitCode = 1
+})
