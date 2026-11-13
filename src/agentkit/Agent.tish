@@ -117,12 +117,20 @@ export fn composeAgentPrompt(opts) {
     "  (`bars: 4` or `8`) with its notes written across the phrase (`start` runs 0.." + "bars*4, in quarter-note beats).",
     "  `arrange` replaces the tracks you already own, so rewriting the script never stacks duplicates.",
     "- Then make it MOVE. `onBar` fires every bar forever: mute and unmute layers to carve sections, swap a pattern for",
-    "  a fill on the last bar of a phrase (`ctx.bar % 8 === 7`), open a filter across a build, answer chat in onMessage.",
+    "  a fill on the last bar of a phrase (`ctx.bar % 8 === 7`), open a filter across a build.",
     "  A script that sets everything once in `setup` and leaves `onBar` empty is a loop, not a track.",
+    "- Never reply to chat from the script (no `codj.say` in `onMessage`): a canned reply before you have read the",
+    "  request is wrong as often as not. YOU answer chat, after the change is on the deck. `onMessage` may only note",
+    "  their words for the script (e.g. `book.brief`).",
     "- Hooks (`setup`, `onBar(ctx.bar)`, `onBeat`, `onMessage(ctx.message)`, `onEvent`) must stay under 50 ms and be",
     "  idempotent. Remember phrase position and section in `codj.state` (it survives reloads).",
-    "- Writes made in onBar land on the NEXT bar. Only edit tracks you own (`codj.owned()`); `addTrack`/`arrange` prefix",
-    "  ids with your actorId. `codj.preview(text)` dry-runs a line against the gate.",
+    "- Writes made in onBar land on the NEXT bar. Edit any track whose `editable` is true (`codj.editable()`): your own,",
+    "  and — when you are host, acting for the user — theirs too, including the page's starter loop. `addTrack`/`arrange`",
+    "  prefix new ids with your actorId. `codj.preview(text)` dry-runs a line against the gate.",
+    "- Read the deck. THE DECK in your situation is the live session document — every track, pattern, note, knob,",
+    "  scene and mix setting, exactly as it plays. Reason from it, and edit by writing deck lines (`codj.send`) or",
+    "  through the helpers. `listen` is an optional ear check on the mix (spectrogram + band energy) when the text",
+    "  cannot tell you something — e.g. whether the low end is muddy.",
     "- After `write_script`, read `yourTracksNow` in its result and `script_logs`. A line starting `✖` is a write the",
     "  room refused. A script that did not load, or whose log shows it built nothing, is not done — fix it first.",
     "- Never say a part is in unless `yourTracksNow` lists it. Your chat is checked against your tracks before it is",
@@ -243,6 +251,11 @@ export fn composeAgentPrompt(opts) {
   if (role === "host") {
     parts.push([
       "## You are mid-set. This is the job.",
+      "You are the user's co-DJ and you act for them. Their latest message is the job: read what they mean, not just",
+      "what they typed. \"Make an end banger\" means the music that is PLAYING becomes a banger — rework their tracks",
+      "in place, replace them, or clear and rebuild; never leave the old loop running untouched beside a new deck.",
+      "Keep a track only when it serves the request or they asked you to keep it. When you are done, what the room",
+      "hears is what they asked for.",
       "Take the instruction as the brief. Write ONE script that (1) composes a song in Session mode: arrange a library",
       "kit's tracks, give every track 2–4 short numbered clips with `codj.clips(track, [...])`, and build at least five",
       "columns from those numbers with `codj.scene(n, { kick: 1, hat: 2, bass: 1 }, name, { deck })` — the parts change",
@@ -441,6 +454,17 @@ export fn createCoDjAgent(opts) {
     return tracks.filter((t) => t.mine)
   }
 
+  /** The tracks this co-DJ answers for: as host (acting for the user) every editable track, else its own. */
+  fn actingTracks() {
+    let tracks = []
+    try {
+      tracks = runTool(rt.kit, "list_tracks", {})
+    } catch (e) {
+      tracks = []
+    }
+    return opts.role === "host" ? tracks.filter((t) => t.editable && !t.mute) : tracks.filter((t) => t.mine)
+  }
+
   fn sessionGrid() {
     try {
       return runTool(rt.kit, "get_session", {})
@@ -620,10 +644,28 @@ export fn createCoDjAgent(opts) {
     }
   }
 
+  // The page-load starter as it was when this co-DJ joined. Reworking c0–c3 in place keeps their ids, so "still the
+  // placeholder" means: the starter is up AND those tracks are exactly as they were.
+  let starterAtJoin = null
+  fn starterSignature() {
+    try {
+      return JSON.stringify(runTool(rt.kit, "list_tracks", {}).filter((t) => /^c[0-3]$/.test(t.id)).map((t) => [t.id, t.gen, t.steps, t.notes, t.mute]))
+    } catch (e) {
+      return null
+    }
+  }
+  fn starterUntouched() {
+    if (!isPlaceholder()) {
+      return false
+    }
+    let now = starterSignature()
+    return starterAtJoin === null || now === starterAtJoin
+  }
+
   // Everything a finished pass must be true of, checked against the room — not against what the model said.
   fn audit(trigger, claimText, rejects) {
     let problems = []
-    let mine = myTracks()
+    let mine = actingTracks()
     let err = host.lastError()
     if (err !== null) {
       problems.push("Your script threw in " + String(err.hook) + ": " + String(err.message))
@@ -637,46 +679,15 @@ export fn createCoDjAgent(opts) {
     }
     let building = trigger.kind === "start" || trigger.kind === "message"
     if (building && mine.length === 0) {
-      problems.push("You own no tracks, so nothing of yours is audible.")
+      problems.push(opts.role === "host" ? "Nothing is playing: every track is muted or gone." : "You own no tracks, so nothing of yours is audible.")
     }
     if (opts.role === "host" && mine.length > 0) {
+      // Facts about the room only. Whether it is GOOD — does it deliver what they asked for — is the reviewer's
+      // call (reviewAgainstRequest), not a fixed recipe of scene counts and required function names.
       let src = host.source() !== null ? host.source() : ""
       let decks = myDecks()
       if (decks.length === 0) {
         decks = [null]
-      }
-      decks.forEach((d) => {
-        let scenes = myScenes(d)
-        let distinct = distinctScenes(scenes)
-        if (distinct < 3) {
-          problems.push((d !== null && decks.length > 1 ? "Deck " + d + ": session" : "Session mode") + " has " + String(scenes.length) + " scene(s) with your clips, " + String(distinct) + " of them different" + (scenes.length > 0 ? " (" + sessionLine(scenes) + ")" : "") + ". Give each track numbered clips with codj.clips, then compose at least four different columns from them with codj.scene(n, { kick: 1, hat: 2 }, name" + (d !== null && decks.length > 1 ? ", { deck: '" + d + "' }" : "") + ") — intro, groove, drop, break — and move between them with codj.launch(n" + (d !== null ? ", '" + d + "'" : "") + ").")
-        }
-      })
-      let g = sessionGrid()
-      if (g !== null) {
-        let flat = []
-        let playedRows = 0
-        let proj = rt.mirror.project()
-        g.rows.filter((r) => r.mine).forEach((r) => {
-          let ch = proj.channels.find((c) => String(c.id) === r.trackId)
-          let used = []
-          r.slots.forEach((c) => {
-            let sig = c && c.length > 0 && c !== "rest" ? clipSignature(ch, c) : null
-            if (sig !== null && used.indexOf(sig) < 0) {
-              used.push(sig)
-            }
-          })
-          let inScenes = r.slots.filter((c) => c && c.length > 0 && c !== "rest").length
-          if (inScenes >= 2) {
-            playedRows = playedRows + 1
-            if (used.length < 2) {
-              flat.push(r.name)
-            }
-          }
-        })
-        if (playedRows > 0 && flat.length * 2 > playedRows) {
-          problems.push("Composed like one long sequence: " + flat.join(", ") + " play the same clip in every scene they are in. Give each track 2–4 short numbered clips with codj.clips(track, [...]) (library beats / sequences by role, or your own steps / notes; 1, 2 or 4 bars), then compose the scenes from the numbers — codj.scene(1, { kick: 1, hat: 2, bass: 1 }), codj.scene(3, { kick: 2, hat: 3, bass: 2, hook: 1 }) — so each scene changes what the parts play, not only which parts play.")
-        }
       }
       let crowded = []
       decks.forEach((d) => {
@@ -692,31 +703,13 @@ export fn createCoDjAgent(opts) {
           }
         })
       })
-      if (decks.length >= 2 && decks[0] !== null) {
-        let byDeck = {}
-        decks.forEach((d) => {
-          byDeck[d] = gensOn(d)
-        })
-        paletteClones(byDeck).forEach((p) => {
-          problems.push("Deck " + p.a + " and deck " + p.b + " play nearly the same instruments (" + p.shared.join(", ") + "). A new chapter needs its own sound: a different kit, or swap at least half the parts for other instruments (codj.swap). Keep one shared element as the bridge if you want one.")
-        })
-      }
       if (crowded.length > 0) {
         problems.push("Too much at once — cued, these scenes are cluttered: " + crowded.join(" · ") + ". Take parts out of them (fewer parts per scene, one kick and one bass in the low end, one lead), or move a part into a different scene. Cue each scene again until none is cluttered.")
-      }
-      if (src.indexOf("launch(") < 0) {
-        problems.push("The script never calls codj.launch(n, deck), so the set never changes scene.")
-      }
-      if (src.indexOf("launchClip(") < 0 && src.indexOf("stopClip(") < 0) {
-        problems.push("The script never moves a single stem. Between scene changes, swap one track's clip (codj.launchClip(id, clipId)) or drop it out (codj.stopClip(id)) and bring it back — that is what keeps a scene alive for minutes instead of a loop.")
-      }
-      if (src.indexOf("onBar") < 0) {
-        problems.push("The script has no onBar, so nobody is DJing after setup.")
       }
       if (!rt.mirror.clock().playing && src.indexOf("play(") < 0) {
         problems.push("The transport is stopped and the script never calls codj.play('song').")
       }
-      if (isPlaceholder()) {
+      if (starterUntouched()) {
         problems.push("The page-load starter (c0–c3 Kick, Snare, HiHat, Bass) is still in the room next to your set. codj.clear() it in setup, then arrange.")
       }
       let book = host.state && host.state.book ? host.state.book : null
@@ -731,13 +724,116 @@ export fn createCoDjAgent(opts) {
     return { problems: problems, mine: mine, missing: missing }
   }
 
+  // The producer: writes and fixes the script. Medium reasoning keeps it responsive mid-set; the hard thinking is
+  // done by the director (the plan), the advisor (done / stuck) and the reviewer (does it deliver the request).
   let callModel = opts.agents.createHyperyModel({
     fetch: opts.fetch ? opts.fetch : (url, init) => globalThis.fetch(url, init),
     token: opts.token,
     model: opts.model ? opts.model : codjDefaultModel(),
     gatewayUrl: opts.gatewayUrl ? opts.gatewayUrl : null,
-    team: opts.team ? opts.team : null
+    team: opts.team ? opts.team : null,
+    effort: opts.effort ? String(opts.effort) : "medium"
   })
+
+  // The advisor (Hypery SDK): the strongest model, consulted at the moments that decide the outcome — when the
+  // producer thinks it is done, and when it keeps hitting the same error. It reads the whole run. (Planning is
+  // already the director's job, so the advisor is not asked at "plan" — that would double the wait.)
+  let advisor = typeof opts.agents.createAdvisor === "function" && opts.advisor !== false
+    ? opts.agents.createAdvisor({
+      callModel: opts.agents.createHyperyModel({
+        fetch: opts.fetch ? opts.fetch : (url, init) => globalThis.fetch(url, init),
+        token: opts.token,
+        model: opts.directorModel && opts.directorModel !== "off" ? String(opts.directorModel) : codjDefaultDirectorModel(),
+        gatewayUrl: opts.gatewayUrl ? opts.gatewayUrl : null,
+        team: opts.team ? opts.team : null
+      }),
+      spec: { model: opts.directorModel && opts.directorModel !== "off" ? String(opts.directorModel) : codjDefaultDirectorModel(), effort: "xhigh" },
+      triggers: { plan: false, done: true, error: true },
+      maxCalls: 4,
+      guidance: "You advise an AI co-DJ producing music live in a DAW for a user. Hold it to the user's latest request: the music that PLAYS must become what they asked for (rework or replace their tracks; never leave the old loop running beside a new deck). Push for musical quality — groove, arrangement, contrast, the right energy for the genre — and catch scripts that look busy but sound the same.",
+      onEvent: (e) => {
+        if (e.type === "advisor:advice") {
+          log("◆ advisor (" + String(e.trigger) + "): " + (e.advice && e.advice.length > 0 ? String(e.advice[0]).substring(0, 140) : String(e.verdict)))
+        }
+      }
+    })
+    : null
+  let advise = advisor !== null ? advisor.advise : null
+
+  // The reviewer: the strongest model, no tools, high effort. After every request it compares the room before and
+  // after against the user's own words and says what is still wrong. Its findings drive the self-check loop.
+  let reviewModel = opts.agents.createHyperyModel({
+    fetch: opts.fetch ? opts.fetch : (url, init) => globalThis.fetch(url, init),
+    token: opts.token,
+    model: opts.reviewModel ? String(opts.reviewModel) : (opts.directorModel && opts.directorModel !== "off" ? String(opts.directorModel) : codjDefaultDirectorModel()),
+    gatewayUrl: opts.gatewayUrl ? opts.gatewayUrl : null,
+    team: opts.team ? opts.team : null,
+    effort: "high"
+  })
+
+  // The room as its deck document — the streamable text the whole session IS (tracks, patterns, notes, knobs,
+  // scenes, mix). This, not a summary, is what the co-DJ and the reviewer read.
+  fn deckText() {
+    try {
+      return String(runTool(rt.kit, "get_deck", {}))
+    } catch (e) {
+      return ""
+    }
+  }
+
+  fn roomSnapshot() {
+    let d = deckText()
+    if (d.length > 0) {
+      return d.length > 40000 ? d.substring(0, 40000) + "\n… (deck truncated)" : d
+    }
+    let tracks = []
+    try {
+      tracks = runTool(rt.kit, "list_tracks", {})
+    } catch (e) {
+      tracks = []
+    }
+    let clock = rt.mirror.clock()
+    let head = "bpm " + String(clock && clock.bpm ? clock.bpm : "?") + ", " + (clock && clock.playing ? "playing" : "stopped") + ", " + String(tracks.length) + " track(s)"
+    return head + "\n" + tracks.map((t) => "  " + t.id + " '" + t.name + "' " + t.gen + " deck " + String(t.onDeck) + (t.mute ? " MUTED" : "") + " steps " + t.steps + " notes " + String(t.notes) + " gain " + String(t.gain)).join("\n")
+  }
+
+  /** Ask the reviewer whether the room now delivers what the user asked for. Returns problems ([] = it does). */
+  async fn reviewAgainstRequest(request, before, script) {
+    let after = roomSnapshot()
+    let prompt = [
+      "You review an AI co-DJ's work in a live DAW. Judge ONLY whether what the room plays now delivers what the user asked for.",
+      "The user's request: " + String(request),
+      "",
+      "The session is a deck document (the DAW's streamable text format). Deck BEFORE the co-DJ acted:",
+      before,
+      "",
+      "Deck NOW:",
+      after,
+      "",
+      "The co-DJ's script (what keeps playing after setup):",
+      String(script !== null ? script : "(none)").substring(0, 6000),
+      "",
+      "Be concrete and strict. Typical failures: the old loop still plays unchanged next to a new part; the change is on a",
+      "deck that is not audible; the energy, tempo, genre or parts do not match the request; something they asked for is",
+      "missing; it got busier but not better. Do not ask for features they did not ask for.",
+      "Answer with the line VERDICT: PASS, or VERDICT: FIX followed by one '- ' line per concrete thing to change (max 5)."
+    ].join("\n")
+    let turn = null
+    try {
+      turn = await reviewModel([{ role: "user", content: prompt }], null, null, null, { effort: "high" })
+    } catch (e) {
+      log("✖ reviewer: " + (e && e.message ? String(e.message) : String(e)))
+      return []
+    }
+    let text = turn && turn.text ? String(turn.text) : ""
+    if (/VERDICT:\s*PASS/i.test(text) || !/VERDICT:\s*FIX/i.test(text)) {
+      log("◆ reviewer: delivers the request")
+      return []
+    }
+    let lines = text.substring(text.search(/VERDICT:\s*FIX/i)).split("\n").map((l) => l.trim()).filter((l) => l.indexOf("- ") === 0).map((l) => "Reviewer: " + l.substring(2))
+    log("◆ reviewer: " + String(lines.length) + " thing(s) to fix")
+    return lines.slice(0, 5)
+  }
 
   // The creative lead: a second model with no tools, asked for a brief before every start, request and evolve pass.
   let directorModel = opts.directorModel ? String(opts.directorModel) : codjDefaultDirectorModel()
@@ -935,6 +1031,12 @@ export fn createCoDjAgent(opts) {
   // Agent-only tools (code + script lifecycle) on top of the registry.
   let EXTRA = [
     {
+      name: "listen", readOnly: true,
+      description: "HEAR the room: capture 1–8 seconds of what the master actually plays (default 4). Returns a spectrogram image (time →, low frequencies at the bottom, guides at 60/250/2k/8k Hz) and numbers: energy per band (sub/low/mid/high/air, 0..1), band energy every half second, loudness, silent share, dominant band. The transport must be playing. Listen before you change the music and again after, and judge it by ear: is the low end clean, does it build, does it match what they asked for?",
+      inputSchema: { type: "object", properties: { seconds: { type: "number", description: "how long to listen, 1–8 (default 4)" } } },
+      run: (a) => ({ ok: false, error: "listen runs asynchronously" })
+    },
+    {
       name: "write_script", readOnly: false,
       description: "Replace your co-DJ script (full JS source exporting hooks). Hot-reloads on the next bar; rejected (old script kept) if it fails to compile or setup() throws.",
       inputSchema: { type: "object", properties: { source: { type: "string", description: "complete JS source" } }, required: ["source"] },
@@ -1009,6 +1111,20 @@ export fn createCoDjAgent(opts) {
       deferredSays.push({ text: args.text !== null ? String(args.text) : "", to: args.to !== null ? String(args.to) : null })
       return { id: call.id, name: call.name, argsText: call.argsText, ok: true, summary: "say queued", content: JSON.stringify({ ok: true, note: "Posted once your tracks are checked. Say only what list_owned shows." }) }
     }
+    if (call.name === "listen") {
+      if (typeof opts.listen !== "function") {
+        return { id: call.id, name: call.name, argsText: call.argsText, ok: false, summary: "listen unavailable", content: JSON.stringify({ error: "listening is not available in this host" }) }
+      }
+      let heard = await opts.listen(args.seconds !== null && args.seconds !== undefined ? args.seconds : 4)
+      let okHeard = heard && heard.image !== null && !(heard.stats && heard.stats.error)
+      activity({ kind: "tool", name: "listen", ok: okHeard })
+      return {
+        id: call.id, name: call.name, argsText: call.argsText, ok: okHeard,
+        summary: okHeard ? "listened (" + String(heard.stats.seconds) + "s, dominant " + String(heard.stats.dominant) + ")" : "could not listen",
+        content: JSON.stringify(heard && heard.stats ? heard.stats : { error: "no answer" }),
+        images: okHeard ? [heard.image] : null
+      }
+    }
     try {
       let extra = EXTRA.find((t) => t.name === call.name)
       let out = extra ? extra.run(args) : runTool(rt.kit, call.name, args)
@@ -1035,30 +1151,34 @@ export fn createCoDjAgent(opts) {
     lines.push("clock: bar " + String(c.bar) + (c.playing ? " (playing, " + String(c.bpm) + " bpm)" : " (stopped)"))
     lines.push("tracks (" + String(tracks.length) + "):")
     let i = 0
-    while (i < tracks.length && i < 24) {
+    while (i < tracks.length && i < 64) {
       let t = tracks[i]
-      lines.push("  " + t.id + " '" + t.name + "' gen " + t.gen + " owner " + String(t.owner) + (t.mine ? " (MINE)" : "") + " steps " + t.steps + " notes " + String(t.notes) + (t.mute ? " muted" : ""))
+      lines.push("  " + t.id + " '" + t.name + "' gen " + t.gen + " deck " + String(t.onDeck) + " owner " + String(t.owner) + (t.mine ? " (MINE)" : "") + (t.editable ? " editable" : "") + " gain " + String(t.gain) + " steps " + t.steps + " notes " + String(t.notes) + " bars " + String(t.bars) + (t.mute ? " muted" : ""))
       i = i + 1
     }
     if (chat.length > 0) {
       lines.push("recent chat:")
-      let ci = Math.max(0, chat.length - 8)
+      let ci = Math.max(0, chat.length - 20)
       while (ci < chat.length) {
         lines.push("  " + chat[ci])
         ci = ci + 1
       }
+    }
+    let doc = deckText()
+    if (doc.length > 0) {
+      lines.push("THE DECK — the live session document, exactly as it plays now (read it; your writes are deck lines too):\n```deck\n" + (doc.length > 40000 ? doc.substring(0, 40000) + "\n… (truncated)" : doc) + "\n```")
     }
     let err = host.lastError()
     if (err !== null) {
       lines.push("last script error (" + err.hook + "): " + err.message)
     }
     lines.push("your script:\n```js\n" + (host.source() !== null ? host.source() : "(none)") + "\n```")
-    let lg = host.logs().slice(-10)
+    let lg = host.logs().slice(-25)
     if (lg.length > 0) {
       lines.push("script log tail:\n" + lg.join("\n"))
     }
     if (history.length > 0) {
-      lines.push("your earlier passes:\n" + history.slice(-4).map((h) => "- " + h).join("\n"))
+      lines.push("your earlier passes:\n" + history.slice(-12).map((h) => "- " + h).join("\n"))
     }
     let book = describeSetBook(host.state)
     if (book.length > 0) {
@@ -1101,7 +1221,7 @@ export fn createCoDjAgent(opts) {
     if (trigger.kind === "start" || trigger.kind === "message") {
       let message = opts.role === "host"
         ? (trigger.kind === "message"
-          ? "They just gave you the brief. Write your plan (brief, kit, each scene and what plays in it), then call write_script NOW. Keep codj.state.book if it exists (do not clear played). If they asked for a clean slate, or codj.placeholder() is still true, codj.clear() before you arrange and set codj.state.ids = null. Otherwise keep their tracks. Set book.brief to their words, build or retarget the sequence from a library kit that fits, rebuild the session columns with codj.scene, and keep onBar DJing every phrase with codj.launch(n): next scene is never the last one, energy and vibe move, booth and a throw perform it. Then call check_my_work and fix until it is clean. Then say one line."
+          ? "They just gave you the brief. Write your plan (brief, kit, each scene and what plays in it), then call write_script NOW. Keep codj.state.book if it exists (do not clear played). First decide what serves their words: rework the playing tracks in place (codj.editable() — theirs included), replace some, or codj.clear() and rebuild (always if codj.placeholder() is still true; then set codj.state.ids = null). Never leave a track playing that contradicts what they asked for, and make sure the result is on the deck the room hears. Set book.brief to their words, build or retarget the sequence from a library kit that fits, rebuild the session columns with codj.scene, and keep onBar DJing every phrase with codj.launch(n): next scene is never the last one, energy and vibe move, booth and a throw perform it. Then call check_my_work and fix until it is clean. Then say one line."
           : "You have not started the set. Write your plan (kit, each scene and what plays in it), then call write_script NOW. If codj.placeholder() is true, setup() calls codj.clear() first so the page-load Kick/Snare/HiHat/Bass is gone, then picks a library kit, arranges its tracks on a deck (codj.arrange(parts, { deck })), gives every track 2–4 short numbered clips with codj.clips(track, [...]) (library beats / sequences of the same role at the kit's root), composes at least five session columns from those numbers with codj.scene(n, { kick: 1, hat: 2, bass: 1 }, name, { deck }), codj.launch(0, deck), codj.play('song'), and creates codj.state.book. onBar DJs forever from that book: codj.launch(n, deck) on the phrase, a stem move (launchClip / stopClip) inside it, log every phrase to played, never repeat the last scene, ride the booth and fader, two phrases into each track cue the next one silent on a free deck (book.next with the bar it comes in on, book.crate for the one after), and at that bar codj.blend takes the room there. Then call check_my_work and fix until it is clean.")
         : "You have not written any music yet. Write your plan, then call write_script (or arrange / add_track) NOW. Start from codj.library() — a kit or a preset plus a beat — and build the full arrangement: rhythm section, bass, chords and a hook, with the instrument knobs set. Then call check_my_work and fix until it is clean."
       return { nudges: 2, message: message }
@@ -1122,13 +1242,30 @@ export fn createCoDjAgent(opts) {
   }
 
   async fn runPass(trigger) {
+    if (starterAtJoin === null) {
+      starterAtJoin = starterSignature()
+    }
+    trigger.before = roomSnapshot()
+    trigger.startedAt = Date.now()
+    passDeadline = trigger.kind === "message" ? Date.now() + (opts.requestBudgetMs !== null && opts.requestBudgetMs !== undefined ? Number(opts.requestBudgetMs) : 150000) : null
     let brief = await directPass(trigger)
+    if (trigger.kind === "message" && brief !== null && brief.title && !interrupted()) {
+      // Say what is coming right away; the full answer follows once it is on the deck and checked.
+      rt.say("On it — " + String(brief.title) + (brief.idea ? ": " + String(brief.idea).split(/(?<=[.!?])\s/)[0].substring(0, 160) : ""), trigger.from !== null ? trigger.from : null)
+    }
     let system = composeAgentPrompt({ role: opts.role, actorId: rt.me().actorId, displayName: rt.me().displayName, skills: opts.skills, persona: persona })
     let ask = situation(trigger)
     if (brief !== null) {
       ask = ask + "\n\n" + briefBlock(brief, persona, theDirector().cards)
     }
-    let messages = [{ role: "system", content: system }, { role: "user", content: ask }]
+    if (trigger.kind === "message" && trigger.text) {
+      // The user's own words come last and win: the director's brief serves them, never replaces them.
+      ask = ask + "\n\n## What the user asked for (this overrides the brief above where they differ)\n" + String(trigger.text) +
+        "\nDo exactly this, to the music that is playing now. Check the result against these words before you finish."
+    }
+    // One conversation for the whole set: earlier passes (their reasoning, tool calls and results) stay in context,
+    // and the SDK compacts old turns into a summary when it grows, so the co-DJ remembers what it built and why.
+    let messages = [{ role: "system", content: system }].concat(convo).concat([{ role: "user", content: ask }])
     activity({ kind: "pass", trigger: trigger.kind })
     log("◆ agent pass: " + trigger.kind)
     let wrote = false
@@ -1143,6 +1280,7 @@ export fn createCoDjAgent(opts) {
     try {
       await passBody(trigger, messages, trackingExec, () => wrote)
     } finally {
+      passDeadline = null
       deferredSays = null
       passRejects = null
       if (trigger.kind === "prepare") {
@@ -1157,14 +1295,27 @@ export fn createCoDjAgent(opts) {
     }
   }
 
+  // The co-DJ's running conversation (no system prompt — that is rebuilt each pass). See runPass.
+  let convo = []
+  let loopContext = typeof opts.agents.modelSummarizer === "function"
+    ? { compact: { maxChars: 240000, keepRecent: 16, summarize: opts.agents.modelSummarizer(callModel) } }
+    : null
+  fn keepConversation(outcome) {
+    if (outcome && Array.isArray(outcome.messages)) {
+      convo = outcome.messages.filter((m) => m.role !== "system")
+    }
+  }
+
   async fn passBody(trigger, messages, trackingExec, didWrite) {
     let outcome = await opts.agents.runAgentLoop({
       messages: messages,
       tools: loopTools(),
       callModel: callModel,
+      advise: advise,
+      context: loopContext,
       execTool: trackingExec,
       maxRounds: opts.maxRounds !== null ? opts.maxRounds : 24,
-      stopped: () => stopped,
+      stopped: interrupted,
       requireAction: actionRequired(trigger),
       hooks: {
         onToolStart: (call) => log("  → " + call.name)
@@ -1183,28 +1334,41 @@ export fn createCoDjAgent(opts) {
       log("◆ the script built nothing — sending it back")
       messages.push({ role: "assistant", content: text })
       messages.push({ role: "user", content: opts.role === "host"
-        ? "Your script loaded but it is not a set. Rewrite it: arrange a library kit that matches the brief, give every track 2–4 short numbered clips with codj.clips, compose at least five session columns from those numbers with codj.scene(n, { kick: 1, hat: 2 }, name), codj.launch(0), codj.play('song'), and keep codj.state.book. onBar must DJ every phrase from that book — log played, move vibe and energy, never repeat the last scene, and ride the booth, the filter and a throw. Do not wipe the book if it already exists."
+        ? "Your script loaded but nothing new is playing. Rewrite it so the room actually changes the way they asked: rework or replace the playing tracks (codj.editable()), or codj.clear() and arrange a library kit that matches the brief; give the parts somewhere to go with codj.clips / codj.scene(n, { kick: 1, hat: 2 }, name), codj.launch(0), codj.play('song'), and keep codj.state.book. onBar must DJ every phrase from that book — log played, move vibe and energy, never repeat the last scene, and ride the booth, the filter and a throw. Do not wipe the book if it already exists."
         : "Your script loaded but it creates no tracks: nothing is audible. Rewrite it so setup() calls codj.arrange(...) — start from codj.preset('house-loop').parts or another library kit — with kick, hats, bass, chords and a hook, and set the instrument knobs. Then check script_logs again." })
       outcome = await opts.agents.runAgentLoop({
         messages: messages,
         tools: loopTools(),
         callModel: callModel,
+        advise: advise,
+        context: loopContext,
         execTool: trackingExec,
         maxRounds: 12,
-        stopped: () => stopped
+        stopped: interrupted
       })
       text = outcome && outcome.text ? String(outcome.text).trim() : text
     }
 
     // Check the work against the room, rethink, fix, and check again — until it holds or the rounds run out.
     // Nothing reaches the chat until this is done.
-    let maxChecks = opts.maxChecks !== null && opts.maxChecks !== undefined ? Math.floor(Number(opts.maxChecks)) : 3
+    let maxChecks = opts.maxChecks !== null && opts.maxChecks !== undefined ? Math.floor(Number(opts.maxChecks)) : (trigger.kind === "message" ? 2 : 3)
+    // A request answers within a couple of minutes: after the budget the work so far is posted and later passes
+    // keep improving it, instead of the room waiting on another round.
+    let budgetMs = opts.requestBudgetMs !== null && opts.requestBudgetMs !== undefined ? Number(opts.requestBudgetMs) : 150000
+    fn withinBudget() {
+      return trigger.kind !== "message" || !trigger.startedAt || Date.now() - trigger.startedAt < budgetMs
+    }
     let claim = deferredSays.map((s) => s.text).join(" ") + " " + text
     let rep = audit(trigger, claim, passRejects.slice())
+    let reviewing = trigger.kind === "message" && trigger.text && !stopped
+    if (reviewing && rep.problems.length === 0) {
+      rep.problems = await reviewAgainstRequest(trigger.text, trigger.before, host.source())
+    }
     let checks = 0
     let tried = []
-    let auditable = didWrite() || ((trigger.kind === "evolve" || trigger.kind === "prepare") && opts.role === "host")
-    while (rep.problems.length > 0 && auditable && checks < maxChecks && !(outcome && outcome.stopped) && !stopped) {
+    // A request is always checked — doing nothing is the most common way to ignore one.
+    let auditable = didWrite() || reviewing || ((trigger.kind === "evolve" || trigger.kind === "prepare") && opts.role === "host")
+    while (rep.problems.length > 0 && auditable && checks < maxChecks && !(outcome && outcome.stopped) && !interrupted() && withinBudget()) {
       checks = checks + 1
       log("◆ self-check " + String(checks) + "/" + String(maxChecks) + ": " + String(rep.problems.length) + " problem(s) — " + rep.problems[0].split("\n")[0].substring(0, 120))
       activity({ kind: "check", round: checks, problems: rep.problems })
@@ -1214,7 +1378,7 @@ export fn createCoDjAgent(opts) {
       }
       let sess = opts.role === "host" ? sessionByDeck() : ""
       let fix = [
-        "SELF-CHECK " + String(checks) + " of " + String(maxChecks) + ". I looked at the room itself, not at what you said. It does not match a finished set:",
+        "SELF-CHECK " + String(checks) + " of " + String(maxChecks) + ". I looked at the room itself, not at what you said." + (reviewing ? " Their request was: " + String(trigger.text) + ". It does not deliver that yet:" : " It does not match a finished set:"),
         rep.problems.map((p) => "- " + p).join("\n"),
         "Your tracks right now: " + (rep.mine.length > 0 ? rep.mine.map((t) => t.name + " (" + t.gen + ", deck " + String(t.onDeck) + ")").join(", ") : "none") + ".",
         opts.role === "host" ? "Your session right now: " + (sess.length > 0 ? sess : "no scenes with your clips") + "." : "",
@@ -1229,14 +1393,19 @@ export fn createCoDjAgent(opts) {
         messages: messages,
         tools: loopTools(),
         callModel: callModel,
+        advise: advise,
+        context: loopContext,
         execTool: trackingExec,
         maxRounds: 12,
-        stopped: () => stopped,
+        stopped: interrupted,
         requireAction: { nudges: 1, message: "You have not fixed it. Call write_script with the corrected script now, then check_my_work." }
       })
       text = outcome && outcome.text ? String(outcome.text).trim() : ""
       claim = deferredSays.map((s) => s.text).join(" ") + " " + text
       rep = audit(trigger, claim, passRejects.slice())
+      if (reviewing && rep.problems.length === 0 && !stopped) {
+        rep.problems = await reviewAgainstRequest(trigger.text, trigger.before, host.source())
+      }
       if (host.source() !== null && tried.indexOf(host.source()) >= 0 && rep.problems.length > 0) {
         log("◆ self-check: the fix resent a script that already failed")
       }
@@ -1271,7 +1440,20 @@ export fn createCoDjAgent(opts) {
       }
       rt.say(post, to)
     }
+    keepConversation(outcome)
     log("◆ pass done (" + String(outcome ? outcome.rounds : 0) + " rounds)")
+  }
+
+  // A chat message from the user preempts whatever the co-DJ is doing (its opening, an evolve move, a
+  // self-check round): the running pass wraps up at its next step and the request is handled next — the user
+  // never waits behind the co-DJ's own work.
+  let preempt = false
+  let currentKind = null
+  // A request pass ends at its next step once its time budget is spent; what is on the deck is posted and the
+  // following passes keep improving it. (null = no deadline.)
+  let passDeadline = null
+  fn interrupted() {
+    return stopped || preempt || (passDeadline !== null && Date.now() > passDeadline)
   }
 
   async fn drain() {
@@ -1280,7 +1462,11 @@ export fn createCoDjAgent(opts) {
     }
     busy = true
     while (queue.length > 0 && !stopped) {
-      let next = queue.shift()
+      // Requests first.
+      let mi = queue.findIndex((q) => q.kind === "message")
+      let next = mi >= 0 ? queue.splice(mi, 1)[0] : queue.shift()
+      preempt = false
+      currentKind = next.kind
       try {
         await runPass(next)
       } catch (e) {
@@ -1299,6 +1485,10 @@ export fn createCoDjAgent(opts) {
   fn trigger(kind, text, from, extra) {
     if (stopped) {
       return
+    }
+    if (kind === "message" && busy && currentKind !== "message") {
+      preempt = true
+      log("◆ your message interrupts the current " + String(currentKind) + " pass")
     }
     let existing = queue.find((q) => q.kind === kind)
     if (existing) {

@@ -1835,6 +1835,11 @@ check("ownership: solo 'human' may edit its own track", actorMayEditTrack(pgAP, 
 setTrackOwner(pgAP, pgAchId, "agent-2", "agent-2")
 check("ownership: a non-owner is denied", actorMayEditTrack(pgAP, pgAchId, "human", false) === false)
 check("ownership: the new owner may edit", actorMayEditTrack(pgAP, pgAchId, "agent-2", false) === true)
+check("ownership: a host (master rights, e.g. your co-DJ acting for you) may edit a track it does not own", actorMayEditTrack(pgAP, pgAchId, "agent-host", false, true) === true)
+check("ownership: without master rights the host flag is required", actorMayEditTrack(pgAP, pgAchId, "agent-host", false, false) === false)
+pgAP.coDjMeta.tracks[pgAchId].masterLock = true
+check("ownership: a master-locked track stays protected even from a host", actorMayEditTrack(pgAP, pgAchId, "agent-host", false, true) === false)
+pgAP.coDjMeta.tracks[pgAchId].masterLock = false
 
 // (8) MatrixFmPanel renders read-only without crashing (gated the same way; signature gained mayEdit).
 let pgMxP = loadDefaultDeckardProject().project

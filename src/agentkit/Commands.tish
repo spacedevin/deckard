@@ -103,14 +103,18 @@ fn genToken(ch) {
   return ch.macroName !== null ? String(ch.macroName) : generatorIdToTpl(ch.generatorId ? ch.generatorId : "basicOsc")
 }
 
-fn trackSummary(p, ch, me) {
+fn trackSummary(p, ch, me, master) {
   let owner = ownerOf(p, ch.id)
+  let meta = p.coDjMeta && p.coDjMeta.tracks ? p.coDjMeta.tracks[ch.id] : null
+  let locked = meta && meta.masterLock === true
   return {
     id: String(ch.id),
     name: String(ch.name),
     gen: genToken(ch),
     owner: owner,
     mine: owner !== null && owner === me,
+    // What this co-DJ may change: its own tracks, and — as host (acting for you) — every unlocked track.
+    editable: (owner !== null && owner === me) || (master === true && !locked),
     gain: ch.gain !== null ? ch.gain : 0.85,
     pan: ch.pan !== null ? ch.pan : 0,
     mute: ch.mute === true,
@@ -289,12 +293,13 @@ defineCommand({
 
 defineCommand({
   name: "tracks", tool: "list_tracks", readOnly: true,
-  description: "Every track: id, name, gen, owner, mine, mix, a 16-char step string ('x' = hit), note count, bars, and onDeck (the deck letter it plays on).",
-  params: [], returns: "TrackSummary[]", example: "codj.tracks().filter(t => !t.mine)",
+  description: "Every track: id, name, gen, owner, mine, editable (you may change it), mix, a 16-char step string ('x' = hit), note count, bars, and onDeck (the deck letter it plays on).",
+  params: [], returns: "TrackSummary[]", example: "codj.tracks().filter(t => t.editable)",
   run: (kit, a) => {
     let p = kit.mirror.project()
-    let me = kit.mirror.me().actorId
-    return p.channels.map((ch) => trackSummary(p, ch, me))
+    let me = kit.mirror.me()
+    let master = laneCanMaster(me.actorId, me.skillIds)
+    return p.channels.map((ch) => trackSummary(p, ch, me.actorId, master))
   }
 })
 
@@ -306,12 +311,25 @@ defineCommand({
   run: (kit, a) => {
     let ch = requireTrack(kit, a.id)
     let p = kit.mirror.project()
-    let s = trackSummary(p, ch, kit.mirror.me().actorId)
+    let meT = kit.mirror.me()
+    let s = trackSummary(p, ch, meT.actorId, laneCanMaster(meT.actorId, meT.skillIds))
     let blocks = trackBlocks(emitProject(p))
     s.deck = blocks[String(ch.id)] ? blocks[String(ch.id)].join("\n") : ""
     s.params = ch.generatorParams ? deepClone(ch.generatorParams) : {}
     s.pianoNotes = Array.isArray(ch.pianoNotes) ? ch.pianoNotes.map((n) => ({ pitch: n.pitch, start: n.startBeat, dur: n.durBeats, vel: n.vel })) : []
     return s
+  }
+})
+
+defineCommand({
+  name: "editable", tool: "list_editable", readOnly: true,
+  description: "Ids of every track this co-DJ may change: its own, plus (as host, acting for the user) every unlocked track in the room — including the user's.",
+  params: [], returns: "string[]", example: "codj.editable().length",
+  run: (kit, a) => {
+    let p = kit.mirror.project()
+    let me = kit.mirror.me()
+    let master = laneCanMaster(me.actorId, me.skillIds)
+    return p.channels.map((ch) => trackSummary(p, ch, me.actorId, master)).filter((t) => t.editable).map((t) => t.id)
   }
 })
 
@@ -2004,7 +2022,7 @@ export fn toolSpecs() {
 }
 
 let DTS_TYPES = [
-  "type TrackSummary = { id: string; name: string; gen: string; owner: string | null; mine: boolean; gain: number; pan: number; mute: boolean; solo: boolean; steps: string; notes: number; bars: number; onDeck: 'A' | 'B' | 'C' | 'D' }",
+  "type TrackSummary = { id: string; name: string; gen: string; owner: string | null; mine: boolean; editable: boolean; gain: number; pan: number; mute: boolean; solo: boolean; steps: string; notes: number; bars: number; onDeck: 'A' | 'B' | 'C' | 'D' }",
   "type CuePart = { trackId: string; name: string; mine: boolean; role: string; band: 'low' | 'mid' | 'high'; clip: string; hits: number }",
   "type CueReport = { verdict: 'silent' | 'sparse' | 'balanced' | 'busy' | 'cluttered'; parts: number; hitsPerBar: number; bands: { low: string[]; mid: string[]; high: string[] }; warnings: string[]; playing: CuePart[]; scene: number; deck: string | null; before?: { verdict: string; parts: number; hitsPerBar: number; warnings: string[] } }",
   "type Knob = { knob: string; value: number | string | boolean; base?: number | string | boolean; min?: number; max?: number; unit?: string; label?: string; options?: string[] }",

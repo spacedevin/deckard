@@ -1,0 +1,150 @@
+// "Listen" for the AI co-DJ: capture a few seconds of what the master actually plays, from the master analyser,
+// as (1) a spectrogram image the model can look at and (2) plain numbers — energy per band over time, how loud,
+// how much of it was silent. Runs on the page (the analyser lives on the page's AudioContext); the co-DJ worker
+// asks for it over postMessage (BrowserHost "listen" → "listened").
+
+let BANDS = [
+  { id: "sub", lo: 20, hi: 60 },
+  { id: "low", lo: 60, hi: 250 },
+  { id: "mid", lo: 250, hi: 2000 },
+  { id: "high", lo: 2000, hi: 8000 },
+  { id: "air", lo: 8000, hi: 20000 }
+]
+
+fn sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+fn round2(x) {
+  return Math.round(x * 100) / 100
+}
+
+// Heat colour for a 0..1 value: black → indigo → magenta → orange → white.
+fn heat(v) {
+  let x = Math.max(0, Math.min(1, v))
+  let stops = [[8, 8, 16], [60, 30, 140], [200, 40, 160], [250, 150, 50], [255, 255, 230]]
+  let pos = x * (stops.length - 1)
+  let i = Math.min(stops.length - 2, Math.floor(pos))
+  let t = pos - i
+  let a = stops[i]
+  let b = stops[i + 1]
+  return [Math.round(a[0] + (b[0] - a[0]) * t), Math.round(a[1] + (b[1] - a[1]) * t), Math.round(a[2] + (b[2] - a[2]) * t)]
+}
+
+/**
+ * Capture `seconds` (1..8) of the master. Returns { image: "data:image/png;base64,…" | null, stats }.
+ * stats: { seconds, frames, silentShare, loudness (0..1), bands: { sub, low, mid, high, air } (0..1 average),
+ *          bandsOverTime: { band: [0..1 per half-second] }, dominant }.
+ */
+export async fn listenMaster(analyser, ctx, seconds) {
+  if (!analyser || !ctx) {
+    return { image: null, stats: { error: "audio is not running — press Play first" } }
+  }
+  let secs = Math.max(1, Math.min(8, Math.floor(Number(seconds) || 4)))
+  let bins = analyser.frequencyBinCount
+  let buf = new Uint8Array(bins)
+  let hzPerBin = ctx.sampleRate / analyser.fftSize
+  let stepMs = 50
+  let frames = []
+  let n = Math.floor((secs * 1000) / stepMs)
+  let k = 0
+  while (k < n) {
+    analyser.getByteFrequencyData(buf)
+    frames.push(Array.from(buf))
+    await sleep(stepMs)
+    k = k + 1
+  }
+
+  // Band energy per frame.
+  fn bandOf(frame, band) {
+    let lo = Math.max(1, Math.floor(band.lo / hzPerBin))
+    let hi = Math.min(bins - 1, Math.ceil(band.hi / hzPerBin))
+    let sum = 0
+    let cnt = 0
+    let i = lo
+    while (i <= hi) {
+      sum = sum + frame[i]
+      cnt = cnt + 1
+      i = i + 1
+    }
+    return cnt > 0 ? sum / cnt / 255 : 0
+  }
+  let bands = {}
+  let overTime = {}
+  BANDS.forEach((b) => {
+    let per = frames.map((f) => bandOf(f, b))
+    bands[b.id] = round2(per.reduce((a, x) => a + x, 0) / Math.max(1, per.length))
+    let chunk = Math.max(1, Math.floor(500 / stepMs))
+    let series = []
+    let i = 0
+    while (i < per.length) {
+      let part = per.slice(i, i + chunk)
+      series.push(round2(part.reduce((a, x) => a + x, 0) / part.length))
+      i = i + chunk
+    }
+    overTime[b.id] = series
+  })
+  let levels = frames.map((f) => f.reduce((a, x) => a + x, 0) / f.length / 255)
+  let silent = levels.filter((l) => l < 0.02).length
+  let loudness = round2(levels.reduce((a, x) => a + x, 0) / Math.max(1, levels.length))
+  let dominant = BANDS.map((b) => b.id).reduce((best, id) => (bands[id] > bands[best] ? id : best), "sub")
+
+  // Spectrogram: time → x, log frequency → y (low at the bottom), with band guides.
+  let image = null
+  if (typeof document !== "undefined") {
+    let W = 640
+    let H = 320
+    let canvas = document.createElement("canvas")
+    canvas.width = W
+    canvas.height = H
+    let g = canvas.getContext("2d")
+    let img = g.createImageData(W, H)
+    let fMin = 20
+    let fMax = Math.min(20000, ctx.sampleRate / 2)
+    let y = 0
+    while (y < H) {
+      let frac = 1 - y / (H - 1)
+      let hz = fMin * Math.pow(fMax / fMin, frac)
+      let bin = Math.min(bins - 1, Math.max(0, Math.round(hz / hzPerBin)))
+      let x = 0
+      while (x < W) {
+        let fi = Math.min(frames.length - 1, Math.floor((x / W) * frames.length))
+        let c = heat(frames[fi][bin] / 255)
+        let o = (y * W + x) * 4
+        img.data[o] = c[0]
+        img.data[o + 1] = c[1]
+        img.data[o + 2] = c[2]
+        img.data[o + 3] = 255
+        x = x + 1
+      }
+      y = y + 1
+    }
+    g.putImageData(img, 0, 0)
+    g.fillStyle = "rgba(255,255,255,0.75)"
+    g.font = "12px monospace"
+    g.strokeStyle = "rgba(255,255,255,0.25)"
+    let marks = [60, 250, 2000, 8000]
+    marks.forEach((hz) => {
+      let yy = Math.round((1 - Math.log(hz / fMin) / Math.log(fMax / fMin)) * (H - 1))
+      g.beginPath()
+      g.moveTo(0, yy)
+      g.lineTo(W, yy)
+      g.stroke()
+      g.fillText(String(hz) + " Hz", 4, yy - 3)
+    })
+    g.fillText(String(secs) + "s of the master — time →", W - 200, H - 6)
+    image = canvas.toDataURL("image/png")
+  }
+  return {
+    image: image,
+    stats: {
+      seconds: secs,
+      frames: frames.length,
+      silentShare: round2(silent / Math.max(1, frames.length)),
+      loudness: loudness,
+      bands: bands,
+      bandsOverTime: overTime,
+      dominant: dominant
+    }
+  }
+}

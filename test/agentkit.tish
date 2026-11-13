@@ -767,6 +767,50 @@ async fn preparePass() {
   r.rtm.close()
 }
 
+async fn reviewerLoop() {
+  console.log("the reviewer holds a request to the user's words")
+  let req = process.getBuiltinModule("node:module").createRequire(process.cwd() + "/")
+  let agents = req("@hyperyai/sdk/agents")
+  let r = room()
+  await sleep(5)
+  let dj = hostIn(r)
+  let sh = createScriptHost({ runtime: dj })
+  let reviews = []
+  let verdicts = ["VERDICT: FIX\n- The old Kick still plays the same four-on-the-floor; nothing got harder.", "VERDICT: PASS"]
+  let producerSaw = []
+  let turns = [
+    { text: "", toolCalls: [{ id: "a", name: "write_script", arguments: JSON.stringify({ source: "export function setup(codj){ codj.play('song') }\nexport function onBar(codj, ctx){ }" }) }] },
+    { text: "Louder.", toolCalls: [] },
+    { text: "", toolCalls: [{ id: "b", name: "run_script", arguments: JSON.stringify({ code: "codj.send('track Kick id c0 gen noise_burst\\n  steps x.x.x.x.x.x.x.x.'); return 1" }) }] },
+    { text: "Kick doubled.", toolCalls: [] }
+  ]
+  let fake = {
+    runAgentLoop: agents.runAgentLoop,
+    createHyperyModel: (o) => async (messages, tools) => {
+      let last = messages[messages.length - 1].content
+      if (typeof last === "string" && last.indexOf("You review an AI co-DJ") === 0) {
+        reviews.push(last)
+        return { text: verdicts.length > 0 ? verdicts.shift() : "VERDICT: PASS", toolCalls: [] }
+      }
+      producerSaw.push(last)
+      return turns.length > 0 ? turns.shift() : { text: "done", toolCalls: [] }
+    }
+  }
+  let logs = []
+  let ag = createCoDjAgent({ runtime: dj, scriptHost: sh, agents: fake, token: async () => "t", director: false, role: "host", evolveEveryBars: 0, log: (l) => logs.push(String(l)) })
+  await sleep(300)
+  ag.trigger("message", "you says: make it an end banger", "human")
+  await sleep(800)
+  check("the request is checked by the reviewer against the user's words", reviews.length >= 1 && reviews[0].indexOf("make it an end banger") >= 0 && reviews[0].indexOf("Deck NOW") >= 0)
+  check("the producer is told what the reviewer found, with the request", producerSaw.some((m) => typeof m === "string" && m.indexOf("SELF-CHECK") === 0 && m.indexOf("Their request was") >= 0 && m.indexOf("Reviewer: The old Kick") >= 0))
+  check("the user's words come last and override the brief", producerSaw.some((m) => typeof m === "string" && m.indexOf("What the user asked for") >= 0))
+  check("a PASS ends the loop", reviews.length === 2 && logs.some((l) => l.indexOf("reviewer: delivers the request") >= 0))
+  ag.stop()
+  sh.stop()
+  dj.close()
+  r.rtm.close()
+}
+
 async fn selfCheck() {
   console.log("self-check loop")
   let req = process.getBuiltinModule("node:module").createRequire(process.cwd() + "/")
@@ -782,11 +826,9 @@ async fn selfCheck() {
   let good = "export function setup(codj){ if (codj.placeholder()) { codj.clear(); codj.state.ids = null } if (!codj.state.ids) " + arrange + "; " + numbered + "; codj.scene(0, { kick: 1, hat: 1 }, 'intro'); codj.scene(1, { kick: 1, hat: 2, pad: 1 }, 'groove'); codj.scene(2, { pad: 2 }, 'break'); codj.scene(3, { kick: 2, hat: 2, pad: 1 }, 'drop'); codj.launch(0); codj.play('song') }\nexport function onBar(codj, ctx){ if (ctx.bar % 8 === 6) codj.stopClip(codj.state.ids.kick); if (ctx.bar % 8 === 0) codj.launch((ctx.bar / 8) % 4) }"
   let seen = []
   let turns = [
-    { text: "Plan: kick, hat, pad; one loop.", toolCalls: [{ id: "1", name: "write_script", arguments: JSON.stringify({ source: oneScene }) }, { id: "2", name: "say", arguments: JSON.stringify({ text: "Full set with intro, groove, drop and break is running" }) }] },
+    { text: "Plan: kick, hat, pad; one loop.", toolCalls: [{ id: "1", name: "write_script", arguments: JSON.stringify({ source: oneScene }) }, { id: "2", name: "say", arguments: JSON.stringify({ text: "Full set with intro, groove, vocal and a lead." }) }] },
     { text: "Done.", toolCalls: [] },
-    { text: "The starter was left in and I only built one scene.", toolCalls: [{ id: "3", name: "write_script", arguments: JSON.stringify({ source: stillBad }) }] },
-    { text: "Fixed.", toolCalls: [] },
-    { text: "One column with every part is still one scene. Four columns, launched on the phrase.", toolCalls: [{ id: "4", name: "write_script", arguments: JSON.stringify({ source: good }) }, { id: "5", name: "check_my_work", arguments: "{}" }, { id: "6", name: "say", arguments: JSON.stringify({ text: "Four scenes: intro, groove, break, drop" }) }] },
+    { text: "The starter was left in. Clearing it and rebuilding.", toolCalls: [{ id: "3", name: "write_script", arguments: JSON.stringify({ source: good }) }, { id: "4", name: "check_my_work", arguments: "{}" }] },
     { text: "done", toolCalls: [] }
   ]
   let fake = { runAgentLoop: agents.runAgentLoop, createHyperyModel: (o) => async (messages, tools) => { seen.push(messages[messages.length - 1].content); return turns.length > 0 ? turns.shift() : { text: "done", toolCalls: [] } } }
@@ -794,16 +836,14 @@ async fn selfCheck() {
   let ag = createCoDjAgent({ runtime: dj, scriptHost: sh, agents: fake, token: async () => "t", director: false, role: "host", log: (l) => logs.push(String(l)) })
   await sleep(600)
   let checks = seen.filter((m) => typeof m === "string" && m.indexOf("SELF-CHECK") === 0)
-  check("the first self-check catches a one-scene set and the leftover starter", checks.length >= 1 && checks[0].indexOf("Session mode has 1 scene") >= 0 && checks[0].indexOf("page-load starter") >= 0 && checks[0].indexOf("codj.launch") >= 0)
+  // Facts about the room still bite: the untouched page-load starter beside the set, and a part it claimed but never built.
+  check("the first self-check catches the leftover starter and the false claim", checks.length >= 1 && checks[0].indexOf("page-load starter") >= 0 && checks[0].indexOf("You said the set has") >= 0)
   check("it asks the model to explain why before fixing", checks.length >= 1 && checks[0].indexOf("Rethink before you touch anything") >= 0)
-  check("a fix that still fails gets checked again, and told to change approach", checks.length === 2 && checks[1].indexOf("SELF-CHECK 2 of 3") === 0 && checks[1].indexOf("change the approach") >= 0)
-  check("the loop ends once the room passes", logs.some((l) => l.indexOf("self-check passed after 2 fix(es)") >= 0))
-  let g = sh.codj.session()
-  check("the set really has four different scenes", g.filled.filter((n) => n > 0).length === 4)
+  // No fixed recipe: once the room is right, the loop ends — scene counts and required function names are not rules.
+  check("the loop ends once the room passes", checks.length === 1 && logs.some((l) => l.indexOf("self-check passed after 1 fix(es)") >= 0))
   check("the starter is gone", findCh(r.store.project, "c0") === null)
-  let texts = r.chats.filter((c) => c.from === "agent-host" || c.actorId === "agent-host" || String(c.text).indexOf("On my deck now") >= 0).map((c) => c.text)
   check("the false 'full set' claim never reached the chat", !r.chats.some((c) => String(c.text).indexOf("Full set with intro") >= 0))
-  check("the chat lists the real session", texts.length === 1 && texts[0].indexOf("Four scenes") === 0 && texts[0].indexOf("Session: P1 intro (Kick, Hat)") >= 0 && texts[0].indexOf("P3 break (Pad)") >= 0)
+  check("the producer reads the deck document itself", seen.some((m) => typeof m === "string" && m.indexOf("THE DECK") >= 0 && m.indexOf("```deck") >= 0))
   ag.stop()
   sh.stop()
   dj.close()
@@ -827,6 +867,7 @@ async fn runAll() {
   await directorPass()
   await preparePass()
   await selfCheck()
+  await reviewerLoop()
   console.log("")
   console.log("PASS=" + String(pass) + " FAIL=" + String(fail))
   if (fail > 0) {

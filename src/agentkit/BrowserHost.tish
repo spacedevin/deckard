@@ -167,6 +167,9 @@ export async fn spawnAiCoDj(rt, opts) {
   }
   let mode = wsConnected(rt) && token !== null ? "ws" : "loopback"
   let cfg = browserHyperyConfig()
+  // On your own (no shared room), your co-DJ acts for you: host rights, so it can rework or clear any track —
+  // including the page's starter loop and your own. In a shared room it joins as a client unless asked.
+  let role = o.role === "host" || o.role === "client" ? String(o.role) : (wsConnected(rt) ? "client" : "host")
   let handle = {
     id: "agent-" + slugName(name) + "-" + String(Math.floor(Math.random() * 46656)),
     name: name,
@@ -178,7 +181,7 @@ export async fn spawnAiCoDj(rt, opts) {
     draft: null,
     draftDirty: false,
     status: null,
-    role: o.role === "host" ? "host" : "client",
+    role: role,
     alive: true,
     lastBeat: Date.now(),
     respawns: 0,
@@ -192,7 +195,7 @@ export async fn spawnAiCoDj(rt, opts) {
     sessionId: rt.coDjSessionId ? rt.coDjSessionId : "default",
     actorId: handle.id,
     displayName: name,
-    role: o.role ? String(o.role) : "client",
+    role: role,
     agent: handle.agent,
     model: o.model ? String(o.model) : (rt.coDjAiModel ? rt.coDjAiModel : null),
     directorModel: o.directorModel ? String(o.directorModel) : (rt.coDjAiDirectorModel ? rt.coDjAiDirectorModel : null),
@@ -237,6 +240,21 @@ export async fn spawnAiCoDj(rt, opts) {
           frameSubs[i](m.codj)
           i = i + 1
         }
+        return
+      }
+      if (m.ctl === "listen") {
+        // The co-DJ wants to hear the master: capture it on the page (App registers __deckardListen) and reply.
+        let id = m.id
+        let fnListen = globalThis.__deckardListen
+        if (typeof fnListen !== "function") {
+          w.postMessage({ ctl: "listened", id: id, image: null, stats: { error: "listening is not available on this page" } })
+          return
+        }
+        fnListen(m.seconds).then((r) => {
+          w.postMessage({ ctl: "listened", id: id, image: r && r.image ? r.image : null, stats: r && r.stats ? r.stats : null })
+        }, (e) => {
+          w.postMessage({ ctl: "listened", id: id, image: null, stats: { error: String(e && e.message ? e.message : e) } })
+        })
         return
       }
       if (m.ctl === "beat" || m.ctl === "status") {
