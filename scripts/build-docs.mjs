@@ -157,6 +157,8 @@ function layout({ title, description, slug, bodyHtml }) {
       <a href="/docs/">Docs</a>
       <a href="/llms.txt">llms.txt</a>
       <a href="https://github.com/spacedevin/deckard" target="_blank" rel="noreferrer">GitHub</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/terms">Terms</a>
       <a class="open-app" href="/">Open DAW</a>
     </nav>
   </header>
