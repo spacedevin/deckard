@@ -1,0 +1,116 @@
+// Co-DJ wire frames — the ONE place frame shapes are built, shared by the browser host (CoDjPanel/App), headless
+// co-DJ runners (src/agentkit), the MCP server and tests. The catalog is documented in docs/STREAM_PROTOCOL.md §8.
+//
+// Almost everything that happens in a room is DECK text: the host's own edits stream as `deck.delta` fragments
+// (the exact lines its ingest folded), peers' contributions as `deck.put` / `deck.block`, launches/transport as
+// `@ …` directives inside `deck.block`. The few non-deck frames carry time (clock/tick), identity (presence),
+// conversation (chat/direct), outcomes (edit.result) and attention (focus).
+
+export fn codjProtocolVersion() {
+  return 2
+}
+
+/** Frame types the gateway fans out to the room (everything else is gateway↔client only). */
+export fn codjFanoutTypes() {
+  return ["deck.put", "deck.block", "deck.stream_chunk", "deck.line", "deck.delta", "control", "direct", "chat", "edit.result", "focus", "levels"]
+}
+
+/** Host → room: one edit as the deck fragment the host's ingest folded. `rev` is host-monotonic (gap ⇒ resync);
+ *  `gen` is the snapshot generation it builds on. `ctx` = the ingest ctx: the edit's author (the host's user, or a
+ *  loopback agent) and the author's skills — a mirror re-folds the text AS that author so its gate drops exactly
+ *  the lines the host dropped (the fragment is the raw text, not the accepted subset). The field is
+ *  `authorSkillIds`, not `skillIds`, because the gateway restamps `skillIds` with the sender's (the host's). */
+export fn deltaFrame(actorId, rev, gen, text, perfStep, ctx) {
+  let c = ctx !== null ? ctx : {}
+  return {
+    type: "deck.delta",
+    actorId: actorId,
+    authorId: c.actorId !== null ? String(c.actorId) : actorId,
+    authorSkillIds: Array.isArray(c.skillIds) ? c.skillIds : ["master_mixer"],
+    rev: Math.floor(Number(rev)),
+    gen: Math.floor(Number(gen)),
+    text: String(text),
+    perfStep: perfStep !== null ? Math.floor(Number(perfStep)) : 0
+  }
+}
+
+/** Host → room, once per beat while playing: the playhead, for scripts that schedule ahead of the bar clock. */
+export fn tickFrame(actorId, perfStep, bpm) {
+  return {
+    type: "control",
+    op: "tick",
+    actorId: actorId,
+    perfStep: Math.floor(Number(perfStep)),
+    bpm: bpm !== null ? Number(bpm) : null
+  }
+}
+
+/** Host → room: what the host's fold did with `fromActorId`'s frame. `ref` = the sender's seq/ref when known. */
+export fn editResultFrame(hostActorId, fromActorId, ref, report, status) {
+  return {
+    type: "edit.result",
+    actorId: hostActorId,
+    fromActorId: String(fromActorId),
+    ref: ref !== null ? ref : null,
+    status: status !== null ? String(status) : "applied",
+    accepted: report && typeof report.accepted === "number" ? report.accepted : 0,
+    rejected: report && Array.isArray(report.rejected) ? report.rejected : []
+  }
+}
+
+/** Anyone → room: a chat line. `targetActorId` (optional) addresses one actor — agents treat it as an instruction. */
+export fn chatFrame(actorId, displayName, text, targetActorId) {
+  return {
+    type: "chat",
+    actorId: actorId,
+    displayName: displayName !== null ? String(displayName) : String(actorId),
+    text: String(text),
+    targetActorId: targetActorId !== null && String(targetActorId).length > 0 ? String(targetActorId) : null
+  }
+}
+
+/** Anyone → one actor: a natural-language instruction (the legacy `direct` frame; always targeted). */
+export fn directFrame(actorId, targetActorId, text) {
+  return { type: "direct", actorId: actorId, authorId: actorId, targetActorId: String(targetActorId), text: String(text) }
+}
+
+/** Host → room: which track the human at the host is working on (an agent can stay out of its way). */
+export fn focusFrame(actorId, trackId) {
+  return { type: "focus", actorId: actorId, trackId: trackId !== null ? String(trackId) : null }
+}
+
+/** Client → gateway: ask the host for a fresh snapshot (a mirror detected a delta gap). */
+export fn requestSnapshotFrame(actorId) {
+  return { type: "request.snapshot", actorId: actorId }
+}
+
+/** Client → gateway: join a room. `token` = a Hypery access token (the gateway verifies it and binds identity). */
+export fn joinFrame(opts) {
+  return {
+    type: "join",
+    v: codjProtocolVersion(),
+    sessionId: opts.sessionId !== null ? String(opts.sessionId) : "default",
+    actorId: String(opts.actorId),
+    channelIds: ["default"],
+    skillIds: Array.isArray(opts.skillIds) ? opts.skillIds : [],
+    displayName: opts.displayName !== null ? String(opts.displayName) : null,
+    kind: opts.kind === "agent" ? "agent" : "human",
+    role: opts.role !== null ? String(opts.role) : null,
+    token: opts.token !== null ? String(opts.token) : null
+  }
+}
+
+/** One roster entry by actorId from a presence/joined frame (null when absent). */
+export fn rosterEntry(roster, actorId) {
+  if (!Array.isArray(roster)) {
+    return null
+  }
+  let i = 0
+  while (i < roster.length) {
+    if (roster[i] && String(roster[i].actorId) === String(actorId)) {
+      return roster[i]
+    }
+    i = i + 1
+  }
+  return null
+}

@@ -1,0 +1,355 @@
+// Mirror — a headless co-DJ peer: its own fold (project) + the one gated ingest, kept converged with the room
+// purely from what the host publishes (docs/STREAM_PROTOCOL.md §7):
+//
+//   state.snapshot  keyframe — reload the fold; deltas at or below its `rev` are already in it
+//   deck.delta      the host's own edits, edit-by-edit (re-folded AS their author, so the gate matches the host)
+//   deck.put        a follower's whole deck (replace-my-deck semantics, via deckPutSource)
+//   deck.block      a peer's live lines / `@` directives
+//   control         clock (per bar) / tick (per beat) / playing_start / playing_stop
+//   presence/joined roster + host election; `joined.you.actorId` is the identity the gateway bound
+//
+// A delta `rev` gap means we missed something → `handle` reports `resync` and the runtime asks for a snapshot.
+// Everything else (chat, edit.result, focus, errors) becomes an event for the script host / agent.
+
+import { createIngest } from '../core/Ingest.tish'
+import { loadProjectFromTpl, loadDefaultDeckardProject } from '../model/ProjectLoad.tish'
+import { ensureCoDjMeta, setTrackOwner } from '../codj/CoDjMeta.tish'
+import { applyCoDjTplSource } from '../codj/Merge.tish'
+import { deckPutSource } from '../codj/DeckPut.tish'
+import { rosterEntry } from '../codj/Protocol.tish'
+
+fn num(v, d) {
+  let n = Number(v)
+  return v !== null && n === n ? n : d
+}
+
+/** A fresh, empty-ish fold to mirror into until the first snapshot lands. */
+fn blankProject() {
+  let p = loadProjectFromTpl("deck 1\nbpm 120\n").project
+  if (!p) {
+    p = loadDefaultDeckardProject().project
+    p.channels = []
+  }
+  ensureCoDjMeta(p)
+  return p
+}
+
+/**
+ * opts: { actorId, skillIds, displayName, kind, now?: () => ms }
+ * Returns { store, ingest, me(), handle(msg) → events[], clock(), room(), needsSnapshot(), adoptSnapshotLines(lines, owners, gen, rev) }.
+ */
+export fn createMirror(opts) {
+  let o = opts !== null ? opts : {}
+  let nowMs = o.now ? o.now : () => Date.now()
+  let store = { project: blankProject(), runtime: {} }
+  let ing = createIngest(store)
+  let self = {
+    actorId: o.actorId ? String(o.actorId) : "agent",
+    skillIds: Array.isArray(o.skillIds) ? o.skillIds : [],
+    displayName: o.displayName ? String(o.displayName) : null,
+    kind: o.kind ? String(o.kind) : "agent",
+    userId: null
+  }
+  let room = { sessionId: null, hostActorId: null, actors: [], roster: [], focus: null, ownerUserId: null }
+  let sync = { haveSnapshot: false, gen: -1, rev: 0, resyncing: false, pending: [] }
+  let clk = { perfStep: 0, bpm: 120, playing: false, at: 0, lastTickAt: 0 }
+
+  fn remoteCtx(actorId, skillIds, perfStep) {
+    return { actorId: actorId, authorId: actorId, skillIds: skillIds, perfStep: perfStep !== null ? perfStep : clk.perfStep, remote: true }
+  }
+
+  fn adoptSnapshot(msg) {
+    let lines = Array.isArray(msg.lines) ? msg.lines : []
+    if (lines.length === 0) {
+      return false
+    }
+    let g = Math.floor(num(msg.gen, 0))
+    if (sync.haveSnapshot && g <= sync.gen && !sync.resyncing) {
+      return false
+    }
+    let res = loadProjectFromTpl(lines.join("\n"))
+    if (!res || !res.project) {
+      return false
+    }
+    let np = res.project
+    ensureCoDjMeta(np)
+    let owners = msg.owners
+    if (owners) {
+      let ci = 0
+      while (ci < np.channels.length) {
+        let cid = np.channels[ci].id
+        if (owners[cid] !== null) {
+          setTrackOwner(np, cid, owners[cid], owners[cid])
+        }
+        ci = ci + 1
+      }
+    }
+    store.project = np
+    sync.haveSnapshot = true
+    sync.gen = g
+    sync.rev = Math.floor(num(msg.rev, sync.rev))
+    sync.resyncing = false
+    // Deltas that raced ahead of this keyframe (joined.replay, or live ones before the first snapshot).
+    let pend = sync.pending.slice().sort((a, b) => num(a.rev, 0) - num(b.rev, 0))
+    sync.pending = []
+    let i = 0
+    while (i < pend.length) {
+      applyDelta(pend[i])
+      i = i + 1
+    }
+    return true
+  }
+
+  // Returns "applied" | "skipped" | "gap" | "buffered"
+  fn applyDelta(msg) {
+    let rev = Math.floor(num(msg.rev, 0))
+    if (!sync.haveSnapshot) {
+      sync.pending.push(msg)
+      return "buffered"
+    }
+    if (sync.resyncing) {
+      return "skipped"
+    }
+    if (rev <= sync.rev) {
+      return "skipped"
+    }
+    if (rev > sync.rev + 1) {
+      sync.resyncing = true
+      return "gap"
+    }
+    let author = msg.authorId ? String(msg.authorId) : String(msg.actorId)
+    sync.rev = rev
+    if (author === self.actorId) {
+      // Our own write coming back from an in-process host (LocalHost) — already folded optimistically.
+      return "skipped"
+    }
+    let skills = Array.isArray(msg.authorSkillIds) ? msg.authorSkillIds : ["master_mixer"]
+    ing.ingest(String(msg.text !== null ? msg.text : ""), remoteCtx(author, skills, msg.perfStep))
+    return "applied"
+  }
+
+  fn setClock(perfStep, bpm, playing) {
+    clk.perfStep = Math.floor(num(perfStep, clk.perfStep))
+    if (bpm !== null && num(bpm, 0) > 0) {
+      clk.bpm = num(bpm, clk.bpm)
+    }
+    clk.playing = playing
+    clk.at = nowMs()
+  }
+
+  fn applyRoster(msg) {
+    if (Array.isArray(msg.actors)) {
+      room.actors = msg.actors
+    }
+    if (Array.isArray(msg.roster)) {
+      room.roster = msg.roster
+    }
+    if (msg.hostActorId !== null) {
+      if (room.hostActorId !== null && room.hostActorId !== msg.hostActorId) {
+        // A new host restarts its gen/rev counters — accept its next snapshot whatever its gen.
+        sync.gen = -1
+        sync.rev = 0
+        sync.resyncing = true
+      }
+      room.hostActorId = msg.hostActorId
+    }
+    if (msg.sessionId) {
+      room.sessionId = msg.sessionId
+    }
+  }
+
+  fn nameOf(actorId) {
+    let e = rosterEntry(room.roster, actorId)
+    return e !== null && e.displayName ? String(e.displayName) : String(actorId)
+  }
+
+  /** Fold one inbound frame. Returns a list of events ({type, …}) for the runtime to dispatch. */
+  fn handle(msg) {
+    let ev = []
+    if (msg === null || typeof msg !== "object") {
+      return ev
+    }
+    let t = msg.type
+    let from = msg.actorId ? String(msg.actorId) : "?"
+    if (t === "joined") {
+      if (msg.you) {
+        if (msg.you.actorId) {
+          self.actorId = String(msg.you.actorId)
+        }
+        if (Array.isArray(msg.you.skillIds)) {
+          self.skillIds = msg.you.skillIds
+        }
+        if (msg.you.displayName) {
+          self.displayName = String(msg.you.displayName)
+        }
+        if (msg.you.userId) {
+          self.userId = String(msg.you.userId)
+        }
+      }
+      if (msg.ownerUserId !== null) {
+        room.ownerUserId = msg.ownerUserId
+      }
+      applyRoster(msg)
+      if (Array.isArray(msg.replay)) {
+        let ri = 0
+        while (ri < msg.replay.length) {
+          sync.pending.push(msg.replay[ri])
+          ri = ri + 1
+        }
+      }
+      ev.push({ type: "joined", actorId: self.actorId, hostActorId: room.hostActorId, isHost: room.hostActorId === self.actorId })
+      return ev
+    }
+    if (t === "presence") {
+      applyRoster(msg)
+      ev.push({ type: "presence", actors: room.actors, hostActorId: room.hostActorId })
+      return ev
+    }
+    if (t === "state.snapshot") {
+      if (adoptSnapshot(msg)) {
+        ev.push({ type: "snapshot", gen: sync.gen, rev: sync.rev, tracks: store.project.channels.length })
+      }
+      return ev
+    }
+    if (t === "deck.delta") {
+      let r = applyDelta(msg)
+      if (r === "gap") {
+        ev.push({ type: "resync", reason: "delta gap at rev " + String(msg.rev) })
+      } else if (r === "applied") {
+        ev.push({ type: "deck", actorId: msg.authorId ? String(msg.authorId) : from, text: String(msg.text) })
+      }
+      return ev
+    }
+    if (t === "deck.put") {
+      if (from !== self.actorId && Array.isArray(msg.lines) && msg.lines.length > 0) {
+        let src = deckPutSource(store.project, from, msg.lines)
+        applyCoDjTplSource(store.project, src, from, from, clk.perfStep, msg.skillIds)
+        ev.push({ type: "deck", actorId: from, text: msg.lines.join("\n") })
+      }
+      return ev
+    }
+    if (t === "deck.block") {
+      if (from !== self.actorId && Array.isArray(msg.lines) && msg.lines.length > 0) {
+        let kept = []
+        let li = 0
+        while (li < msg.lines.length) {
+          let ln = String(msg.lines[li])
+          if (ln.trim().indexOf("@ perf_step ") !== 0 && ln.trim().indexOf("deck 1") !== 0) {
+            kept.push(ln)
+          }
+          li = li + 1
+        }
+        ing.ingest(kept.join("\n"), remoteCtx(from, msg.skillIds, msg.effectivePerfStep))
+        ev.push({ type: "deck", actorId: from, text: kept.join("\n") })
+      }
+      return ev
+    }
+    if (t === "control") {
+      let op = msg.op
+      if (op === "tick" || op === "clock") {
+        let wasPlaying = clk.playing
+        setClock(msg.perfStep, msg.bpm, true)
+        clk.lastTickAt = clk.at
+        if (!wasPlaying) {
+          ev.push({ type: "transport", playing: true, perfStep: clk.perfStep })
+        }
+        ev.push({ type: op === "tick" ? "tick" : "clock", perfStep: clk.perfStep, bpm: clk.bpm })
+      } else if (op === "playing_start") {
+        setClock(msg.perfStep, msg.bpm, true)
+        clk.lastTickAt = clk.at
+        ev.push({ type: "transport", playing: true, perfStep: clk.perfStep })
+      } else if (op === "playing_stop") {
+        setClock(clk.perfStep, null, false)
+        ev.push({ type: "transport", playing: false, perfStep: clk.perfStep })
+      }
+      return ev
+    }
+    if (t === "chat" || t === "direct") {
+      if (from === self.actorId) {
+        return ev
+      }
+      let target = msg.targetActorId ? String(msg.targetActorId) : null
+      ev.push({
+        type: "chat",
+        from: from,
+        fromName: msg.displayName ? String(msg.displayName) : nameOf(from),
+        text: String(msg.text !== null ? msg.text : ""),
+        to: target,
+        toMe: target === self.actorId || t === "direct"
+      })
+      return ev
+    }
+    if (t === "edit.result") {
+      if (String(msg.fromActorId) === self.actorId) {
+        ev.push({ type: "edit.result", status: msg.status, ref: msg.ref, accepted: msg.accepted, rejected: Array.isArray(msg.rejected) ? msg.rejected : [] })
+      }
+      return ev
+    }
+    if (t === "focus") {
+      room.focus = { actorId: from, trackId: msg.trackId }
+      ev.push({ type: "focus", actorId: from, trackId: msg.trackId })
+      return ev
+    }
+    if (t === "error") {
+      ev.push({ type: "error", code: msg.code ? String(msg.code) : null, message: String(msg.message !== null ? msg.message : "") })
+      return ev
+    }
+    if (t === "granted") {
+      if (Array.isArray(msg.skillIds)) {
+        self.skillIds = msg.skillIds
+      }
+      ev.push({ type: "granted", skillIds: self.skillIds })
+      return ev
+    }
+    return ev
+  }
+
+  /** The estimated playhead now (extrapolated from the last tick while playing; stops after 2 silent bars). */
+  fn clock() {
+    let ps = clk.perfStep
+    let playing = clk.playing
+    if (playing) {
+      let stepMs = 60000 / clk.bpm / 4
+      let since = nowMs() - clk.at
+      if (clk.lastTickAt > 0 && nowMs() - clk.lastTickAt > stepMs * 32) {
+        playing = false
+      } else {
+        ps = clk.perfStep + Math.floor(since / stepMs)
+      }
+    }
+    return {
+      perfStep: ps,
+      bar: Math.floor(ps / 16),
+      beat: Math.floor(ps / 4) % 4,
+      step: ps % 16,
+      bpm: clk.bpm,
+      playing: playing
+    }
+  }
+
+  /** This peer was elected host of an empty room: its own fold IS the room state from now on. */
+  fn markAuthoritative() {
+    sync.haveSnapshot = true
+    sync.resyncing = false
+    sync.pending = []
+  }
+
+  /** Feed our own clock (a headless host doesn't receive its own tick frames back from the gateway). */
+  fn localTick(perfStep, bpm) {
+    return handle({ type: "control", op: "tick", perfStep: perfStep, bpm: bpm, actorId: self.actorId })
+  }
+
+  return {
+    store: store,
+    ingest: ing,
+    markAuthoritative: markAuthoritative,
+    localTick: localTick,
+    me: () => self,
+    room: () => room,
+    clock: clock,
+    handle: handle,
+    project: () => store.project,
+    hasSnapshot: () => sync.haveSnapshot,
+    syncState: () => ({ gen: sync.gen, rev: sync.rev, resyncing: sync.resyncing, haveSnapshot: sync.haveSnapshot })
+  }
+}

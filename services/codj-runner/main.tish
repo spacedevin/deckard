@@ -1,0 +1,305 @@
+// deckard co-DJ runner — a headless co-DJ in Node (JS target; built to services/codj-runner/codj.mjs).
+//
+//   pnpm run codj:login                                   sign in with Hypery (browser → ~/.deckard/credentials.json)
+//   pnpm run codj -- whoami | logout | teams                (teams: list Hypery teams + ids for --team)
+//   pnpm run codj -- run my-codj.js --session jam         run a script in a room; edits to the file hot-reload
+//   pnpm run codj -- run --agent --name Nova              an AI co-DJ that writes (and keeps rewriting) its script
+//
+// run flags: --gateway <ws url> (CODJ_GATEWAY, default ws://127.0.0.1:35987) · --session <id> (default "default")
+//            --role client|host · --name <display name> · --agent · --model <id> (HYPERY_MODEL) · --team <org id>
+//            --director-model <id>|off (HYPERY_DIRECTOR_MODEL; the creative lead) · --persona <id> (skills/_personas.md)
+//            --evolve-bars <n> (how often the agent makes a move, default 16, host 32; 0 = only on triggers; alias
+//            --review-bars) · --anon (no sign-in; needs a
+//            gateway started with --allow-anon) · --budget-ms <n> (per-hook budget, default 50)
+// While running, type a line to chat to the room; `/ask <text>` instructs your agent; `/evolve [subtract|mix|sound|instrument|stems|
+// tease|crate|harmony]` makes it move now; `/reload`; `/quit`.
+
+import { browserLogin, readCredentials, deleteCredentials, credentialsPath, cliAccessToken, cliHyperyConfig } from './Credentials.tish'
+import { hyperyTeams } from '../../src/auth/Hypery.tish'
+import { nodeFs, nodePath, nodeVm, argv, env, exitProcess, loadHyperyAgents, readTextOr } from './NodeHost.tish'
+import { createCoDjRuntime } from '../../src/agentkit/Runtime.tish'
+import { createScriptHost, vmEngine } from '../../src/agentkit/ScriptHost.tish'
+import { createCoDjAgent } from '../../src/agentkit/Agent.tish'
+import { wsTransport } from '../../src/agentkit/Transport.tish'
+import { promptAssets } from '../../src/agentkit/PromptAssets.tish'
+
+fn say(line) {
+  console.log(line)
+}
+
+fn stamp() {
+  let d = new Date()
+  let p2 = (n) => (n < 10 ? "0" : "") + String(n)
+  return p2(d.getHours()) + ":" + p2(d.getMinutes()) + ":" + p2(d.getSeconds())
+}
+
+fn out(tag, line) {
+  console.log(stamp() + " " + tag + " " + String(line))
+}
+
+fn parseArgs(list) {
+  let flags = {}
+  let pos = []
+  let i = 0
+  while (i < list.length) {
+    let a = String(list[i])
+    if (a.indexOf("--") === 0) {
+      let key = a.substring(2)
+      let eq = key.indexOf("=")
+      if (eq >= 0) {
+        flags[key.substring(0, eq)] = key.substring(eq + 1)
+      } else if (i + 1 < list.length && String(list[i + 1]).indexOf("--") !== 0 && key !== "agent" && key !== "anon") {
+        flags[key] = String(list[i + 1])
+        i = i + 1
+      } else {
+        flags[key] = true
+      }
+    } else {
+      pos.push(a)
+    }
+    i = i + 1
+  }
+  return { flags: flags, pos: pos }
+}
+
+fn slug(s) {
+  let lower = String(s).toLowerCase()
+  let o = ""
+  let i = 0
+  while (i < lower.length && o.length < 16) {
+    let c = lower.charAt(i)
+    o = o + (((c >= "a" && c <= "z") || (c >= "0" && c <= "9")) ? c : "-")
+    i = i + 1
+  }
+  return o
+}
+
+fn usage() {
+  say("usage: codj login | logout | whoami | teams | run [script.js] [--agent] [--session id] [--gateway ws://…] [--name N] [--role client|host]")
+}
+
+async fn cmdLogin() {
+  let c = await browserLogin(say)
+  say("✔ signed in as " + (c.user && c.user.name ? c.user.name : "?") + " — saved to " + credentialsPath())
+}
+
+fn cmdWhoami() {
+  let c = readCredentials()
+  if (c === null) {
+    say("not signed in (run: pnpm run codj:login)")
+    return
+  }
+  say((c.user && c.user.name ? c.user.name : "?") + (c.user && c.user.email ? " <" + c.user.email + ">" : "") + " · " + String(c.gatewayUrl) + " · token " + (c.expiresAt > Date.now() ? "valid" : "expired (refreshes on next run)"))
+}
+
+async fn cmdTeams() {
+  let token = await cliAccessToken()
+  if (token === null) {
+    say("not signed in (run: pnpm run codj:login)")
+    return
+  }
+  let data = await hyperyTeams(cliHyperyConfig(), token)
+  let pick = env("HYPERY_TEAM")
+  let i = 0
+  while (i < data.teams.length) {
+    let t = data.teams[i]
+    let mark = (pick !== null ? t.id === pick : t.id === data.activeTeamId) ? "* " : "  "
+    say(mark + t.id + "  " + t.name + (t.personal ? " (personal)" : "") + (t.role.length > 0 ? " · " + t.role : ""))
+    i = i + 1
+  }
+  say("* = billed by default. Pick another with: run --team <id>  (or HYPERY_TEAM=<id>)")
+}
+
+fn snippetEvaluator(vm) {
+  return (code, codj) => {
+    let src = String(code)
+    let wrapped = null
+    try {
+      new vm.Script("(function(){ return (" + src + "\n) })")
+      wrapped = "(function(){ \"use strict\"; return (" + src + "\n) })()"
+    } catch (e) {
+      wrapped = "(function(){ \"use strict\";\n" + src + "\n})()"
+    }
+    return vm.runInNewContext(wrapped, { codj: codj, console: console, JSON: JSON, Math: Math }, { timeout: 1000 })
+  }
+}
+
+async fn cmdRun(a) {
+  let f = a.flags
+  let agentMode = f.agent === true
+  let name = f.name ? String(f.name) : (agentMode ? "Nova" : "Script")
+  let fs = nodeFs()
+  let path = nodePath()
+  let file = a.pos.length > 1 ? path.resolve(a.pos[1]) : (agentMode ? path.resolve("codj-" + slug(name) + ".js") : null)
+  if (file === null) {
+    usage()
+    exitProcess(2)
+  }
+  let token = f.anon === true ? null : await cliAccessToken()
+  if (token === null && f.anon !== true) {
+    say("✖ not signed in — run `pnpm run codj:login` (or pass --anon for a gateway started with --allow-anon)")
+    exitProcess(1)
+  }
+  if (agentMode && token === null) {
+    say("✖ --agent needs a Hypery sign-in (the agent's model runs on your Hypery account)")
+    exitProcess(1)
+  }
+  let gateway = f.gateway ? String(f.gateway) : (env("CODJ_GATEWAY") !== null ? env("CODJ_GATEWAY") : "ws://127.0.0.1:35987")
+  let role = f.role === "host" ? "host" : "client"
+  let creds = readCredentials()
+  let runtime = createCoDjRuntime({
+    transport: wsTransport(gateway, null),
+    actorId: "agent-" + slug(name),
+    skillIds: role === "host" ? ["add_track", "adjust_instrument", "pattern_steps", "pattern_piano", "channel_mix", "master_mixer"] : ["add_track", "adjust_instrument", "pattern_steps", "pattern_piano", "channel_mix"],
+    displayName: name,
+    kind: "agent",
+    role: role,
+    sessionId: f.session ? String(f.session) : "default",
+    token: async () => (f.anon === true ? null : await cliAccessToken()),
+    grammar: () => promptAssets().grammar,
+    hostClock: role === "host",
+    log: (l) => out("·", l)
+  })
+  let vm = nodeVm()
+  let budget = f["budget-ms"] ? Math.floor(Number(f["budget-ms"])) : 50
+  let host = createScriptHost({ runtime: runtime, engine: vmEngine(vm, budget, file), budgetMs: budget })
+  host.onLog((l) => out("[script]", l))
+  let lastWritten = null
+
+  fn loadFile() {
+    let src = readTextOr(file, null)
+    if (src === null) {
+      return
+    }
+    if (src === host.source()) {
+      return
+    }
+    let r = host.load(src)
+    out("[script]", r.ok ? "reloaded " + path.basename(file) : "kept the running script — " + String(r.error))
+  }
+
+  if (fs.existsSync(file)) {
+    loadFile()
+  } else if (!agentMode) {
+    say("✖ no such script: " + file)
+    exitProcess(1)
+  }
+
+  let reloadTimer = null
+  fs.watchFile(file, { interval: 300 }, () => {
+    if (reloadTimer !== null) {
+      clearTimeout(reloadTimer)
+    }
+    reloadTimer = setTimeout(() => {
+      let now = readTextOr(file, null)
+      if (now !== null && now !== lastWritten) {
+        loadFile()
+      }
+    }, 120)
+  })
+
+  let agent = null
+  if (agentMode) {
+    agent = createCoDjAgent({
+      runtime: runtime,
+      scriptHost: host,
+      agents: loadHyperyAgents(),
+      token: () => cliAccessToken(),
+      model: f.model ? String(f.model) : env("HYPERY_MODEL"),
+      directorModel: f["director-model"] ? String(f["director-model"]) : env("HYPERY_DIRECTOR_MODEL"),
+      persona: f.persona ? String(f.persona) : null,
+      team: f.team ? String(f.team) : env("HYPERY_TEAM"),
+      gatewayUrl: creds !== null ? creds.gatewayUrl : env("HYPERY_URL"),
+      role: role,
+      evolveEveryBars: f["evolve-bars"] !== null && f["evolve-bars"] !== undefined ? Math.floor(Number(f["evolve-bars"])) : (f["review-bars"] !== null && f["review-bars"] !== undefined ? Math.floor(Number(f["review-bars"])) : (role === "host" ? 32 : 16)),
+      evalSnippet: snippetEvaluator(vm),
+      onScript: (src) => {
+        lastWritten = src
+        fs.writeFileSync(file, src)
+        out("[agent]", "wrote " + path.basename(file))
+      },
+      log: (l) => out("[agent]", l)
+    })
+  }
+
+  runtime.on((ev) => {
+    if (ev.type === "chat") {
+      out("[chat]", ev.fromName + (ev.to ? " → " + runtime.nameOf(ev.to) : "") + ": " + ev.text)
+    } else if (ev.type === "edit.result" && ev.rejected.length > 0) {
+      out("[gate]", "host dropped " + String(ev.rejected.length) + " line(s): " + ev.rejected.map((r) => r.code + " " + r.line).join(" | "))
+    } else if (ev.type === "snapshot") {
+      out("·", "room state: " + String(ev.tracks) + " tracks (gen " + String(ev.gen) + ")")
+    } else if (ev.type === "error" && ev.code === "AUTH") {
+      out("✖", ev.message)
+      exitProcess(1)
+    }
+  })
+
+  out("·", "co-DJ " + name + " → " + gateway + " session " + (f.session ? String(f.session) : "default") + " · script " + file + (agentMode ? " · agent on" : ""))
+
+  let stdin = globalThis.process.stdin
+  stdin.setEncoding("utf8")
+  let buf = ""
+  stdin.on("data", (chunk) => {
+    buf = buf + String(chunk)
+    let nl = buf.indexOf("\n")
+    while (nl >= 0) {
+      let line = buf.substring(0, nl).trim()
+      buf = buf.substring(nl + 1)
+      nl = buf.indexOf("\n")
+      if (line.length === 0) {
+        continue
+      }
+      if (line === "/quit") {
+        runtime.close()
+        exitProcess(0)
+      } else if (line === "/reload") {
+        lastWritten = null
+        loadFile()
+      } else if (line === "/evolve" || line.indexOf("/evolve ") === 0) {
+        if (agent !== null) {
+          agent.evolve(line.length > 8 ? line.substring(8).trim() : null)
+        } else {
+          out("·", "no agent (start with --agent)")
+        }
+      } else if (line.indexOf("/ask ") === 0) {
+        if (agent !== null) {
+          agent.trigger("message", "the operator says: " + line.substring(5), null)
+        } else {
+          out("·", "no agent (start with --agent)")
+        }
+      } else {
+        runtime.say(line, null)
+      }
+    }
+  })
+}
+
+// (Not named `main`: the tish JS target auto-invokes a top-level `main`, which would start the CLI twice.)
+async fn runCli() {
+  let a = parseArgs(argv().slice(2))
+  let cmd = a.pos.length > 0 ? a.pos[0] : "help"
+  if (cmd === "login") {
+    await cmdLogin()
+    exitProcess(0)
+  } else if (cmd === "logout") {
+    say(deleteCredentials() ? "signed out" : "was not signed in")
+    exitProcess(0)
+  } else if (cmd === "whoami") {
+    cmdWhoami()
+    exitProcess(0)
+  } else if (cmd === "teams") {
+    await cmdTeams()
+    exitProcess(0)
+  } else if (cmd === "run") {
+    await cmdRun(a)
+  } else {
+    usage()
+    exitProcess(cmd === "help" ? 0 : 2)
+  }
+}
+
+runCli().then(() => {}, (e) => {
+  say("✖ " + String(e && e.message ? e.message : e))
+  exitProcess(1)
+})

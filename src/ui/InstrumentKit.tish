@@ -802,7 +802,7 @@ export fn IkSelect(opts) {
   let ii = 0
   while (ii < items.length) {
     if (String(items[ii].value) === curVal) {
-      curLabel = items[ii].label
+      curLabel = items[ii].short ? items[ii].short : items[ii].label
     }
     ii = ii + 1
   }

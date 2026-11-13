@@ -1,0 +1,155 @@
+// The production library, for people. Same catalog the co-DJ agents call (instruments, beats, sequences, kits).
+// A click loads onto the selected track; a kit adds tracks. App owns the deck write.
+
+import { h, Fragment, useState } from '@tishlang/lattish'
+import { libraryIndex } from '../agentkit/Library.tish'
+
+let FOLDERS = [
+  { id: "lofi", label: "Lofi" },
+  { id: "house", label: "House" },
+  { id: "techno", label: "Techno" },
+  { id: "acid", label: "Acid" },
+  { id: "edm", label: "EDM" },
+  { id: "dnb", label: "DnB" },
+  { id: "hiphop", label: "Hip hop" },
+  { id: "trap", label: "Trap" },
+  { id: "garage", label: "Garage" },
+  { id: "funk", label: "Funk" },
+  { id: "latin", label: "Latin" },
+  { id: "reggae", label: "Reggae" },
+  { id: "jazz", label: "Jazz" },
+  { id: "pop", label: "Pop" },
+  { id: "rock", label: "Rock" },
+  { id: "breakbeat", label: "Breaks" },
+  { id: "ambient", label: "Ambient" }
+]
+
+let KINDS = [
+  { id: "kit", label: "Kits", title: "Load a whole kit onto this deck" },
+  { id: "instrument", label: "Inst", title: "Load an instrument as a new track" },
+  { id: "beat", label: "Beats", title: "Load a beat as a new track" },
+  { id: "sequence", label: "Seq", title: "Sequences — click one to load it as a new track" }
+]
+
+fn hasTag(row, tag) {
+  let tags = row.tags ? row.tags : []
+  let i = 0
+  while (i < tags.length) {
+    if (tags[i] === tag) {
+      return true
+    }
+    i = i + 1
+  }
+  return false
+}
+
+fn matches(row, folder, q) {
+  if (folder === "instrument" || folder === "beat" || folder === "sequence" || folder === "kit") {
+    if (row.kind !== folder) {
+      return false
+    }
+  } else if (!hasTag(row, folder)) {
+    return false
+  }
+  if (q.length === 0) {
+    return true
+  }
+  let blob = (String(row.name) + " " + String(row.about) + " " + String(row.role)).toLowerCase()
+  return blob.indexOf(q) >= 0
+}
+
+fn kindRank(kind) {
+  if (kind === "kit") {
+    return 0
+  }
+  if (kind === "instrument") {
+    return 1
+  }
+  if (kind === "beat") {
+    return 2
+  }
+  return 3
+}
+
+export fn LibraryBrowser(activeDeck, onPick, onClose) {
+  let [folder, setFolder] = useState("lofi")
+  let [q, setQ] = useState("")
+  let [rootText, setRootText] = useState("")
+  let [notice, setNotice] = useState("")
+  let [picked, setPicked] = useState("")
+  let ql = String(q).trim().toLowerCase()
+  let all = libraryIndex(null)
+  let rows = []
+  let i = 0
+  while (i < all.length) {
+    if (matches(all[i], folder, ql)) {
+      rows.push(all[i])
+    }
+    i = i + 1
+  }
+  rows.sort((a, b) => {
+    let d = kindRank(a.kind) - kindRank(b.kind)
+    if (d !== 0) {
+      return d
+    }
+    return String(a.name).toLowerCase() < String(b.name).toLowerCase() ? -1 : 1
+  })
+
+  let deckLabel = activeDeck ? String(activeDeck) : "A"
+  let hint = "Adds a track on deck " + deckLabel + ". A kit adds its whole set."
+
+  let chips = FOLDERS.map((f) => (
+    <button type="button" class={folder === f.id ? "lib-chip lib-chip-on" : "lib-chip"} title={f.label} onclick={() => setFolder(f.id)}>{f.label}</button>
+  ))
+  let kinds = KINDS.map((k) => (
+    <button type="button" class={(folder === k.id ? "lib-kind lib-kind-on" : "lib-kind") + (k.id === "sequence" ? " lib-kind-seq" : "")} title={k.title} onclick={() => setFolder(k.id)}>{k.label}</button>
+  ))
+
+  let list = rows.map((row) => (
+    <button
+      type="button"
+      class={picked === row.id ? "lib-row lib-row-on" : "lib-row"}
+      title={row.about}
+      onclick={() => {
+        let root = String(rootText).trim()
+        let n = root.length > 0 ? Number(root) : null
+        let msg = ""
+        if (onPick) {
+          msg = onPick(row.id, n === n ? n : null)
+        }
+        setPicked(row.id)
+        if (msg) {
+          setNotice(String(msg))
+        }
+      }}
+    >
+      <span class="lib-row-kind">{row.kind}</span>
+      <span class="lib-row-name">{row.name}</span>
+      <span class="lib-row-about">{row.about}</span>
+    </button>
+  ))
+  if (rows.length === 0) {
+    list = [<div class="lib-empty">{"Nothing in this folder."}</div>]
+  }
+
+  return (
+    <div class="lib-browser">
+      <div class="lib-head">
+        <span class="lib-title">{"Library"}</span>
+        <button type="button" class="lib-close" title="Hide the library" onclick={() => { if (onClose) { onClose() } }}>{"×"}</button>
+      </div>
+      <input class="lib-search" type="text" placeholder="Search" value={q} oninput={(e) => setQ(e.target.value)} />
+      <div class="lib-kinds">{kinds}</div>
+      <div class="lib-chips">{chips}</div>
+      <div class="lib-meta">
+        <label class="lib-root">{"Root "}
+          <input class="lib-root-input" type="number" min="0" max="127" placeholder="auto" value={rootText} title="MIDI root for a sequence. Empty uses the sequence's own root." oninput={(e) => setRootText(e.target.value)} />
+        </label>
+        <span class="lib-onto" title={hint}>{String(rows.length)}</span>
+      </div>
+      <div class="lib-hint">{hint}</div>
+      {notice.length > 0 ? <div class="lib-notice">{notice}</div> : null}
+      <div class="lib-list">{list}</div>
+    </div>
+  )
+}

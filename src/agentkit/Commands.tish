@@ -1,0 +1,2077 @@
+// THE co-DJ command registry — one `defineCommand` per capability, and everything else is derived from it:
+//   • the script API      `codj.<name>(…)`           (scriptApi — what a co-DJ script calls, positional args)
+//   • LLM / MCP tools     `<tool>` + JSON schema      (toolSpecs / runTool — named args)
+//   • docs + types        docs/CODJ_API.md, public/codj.d.ts  (apiMarkdown / apiDts, via scripts/gen-codj-api.mjs)
+// Add a capability here and it shows up in all four places; the generator's --check fails CI if the checked-in
+// docs drift from this file.
+//
+// A command runs against a `kit` the runtime provides:
+//   kit.mirror                the headless fold (Mirror.tish)
+//   kit.write(src, opts)      gate-report + fold locally + send as deck.block → {sent, at, accepted, rejected}
+//   kit.say(text, to)         chat to the room (to = actorId / display name, optional)
+//   kit.grammar()             the agent deck grammar text
+
+import { generatorCatalog } from '@spacedevin/deck-synths'
+import { emitProject, generatorIdToTpl } from '../deckfile/Emit.tish'
+import { findChannelById } from '../deckfile/Apply.tish'
+import { fragmentForEdit } from '../core/Edit.tish'
+import { coDjGateReport } from '../codj/Gate.tish'
+import { applyCoDjTplSource, laneCanMaster } from '../codj/Merge.tish'
+import { fxDirective, transportPlayDirective } from '../codj/Launch.tish'
+import { macroCatalog, macroParamControls } from '../model/MacroVoice.tish'
+import { channelDeck } from '../model/DeckRouting.tish'
+import { expandSpec, libraryEntry, libraryIndex } from './Library.tish'
+import { camelToSnake, snakeToCamel } from '@spacedevin/deck'
+import { defaultParamsForGeneratorId } from '@spacedevin/deck-synths'
+
+let COMMANDS = []
+
+/**
+ * spec: {
+ *   name, tool, description, readOnly,
+ *   params: [{ name, ts, schema, description, optional }],   ts = TypeScript type, schema = JSON schema
+ *   returns: TypeScript type, example: one-line script usage,
+ *   run(kit, args) → result
+ * }
+ */
+export fn defineCommand(spec) {
+  COMMANDS.push(spec)
+  return spec
+}
+
+export fn commands() {
+  return COMMANDS
+}
+
+export fn findCommand(nameOrTool) {
+  let i = 0
+  while (i < COMMANDS.length) {
+    if (COMMANDS[i].name === nameOrTool || COMMANDS[i].tool === nameOrTool) {
+      return COMMANDS[i]
+    }
+    i = i + 1
+  }
+  return null
+}
+
+// ---- helpers over the fold -------------------------------------------------------------------------------------
+
+fn ownerOf(p, id) {
+  let m = p.coDjMeta && p.coDjMeta.tracks ? p.coDjMeta.tracks[id] : null
+  return m && m.ownerActorId ? String(m.ownerActorId) : null
+}
+
+/** The page-load demo: the only tracks are the starter ids (Kick c0, Snare c1, HiHat c2, Bass c3).
+ *  The room stamps those as the local user, so ownership is not the signal — an extra id is. */
+fn isStarterId(id) {
+  return id === "c0" || id === "c1" || id === "c2" || id === "c3"
+}
+
+// The page-load starter is still up: some of c0–c3 are there, and every other track is this co-DJ's own.
+fn isPageStarter(p, me) {
+  let chs = p && p.channels ? p.channels : []
+  let starters = 0
+  let i = 0
+  while (i < chs.length) {
+    let id = String(chs[i].id)
+    if (isStarterId(id)) {
+      starters = starters + 1
+    } else if (ownerOf(p, id) !== me) {
+      return false
+    }
+    i = i + 1
+  }
+  return starters > 0
+}
+
+fn stepOn(s) {
+  return s === true || (s && s.on === true)
+}
+
+fn stepsString(ch) {
+  let out = ""
+  let i = 0
+  while (i < 16) {
+    let s = ch.steps && i < ch.steps.length ? ch.steps[i] : null
+    out = out + (stepOn(s) ? "x" : ".")
+    i = i + 1
+  }
+  return out
+}
+
+fn genToken(ch) {
+  return ch.macroName !== null ? String(ch.macroName) : generatorIdToTpl(ch.generatorId ? ch.generatorId : "basicOsc")
+}
+
+fn trackSummary(p, ch, me) {
+  let owner = ownerOf(p, ch.id)
+  return {
+    id: String(ch.id),
+    name: String(ch.name),
+    gen: genToken(ch),
+    owner: owner,
+    mine: owner !== null && owner === me,
+    gain: ch.gain !== null ? ch.gain : 0.85,
+    pan: ch.pan !== null ? ch.pan : 0,
+    mute: ch.mute === true,
+    solo: ch.solo === true,
+    steps: stepsString(ch),
+    notes: Array.isArray(ch.pianoNotes) ? ch.pianoNotes.length : 0,
+    bars: ch.patternBars !== null ? Math.floor(Number(ch.patternBars)) : 1,
+    onDeck: channelDeck(p, ch)
+  }
+}
+
+/** id → the track's block lines (header + indented body) from a deck text. */
+fn trackBlocks(deckText) {
+  let out = {}
+  let cur = null
+  let lines = String(deckText).split("\n")
+  let i = 0
+  while (i < lines.length) {
+    let ln = lines[i]
+    let indented = ln.length > 0 && (ln.charAt(0) === " " || ln.charAt(0) === "\t")
+    if (!indented) {
+      cur = null
+      let tr = ln.trim()
+      if (tr.indexOf("track ") === 0) {
+        let gi = tr.indexOf(" gen ")
+        let head = gi >= 0 ? tr.substring(0, gi) : tr
+        let ii = head.lastIndexOf(" id ")
+        if (ii >= 0) {
+          cur = head.substring(ii + 4).trim()
+          out[cur] = [ln]
+        }
+      }
+    } else if (cur !== null) {
+      out[cur].push(ln)
+    }
+    i = i + 1
+  }
+  return out
+}
+
+fn requireTrack(kit, id) {
+  let ch = findChannelById(kit.mirror.project(), String(id))
+  if (!ch) {
+    throw new Error("no track with id '" + String(id) + "' — call tracks() for ids")
+  }
+  return ch
+}
+
+/** "x..x" / "x . x ." / [true, 0, 1, …] / "euclid 5" → 16 booleans (or {euclid}). */
+fn parsePattern(pat) {
+  if (Array.isArray(pat)) {
+    let a = []
+    let i = 0
+    while (i < 16) {
+      let v = i < pat.length ? pat[i] : false
+      a.push(v === true || v === 1 || v === "x" || (v && v.on === true))
+      i = i + 1
+    }
+    return { steps: a }
+  }
+  let s = String(pat).trim()
+  if (s.indexOf("euclid") === 0) {
+    let n = Math.floor(Number(s.substring(6).trim()))
+    return { euclid: n === n ? n : 4 }
+  }
+  let chars = s.split(" ").join("")
+  let out = []
+  let k = 0
+  while (k < 16) {
+    let c = k < chars.length ? chars.charAt(k) : "."
+    out.push(c === "x" || c === "X" || c === "1" || c === "o")
+    k = k + 1
+  }
+  return { steps: out }
+}
+
+fn stepsLineFor(pat) {
+  let pp = parsePattern(pat)
+  if (pp.euclid !== null) {
+    return "  steps euclid " + String(pp.euclid) + " 16"
+  }
+  let s = "  steps"
+  let i = 0
+  while (i < 16) {
+    s = s + (pp.steps[i] ? " x" : " .")
+    i = i + 1
+  }
+  return s
+}
+
+fn noteObj(n) {
+  return {
+    pitch: Math.floor(Number(n.pitch !== null ? n.pitch : 60)),
+    startBeat: Number(n.start !== null ? n.start : (n.startBeat !== null ? n.startBeat : 0)),
+    durBeats: Number(n.dur !== null ? n.dur : (n.durBeats !== null ? n.durBeats : 0.25)),
+    vel: Math.floor(Number(n.vel !== null ? n.vel : 100))
+  }
+}
+
+fn genTokenFor(g) {
+  let s = String(g)
+  let cat = generatorCatalog()
+  let i = 0
+  while (i < cat.length) {
+    if (cat[i].id === s) {
+      return generatorIdToTpl(s)
+    }
+    i = i + 1
+  }
+  return s
+}
+
+fn slug(s) {
+  let out = ""
+  let lower = String(s).toLowerCase()
+  let i = 0
+  while (i < lower.length && out.length < 24) {
+    let c = lower.charAt(i)
+    let ok = (c >= "a" && c <= "z") || (c >= "0" && c <= "9")
+    out = out + (ok ? c : "_")
+    i = i + 1
+  }
+  return out.length > 0 ? out : "track"
+}
+
+/** A track id unique to this actor (the convention: `<actorId>_<slug>`). */
+fn ownId(kit, name) {
+  let me = kit.mirror.me().actorId
+  let base = slug(me) + "_" + slug(name)
+  let id = base
+  let n = 2
+  while (findChannelById(kit.mirror.project(), id)) {
+    id = base + "_" + String(n)
+    n = n + 1
+  }
+  return id
+}
+
+fn deepClone(o) {
+  return JSON.parse(JSON.stringify(o))
+}
+
+fn optWrite(kit, src, opts) {
+  return kit.write(src, opts !== null ? opts : {})
+}
+
+fn slugToken(v) {
+  let s = String(v)
+  let out = ""
+  let i = 0
+  while (i < s.length) {
+    let c = s.charAt(i)
+    let ok = (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9") || c === "_"
+    out = out + (ok ? c : "_")
+    i = i + 1
+  }
+  return out.length > 0 ? out : "clip"
+}
+
+fn numOr(v, fallback) {
+  if (v === null || typeof v === "undefined") {
+    return fallback
+  }
+  let n = Number(v)
+  return n === n ? n : fallback
+}
+
+// ---- reads ------------------------------------------------------------------------------------------------------
+
+defineCommand({
+  name: "deck", tool: "get_deck", readOnly: true,
+  description: "The whole session as deck text (the room's shared document, exactly as the host would save it).",
+  params: [], returns: "string", example: "const text = codj.deck()",
+  run: (kit, a) => emitProject(kit.mirror.project())
+})
+
+defineCommand({
+  name: "tracks", tool: "list_tracks", readOnly: true,
+  description: "Every track: id, name, gen, owner, mine, mix, a 16-char step string ('x' = hit), note count, bars, and onDeck (the deck letter it plays on).",
+  params: [], returns: "TrackSummary[]", example: "codj.tracks().filter(t => !t.mine)",
+  run: (kit, a) => {
+    let p = kit.mirror.project()
+    let me = kit.mirror.me().actorId
+    return p.channels.map((ch) => trackSummary(p, ch, me))
+  }
+})
+
+defineCommand({
+  name: "track", tool: "get_track", readOnly: true,
+  description: "One track in full: its summary + deck block text + generator params + piano notes.",
+  params: [{ name: "id", ts: "string", schema: { type: "string" }, description: "track id" }],
+  returns: "TrackDetail", example: "codj.track('c0').deck",
+  run: (kit, a) => {
+    let ch = requireTrack(kit, a.id)
+    let p = kit.mirror.project()
+    let s = trackSummary(p, ch, kit.mirror.me().actorId)
+    let blocks = trackBlocks(emitProject(p))
+    s.deck = blocks[String(ch.id)] ? blocks[String(ch.id)].join("\n") : ""
+    s.params = ch.generatorParams ? deepClone(ch.generatorParams) : {}
+    s.pianoNotes = Array.isArray(ch.pianoNotes) ? ch.pianoNotes.map((n) => ({ pitch: n.pitch, start: n.startBeat, dur: n.durBeats, vel: n.vel })) : []
+    return s
+  }
+})
+
+defineCommand({
+  name: "owned", tool: "list_owned", readOnly: true,
+  description: "Ids of the tracks this co-DJ owns (the only tracks it may edit).",
+  params: [], returns: "string[]", example: "codj.owned().length",
+  run: (kit, a) => {
+    let p = kit.mirror.project()
+    let me = kit.mirror.me().actorId
+    return p.channels.filter((ch) => ownerOf(p, ch.id) === me).map((ch) => String(ch.id))
+  }
+})
+
+defineCommand({
+  name: "clock", tool: "get_clock", readOnly: true,
+  description: "The shared playhead: perfStep (16ths since play), bar, beat (0-3), step (0-15), bpm, playing.",
+  params: [], returns: "Clock", example: "codj.clock().bar % 8 === 0",
+  run: (kit, a) => kit.mirror.clock()
+})
+
+defineCommand({
+  name: "room", tool: "get_room", readOnly: true,
+  description: "Who is here: me ({actorId, displayName, skillIds, isHost}), host actorId, roster, what the host is focused on.",
+  params: [], returns: "Room", example: "codj.room().roster.map(r => r.displayName)",
+  run: (kit, a) => {
+    let me = kit.mirror.me()
+    let r = kit.mirror.room()
+    return {
+      me: { actorId: me.actorId, displayName: me.displayName, skillIds: me.skillIds, isHost: r.hostActorId === me.actorId },
+      host: r.hostActorId,
+      roster: r.roster,
+      focus: r.focus,
+      sessionId: r.sessionId
+    }
+  }
+})
+
+defineCommand({
+  name: "instruments", tool: "list_instruments", readOnly: true,
+  description: "Every `gen` you can put on a track: the fixed generators and the macro voices, with descriptions.",
+  params: [], returns: "Instrument[]", example: "codj.instruments().map(i => i.gen)",
+  run: (kit, a) => {
+    let out = generatorCatalog().map((g) => ({ gen: generatorIdToTpl(g.id), label: g.label, kind: "generator", description: g.description ? g.description : "" }))
+    let mc = macroCatalog()
+    let i = 0
+    while (i < mc.length) {
+      out.push({ gen: mc[i].name, label: mc[i].label, kind: "macro", description: mc[i].kind + " macro voice" })
+      i = i + 1
+    }
+    return out
+  }
+})
+
+defineCommand({
+  name: "grammar", tool: "get_grammar", readOnly: true,
+  description: "The deck lines a co-DJ may write (track blocks, generator params, what is master-only).",
+  params: [], returns: "string", example: "codj.grammar()",
+  run: (kit, a) => kit.grammar()
+})
+
+defineCommand({
+  name: "preview", tool: "preview_deck", readOnly: true,
+  description: "Dry-run deck text: which lines the host's gate would accept/reject (and why) and which tracks it would add/edit/remove. Nothing is sent.",
+  params: [{ name: "text", ts: "string", schema: { type: "string" }, description: "deck lines (no `deck 1` header needed)" }],
+  returns: "Preview", example: "codj.preview('track Hat id x_hat gen noise_burst\\n  steps euclid 7 16')",
+  run: (kit, a) => {
+    let p = kit.mirror.project()
+    let me = kit.mirror.me()
+    let report = coDjGateReport(p, String(a.text), me.actorId, me.skillIds)
+    let before = trackBlocks(emitProject(p))
+    let clone = deepClone(p)
+    applyCoDjTplSource(clone, "deck 1\n" + String(a.text) + "\n", me.actorId, me.actorId, kit.mirror.clock().perfStep, me.skillIds)
+    let after = trackBlocks(emitProject(clone))
+    let changes = []
+    let ak = Object.keys(after)
+    let i = 0
+    while (i < ak.length) {
+      let id = ak[i]
+      if (!before[id]) {
+        changes.push({ trackId: id, change: "add" })
+      } else if (before[id].join("\n") !== after[id].join("\n")) {
+        changes.push({ trackId: id, change: "edit" })
+      }
+      i = i + 1
+    }
+    let bk = Object.keys(before)
+    let j = 0
+    while (j < bk.length) {
+      if (!after[bk[j]]) {
+        changes.push({ trackId: bk[j], change: "remove" })
+      }
+      j = j + 1
+    }
+    return { accepted: report.accepted, rejected: report.rejected, changes: changes }
+  }
+})
+
+// ---- writes -----------------------------------------------------------------------------------------------------
+
+let AT_PARAM = { name: "opts", ts: "WriteOpts", schema: { type: "object", properties: { at: { description: "'now' | 'beat' | 'bar' (default while playing) | an absolute perfStep" } } }, description: "when it lands", optional: true }
+
+defineCommand({
+  name: "send", tool: "send_deck", readOnly: false,
+  description: "Send raw deck lines to the room (the general write — everything below is sugar over it). Lands at the next bar while playing.",
+  params: [{ name: "text", ts: "string", schema: { type: "string" }, description: "deck lines" }, AT_PARAM],
+  returns: "WriteResult", example: "codj.send('track Hat id me_hat gen noise_burst\\n  steps euclid 7 16')",
+  run: (kit, a) => optWrite(kit, String(a.text), a.opts)
+})
+
+defineCommand({
+  name: "library", tool: "library", readOnly: true,
+  description: "The reference library: factory instruments, drum beats, melodic sequences, and full kits. Each row is {id, kind, role, name, about}. kind filters to 'instrument' | 'beat' | 'sequence' | 'kit'. Pass an id to codj.preset, or put preset/beat/sequence on an arrange track.",
+  params: [{ name: "kind", ts: "string", schema: { type: "string" }, description: "instrument | beat | sequence | kit", optional: true }],
+  returns: "LibraryRow[]", example: "codj.library('kit')",
+  run: (kit, a) => libraryIndex(a.kind !== null ? a.kind : null)
+})
+
+defineCommand({
+  name: "preset", tool: "preset", readOnly: true,
+  description: "One library entry. An instrument has gen + params (the knobs — pass them through, or codj.set(id, 'gen/<knob>', value)). A beat has steps and accent lanes. A sequence has events in semitones above defaultRoot. A kit has .parts, which is an arrange() argument: codj.arrange(codj.preset('house-loop').parts).",
+  params: [{ name: "id", ts: "string", schema: { type: "string" }, description: "library id" }],
+  returns: "LibraryEntry", example: "codj.preset('factory_acid_squelch')",
+  run: (kit, a) => {
+    let e = libraryEntry(a.id)
+    if (e === null) {
+      throw new Error("unknown library id '" + String(a.id) + "' — codj.library()")
+    }
+    return e
+  }
+})
+
+defineCommand({
+  name: "addTrack", tool: "add_track", readOnly: false,
+  description: "Add a track you own. spec: {name, gen, id?, preset?, beat?, sequence?, root?, steps?, notes?, gain?, pan?, params?, bars?}. preset/beat/sequence pull from the library (codj.library). Returns the new id.",
+  params: [{ name: "spec", ts: "TrackSpec", schema: { type: "object", properties: { name: { type: "string" }, gen: { type: "string" }, id: { type: "string" }, steps: { description: "'x...x...' or 16 booleans or 'euclid N'" }, notes: { type: "array", items: { type: "object" } }, gain: { type: "number" }, pan: { type: "number" }, params: { type: "object" }, bars: { type: "number" } }, required: ["name", "gen"] }, description: "the track" }, AT_PARAM],
+  returns: "WriteResult & { id: string }", example: "codj.addTrack({ name: 'Hat', gen: 'noise_burst', steps: '..x...x...x...x.' })",
+  run: (kit, a) => {
+    let s = expandSpec(a.spec !== null ? a.spec : {})
+    let name = s.name ? String(s.name) : "Track"
+    let id = s.id ? String(s.id) : ownId(kit, name)
+    let hdr = "track " + name + " id " + id + " gen " + genTokenFor(s.gen ? s.gen : "basic_osc")
+    let bars = s.bars !== null ? Math.floor(Number(s.bars)) : 1
+    if (bars >= 2) {
+      hdr = hdr + " * " + String(bars)
+    }
+    let lines = [hdr, "  mix gain " + String(s.gain !== null ? Number(s.gain) : 0.75) + " pan " + String(s.pan !== null ? Number(s.pan) : 0)]
+    if (s.params) {
+      let ks = Object.keys(s.params)
+      if (ks.length > 0) {
+        lines.push("  gen " + ks.map((k) => k + " " + String(s.params[k])).join(" "))
+      }
+    }
+    if (s.steps !== null) {
+      lines.push(stepsLineFor(s.steps))
+    }
+    if (Array.isArray(s.notes)) {
+      let i = 0
+      while (i < s.notes.length) {
+        let n = noteObj(s.notes[i])
+        lines.push("  note " + String(n.pitch) + " " + String(n.startBeat) + " " + String(n.durBeats) + " v " + String(n.vel))
+        i = i + 1
+      }
+    }
+    let r = optWrite(kit, lines.join("\n"), a.opts)
+    r.id = id
+    return r
+  }
+})
+
+// One spec → the deck lines for one track, or an error string. Shared by addTrack and arrange.
+fn trackBlockLines(kit, s, id) {
+  if (!s || typeof s !== "object" || Array.isArray(s)) {
+    return "a track spec must be an object"
+  }
+  let name = s.name ? String(s.name) : "Track"
+  let hdr = "track " + name + " id " + id + " gen " + genTokenFor(s.gen ? s.gen : "basic_osc")
+  let bars = s.bars !== null ? Math.floor(Number(s.bars)) : 1
+  if (bars >= 2) {
+    hdr = hdr + " * " + String(bars)
+  }
+  let lines = [hdr]
+  let mix = "  mix gain " + String(s.gain !== null ? Number(s.gain) : 0.75) + " pan " + String(s.pan !== null ? Number(s.pan) : 0)
+  let ek = ["eq_lo", "eq_mid", "eq_hi"]
+  let ei = 0
+  while (ei < ek.length) {
+    if (s[ek[ei]] !== null) {
+      mix = mix + " " + ek[ei] + " " + String(Number(s[ek[ei]]))
+    }
+    ei = ei + 1
+  }
+  lines.push(mix)
+  if (s.params && typeof s.params === "object") {
+    let ks = Object.keys(s.params)
+    if (ks.length > 0) {
+      lines.push("  gen " + ks.map((k) => k + " " + String(s.params[k])).join(" "))
+    }
+  }
+  if (s.adsr && typeof s.adsr === "object") {
+    lines.push("  adsr a " + String(Number(s.adsr.a !== null ? s.adsr.a : 0.01)) + " d " + String(Number(s.adsr.d !== null ? s.adsr.d : 0.1)) + " s " + String(Number(s.adsr.s !== null ? s.adsr.s : 0.6)) + " r " + String(Number(s.adsr.r !== null ? s.adsr.r : 0.2)))
+  }
+  if (s.fx && typeof s.fx === "object") {
+    let fk = Object.keys(s.fx)
+    if (fk.length > 0) {
+      lines.push("  fx " + fk.map((k) => k + " " + String(s.fx[k])).join(" "))
+    }
+  }
+  if (s.voice && typeof s.voice === "object") {
+    let vk = Object.keys(s.voice)
+    if (vk.length > 0) {
+      lines.push("  voice " + vk.map((k) => k + " " + String(s.voice[k])).join(" "))
+    }
+  }
+  if (s.step_pitch !== null) {
+    lines.push("  step_pitch " + String(Math.floor(Number(s.step_pitch))))
+  }
+  if (s.steps !== null) {
+    lines.push(stepsLineFor(s.steps))
+  }
+  let lanes = [["step_vel", 0], ["step_prob", 1], ["step_ratchet", 1], ["step_nudge", 0]]
+  let li = 0
+  while (li < lanes.length) {
+    let lane = s[lanes[li][0]]
+    if (Array.isArray(lane) && lane.length > 0) {
+      let row = "  " + lanes[li][0]
+      let k = 0
+      while (k < 16) {
+        let v = k < lane.length && lane[k] !== null ? Number(lane[k]) : lanes[li][1]
+        row = row + " " + String(v)
+        k = k + 1
+      }
+      lines.push(row)
+    }
+    li = li + 1
+  }
+  if (Array.isArray(s.notes)) {
+    let i = 0
+    while (i < s.notes.length) {
+      let n = noteObj(s.notes[i])
+      let row = "  note " + String(n.pitch) + " " + String(n.startBeat) + " " + String(n.durBeats) + " v " + String(n.vel)
+      if (s.notes[i].p !== null) {
+        row = row + " p " + String(Number(s.notes[i].p))
+      }
+      if (s.notes[i].r !== null) {
+        row = row + " r " + String(Math.floor(Number(s.notes[i].r)))
+      }
+      if (s.notes[i].n !== null) {
+        row = row + " n " + String(Number(s.notes[i].n))
+      }
+      if (s.notes[i].bar !== null) {
+        row = row + " bar " + String(s.notes[i].bar)
+      }
+      lines.push(row)
+      i = i + 1
+    }
+  }
+  return lines
+}
+
+// The pattern half of a track block (steps, locks, notes) — what a session clip stores. The instrument,
+// mixer and channel strip stay on the track and are ridden live.
+fn patternLines(s) {
+  let all = trackBlockLines(null, s, "clip")
+  if (typeof all === "string") {
+    return all
+  }
+  let out = []
+  let i = 0
+  while (i < all.length) {
+    let t = all[i].trim()
+    if (t.indexOf("steps") === 0 || t.indexOf("step_") === 0 || t.indexOf("note ") === 0) {
+      out.push(all[i])
+    }
+    i = i + 1
+  }
+  return out
+}
+
+defineCommand({
+  name: "arrange", tool: "arrange", readOnly: false,
+  description: "Replace your whole arrangement in one call: removes EVERY track you own, then adds every track in the spec. A second arrange() deletes what the first one built — put the whole set in one call, and use addTrack to add one more part. With opts.deck ('A'..'D') it builds a song on that deck: only your tracks on that deck are replaced, the new tracks are placed there, and the ids are kept in codj.state.decks[deck] (codj.state.ids keeps pointing at the song on the other deck) — this is how you load the next song on a free deck (codj.session().free) while the current one plays. A track: {id?, name, gen, preset?, beat?, sequence?, root?, bars?, gain?, pan?, eq_lo?, eq_mid?, eq_hi?, params?, adsr?: {a,d,s,r}, fx?: {cutoff, res, drive, reverb_send, filter_type}, voice?: {octave, chord, arp, arprate, inversion, strum}, step_pitch?, steps?: 'x..x' | 16 booleans | 'euclid N', step_vel?, step_prob?, step_ratchet?, step_nudge? (16 numbers each), notes?: [{pitch, start, dur, vel, p?, r?, n?, bar?}]}. preset/beat/sequence expand from the library; fields you set win. Notes span the phrase: start runs 0..bars*4 beats. Returns {ids} mapping each spec id to its real track id (also stored on codj.state.ids).",
+  params: [{ name: "tracks", ts: "TrackSpec[]", schema: { type: "array", items: { type: "object" } }, description: "the arrangement" }, AT_PARAM],
+  returns: "WriteResult & { ids: Record<string, string> }", example: "codj.arrange([{ id: 'kick', name: 'Kick', gen: 'kick_edm', steps: 'x...x...x...x...' }, { id: 'bass', name: 'Bass', gen: 'sub808', bars: 4, notes: [{ pitch: 33, start: 0, dur: 1, vel: 110 }] }])",
+  run: (kit, a) => {
+    let specs = Array.isArray(a.tracks) ? a.tracks : []
+    if (specs.length === 0) {
+      throw new Error("arrange needs at least one track")
+    }
+    let deck = a.opts && a.opts.deck ? deckLetter(a.opts.deck) : null
+    let blocks = []
+    let ids = {}
+    let taken = []
+    let me = kit.mirror.me()
+    let i = 0
+    while (i < specs.length) {
+      let s = expandSpec(specs[i])
+      let key = s && s.id ? String(s.id) : (s && s.name ? String(s.name) : "track" + String(i + 1))
+      // A fresh id every time: the fold applies `remove_track` AFTER the new blocks, so re-adding under an id
+      // this same write removes would delete the track it just created.
+      let id = ownId(kit, key)
+      while (taken.indexOf(id) >= 0) {
+        id = id + "_" + String(taken.length)
+      }
+      taken.push(id)
+      let lines = trackBlockLines(kit, s, id)
+      if (typeof lines === "string") {
+        throw new Error("arrange track " + String(i + 1) + ": " + lines)
+      }
+      if (deck !== null) {
+        lines.splice(1, 0, "  deck " + deck + " slot " + String(deckIndexOf(deck)))
+      }
+      blocks.push(lines.join("\n"))
+      ids[key] = id
+      i = i + 1
+    }
+    let removes = []
+    let owned = deck !== null ? ownedOnDeck(kit, deck) : runTool(kit, "list_owned", {})
+    let j = 0
+    while (j < owned.length) {
+      removes.push("remove_track " + owned[j])
+      j = j + 1
+    }
+    let src = removes.concat(blocks).join("\n")
+    let pre = coDjGateReport(kit.mirror.project(), src, me.actorId, me.skillIds)
+    if (pre.rejected.length > 0) {
+      return { sent: false, ok: false, accepted: pre.accepted, rejected: pre.rejected, ids: {} }
+    }
+    let r = optWrite(kit, src, a.opts)
+    r.ids = ids
+    r.replaced = owned
+    if (r.sent !== false && kit.state && typeof kit.state === "object") {
+      let keepIds = false
+      if (deck !== null && kit.state.ids && typeof kit.state.ids === "object") {
+        let pp = kit.mirror.project()
+        let prev = Object.keys(kit.state.ids).map((k) => kit.state.ids[k])
+        keepIds = prev.some((id) => {
+          let pc = findChannelById(pp, id)
+          return pc ? channelDeck(pp, pc) !== deck : false
+        })
+      }
+      if (!keepIds) {
+        kit.state.ids = ids
+      }
+      if (deck !== null) {
+        if (!kit.state.decks || typeof kit.state.decks !== "object") {
+          kit.state.decks = {}
+        }
+        kit.state.decks[deck] = ids
+      }
+    }
+    return r
+  }
+})
+
+fn deckIndexOf(d) {
+  return d === "B" ? 1 : (d === "C" ? 2 : (d === "D" ? 3 : 0))
+}
+
+fn ownedOnDeck(kit, deck) {
+  let p = kit.mirror.project()
+  let me = kit.mirror.me().actorId
+  return p.channels.filter((ch) => ownerOf(p, ch.id) === me && channelDeck(p, ch) === deck).map((ch) => String(ch.id))
+}
+
+defineCommand({
+  name: "setSteps", tool: "set_steps", readOnly: false,
+  description: "Replace a track's 16-step pattern: 'x...x...x...x...' (spaces ok), 16 booleans, or 'euclid N'. A track plays either steps or notes, so this clears any piano notes.",
+  params: [{ name: "trackId", ts: "string", schema: { type: "string" }, description: "track id" }, { name: "pattern", ts: "string | boolean[]", schema: { description: "pattern" }, description: "the pattern" }, AT_PARAM],
+  returns: "WriteResult", example: "codj.setSteps('me_hat', 'x.x.x.x.x.x.x.xx')",
+  run: (kit, a) => {
+    let ch = requireTrack(kit, a.trackId)
+    let pp = parsePattern(a.pattern)
+    let src = pp.euclid !== null ? fragmentForEdit(kit.mirror.project(), "track/" + ch.id + "/mix/gain", ch.gain !== null ? ch.gain : 0.85) + "\n" + stepsLineFor(a.pattern) : fragmentForEdit(kit.mirror.project(), "track/" + ch.id + "/steps", pp.steps)
+    if (Array.isArray(ch.pianoNotes) && ch.pianoNotes.length > 0) {
+      let parts = src.split("\n")
+      parts.splice(1, 0, "  notes_clear")
+      src = parts.join("\n")
+    }
+    return optWrite(kit, src, a.opts)
+  }
+})
+
+defineCommand({
+  name: "setNotes", tool: "set_notes", readOnly: false,
+  description: "Replace a track's piano notes: [{pitch (MIDI), start (beats), dur (beats), vel (0-127)}]. [] clears.",
+  params: [{ name: "trackId", ts: "string", schema: { type: "string" }, description: "track id" }, { name: "notes", ts: "Note[]", schema: { type: "array", items: { type: "object", properties: { pitch: { type: "number" }, start: { type: "number" }, dur: { type: "number" }, vel: { type: "number" } } } }, description: "notes" }, AT_PARAM],
+  returns: "WriteResult", example: "codj.setNotes('me_bass', [{ pitch: 36, start: 0, dur: 0.5, vel: 110 }])",
+  run: (kit, a) => {
+    let ch = requireTrack(kit, a.trackId)
+    let ns = Array.isArray(a.notes) ? a.notes.map(noteObj) : []
+    return optWrite(kit, fragmentForEdit(kit.mirror.project(), "track/" + ch.id + "/notes", ns), a.opts)
+  }
+})
+
+defineCommand({
+  name: "mix", tool: "set_mix", readOnly: false,
+  description: "Set a track's mixer fields: {gain 0-1, pan -1..1, mute, solo, eq_lo/eq_mid/eq_hi dB}. Unset fields keep their value.",
+  params: [{ name: "trackId", ts: "string", schema: { type: "string" }, description: "track id" }, { name: "mix", ts: "MixSpec", schema: { type: "object" }, description: "fields to change" }, AT_PARAM],
+  returns: "WriteResult", example: "codj.mix('me_hat', { gain: 0.6, pan: -0.3 })",
+  run: (kit, a) => {
+    let ch = requireTrack(kit, a.trackId)
+    let m = a.mix !== null ? a.mix : {}
+    let clone = deepClone(ch)
+    let keys = Object.keys(m)
+    let i = 0
+    let line = ""
+    while (i < keys.length) {
+      let k = keys[i]
+      let field = k === "eq_lo" ? "eqLo" : (k === "eq_mid" ? "eqMid" : (k === "eq_hi" ? "eqHi" : k))
+      clone[field] = m[k]
+      i = i + 1
+    }
+    let tmp = { channels: [clone] }
+    line = fragmentForEdit(tmp, "track/" + ch.id + "/mix/gain", clone.gain !== null ? clone.gain : 0.85)
+    return optWrite(kit, line, a.opts)
+  }
+})
+
+// The deck text for one track field edit. A macro voice (kick_edm, bass_reese, …) keeps its knobs on the track
+// header (`gen kick_edm pitch 120 decay 0.6`), so its 'gen/<knob>' re-emits the header with every knob it has.
+fn paramEditSource(p, ch, addr, value) {
+  let parts = String(addr).split("/")
+  if (ch.macroName && parts[0] === "gen" && parts.length === 2) {
+    let clone = deepClone(ch)
+    if (!clone.macroParams) {
+      clone.macroParams = {}
+    }
+    clone.macroParams[parts[1]] = value
+    return fragmentForEdit({ channels: [clone] }, "track/" + ch.id + "/name", clone.name)
+  }
+  return fragmentForEdit(p, "track/" + ch.id + "/" + String(addr), value)
+}
+
+defineCommand({
+  name: "set", tool: "set_param", readOnly: false,
+  description: "Set one addressed field on a track. Channel strip: 'fx/cutoff' (Hz) | 'fx/res' (0..1) | 'fx/drive' | 'fx/reverb' | 'fx/filter_type' (lowpass|highpass|bandpass|notch) | 'fx/lfo_rate' | 'fx/lfo_depth'. Instrument: 'gen/<knob>' — knob names are the keys of codj.preset(id).params, different for every generator. Also 'voice/arp' | 'voice/chord' | 'voice/octave' | 'adsr' ({a,d,s,r}) | 'name' | 'gen_type'.",
+  params: [{ name: "trackId", ts: "string", schema: { type: "string" }, description: "track id" }, { name: "address", ts: "string", schema: { type: "string" }, description: "field address" }, { name: "value", ts: "unknown", schema: {}, description: "new value" }, AT_PARAM],
+  returns: "WriteResult", example: "codj.set('me_bass', 'fx/cutoff', 900)",
+  run: (kit, a) => {
+    let ch = requireTrack(kit, a.trackId)
+    let src = paramEditSource(kit.mirror.project(), ch, a.address, a.value)
+    if (src.length === 0) {
+      throw new Error("unknown address '" + String(a.address) + "'")
+    }
+    return optWrite(kit, src, a.opts)
+  }
+})
+
+// The generator id behind a deck `gen` token ('sub808' → 'sub808', 'kick_edm' → 'drumSynth', …), or null.
+fn generatorIdForToken(tok) {
+  let cat = generatorCatalog()
+  let i = 0
+  while (i < cat.length) {
+    if (generatorIdToTpl(cat[i].id) === String(tok) || cat[i].id === String(tok)) {
+      return cat[i].id
+    }
+    i = i + 1
+  }
+  return null
+}
+
+let WAVES = ["sine", "triangle", "sawtooth", "square"]
+
+// A knob's useful range, from its name and its default (the instrument panels use the same conventions:
+// times in seconds, 0..1 amounts, Hz for filters, semitones for pitch).
+fn knobRange(key, value, def) {
+  let k = String(key).toLowerCase()
+  let v = typeof def === "number" ? def : (typeof value === "number" ? value : 0)
+  if (k.indexOf("cutoff") >= 0 || k.indexOf("hp") >= 0 || k.indexOf("highpass") >= 0 || k.indexOf("lowpass") >= 0 || k.indexOf("freq") >= 0 || k === "body" || v >= 100) {
+    return { min: 20, max: 18000, unit: "Hz" }
+  }
+  if (k.indexOf("attack") >= 0 || k.indexOf("release") >= 0 || k.indexOf("decay") >= 0 || k.indexOf("time") >= 0 || k.indexOf("dec") === k.length - 3) {
+    return { min: 0.001, max: k.indexOf("release") >= 0 ? 4 : 2, unit: "s" }
+  }
+  if (k.indexOf("detune") >= 0 || k.indexOf("cent") >= 0) {
+    return { min: 0, max: 50, unit: "cents" }
+  }
+  if (k.indexOf("pitch") >= 0 || k.indexOf("semi") >= 0 || k.indexOf("drop") >= 0 || k.indexOf("env") >= 0) {
+    return { min: v < 0 ? -48 : 0, max: 60, unit: "st" }
+  }
+  if (k.indexOf("ratio") >= 0 || k.indexOf("partial") >= 0) {
+    return { min: 0.25, max: 16, unit: "x" }
+  }
+  if (k.indexOf("index") >= 0) {
+    return { min: 0, max: 48, unit: "" }
+  }
+  if (k.indexOf("rate") >= 0 || k.indexOf("hz") >= 0) {
+    return { min: 0, max: 20, unit: "Hz" }
+  }
+  if (v > 1) {
+    return { min: 0, max: Math.max(1, Math.ceil(v * 4)), unit: "" }
+  }
+  return { min: 0, max: 1, unit: "" }
+}
+
+defineCommand({
+  name: "knobs", tool: "get_knobs", readOnly: true,
+  description: "Every knob on a live track, so you can play the instrument: {gen, knobs: [{knob, value, base (the instrument's default), min, max, unit, options?}], fx: {cutoff, res, drive, reverb, filter_type}, adsr}. Each knob is codj.set(trackId, 'gen/' + knob, value) (or codj.ride to sweep it). Knobs change the sound in real time while the pattern keeps playing — a filter opening, a decay getting longer, an FM index rising.",
+  params: [{ name: "trackId", ts: "string", schema: { type: "string" }, description: "track id" }],
+  returns: "Knobs", example: "codj.knobs(codj.state.ids.bass).knobs.map(k => k.knob)",
+  run: (kit, a) => {
+    let ch = requireTrack(kit, a.trackId)
+    let fx = { cutoff: ch.filterCutoff, res: ch.res, drive: ch.drive, reverb: ch.reverbSend, filter_type: ch.filterType }
+    if (ch.macroName) {
+      let p = kit.mirror.project()
+      let ctl = macroParamControls(ch.macroName, ch.macroParams, p.macros ? p.macros : {})
+      return {
+        trackId: String(ch.id),
+        gen: String(ch.macroName),
+        knobs: ctl.map((c) => ({ knob: c.key, value: c.value, min: c.min, max: c.max, label: c.label })),
+        fx: fx,
+        adsr: null
+      }
+    }
+    let gid = ch.generatorId ? String(ch.generatorId) : "basicOsc"
+    let defs = defaultParamsForGeneratorId(gid)
+    if (!defs) {
+      defs = {}
+    }
+    let cur = ch.generatorParams ? ch.generatorParams : {}
+    let keys = Object.keys(defs)
+    let ck = Object.keys(cur)
+    let i = 0
+    while (i < ck.length) {
+      if (keys.indexOf(ck[i]) < 0) {
+        keys.push(ck[i])
+      }
+      i = i + 1
+    }
+    let knobs = []
+    let j = 0
+    while (j < keys.length) {
+      let key = keys[j]
+      let value = cur[key] !== null && cur[key] !== undefined ? cur[key] : defs[key]
+      let d = defs[key] !== null && defs[key] !== undefined ? defs[key] : value
+      if (typeof value === "number" || typeof value === "string" || typeof value === "boolean") {
+        let row = { knob: camelToSnake(key), value: value, base: d }
+        if (typeof value === "number") {
+          let r = knobRange(key, value, d)
+          row.min = r.min
+          row.max = r.max
+          row.unit = r.unit
+        } else if (typeof value === "string" && WAVES.indexOf(value) >= 0) {
+          row.options = WAVES.slice()
+        }
+        knobs.push(row)
+      }
+      j = j + 1
+    }
+    return {
+      trackId: String(ch.id),
+      gen: ch.macroName ? String(ch.macroName) : generatorIdToTpl(gid),
+      knobs: knobs,
+      fx: fx,
+      adsr: cur.attack !== undefined ? { a: cur.attack, d: cur.decay, s: cur.sustain, r: cur.release } : null
+    }
+  }
+})
+
+defineCommand({
+  name: "swap", tool: "swap_instrument", readOnly: false,
+  description: "Change the instrument a track plays, keeping its pattern, notes, mix and channel FX — the part carries on with a new sound (a pluck becomes a pad, an 808 becomes a reese). instrument: a gen from codj.instruments() ('pad', 'sub808', 'acid', …) or a library instrument id from codj.library('instrument') — a preset brings its knob settings. params overrides knobs after the swap.",
+  params: [{ name: "trackId", ts: "string", schema: { type: "string" }, description: "track id" }, { name: "instrument", ts: "string", schema: { type: "string" }, description: "gen token or library instrument id" }, { name: "params", ts: "Record<string, number | string>", schema: { type: "object" }, description: "knob overrides", optional: true }, AT_PARAM],
+  returns: "WriteResult & { gen: string }", example: "codj.swap(codj.state.ids.hook, 'factory_acid_squelch')",
+  run: (kit, a) => {
+    let ch = requireTrack(kit, a.trackId)
+    let want = String(a.instrument)
+    let preset = libraryEntry(want)
+    let gen = want
+    let knobs = {}
+    if (preset !== null && preset.kind === "instrument") {
+      gen = String(preset.gen)
+      knobs = preset.params ? deepClone(preset.params) : {}
+    } else if (generatorIdForToken(want) === null && macroCatalog().filter((m) => m.name === want).length === 0) {
+      throw new Error("unknown instrument '" + want + "' — codj.instruments() for gens, codj.library('instrument') for presets")
+    }
+    if (a.params) {
+      let pk = Object.keys(a.params)
+      let i = 0
+      while (i < pk.length) {
+        knobs[pk[i]] = a.params[pk[i]]
+        i = i + 1
+      }
+    }
+    let lines = ["track " + String(ch.name) + " id " + String(ch.id) + " gen " + gen]
+    let kk = Object.keys(knobs)
+    let j = 0
+    while (j < kk.length) {
+      let v = knobs[kk[j]]
+      if (typeof v === "number" || typeof v === "string") {
+        lines.push("  gen " + camelToSnake(kk[j]) + " " + String(v))
+      }
+      j = j + 1
+    }
+    let res = optWrite(kit, lines.join("\n"), a.opts)
+    res.gen = gen
+    return res
+  }
+})
+
+defineCommand({
+  name: "ride", tool: "ride_param", readOnly: false,
+  description: "Sweep one track field from where it is to `to` over the next bars, the way a hand rides a knob: a filter opening into a drop, a decay stretching across a breakdown, an FM index climbing, reverb swelling. address is any codj.set address ('gen/<knob>' from codj.knobs, 'fx/cutoff', 'fx/reverb', 'fx/drive', 'mix/gain', …). opts: {bars (default 4), from?, steps (moves per bar, default 2; at most 8 moves per ride), curve: 'linear' | 'exp' (exp suits Hz)}. While stopped it jumps straight to `to`. One ride at a time per track — each move re-applies the track for everyone listening.",
+  params: [{ name: "trackId", ts: "string", schema: { type: "string" }, description: "track id" }, { name: "address", ts: "string", schema: { type: "string" }, description: "field address" }, { name: "to", ts: "number", schema: { type: "number" }, description: "target value" }, { name: "opts", ts: "{ bars?: number; from?: number; steps?: number; curve?: 'linear' | 'exp' }", schema: { type: "object" }, description: "shape", optional: true }],
+  returns: "{ writes: number; from: number; to: number; endsAt: number | null }", example: "codj.ride(codj.state.ids.bass, 'fx/cutoff', 6000, { bars: 8, curve: 'exp' })",
+  run: (kit, a) => {
+    let ch = requireTrack(kit, a.trackId)
+    let o = a.opts ? a.opts : {}
+    let addr = String(a.address)
+    let to = Number(a.to)
+    if (to !== to) {
+      throw new Error("ride needs a numeric `to`")
+    }
+    let from = numOr(o.from, null)
+    if (from === null) {
+      let parts = addr.split("/")
+      let key = parts.length > 1 ? parts[1] : parts[0]
+      let camel = snakeToCamel(key)
+      let gp = ch.generatorParams ? ch.generatorParams : {}
+      let fxMap = { cutoff: ch.filterCutoff, res: ch.res, drive: ch.drive, reverb: ch.reverbSend, reverb_send: ch.reverbSend, gain: ch.gain, pan: ch.pan }
+      let cur = parts[0] === "gen" ? gp[camel] : fxMap[key]
+      if (parts[0] === "gen" && ch.macroName) {
+        let mc = macroParamControls(ch.macroName, ch.macroParams, {}).filter((c) => c.key === key)[0]
+        cur = mc ? mc.value : null
+      } else if (parts[0] === "gen" && (cur === undefined || cur === null)) {
+        let defs = defaultParamsForGeneratorId(ch.generatorId ? String(ch.generatorId) : "basicOsc")
+        cur = defs ? defs[camel] : null
+      }
+      from = typeof cur === "number" ? cur : to
+    }
+    let clock = kit.mirror.clock()
+    if (!clock.playing) {
+      let src = paramEditSource(kit.mirror.project(), ch, addr, to)
+      if (src.length === 0) {
+        throw new Error("unknown address '" + addr + "'")
+      }
+      optWrite(kit, src, { at: "now" })
+      return { writes: 1, from: from, to: to, endsAt: null }
+    }
+    let bars = Math.max(1, Math.min(32, numOr(o.bars, 4)))
+    let per = Math.max(1, Math.min(4, Math.floor(numOr(o.steps, 2))))
+    // Every write re-applies the track on every listener, so a sweep is at most 8 moves.
+    let n = Math.max(1, Math.min(8, Math.floor(bars * per)))
+    let stride = Math.max(4, Math.floor((bars * 16) / n))
+    let start = (Math.floor(clock.perfStep / stride) + 1) * stride
+    let exp = o.curve === "exp" && from > 0 && to > 0
+    let k = 1
+    let last = start
+    let prev = null
+    while (k <= n) {
+      let t = k / n
+      let v = exp ? from * Math.pow(to / from, t) : from + (to - from) * t
+      let rv = Math.abs(v) >= 100 ? Math.round(v) : Math.round(v * 1000) / 1000
+      if (rv !== prev) {
+        let src2 = paramEditSource(kit.mirror.project(), ch, addr, rv)
+        if (src2.length === 0) {
+          throw new Error("unknown address '" + addr + "'")
+        }
+        last = start + (k - 1) * stride
+        optWrite(kit, src2, { at: last })
+        prev = rv
+      }
+      k = k + 1
+    }
+    return { writes: n, from: from, to: to, endsAt: last }
+  }
+})
+
+defineCommand({
+  name: "setGlobal", tool: "set_global", readOnly: false,
+  description: "Master-scope edit (needs the master_mixer skill, i.e. a host): 'bpm' | 'swing' | 'scale' ({root 0-11, mode}) | 'xfade' ({x, y} — prefer codj.crossfade) | 'master/eq_lo' | 'master/eq_mid' | 'master/eq_hi' | 'master/comp' | 'master/reverb' | 'actor/<lane>/gain' | 'auto/<trackId>/<knob>' (16 step values).",
+  params: [{ name: "address", ts: "string", schema: { type: "string" }, description: "global address" }, { name: "value", ts: "unknown", schema: {}, description: "new value" }, AT_PARAM],
+  returns: "WriteResult", example: "codj.setGlobal('bpm', 128)",
+  run: (kit, a) => {
+    let src = fragmentForEdit(kit.mirror.project(), String(a.address), a.value)
+    if (src.length === 0) {
+      throw new Error("unknown address '" + String(a.address) + "'")
+    }
+    return optWrite(kit, src, a.opts)
+  }
+})
+
+defineCommand({
+  name: "removeTrack", tool: "remove_track", readOnly: false,
+  description: "Remove one track. A host may remove any track, including the page-load starter (c0 Kick, c1 Snare, c2 HiHat, c3 Bass). A client may remove only a track it owns.",
+  params: [{ name: "trackId", ts: "string", schema: { type: "string" }, description: "track id" }, AT_PARAM],
+  returns: "WriteResult", example: "codj.removeTrack('c0')",
+  run: (kit, a) => optWrite(kit, "remove_track " + String(a.trackId), a.opts)
+})
+
+defineCommand({
+  name: "placeholder", tool: "is_placeholder", readOnly: true,
+  description: "True while the page-load starter (ids c0 Kick, c1 Snare, c2 HiHat, c3 Bass) is still in the room and every other track is yours, even though the room stamps the starter as the local user. A host clears it before building its own sequence. A track someone else added or loaded makes this false.",
+  params: [], returns: "boolean", example: "codj.placeholder()",
+  run: (kit, a) => isPageStarter(kit.mirror.project(), kit.mirror.me().actorId)
+})
+
+defineCommand({
+  name: "clear", tool: "clear_tracks", readOnly: false,
+  description: "Clean slate. A host removes every track (use this on the page-load starter, and whenever someone asks to start over). A client removes only the tracks it owns. opts.deck limits it to one deck — unload the outgoing song after a transition. Returns {removed: ids}. After clearing, arrange again — old codj.state.ids point at tracks that are gone.",
+  params: [AT_PARAM],
+  returns: "WriteResult & { removed: string[] }", example: "if (codj.placeholder()) codj.clear()",
+  run: (kit, a) => {
+    let p = kit.mirror.project()
+    let me = kit.mirror.me()
+    let master = laneCanMaster(me.actorId, me.skillIds)
+    let deck = a.opts && a.opts.deck ? deckLetter(a.opts.deck) : null
+    let ids = []
+    let i = 0
+    let chs = p.channels ? p.channels : []
+    while (i < chs.length) {
+      let id = String(chs[i].id)
+      let onDeck = deck === null || channelDeck(p, chs[i]) === deck
+      if (onDeck && (master || ownerOf(p, id) === me.actorId)) {
+        ids.push(id)
+      }
+      i = i + 1
+    }
+    if (ids.length === 0) {
+      return { ok: true, removed: [] }
+    }
+    let lines = []
+    let j = 0
+    while (j < ids.length) {
+      lines.push("remove_track " + ids[j])
+      j = j + 1
+    }
+    let r = optWrite(kit, lines.join("\n"), a.opts)
+    r.removed = ids
+    return r
+  }
+})
+
+defineCommand({
+  name: "launch", tool: "launch_scene", readOnly: false,
+  description: "Launch a session scene (host). 0-based; lands on the launch quantize. With deck ('A'..'D') only that deck's tracks move to the scene and the deck stays pinned there — the shared song and other decks are untouched (`@ launch scene N deck X`). Without deck, every unpinned track on every deck follows (`@ launch scene N`). When you run more than one deck, always pass the deck.",
+  params: [{ name: "scene", ts: "number", schema: { type: "number" }, description: "scene index (0-based)" }, { name: "deck", ts: "string", schema: { type: "string" }, description: "A | B | C | D — launch on this deck only", optional: true }, AT_PARAM],
+  returns: "WriteResult", example: "codj.launch(1, codj.session().deck)",
+  run: (kit, a) => {
+    let line = "@ launch scene " + String(Math.floor(Number(a.scene)))
+    let dk = "*"
+    if (a.deck !== null && a.deck !== undefined && String(a.deck).length > 0) {
+      dk = deckLetter(a.deck)
+      line = line + " deck " + dk
+    }
+    let r = optWrite(kit, line, a.opts)
+    if (r.sent !== false && kit.state && typeof kit.state === "object") {
+      if (!kit.state.nowScene || typeof kit.state.nowScene !== "object") {
+        kit.state.nowScene = {}
+      }
+      kit.state.nowScene[dk] = Math.floor(Number(a.scene))
+    }
+    return r
+  }
+})
+
+fn deckLetter(v) {
+  let d = String(v).toUpperCase()
+  if (d !== "A" && d !== "B" && d !== "C" && d !== "D") {
+    throw new Error("deck must be A, B, C or D")
+  }
+  return d
+}
+
+defineCommand({
+  name: "launchClip", tool: "launch_clip", readOnly: false,
+  description: "Launch ONE track's clip over whatever scene is playing (`@ launch clip <trackId> <clipId>`) — the stem move: swap the hat to its 'busy' clip, the bass to its 'drop' clip, without changing the scene. It holds across scene changes until released. clipId '-' returns the track to its scene. Clip ids are in codj.session().rows[i].clips.",
+  params: [{ name: "trackId", ts: "string", schema: { type: "string" }, description: "track id" }, { name: "clipId", ts: "string", schema: { type: "string" }, description: "clip id, or '-' to follow the scene" }, AT_PARAM],
+  returns: "WriteResult", example: "codj.launchClip(codj.state.ids.hat, 'busy')",
+  run: (kit, a) => optWrite(kit, "@ launch clip " + String(a.trackId) + " " + (a.clipId !== null ? String(a.clipId) : "-"), a.opts)
+})
+
+defineCommand({
+  name: "stopClip", tool: "stop_clip", readOnly: false,
+  description: "Stop one track's clip (the ■ on its row): silent until a clip or scene is launched for it. Taking a stem out — the kick before a drop, the bass in a breakdown.",
+  params: [{ name: "trackId", ts: "string", schema: { type: "string" }, description: "track id" }, AT_PARAM],
+  returns: "WriteResult", example: "codj.stopClip(codj.state.ids.kick)",
+  run: (kit, a) => optWrite(kit, "@ launch clip " + String(a.trackId) + " stop", a.opts)
+})
+
+defineCommand({
+  name: "deckCtl", tool: "deck_control", readOnly: false,
+  description: "Host: 'stop' silences every track on a deck and keeps it silent (the outgoing song after a transition); 'song' releases the deck back to the shared session's scenes.",
+  params: [{ name: "deck", ts: "string", schema: { type: "string" }, description: "A | B | C | D" }, { name: "action", ts: "'stop' | 'song'", schema: { type: "string" }, description: "stop | song" }, AT_PARAM],
+  returns: "WriteResult", example: "codj.deckCtl('B', 'stop')",
+  run: (kit, a) => optWrite(kit, "@ launch deck " + deckLetter(a.deck) + " " + (String(a.action) === "song" ? "song" : "stop"), a.opts)
+})
+
+let FOLLOW_ACTIONS = ["repeat", "next", "prev", "first", "last", "any", "stop"]
+
+defineCommand({
+  name: "follow", tool: "set_follow", readOnly: false,
+  description: "Host: a scene's follow action — the session's own dropdown (↻ Loop, → Next, ← Prev, ⏮ First, ⏭ Last, ✦ Any, ■ Stop). After the scene plays its length, the shared song does this. Add `other` with `chance` (0..100, the % for action) for the weighted second action (⚖): codj.follow(1, 'repeat', { other: 'next', chance: 75 }) loops 75% and moves on 25%. action null clears it (the scene loops). Drives scenes launched without a deck; a deck you pinned with launch(n, deck) is yours to move.",
+  params: [{ name: "scene", ts: "number", schema: { type: "number" }, description: "scene index (0-based)" }, { name: "action", ts: "'repeat' | 'next' | 'prev' | 'first' | 'last' | 'any' | 'stop' | null", schema: { type: "string" }, description: "what to do after the scene" }, { name: "weighted", ts: "{ other?: string; chance?: number }", schema: { type: "object" }, description: "{ other, chance }", optional: true }, AT_PARAM],
+  returns: "WriteResult", example: "codj.follow(0, 'next')",
+  run: (kit, a) => {
+    let p = kit.mirror.project()
+    let n = sceneIndex(a.scene)
+    let table = p.session && Array.isArray(p.session.follow) ? p.session.follow.slice() : []
+    while (table.length <= n) {
+      table.push(null)
+    }
+    let act = a.action !== null && a.action !== undefined ? String(a.action) : null
+    if (act !== null && FOLLOW_ACTIONS.indexOf(act) < 0) {
+      throw new Error("follow action must be one of " + FOLLOW_ACTIONS.join(", "))
+    }
+    let w = a.weighted !== null && typeof a.weighted === "object" ? a.weighted : {}
+    if (act === null) {
+      table[n] = null
+    } else if (w.other) {
+      if (FOLLOW_ACTIONS.indexOf(String(w.other)) < 0) {
+        throw new Error("follow other must be one of " + FOLLOW_ACTIONS.join(", "))
+      }
+      let c = w.chance !== null && w.chance !== undefined ? Math.max(0, Math.min(100, Number(w.chance))) : 50
+      table[n] = { a: act, wa: c, b: String(w.other), wb: 100 - c }
+    } else {
+      table[n] = { a: act, wa: 1, b: null, wb: 0 }
+    }
+    let lines = []
+    if (n >= sceneCountOf(kit)) {
+      lines.push("session_scenes " + String(n + 1))
+    }
+    lines.push("follow")
+    let i = 0
+    while (i < table.length) {
+      let f = table[i]
+      if (f !== null) {
+        lines.push("  P" + String(i + 1) + " " + String(f.a) + " " + String(f.wa) + (f.b !== null ? " " + String(f.b) + " " + String(f.wb) : ""))
+      }
+      i = i + 1
+    }
+    return optWrite(kit, lines.join("\n"), a.opts)
+  }
+})
+
+defineCommand({
+  name: "quantize", tool: "launch_quantize", readOnly: false,
+  description: "Host: the launch quantize — where a launched scene or clip drops in. 'beat' | 'bar' | '2bar' | '4bar' | '8bar', or a step count (16 = one bar). Long quantize makes scene changes land on the phrase without counting bars yourself.",
+  params: [{ name: "q", ts: "'beat' | 'bar' | '2bar' | '4bar' | '8bar' | number", schema: { description: "quantize" }, description: "quantize" }, AT_PARAM],
+  returns: "WriteResult", example: "codj.quantize('4bar')",
+  run: (kit, a) => {
+    let q = String(a.q)
+    let steps = typeof a.q === "number" ? Math.floor(a.q) : (q === "beat" ? 4 : (q === "bar" || q === "1bar" ? 16 : (q === "2bar" ? 32 : (q === "4bar" ? 64 : (q === "8bar" ? 128 : 0)))))
+    if (!(steps >= 1)) {
+      throw new Error("quantize is beat | bar | 2bar | 4bar | 8bar, or a step count")
+    }
+    return optWrite(kit, "launch_quant " + String(steps), a.opts)
+  }
+})
+
+defineCommand({
+  name: "song", tool: "set_song", readOnly: false,
+  description: "Host: the shared song order — [{scene, repeat}] played top to bottom (0-based scenes, repeat = times through). [] clears it so a launched scene loops. Follow actions, when set, take precedence.",
+  params: [{ name: "entries", ts: "{ scene: number; repeat?: number }[]", schema: { type: "array", items: { type: "object" } }, description: "the order" }, AT_PARAM],
+  returns: "WriteResult", example: "codj.song([{ scene: 0, repeat: 2 }, { scene: 1, repeat: 4 }, { scene: 3 }])",
+  run: (kit, a) => {
+    let list = Array.isArray(a.entries) ? a.entries : []
+    let lines = ["song"]
+    let i = 0
+    while (i < list.length) {
+      let rep = list[i].repeat !== null && list[i].repeat !== undefined ? Math.max(1, Math.floor(Number(list[i].repeat))) : 1
+      lines.push("  P" + String(sceneIndex(list[i].scene) + 1) + (rep > 1 ? " x" + String(rep) : ""))
+      i = i + 1
+    }
+    return optWrite(kit, lines.join("\n"), a.opts)
+  }
+})
+
+defineCommand({
+  name: "scenes", tool: "session_scenes", readOnly: false,
+  description: "Host: set how many session scenes exist (`session_scenes N`). Default is 4.",
+  params: [{ name: "n", ts: "number", schema: { type: "number" }, description: "scene count" }, AT_PARAM],
+  returns: "WriteResult", example: "codj.scenes(8)",
+  run: (kit, a) => optWrite(kit, "session_scenes " + String(Math.max(1, Math.floor(Number(a.n)))), a.opts)
+})
+
+defineCommand({
+  name: "clip", tool: "clip", readOnly: false,
+  description: "Host: save a pattern as one of a track's clips. spec: {clip?, scene? (0-based), name?, bars?, beat?, sequence?, root?, steps?, notes?}. The beat/sequence/steps become the clip; the track's instrument, EQ and FX stay on the channel and are mixed live. With scene it is slotted into that column; without, it goes into the track's bank for codj.launchClip — a stem variation (a busy hat, a halftime kick, a fill).",
+  params: [{ name: "trackId", ts: "string", schema: { type: "string" }, description: "track id" }, { name: "spec", ts: "ClipSpec", schema: { type: "object" }, description: "the clip" }, AT_PARAM],
+  returns: "WriteResult & { clipId: string }", example: "codj.clip(codj.state.ids.kick, { clip: 'drop', scene: 0, beat: 'four-on-the-floor' })",
+  run: (kit, a) => {
+    let ch = requireTrack(kit, a.trackId)
+    let s = expandSpec(a.spec !== null ? a.spec : {})
+    let clipId = s.clip ? slugToken(s.clip) : "main"
+    let slotted = s.scene !== null && s.scene !== undefined
+    let scene = sceneIndex(s.scene)
+    let lines = []
+    if (slotted && scene >= sceneCountOf(kit)) {
+      lines.push("session_scenes " + String(scene + 1))
+    }
+    let block = clipBlockLines(ch, clipId, s)
+    let i = 0
+    while (i < block.length) {
+      lines.push(block[i])
+      i = i + 1
+    }
+    if (slotted) {
+      lines.push("session_slot " + ch.id + " " + String(scene) + " " + clipId)
+    }
+    let r = optWrite(kit, lines.join("\n"), a.opts)
+    r.clipId = clipId
+    return r
+  }
+})
+
+fn sceneIndex(v) {
+  let n = v !== null && v !== undefined ? Math.floor(Number(v)) : 0
+  return n >= 0 && n === n ? n : 0
+}
+
+fn sceneCountOf(kit) {
+  let sess = kit.mirror.project().session
+  return sess && sess.sceneCount !== null ? Math.floor(Number(sess.sceneCount)) : 4
+}
+
+// `clip <id> channel <ch> bars N` + the pattern body, from an expanded spec.
+fn clipBlockLines(ch, clipId, s) {
+  let bars = s.bars !== null && s.bars !== undefined ? Math.floor(Number(s.bars)) : 1
+  if (bars < 1 || bars !== bars) {
+    bars = 1
+  }
+  let body = patternLines(s)
+  if (typeof body === "string") {
+    throw new Error(body)
+  }
+  let hdr = "clip " + clipId + " channel " + ch.id + " bars " + String(bars)
+  if (s.name) {
+    hdr = hdr + " name " + slugToken(s.name)
+  }
+  return [hdr].concat(body)
+}
+
+// The track's own pattern as a clip spec: its notes if it has any, else its first bar of steps with accents.
+fn clipSpecFromTrack(ch) {
+  let bars = ch.patternBars !== null && ch.patternBars !== undefined ? Math.floor(Number(ch.patternBars)) : 1
+  let notes = Array.isArray(ch.pianoNotes) ? ch.pianoNotes : []
+  if (notes.length > 0) {
+    return { bars: bars, notes: notes.map((n) => ({ pitch: n.pitch, start: n.startBeat, dur: n.durBeats, vel: n.vel !== null ? n.vel : 100 })) }
+  }
+  let st = Array.isArray(ch.steps) ? ch.steps : []
+  let steps = []
+  let vel = []
+  let i = 0
+  while (i < 16) {
+    let x = i < st.length ? st[i] : null
+    steps.push(x === true || (x !== null && x.on === true))
+    vel.push(x !== null && x.vel !== null && x.vel !== undefined ? x.vel : 100)
+    i = i + 1
+  }
+  return { bars: 1, steps: steps, step_vel: vel }
+}
+
+// An empty slot falls back to the track's main pattern, so silence in a scene is a clip with no hits.
+fn restSlotLines(trackId, scene) {
+  return ["clip rest channel " + trackId + " bars 1", "  steps . . . . . . . . . . . . . . . .", "session_slot " + trackId + " " + String(scene) + " rest"]
+}
+
+// A scene part key → a track id: a real track id, or a spec id from that deck's arrange (codj.state.decks[deck]),
+// else from the last arrange (codj.state.ids).
+fn resolveTrackKey(kit, key, deck) {
+  let k = String(key)
+  if (findChannelById(kit.mirror.project(), k)) {
+    return k
+  }
+  let pools = []
+  if (deck !== null && kit.state && kit.state.decks && kit.state.decks[deck]) {
+    pools.push(kit.state.decks[deck])
+  }
+  if (kit.state && kit.state.ids) {
+    pools.push(kit.state.ids)
+  }
+  let i = 0
+  while (i < pools.length) {
+    let ids = pools[i]
+    if (ids[k] && findChannelById(kit.mirror.project(), String(ids[k]))) {
+      return String(ids[k])
+    }
+    i = i + 1
+  }
+  return null
+}
+
+// Clip #n of a track's numbered bank (codj.clips) has the id c<n>.
+fn numberedClipId(n) {
+  return "c" + String(Math.floor(Number(n)))
+}
+
+defineCommand({
+  name: "clips", tool: "set_clips", readOnly: false,
+  description: "Host: give a track its numbered clips — the short patterns (1, 2 or 4 bars) a song is composed from in Session mode, like the clip slots a producer fills before arranging scenes. list[i] becomes clip #(i+1): a library beat or sequence id (codj.library('beat').filter(b => b.role === 'kick')), or a ClipSpec {beat?, sequence?, root?, steps?, notes?, bars?, name?}. Write 2–4 per track that differ in a way a listener hears (sparse / full / busy / a fill; root riff / answer phrase / held chords). Then codj.scene(n, { kick: 1, hat: 2, bass: 1 }) picks which number each track plays in each scene. Writes the bank only — nothing changes until a scene uses them. key is a track id or a spec id from arrange; opts.deck as in scene.",
+  params: [{ name: "track", ts: "string", schema: { type: "string" }, description: "track id or arrange spec id" }, { name: "list", ts: "(string | ClipSpec)[]", schema: { type: "array" }, description: "clip #1, #2, …" }, AT_PARAM],
+  returns: "WriteResult & { trackId: string; clips: string[] }", example: "codj.clips('kick', ['four-on-the-floor', { steps: 'x.......x.......' }, 'garage-kick'])",
+  run: (kit, a) => {
+    let deck = a.opts && a.opts.deck ? deckLetter(a.opts.deck) : null
+    let tid = resolveTrackKey(kit, a.track, deck)
+    if (tid === null) {
+      throw new Error("clips: no track '" + String(a.track) + "' — use a track id, or a spec id from arrange (codj.state.ids)")
+    }
+    let ch = requireTrack(kit, tid)
+    let list = Array.isArray(a.list) ? a.list : []
+    if (list.length === 0) {
+      throw new Error("clips: give at least one pattern")
+    }
+    let lines = []
+    let ids = []
+    let i = 0
+    while (i < list.length) {
+      let v = list[i]
+      let s = null
+      if (typeof v === "string") {
+        let e = libraryEntry(v)
+        if (e === null) {
+          throw new Error("clips: unknown library id '" + v + "' — codj.library('beat') / codj.library('sequence')")
+        }
+        s = expandSpec(e.kind === "sequence" ? { sequence: v } : { beat: v })
+        if (!s.name) {
+          s.name = v
+        }
+      } else {
+        s = expandSpec(v !== null && typeof v === "object" ? v : {})
+      }
+      let bars = s.bars !== null && s.bars !== undefined ? Math.floor(Number(s.bars)) : 1
+      if (bars > 4) {
+        throw new Error("clips: #" + String(i + 1) + " is " + String(bars) + " bars — keep clips short (1, 2 or 4 bars) and build length from scenes")
+      }
+      let cid = numberedClipId(i + 1)
+      lines = lines.concat(clipBlockLines(ch, cid, s))
+      ids.push(cid)
+      i = i + 1
+    }
+    let r = optWrite(kit, lines.join("\n"), a.opts)
+    r.trackId = tid
+    r.clips = ids
+    return r
+  }
+})
+
+defineCommand({
+  name: "scene", tool: "set_scene", readOnly: false,
+  description: "Host: build one whole session column (scene n, 0-based) in one call. parts maps a track — its id, or its spec id from arrange (codj.state.ids) — to what it plays in this scene: a clip number from codj.clips (1, 2, 3 — the way to compose: pick a different number per scene), true (the track's own pattern), a library beat or sequence id ('four-on-the-floor', 'root-fifth'), a ClipSpec {beat?, sequence?, root?, steps?, notes?, bars?, clip?}, or null (silent). Every track you own ON THE SAME DECK that parts leaves out is silent in this scene, so each scene is a real arrangement: an intro with only kick and hat, a break with only the pad. name labels the clips (it becomes the clip id). opts.deck picks which song's ids to use when you run two decks. Grows the session if n is past the last scene.",
+  params: [{ name: "scene", ts: "number", schema: { type: "number" }, description: "scene index (0-based)" }, { name: "parts", ts: "Record<string, number | true | string | ClipSpec | null>", schema: { type: "object" }, description: "track → what it plays in this scene" }, { name: "name", ts: "string", schema: { type: "string" }, description: "scene label, e.g. 'intro'", optional: true }, AT_PARAM],
+  returns: "WriteResult & { scene: number; clips: number }", example: "codj.scene(1, { kick: 1, hat: 2, bass: 1 }, 'groove')",
+  run: (kit, a) => {
+    let n = sceneIndex(a.scene)
+    let parts = a.parts !== null && typeof a.parts === "object" ? a.parts : {}
+    let label = a.name ? slugToken(String(a.name).toLowerCase()) : "p" + String(n + 1)
+    let lines = []
+    if (n >= sceneCountOf(kit)) {
+      lines.push("session_scenes " + String(n + 1))
+    }
+    let used = []
+    let clips = 0
+    let keys = Object.keys(parts)
+    let deck = a.opts && a.opts.deck ? deckLetter(a.opts.deck) : null
+    let i = 0
+    while (i < keys.length) {
+      let tid = resolveTrackKey(kit, keys[i], deck)
+      if (deck === null && tid !== null) {
+        deck = channelDeck(kit.mirror.project(), findChannelById(kit.mirror.project(), tid))
+      }
+      if (tid === null) {
+        throw new Error("scene " + String(n) + ": no track '" + keys[i] + "' — use a track id, or a spec id from arrange (codj.state.ids)")
+      }
+      used.push(tid)
+      let v = parts[keys[i]]
+      if (v === null || v === undefined || v === false) {
+        lines = lines.concat(restSlotLines(tid, n))
+      } else if (typeof v === "number") {
+        let nch = requireTrack(kit, tid)
+        let ncid = numberedClipId(v)
+        if (!(Array.isArray(nch.sessionClips) && nch.sessionClips.some((c) => String(c.id) === ncid))) {
+          throw new Error("scene " + String(n) + ": " + nch.name + " has no clip #" + String(v) + " — write its numbered clips with codj.clips('" + keys[i] + "', [...]) first")
+        }
+        lines.push("session_slot " + tid + " " + String(n) + " " + ncid)
+        clips = clips + 1
+      } else {
+        let ch = requireTrack(kit, tid)
+        let s = null
+        if (v === true) {
+          s = clipSpecFromTrack(ch)
+        } else if (typeof v === "string") {
+          let e = libraryEntry(v)
+          s = expandSpec(e !== null && e.kind === "sequence" ? { sequence: v } : { beat: v })
+        } else {
+          s = expandSpec(v)
+        }
+        let cid = s.clip ? slugToken(s.clip) : label
+        lines = lines.concat(clipBlockLines(ch, cid, s))
+        lines.push("session_slot " + tid + " " + String(n) + " " + cid)
+        clips = clips + 1
+      }
+      i = i + 1
+    }
+    let owned = deck !== null ? ownedOnDeck(kit, deck) : runTool(kit, "list_owned", {})
+    let j = 0
+    while (j < owned.length) {
+      if (used.indexOf(owned[j]) < 0) {
+        lines = lines.concat(restSlotLines(owned[j], n))
+      }
+      j = j + 1
+    }
+    let r = optWrite(kit, lines.join("\n"), a.opts)
+    if (r.sent !== false && a.name && kit.state && typeof kit.state === "object") {
+      if (!kit.state.sceneNames || typeof kit.state.sceneNames !== "object") {
+        kit.state.sceneNames = {}
+      }
+      kit.state.sceneNames[(deck !== null ? deck : "") + String(n)] = String(a.name)
+    }
+    r.scene = n
+    r.clips = clips
+    return r
+  }
+})
+
+// ---- cue: listen before you commit ---------------------------------------------------------------------------
+
+// What a part is, from its instrument and name: the role a listener hears and the band it sits in.
+fn partRole(ch) {
+  let s = (String(ch.macroName ? ch.macroName : generatorIdToTpl(ch.generatorId ? ch.generatorId : "basicOsc")) + " " + String(ch.name)).toLowerCase()
+  let has = (w) => s.indexOf(w) >= 0
+  if (has("kick")) { return "kick" }
+  if (has("bass") || has("808") || has("sub") || has("reese")) { return "bass" }
+  if (has("hat") || has("shaker") || has("cym") || has("ride") || has("noise")) { return "hat" }
+  if (has("clap") || has("snare") || has("rim")) { return "clap" }
+  if (has("perc") || has("tom") || has("conga") || has("drum")) { return "perc" }
+  if (has("pad") || has("chord") || has("key") || has("piano") || has("rhodes") || has("organ") || has("string") || has("choir")) { return "chords" }
+  if (has("vox") || has("vocal") || has("voice")) { return "vocal" }
+  return "lead"
+}
+
+fn medianPitch(notes) {
+  if (notes.length === 0) {
+    return null
+  }
+  let ps = notes.map((n) => Number(n.pitch)).sort((x, y) => x - y)
+  return ps[Math.floor(ps.length / 2)]
+}
+
+fn partBand(role, notes) {
+  if (role === "kick" || role === "bass") { return "low" }
+  if (role === "hat") { return "high" }
+  if (role === "clap" || role === "perc") { return "mid" }
+  let m = medianPitch(notes)
+  if (m !== null && m < 48) { return "low" }
+  if (m !== null && m >= 76) { return "high" }
+  return "mid"
+}
+
+// {steps: bool[], notes: [{pitch, start}], bars} from a clip, a channel, or a ClipSpec.
+fn patternOf(src) {
+  if (src === null || src === undefined) {
+    return { steps: [], notes: [], bars: 1 }
+  }
+  let bars = src.bars !== null && src.bars !== undefined ? Math.max(1, Math.floor(Number(src.bars))) : (src.patternBars ? Math.max(1, Math.floor(Number(src.patternBars))) : 1)
+  let st = src.steps
+  let steps = []
+  if (typeof st === "string") {
+    let t = st.replace(/\s+/g, "")
+    let i = 0
+    while (i < t.length) {
+      steps.push(t.charAt(i) === "x" || t.charAt(i) === "X")
+      i = i + 1
+    }
+  } else if (Array.isArray(st)) {
+    steps = st.map((x) => x === true || (x !== null && typeof x === "object" && x.on === true))
+  }
+  let raw = Array.isArray(src.pianoNotes) && src.pianoNotes.length > 0 ? src.pianoNotes : (Array.isArray(src.notes) ? src.notes : [])
+  let notes = raw.map((n) => ({ pitch: Number(n.pitch), start: n.startBeat !== undefined ? n.startBeat : n.start }))
+  return { steps: steps, notes: notes, bars: bars }
+}
+
+fn hitsPerBar(pat) {
+  let hits = pat.notes.length > 0 ? pat.notes.length : pat.steps.filter((x) => x).length
+  let bars = pat.notes.length > 0 ? pat.bars : Math.max(1, Math.ceil(pat.steps.length / 16))
+  return Math.round((hits / bars) * 10) / 10
+}
+
+// What track t plays in scene n of the session ("" = its own pattern, "rest" = silent).
+fn slotPattern(p, t, n) {
+  let ch = p.channels[t]
+  let slot = p.session && p.session.slots && p.session.slots[t] ? p.session.slots[t][n] : null
+  let id = slot !== null && slot !== undefined ? String(slot) : ""
+  if (id === "rest") {
+    return null
+  }
+  let clip = id.length > 0 && Array.isArray(ch.sessionClips) ? ch.sessionClips.find((c) => String(c.id) === id) : null
+  if (clip) {
+    let pat = patternOf(clip)
+    pat.clip = id
+    return pat
+  }
+  let own = patternOf(ch)
+  own.clip = "main"
+  return own
+}
+
+fn cueReport(parts) {
+  let playing = parts.filter((x) => x.hits > 0)
+  let bands = { low: [], mid: [], high: [] }
+  let roles = {}
+  let total = 0
+  playing.forEach((x) => {
+    bands[x.band].push(x.name)
+    roles[x.role] = (roles[x.role] ? roles[x.role] : []).concat([x.name])
+    total = total + x.hits
+  })
+  let warnings = []
+  if (playing.length === 0) {
+    warnings.push("silence — nothing plays")
+  }
+  if (playing.length >= 8) {
+    warnings.push(String(playing.length) + " parts at once — a mix rarely holds more than 5–6; take parts out")
+  } else if (playing.length === 7) {
+    warnings.push("7 parts at once — crowded; drop one before you add one")
+  }
+  if (bands.low.length >= 3) {
+    warnings.push("low end: " + bands.low.join(", ") + " — mud; one kick and one bass own the low end")
+  }
+  if (bands.mid.length >= 4) {
+    warnings.push("mid range: " + bands.mid.join(", ") + " — they mask each other; thin one out or move it an octave")
+  }
+  Object.keys(roles).forEach((r) => {
+    if (roles[r].length >= 2 && r !== "perc") {
+      warnings.push("two " + r + " parts: " + roles[r].join(", ") + " — they fight; keep one, or give them different scenes")
+    }
+  })
+  if (total > 64) {
+    warnings.push(String(Math.round(total)) + " hits a bar — very busy")
+  }
+  playing.forEach((x) => {
+    if (x.role !== "hat" && x.hits > 12) {
+      warnings.push(x.name + " plays " + String(x.hits) + " hits a bar — busy for a " + x.role)
+    }
+  })
+  let verdict = "balanced"
+  if (playing.length === 0) {
+    verdict = "silent"
+  } else if (playing.length >= 8 || bands.low.length >= 3 || total > 80 || warnings.length >= 3) {
+    verdict = "cluttered"
+  } else if (warnings.length > 0) {
+    verdict = "busy"
+  } else if (playing.length <= 2) {
+    verdict = "sparse"
+  }
+  return { verdict: verdict, parts: playing.length, hitsPerBar: Math.round(total * 10) / 10, bands: bands, warnings: warnings, playing: playing }
+}
+
+defineCommand({
+  name: "cue", tool: "cue_listen", readOnly: true,
+  description: "Listen in the headphones before you commit, like a DJ on the cue button. Reports how a session scene sounds — every part playing (role, band, hits a bar, clip), the low / mid / high bands, warnings (too many parts, mud in the low end, two leads fighting, too busy) and a verdict: silent | sparse | balanced | busy | cluttered. opts: {scene? (default: the scene you last launched on deck), deck?, change?}. change previews a change WITHOUT sending it, with the same values as codj.scene parts: { hook: null } takes a part out, { hat: 3 } swaps its clip, { keys: { gen: 'pad', sequence: 'axis-min7' } } adds a new part. The result also has before (the scene as it is) so you can compare. If the verdict after a change is busy or cluttered, do not add — take something away or move it to another scene.",
+  params: [{ name: "opts", ts: "{ scene?: number; deck?: string; change?: Record<string, number | true | string | ClipSpec | TrackSpec | null> }", schema: { type: "object" }, description: "what to listen to", optional: true }],
+  returns: "CueReport", example: "codj.cue({ deck: 'B', change: { keys: { gen: 'pad', sequence: 'axis-min7' } } }).verdict",
+  run: (kit, a) => {
+    let o = a.opts ? a.opts : {}
+    let p = kit.mirror.project()
+    let me = kit.mirror.me().actorId
+    let deck = o.deck ? deckLetter(o.deck) : null
+    let now = kit.state && kit.state.nowScene ? kit.state.nowScene : {}
+    let scene = o.scene !== null && o.scene !== undefined ? Math.floor(Number(o.scene)) : (deck !== null && now[deck] !== undefined ? now[deck] : (now["*"] !== undefined ? now["*"] : 0))
+    let base = []
+    let t = 0
+    while (t < p.channels.length) {
+      let ch = p.channels[t]
+      if (deck === null || channelDeck(p, ch) === deck) {
+        let pat = slotPattern(p, t, scene)
+        let role = partRole(ch)
+        base.push({ trackId: String(ch.id), name: String(ch.name), mine: ownerOf(p, ch.id) === me, role: role, band: partBand(role, pat ? pat.notes : []), clip: pat ? pat.clip : "rest", hits: pat ? hitsPerBar(pat) : 0, muted: ch.mute === true })
+      }
+      t = t + 1
+    }
+    base = base.filter((x) => !x.muted)
+    let before = cueReport(base)
+    if (!o.change) {
+      before.scene = scene
+      before.deck = deck
+      return before
+    }
+    let after = base.map((x) => Object.assign({}, x))
+    let keys = Object.keys(o.change)
+    let i = 0
+    while (i < keys.length) {
+      let key = keys[i]
+      let v = o.change[key]
+      let tid = resolveTrackKey(kit, key, deck)
+      let row = tid !== null ? after.find((x) => x.trackId === tid) : null
+      if (v === null || v === false) {
+        if (row) {
+          row.hits = 0
+          row.clip = "rest"
+        }
+      } else if (row) {
+        let ch = findChannelById(p, tid)
+        let pat = null
+        if (typeof v === "number") {
+          let clip = Array.isArray(ch.sessionClips) ? ch.sessionClips.find((c) => String(c.id) === numberedClipId(v)) : null
+          pat = clip ? patternOf(clip) : null
+          row.clip = numberedClipId(v)
+        } else if (v === true) {
+          pat = patternOf(ch)
+          row.clip = "main"
+        } else {
+          let e = typeof v === "string" ? libraryEntry(v) : null
+          pat = patternOf(typeof v === "string" ? expandSpec(e !== null && e.kind === "sequence" ? { sequence: v } : { beat: v }) : expandSpec(v))
+          row.clip = typeof v === "string" ? v : "new"
+        }
+        row.hits = pat ? hitsPerBar(pat) : 0
+        row.band = partBand(row.role, pat ? pat.notes : [])
+      } else if (typeof v === "object") {
+        let s = expandSpec(v)
+        let pat = patternOf(s)
+        let nm = s.name ? String(s.name) : key
+        let role = partRole({ name: nm + " " + key, macroName: s.gen ? String(s.gen) : null, generatorId: "basicOsc" })
+        after.push({ trackId: key, name: nm, mine: true, role: role, band: partBand(role, pat.notes), clip: "new", hits: hitsPerBar(pat), muted: false })
+      } else {
+        throw new Error("cue: no track '" + key + "' — try a new part as an object {gen, beat | sequence | steps | notes}")
+      }
+      i = i + 1
+    }
+    let res = cueReport(after)
+    res.scene = scene
+    res.deck = deck
+    res.before = { verdict: before.verdict, parts: before.parts, hitsPerBar: before.hitsPerBar, warnings: before.warnings }
+    return res
+  }
+})
+
+defineCommand({
+  name: "session", tool: "get_session", readOnly: true,
+  description: "The session grid: scenes (column count), deck (the deck your first track is on, or null), rows [{trackId, name, mine, deck, slots: clipId per scene ('' when silent or only its default pattern), clips: the track's clip bank — every clip you can launchClip}], filled (how many of YOUR tracks play in each scene), decks ({B: {tracks, filled}} for each deck you have tracks on), and free (decks you may load a song onto: yours, and decks no other player holds).",
+  params: [], returns: "SessionGrid", example: "codj.session().filled",
+  run: (kit, a) => {
+    let p = kit.mirror.project()
+    let me = kit.mirror.me().actorId
+    let sc = p.session && p.session.sceneCount !== null ? Math.floor(Number(p.session.sceneCount)) : 4
+    let slots = p.session && Array.isArray(p.session.slots) ? p.session.slots : []
+    let filled = []
+    let s0 = 0
+    while (s0 < sc) {
+      filled.push(0)
+      s0 = s0 + 1
+    }
+    let deck = null
+    let rows = []
+    let decks = {}
+    let taken = {}
+    let t = 0
+    let chs = p.channels ? p.channels : []
+    while (t < chs.length) {
+      let ch = chs[t]
+      let mine = ownerOf(p, ch.id) === me
+      let row = []
+      let s = 0
+      while (s < sc) {
+        let v = slots[t] && slots[t][s] ? String(slots[t][s]) : ""
+        let real = v.length > 0 && v !== String(ch.id) + "_main" && findClipOnChannelId(ch, v)
+        row.push(real ? v : "")
+        if (real && mine) {
+          filled[s] = filled[s] + 1
+        }
+        s = s + 1
+      }
+      let d = channelDeck(p, ch)
+      if (mine && deck === null) {
+        deck = d
+      }
+      if (mine) {
+        if (!decks[d]) {
+          decks[d] = { tracks: [], filled: filled.map((x) => 0) }
+        }
+        decks[d].tracks.push(String(ch.id))
+        let s2 = 0
+        while (s2 < sc) {
+          if (row[s2].length > 0) {
+            decks[d].filled[s2] = decks[d].filled[s2] + 1
+          }
+          s2 = s2 + 1
+        }
+      } else {
+        taken[d] = true
+      }
+      let bank = Array.isArray(ch.sessionClips) ? ch.sessionClips.map((c) => String(c.id)).filter((id) => id !== "rest" && id !== String(ch.id) + "_main") : []
+      rows.push({ trackId: String(ch.id), name: String(ch.name), mine: mine, deck: d, slots: row, clips: bank })
+      t = t + 1
+    }
+    let players = Array.isArray(p.coDjPlayers) ? p.coDjPlayers.map((x) => String(x)) : []
+    let myIdx = players.indexOf(String(me))
+    let free = []
+    let letters = ["A", "B", "C", "D"]
+    let k = 0
+    while (k < 4) {
+      let L = letters[k]
+      if ((k === myIdx || k >= players.length) && !taken[L]) {
+        free.push(L)
+      }
+      k = k + 1
+    }
+    return { scenes: sc, deck: deck, rows: rows, filled: filled, decks: decks, free: free }
+  }
+})
+
+// The clip exists on the track and plays something (a rest clip has no hits and no notes).
+fn findClipOnChannelId(ch, clipId) {
+  let list = Array.isArray(ch.sessionClips) ? ch.sessionClips : []
+  let i = 0
+  while (i < list.length) {
+    let c = list[i]
+    if (String(c.id) === clipId) {
+      if (Array.isArray(c.pianoNotes) && c.pianoNotes.length > 0) {
+        return true
+      }
+      let st = Array.isArray(c.steps) ? c.steps : []
+      return st.some((s) => s === true || (s !== null && s.on === true))
+    }
+    i = i + 1
+  }
+  return false
+}
+
+defineCommand({
+  name: "play", tool: "transport_play", readOnly: false,
+  description: "Host: start the shared transport. 'song' plays the launched session; 'sequence' (or 'seq') plays the rack you are editing.",
+  params: [{ name: "mode", ts: "string", schema: { type: "string" }, description: "song | sequence", optional: true }, AT_PARAM],
+  returns: "WriteResult", example: "codj.play('song')",
+  run: (kit, a) => optWrite(kit, transportPlayDirective(a.mode !== null ? a.mode : "song"), a.opts)
+})
+
+defineCommand({
+  name: "stop", tool: "transport_stop", readOnly: false,
+  description: "Host: stop the shared transport.",
+  params: [AT_PARAM],
+  returns: "WriteResult", example: "codj.stop()",
+  run: (kit, a) => optWrite(kit, "@ transport stop", a.opts)
+})
+
+defineCommand({
+  name: "crossfade", tool: "crossfade", readOnly: false,
+  description: "Host: move the 4-way fader. x is left-right (0 = deck A, 1 = deck B, 0.5 = both). y is top-bottom (0 = decks A/B, 1 = decks C/D, 0.5 = both). Equal-power, so the center is full and a corner is one deck.",
+  params: [{ name: "x", ts: "number", schema: { type: "number" }, description: "0..1, A toward B" }, { name: "y", ts: "number", schema: { type: "number" }, description: "0..1, top toward bottom" }, AT_PARAM],
+  returns: "WriteResult", example: "codj.crossfade(0.5, 0)",
+  run: (kit, a) => {
+    let x = Number(a.x)
+    let y = a.y !== null ? Number(a.y) : 0.5
+    if (x !== x) {
+      x = 0.5
+    }
+    if (y !== y) {
+      y = 0.5
+    }
+    return optWrite(kit, "xfade " + String(x) + " " + String(y), a.opts)
+  }
+})
+
+defineCommand({
+  name: "booth", tool: "booth", readOnly: false,
+  description: "Host: one deck's booth strip. deck is 'A'|'B'|'C'|'D'. spec: {hi, mid, lo} in dB (-12..12), flt (-1..0 closes a lowpass; 0 is open), vol (0..1). This is the mixer EQ and filter for every track on that deck, separate from a track's own fx/cutoff.",
+  params: [{ name: "deck", ts: "string", schema: { type: "string" }, description: "A | B | C | D" }, { name: "spec", ts: "BoothSpec", schema: { type: "object" }, description: "{hi, mid, lo, flt, vol}" }, AT_PARAM],
+  returns: "WriteResult", example: "codj.booth('A', { lo: 1, mid: -1, hi: 2, flt: -0.35, vol: 0.9 })",
+  run: (kit, a) => {
+    let deck = String(a.deck !== null ? a.deck : "A").toUpperCase()
+    if (deck !== "A" && deck !== "B" && deck !== "C" && deck !== "D") {
+      throw new Error("booth deck must be A, B, C or D")
+    }
+    let s = a.spec !== null ? a.spec : {}
+    let cur = kit.mirror.project().deckEq && kit.mirror.project().deckEq[deck] ? kit.mirror.project().deckEq[deck] : { hi: 0, mid: 0, lo: 0, flt: 0, vol: 1 }
+    let hi = numOr(s.hi, numOr(cur.hi, 0))
+    let mid = numOr(s.mid, numOr(cur.mid, 0))
+    let lo = numOr(s.lo, numOr(cur.lo, 0))
+    let flt = numOr(s.flt, numOr(cur.flt, 0))
+    let vol = numOr(s.vol, numOr(cur.vol, 1))
+    return optWrite(kit, "deck_mix " + deck + " hi " + String(hi) + " mid " + String(mid) + " lo " + String(lo) + " flt " + String(flt) + " vol " + String(vol), a.opts)
+  }
+})
+
+defineCommand({
+  name: "throwFx", tool: "throw_fx", readOnly: false,
+  description: "Host: punch a master effect on the whole mix, then release it. type 'echo' (params {time in seconds <=2, fb 0..0.9}) or 'filter' (params {freq in Hz}; on closes the master lowpass, off opens it back to full). This is a performance throw, not a track send. On for a bar or two of a build, off into the drop.",
+  params: [{ name: "type", ts: "string", schema: { type: "string" }, description: "echo | filter" }, { name: "on", ts: "boolean", schema: { type: "boolean" }, description: "engage or release" }, { name: "params", ts: "FxThrow", schema: { type: "object" }, description: "{time, fb} or {freq}", optional: true }, AT_PARAM],
+  returns: "WriteResult", example: "codj.throwFx('echo', true, { time: 0.375, fb: 0.55 })",
+  run: (kit, a) => optWrite(kit, fxDirective(a.type !== null ? a.type : "echo", a.on !== false, a.params !== null ? a.params : {}), a.opts)
+})
+
+let CORNERS = { A: [0, 0], B: [1, 0], C: [0, 1], D: [1, 1] }
+
+// The deck whose corner the 4-way fader is nearest to.
+fn faderDeck(p) {
+  let x = typeof p.transportCrossfade === "number" ? p.transportCrossfade : 0
+  let y = typeof p.transportCrossfadeY === "number" ? p.transportCrossfadeY : 0
+  let best = "A"
+  let bestD = 99
+  let letters = ["A", "B", "C", "D"]
+  letters.forEach((d) => {
+    let c = CORNERS[d]
+    let dist = (c[0] - x) * (c[0] - x) + (c[1] - y) * (c[1] - y)
+    if (dist < bestD) {
+      bestD = dist
+      best = d
+    }
+  })
+  return best
+}
+
+fn boothLine(p, deck, patch) {
+  let cur = p.deckEq && p.deckEq[deck] ? p.deckEq[deck] : { hi: 0, mid: 0, lo: 0, flt: 0, vol: 1 }
+  let v = (k, d) => numOr(patch[k], numOr(cur[k], d))
+  return "deck_mix " + deck + " hi " + String(v("hi", 0)) + " mid " + String(v("mid", 0)) + " lo " + String(v("lo", 0)) + " flt " + String(v("flt", 0)) + " vol " + String(v("vol", 1))
+}
+
+fn round3(v) {
+  return Math.round(v * 1000) / 1000
+}
+
+defineCommand({
+  name: "blend", tool: "blend_decks", readOnly: false,
+  description: "Host: schedule a whole transition ahead of time, the way a DJ cues the next record and knows the bar it comes in on. Once called, every step lands on time by itself — nothing else has to run. opts: {bar (absolute bar the mix starts on; default the next 8-bar phrase at least 8 bars away), bars (4..64, default 16), style: 'blend' (incoming intro with its bass cut, the fader glides corner to corner, the bass swaps halfway, the outgoing deck stops at the end) | 'cut' (switch on the one) | 'echo' (the outgoing song echoes out over the cut), scene (incoming scene to start on, default 0), swapScene (incoming scene at the bass swap, default 1; -1 keeps the first), from (default: the deck the fader sits on)}. Build and cue the incoming song on its deck first; it stays silent until the bar. Returns the plan and records it on codj.state.blend.",
+  params: [{ name: "to", ts: "string", schema: { type: "string" }, description: "incoming deck A | B | C | D" }, { name: "opts", ts: "{ bar?: number; bars?: number; style?: 'blend' | 'cut' | 'echo'; scene?: number; swapScene?: number; from?: string }", schema: { type: "object" }, description: "when and how", optional: true }],
+  returns: "{ from: string; to: string; style: string; startBar: number; swapBar: number | null; endBar: number; writes: number }", example: "codj.blend('B', { bar: 96, bars: 16, style: 'blend' })",
+  run: (kit, a) => {
+    let to = deckLetter(a.to)
+    let o = a.opts ? a.opts : {}
+    let p = kit.mirror.project()
+    let from = o.from ? deckLetter(o.from) : faderDeck(p)
+    if (from === to) {
+      throw new Error("blend: deck " + to + " is already the one the fader is on — pass opts.from, or blend to another deck")
+    }
+    let clock = kit.mirror.clock()
+    let style = o.style === "cut" || o.style === "echo" ? String(o.style) : "blend"
+    let bars = style === "blend" ? Math.max(4, Math.min(64, Math.floor(numOr(o.bars, 16)))) : 1
+    let scene = Math.max(0, Math.floor(numOr(o.scene, 0)))
+    let swapScene = Math.floor(numOr(o.swapScene, 1))
+    let a0 = CORNERS[from]
+    let b0 = CORNERS[to]
+    let writes = 0
+    let at = (src, step) => {
+      optWrite(kit, src, step === null ? { at: "now" } : { at: step })
+      writes = writes + 1
+    }
+    let soonest = Math.floor(clock.bar / 8) * 8 + 8
+    if (soonest - clock.bar < 8) {
+      soonest = soonest + 8
+    }
+    let startBar = o.bar !== null && o.bar !== undefined ? Math.max(clock.bar + 1, Math.floor(Number(o.bar))) : soonest
+    let record = (plan) => {
+      if (kit.state && typeof kit.state === "object") {
+        kit.state.blend = plan
+        if (!kit.state.nowScene || typeof kit.state.nowScene !== "object") {
+          kit.state.nowScene = {}
+        }
+        kit.state.nowScene[to] = scene
+      }
+      return plan
+    }
+    if (!clock.playing) {
+      at(boothLine(p, to, { lo: 0 }), null)
+      at("@ launch scene " + String(scene) + " deck " + to, null)
+      at("xfade " + String(b0[0]) + " " + String(b0[1]), null)
+      at("@ launch deck " + from + " stop", null)
+      return record({ from: from, to: to, style: "cut", startBar: clock.bar, swapBar: null, endBar: clock.bar, writes: writes })
+    }
+    let s0 = startBar * 16
+    let swapBar = null
+    let endBar = startBar + bars
+    if (style === "blend") {
+      at(boothLine(p, to, { lo: -12 }), Math.max(clock.perfStep + 1, s0 - 4))
+      at("@ launch scene " + String(scene) + " deck " + to, s0)
+      let n = Math.max(2, Math.min(8, Math.floor(bars / 2)))
+      let k = 1
+      while (k <= n) {
+        let t = k / n
+        at("xfade " + String(round3(a0[0] + (b0[0] - a0[0]) * t)) + " " + String(round3(a0[1] + (b0[1] - a0[1]) * t)), s0 + Math.floor((bars * 16 * k) / n))
+        k = k + 1
+      }
+      swapBar = startBar + Math.floor(bars / 2)
+      at(boothLine(p, to, { lo: 0 }), swapBar * 16)
+      at(boothLine(p, from, { lo: -12 }), swapBar * 16)
+      if (swapScene >= 0 && swapScene !== scene) {
+        at("@ launch scene " + String(swapScene) + " deck " + to, swapBar * 16)
+      }
+      at("@ launch deck " + from + " stop", endBar * 16)
+      at(boothLine(p, from, { lo: 0 }), endBar * 16 + 1)
+    } else {
+      if (style === "echo") {
+        at(fxDirective("echo", true, { time: 0.375, fb: 0.6 }), s0 - 16)
+        at(fxDirective("echo", false, {}), s0 + 32)
+      }
+      at(boothLine(p, to, { lo: 0 }), Math.max(clock.perfStep + 1, s0 - 4))
+      at("@ launch scene " + String(scene) + " deck " + to, s0)
+      at("xfade " + String(b0[0]) + " " + String(b0[1]), s0)
+      at("@ launch deck " + from + " stop", s0 + 16)
+    }
+    return record({ from: from, to: to, style: style, startBar: startBar, swapBar: swapBar, endBar: endBar, writes: writes })
+  }
+})
+
+defineCommand({
+  name: "say", tool: "say", readOnly: false,
+  description: "Chat to the room; `to` (actorId or display name) addresses one co-DJ.",
+  params: [{ name: "text", ts: "string", schema: { type: "string" }, description: "message" }, { name: "to", ts: "string", schema: { type: "string" }, description: "recipient", optional: true }],
+  returns: "void", example: "codj.say('dropping a hat pattern on bar 9')",
+  run: (kit, a) => {
+    kit.say(String(a.text), a.to !== null ? String(a.to) : null)
+    return null
+  }
+})
+
+// ---- derived surfaces -------------------------------------------------------------------------------------------
+
+fn isPlainObject(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v)
+}
+
+/** Positional script args → the named-args object a command runs on. A single plain-object arg is taken as the
+ *  named args when the command's first param isn't itself an object (`codj.setSteps({trackId, pattern})` works too). */
+export fn argsFromPositional(cmd, list) {
+  let ps = cmd.params
+  if (list.length === 1 && isPlainObject(list[0]) && ps.length > 0 && ps[0].ts !== "TrackSpec" && ps[0].ts !== "MixSpec") {
+    let k = Object.keys(list[0])
+    let named = true
+    let i = 0
+    while (i < k.length) {
+      if (!ps.some((p) => p.name === k[i])) {
+        named = false
+      }
+      i = i + 1
+    }
+    if (named) {
+      return list[0]
+    }
+  }
+  let out = {}
+  let j = 0
+  while (j < ps.length) {
+    out[ps[j].name] = j < list.length ? list[j] : null
+    j = j + 1
+  }
+  return out
+}
+
+/** The `codj` object a script sees (minus state/log, which the script host adds). */
+export fn scriptApi(kit) {
+  let api = {}
+  let i = 0
+  while (i < COMMANDS.length) {
+    let cmd = COMMANDS[i]
+    api[cmd.name] = (a0, a1, a2, a3) => {
+      let list = [a0, a1, a2, a3]
+      while (list.length > 0 && list[list.length - 1] === null) {
+        list.pop()
+      }
+      return cmd.run(kit, argsFromPositional(cmd, list))
+    }
+    i = i + 1
+  }
+  return api
+}
+
+/** Run a command by tool name (or script name) with named args. */
+export fn runTool(kit, name, args) {
+  let cmd = findCommand(name)
+  if (cmd === null) {
+    throw new Error("unknown tool " + String(name))
+  }
+  return cmd.run(kit, args !== null ? args : {})
+}
+
+/** JSON-schema tool specs (OpenAI/Hypery `function` shape + MCP `inputSchema`). */
+export fn toolSpecs() {
+  return COMMANDS.map((cmd) => {
+    let props = {}
+    let required = []
+    let i = 0
+    while (i < cmd.params.length) {
+      let p = cmd.params[i]
+      let sch = deepClone(p.schema)
+      sch.description = p.description
+      props[p.name] = sch
+      if (p.optional !== true) {
+        required.push(p.name)
+      }
+      i = i + 1
+    }
+    return {
+      name: cmd.tool,
+      scriptName: cmd.name,
+      description: cmd.description,
+      readOnly: cmd.readOnly === true,
+      inputSchema: { type: "object", properties: props, required: required }
+    }
+  })
+}
+
+let DTS_TYPES = [
+  "type TrackSummary = { id: string; name: string; gen: string; owner: string | null; mine: boolean; gain: number; pan: number; mute: boolean; solo: boolean; steps: string; notes: number; bars: number; onDeck: 'A' | 'B' | 'C' | 'D' }",
+  "type CuePart = { trackId: string; name: string; mine: boolean; role: string; band: 'low' | 'mid' | 'high'; clip: string; hits: number }",
+  "type CueReport = { verdict: 'silent' | 'sparse' | 'balanced' | 'busy' | 'cluttered'; parts: number; hitsPerBar: number; bands: { low: string[]; mid: string[]; high: string[] }; warnings: string[]; playing: CuePart[]; scene: number; deck: string | null; before?: { verdict: string; parts: number; hitsPerBar: number; warnings: string[] } }",
+  "type Knob = { knob: string; value: number | string | boolean; base?: number | string | boolean; min?: number; max?: number; unit?: string; label?: string; options?: string[] }",
+  "type Knobs = { trackId: string; gen: string; knobs: Knob[]; fx: { cutoff: number; res: number; drive: number; reverb: number; filter_type: string }; adsr: { a: number; d: number; s: number; r: number } | null }",
+  "type ClipSpec = { clip?: string; scene?: number; name?: string; bars?: number; beat?: string; sequence?: string; root?: number; steps?: string | boolean[]; step_vel?: number[]; notes?: Note[] }",
+  "type SessionGrid = { scenes: number; deck: 'A' | 'B' | 'C' | 'D' | null; rows: { trackId: string; name: string; mine: boolean; deck: string; slots: string[]; clips: string[] }[]; filled: number[]; decks: Record<string, { tracks: string[]; filled: number[] }>; free: string[] }",
+  "type Note = { pitch: number; start: number; dur: number; vel?: number; p?: number; r?: number; n?: number; bar?: string }",
+  "type TrackDetail = TrackSummary & { deck: string; params: Record<string, unknown>; pianoNotes: Note[] }",
+  "type Clock = { perfStep: number; bar: number; beat: number; step: number; bpm: number; playing: boolean }",
+  "type RosterEntry = { actorId: string; displayName: string; kind: 'human' | 'agent'; role: string | null; skillIds: string[] }",
+  "type Room = { me: { actorId: string; displayName: string | null; skillIds: string[]; isHost: boolean }; host: string | null; roster: RosterEntry[]; focus: { actorId: string; trackId: string } | null; sessionId: string | null }",
+  "type Instrument = { gen: string; label: string; kind: 'generator' | 'macro'; description: string }",
+  "type GateReject = { line: string; code: 'SKILL_DENIED' | 'NOT_OWNER' | 'PARSE_FAIL' | 'PRIVATE' | 'LATE'; reason: string }",
+  "type Preview = { accepted: number; rejected: GateReject[]; changes: { trackId: string; change: 'add' | 'edit' | 'remove' }[] }",
+  "type WriteOpts = { at?: 'now' | 'beat' | 'bar' | number; deck?: 'A' | 'B' | 'C' | 'D' }",
+  "type WriteResult = { sent: boolean; at: number | null; accepted: number; rejected: GateReject[] }",
+  "type TrackSpec = { name: string; gen: string; id?: string; steps?: string | boolean[]; notes?: Note[]; gain?: number; pan?: number; params?: Record<string, number | string>; bars?: number }",
+  "type MixSpec = { gain?: number; pan?: number; mute?: boolean; solo?: boolean; eq_lo?: number; eq_mid?: number; eq_hi?: number }",
+  "type CoDjEvent = { type: 'joined' | 'presence' | 'snapshot' | 'deck' | 'chat' | 'edit.result' | 'focus' | 'transport' | 'tick' | 'clock' | 'error' | 'granted'; [k: string]: unknown }",
+  "type ChatMessage = { from: string; fromName: string; text: string; to: string | null; toMe: boolean }",
+  "type HookCtx = { clock: Clock; event?: CoDjEvent }"
+]
+
+/** public/codj.d.ts — the script API an author (or an LLM) codes against. */
+export fn apiDts() {
+  let out = ["// GENERATED by scripts/gen-codj-api.mjs from src/agentkit/Commands.tish — do not edit.", "// The co-DJ script API. A script exports hooks; each gets (codj, ctx).", ""]
+  let ti = 0
+  while (ti < DTS_TYPES.length) {
+    out.push(DTS_TYPES[ti])
+    ti = ti + 1
+  }
+  out.push("")
+  out.push("interface CoDj {")
+  out.push("  /** Persistent memory: survives hot reloads (not process restarts). */")
+  out.push("  state: Record<string, any>;")
+  out.push("  /** Log a line to the co-DJ's log panel / stdout (also readable by its agent). */")
+  out.push("  log(...args: unknown[]): void;")
+  let i = 0
+  while (i < COMMANDS.length) {
+    let c = COMMANDS[i]
+    let ps = c.params.map((p) => p.name + (p.optional === true || p.ts === "WriteOpts" ? "?" : "") + ": " + p.ts).join(", ")
+    out.push("  /** " + c.description + " — e.g. `" + c.example + "` */")
+    out.push("  " + c.name + "(" + ps + "): " + c.returns + ";")
+    i = i + 1
+  }
+  out.push("}")
+  out.push("")
+  out.push("declare const codj: CoDj;")
+  out.push("")
+  out.push("/** Hooks a co-DJ script may export (all optional). Writes made inside onBar land on the NEXT bar. */")
+  out.push("declare function setup(codj: CoDj, ctx: HookCtx): void;")
+  out.push("declare function onBar(codj: CoDj, ctx: HookCtx & { bar: number }): void;")
+  out.push("declare function onBeat(codj: CoDj, ctx: HookCtx & { beat: number }): void;")
+  out.push("declare function onEvent(codj: CoDj, ctx: HookCtx & { event: CoDjEvent }): void;")
+  out.push("declare function onMessage(codj: CoDj, ctx: HookCtx & { message: ChatMessage }): void;")
+  return out.join("\n") + "\n"
+}
+
+/** docs/CODJ_API.md — the human/LLM reference table (the prose lives in the generator's template). */
+export fn apiMarkdownTable() {
+  let out = ["| script | tool | kind | what |", "|---|---|---|---|"]
+  let i = 0
+  while (i < COMMANDS.length) {
+    let c = COMMANDS[i]
+    let sig = "`codj." + c.name + "(" + c.params.map((p) => p.name + (p.optional === true || p.ts === "WriteOpts" ? "?" : "")).join(", ") + ")`"
+    out.push("| " + sig + " | `" + c.tool + "` | " + (c.readOnly === true ? "read" : "write") + " | " + c.description.split("|").join("\\|") + " |")
+    i = i + 1
+  }
+  return out.join("\n") + "\n"
+}

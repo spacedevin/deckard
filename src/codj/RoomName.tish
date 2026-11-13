@@ -1,0 +1,72 @@
+// Two-word room names for the co-DJ gateway. The Room field is filled with one so a session
+// has an id without anyone typing it. The browser remembers the last name in localStorage.
+
+let ADJ = [
+  "velvet", "amber", "neon", "dusty", "silver", "golden", "midnight", "lunar",
+  "cobalt", "crimson", "ivory", "sapphire", "copper", "violet", "indigo", "scarlet",
+  "mossy", "foggy", "rainy", "mellow", "brisk", "gentle", "wild", "quiet",
+  "deep", "bright", "soft", "sharp", "warm", "cool", "hazy", "crystal",
+  "electric", "analog", "hollow", "roaring", "silky", "rusty", "polar", "tropic",
+  "urban", "cosmic", "stellar", "hidden", "late", "early", "slow", "fast",
+  "tiny", "giant", "lucky", "bitter", "sweet", "salty", "pale", "glossy"
+]
+
+let NOUN = [
+  "booth", "groove", "kick", "hat", "bass", "chord", "loop", "phrase",
+  "deck", "fader", "echo", "filter", "room", "stage", "floor", "attic",
+  "cellar", "alley", "harbor", "station", "garden", "plaza", "bridge", "tunnel",
+  "canyon", "river", "coast", "ridge", "meadow", "lantern", "mirror", "window",
+  "radio", "signal", "pulse", "pocket", "chorus", "verse", "drop", "break",
+  "swing", "waltz", "tempo", "needle", "speaker", "cassette", "reel", "piano",
+  "organ", "drum", "snare", "clap", "shaker", "marimba", "horn", "choir"
+]
+
+let STORE_KEY = "deckard.room"
+
+fn pick(list) {
+  return list[Math.floor(Math.random() * list.length)]
+}
+
+fn storage() {
+  try {
+    return globalThis.localStorage
+  } catch (e) {
+    return null
+  }
+}
+
+/** A fresh "adjective noun" room id. */
+export fn freshRoomName() {
+  return pick(ADJ) + " " + pick(NOUN)
+}
+
+/** Remember the room name this browser will offer next time. */
+export fn rememberRoomName(name) {
+  let store = storage()
+  if (!store) {
+    return
+  }
+  try {
+    store.setItem(STORE_KEY, String(name))
+  } catch (e) {
+    return
+  }
+}
+
+/** The saved room name, or a new one (which is then saved). */
+export fn loadOrMakeRoomName() {
+  let store = storage()
+  if (store) {
+    try {
+      let existing = store.getItem(STORE_KEY)
+      if (existing !== null && String(existing).trim().length > 0) {
+        return String(existing).trim()
+      }
+    } catch (e) {
+      return freshRoomName()
+    }
+  }
+  let name = freshRoomName()
+  rememberRoomName(name)
+  return name
+}

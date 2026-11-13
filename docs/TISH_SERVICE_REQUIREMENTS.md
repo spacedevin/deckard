@@ -29,6 +29,7 @@ This document describes the **capabilities the Tish runtime must provide** so th
 ## Running gateway and agent as Tish
 
 - **Gateway**: `tish run services/gateway/main.tish` (with `--features ws`). Listens on port 35987 (or `CODJ_HUB_PORT`).
-- **Agent**: `tish run services/agent-worker/main.tish` (with `--features ws,http,fs,process`). Uses `--lane`, `--hub`, `--session` (argv), env `GRADIENT_MODEL_ACCESS_KEY`, `DO_BASE`, etc.
+- **Co-DJ runner**: built with the JS target (`npm run build:codj-cli` → `services/codj-runner/codj.mjs`) and run on Node, because the agent loop uses `@hyperyai/sdk/agents` and scripts run in `node:vm`. Flags `--gateway`, `--session`, `--role`, `--agent`; env `HYPERY_URL`, `HYPERY_TOKEN`, `HYPERY_MODEL`.
 
-No JavaScript in the service implementations; no Node.
+No hand-written JavaScript in the service implementations; the gateway runs natively, the co-DJ runner and MCP
+server are Tish compiled to JS for Node.

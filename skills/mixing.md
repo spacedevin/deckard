@@ -47,3 +47,16 @@ deck 1
 master_mix eq_lo -1 eq_mid 0 eq_hi 1.5
 actor_mix client-a gain 0.85 eq_mid -2
 ```
+
+## Live booth (host)
+
+The channel strip above is the track. The booth is the deck, and it moves during the set.
+
+- `codj.booth('A', { hi, mid, lo, flt, vol })` — hi/mid/lo in dB on every track on that deck. `flt` 0 is open; a negative value closes a lowpass. `vol` 0..1.
+- `codj.crossfade(x, y)` — the 4-way fader. x blends deck A (0) toward deck B (1); y blends the top pair toward decks C/D. Center is 0.5, 0.5.
+- `codj.throwFx('echo', true, { time, fb })` — master delay on the whole mix. Release with `throwFx('echo', false)`.
+- `codj.throwFx('filter', true, { freq })` — master lowpass sweep. `false` opens it.
+- `codj.set(id, 'gen/<knob>', value)` — the instrument. Read `<knob>` from `codj.preset(id).params`. An 808's `decay` and an acid's `cutoff` are different controls; use the ones that preset actually has.
+- `codj.set(id, 'fx/cutoff', hz)` — the track's own filter, independent of the booth `flt` and the master throw.
+
+Ride one of these every phrase. A mix that is printed once and never touched is a bounce, not a DJ set.
