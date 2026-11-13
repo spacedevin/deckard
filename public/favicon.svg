@@ -1,14 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Deckard">
-  <rect width="32" height="32" fill="#09090d"/>
-  <path fill="#e8945c" fill-rule="evenodd" d="
-    M6.5 5h10c5.9 0 9.8 3.5 9.8 8.7v4.6c0 5.2-3.9 8.7-9.8 8.7h-10V5zm4.4 3.8v14.4h5.4c3.5 0 5.5-2 5.5-5.3v-3.8c0-3.3-2-5.3-5.5-5.3h-5.4z
-  "/>
-  <g fill="#7cff7c">
-    <rect x="13" y="11.1" width="7.4" height="1.15" rx="0.35"/>
-    <rect x="13.5" y="10.55" width="2" height="2.25" rx="0.35"/>
-    <rect x="13" y="15.4" width="7.4" height="1.15" rx="0.35"/>
-    <rect x="17.4" y="14.85" width="2" height="2.25" rx="0.35"/>
-    <rect x="13" y="19.7" width="7.4" height="1.15" rx="0.35"/>
-    <rect x="15.4" y="19.15" width="2" height="2.25" rx="0.35"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Deckard">
+  <defs>
+    <linearGradient id="warm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f7ae74"/>
+      <stop offset="1" stop-color="#de7136"/>
+    </linearGradient>
+    <clipPath id="half">
+      <rect x="27" y="0" width="37" height="64"/>
+    </clipPath>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#0c0b10"/>
+  <rect x="12" y="9" width="12" height="46" rx="3" fill="url(#warm)"/>
+  <path d="M27 9 A23 23 0 0 1 27 55 Z" fill="url(#warm)"/>
+  <g clip-path="url(#half)">
+    <circle cx="27" cy="32" r="14" fill="#0c0b10"/>
+    <circle cx="27" cy="32" r="5" fill="url(#warm)"/>
   </g>
+  <line x1="32" y1="27" x2="38" y2="21" stroke="#7cff7c" stroke-width="3" stroke-linecap="round"/>
+  <rect x="15" y="13" width="6" height="9" rx="1.5" fill="#7cff7c"/>
+  <rect x="15" y="34" width="6" height="9" rx="1.5" fill="#7cff7c"/>
 </svg>

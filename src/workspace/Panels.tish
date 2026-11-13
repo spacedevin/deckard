@@ -1,0 +1,201 @@
+// Panel types + the lens model. A panel instance = { id, type, lens }; a lens says what the panel looks at:
+//
+//   { kind: "follow" }                 your current selection (active deck / selected track)
+//   { kind: "deck",  ref: "A".."D" }   one deck
+//   { kind: "track", ref: <channel id> }
+//   { kind: "peer",  ref: <actorId> }  another performer's booth (their deck)
+//   { kind: "none" }                   global panels (mixer, master, palette…) ignore lenses
+//
+// `pinned` holds a lens in place; an unpinned non-follow lens is retargeted by selection changes.
+
+let TYPES = [
+  { type: "decks", title: "Decks", glyph: "◉", lens: ["follow", "deck", "peer"], about: "Jog, vinyl moves and the channel strip for each deck" },
+  { type: "mixer", title: "Mixer", glyph: "⧉", lens: ["none"], about: "Centre DJ mixer: FX throws and the 4-way fader", unique: true },
+  { type: "instruments", title: "Instruments", glyph: "♒", lens: ["follow", "deck", "track", "peer"], about: "Instrument racks for the deck's tracks" },
+  { type: "sequencer", title: "Sequencer", glyph: "▦", lens: ["follow", "deck", "peer"], about: "Step grid and piano lanes" },
+  { type: "session", title: "Session", glyph: "▤", lens: ["follow", "deck", "peer"], about: "Scene / clip launcher and pattern bank" },
+  { type: "playlist", title: "Arrangement", glyph: "≡", lens: ["none"], about: "Set recorder timeline and replays", unique: true },
+  { type: "codj", title: "Co-DJ", glyph: "✦", lens: ["none"], about: "Room connection, AI co-DJs, chat and activity", keepAlive: true },
+  { type: "deckEditor", title: "Deck code", glyph: "{}", lens: ["none"], about: "The deck text: the source of truth, live", keepAlive: true },
+  { type: "library", title: "Library", glyph: "▥", lens: ["follow", "deck"], about: "Instruments, beats, sequences, kits, stations and sets" },
+  { type: "master", title: "Master & I/O", glyph: "◎", lens: ["none"], about: "Master compressor / reverb, audio devices, MIDI", unique: true },
+  { type: "booths", title: "Booths", glyph: "☍", lens: ["none"], about: "Everyone in the room — peek at their decks" }
+]
+
+export fn panelTypes() {
+  return TYPES
+}
+
+export fn panelType(type) {
+  let i = 0
+  while (i < TYPES.length) {
+    if (TYPES[i].type === type) {
+      return TYPES[i]
+    }
+    i = i + 1
+  }
+  return null
+}
+
+export fn followLens() {
+  return { kind: "follow", ref: null, pinned: false }
+}
+
+export fn noLens() {
+  return { kind: "none", ref: null, pinned: false }
+}
+
+export fn deckLens(letter, pinned) {
+  return { kind: "deck", ref: String(letter).toUpperCase(), pinned: pinned === true }
+}
+
+export fn makePanel(id, type, lens) {
+  let t = panelType(type)
+  let l = lens !== null ? lens : (t !== null && t.lens.indexOf("follow") >= 0 ? followLens() : noLens())
+  return { id: String(id), type: String(type), lens: l }
+}
+
+export fn panelAcceptsLens(type, kind) {
+  let t = panelType(type)
+  return t !== null && t.lens.indexOf(kind) >= 0
+}
+
+/**
+ * Parse what a user types into a lens chip: "a".."d" (deck), "follow" / "f" / "" (follow), "@actor" (peer),
+ * anything else = a track id. Returns null for input that can't be a lens.
+ */
+export fn parseLensInput(text) {
+  let s = String(text === null ? "" : text).trim()
+  let low = s.toLowerCase()
+  if (low.length === 0 || low === "follow" || low === "f" || low === "*") {
+    return followLens()
+  }
+  if (low === "a" || low === "b" || low === "c" || low === "d" || low === "deck a" || low === "deck b" || low === "deck c" || low === "deck d") {
+    return deckLens(low.charAt(low.length - 1), true)
+  }
+  if (s.charAt(0) === "@") {
+    let who = s.substring(1).trim()
+    return who.length > 0 ? { kind: "peer", ref: who, pinned: true } : null
+  }
+  if (s.indexOf(" ") >= 0) {
+    return null
+  }
+  return { kind: "track", ref: s, pinned: true }
+}
+
+/**
+ * Resolve a lens against the current environment:
+ *   env = { activeDeck, selectedCh, channels: [{ id, deck }], peerDecks: { actorId: letter } }
+ * → { deck, chIndex, peerId, label }. Falls back to the follow target when a ref no longer exists.
+ */
+export fn resolveLens(lens, env) {
+  let deck = env.activeDeck !== null ? env.activeDeck : "A"
+  let chIndex = typeof env.selectedCh === "number" ? env.selectedCh : 0
+  let chans = Array.isArray(env.channels) ? env.channels : []
+  let l = lens !== null ? lens : followLens()
+  if (l.kind === "deck" && l.ref !== null) {
+    let first = -1
+    let i = 0
+    while (i < chans.length) {
+      if (first < 0 && chans[i].deck === l.ref) {
+        first = i
+      }
+      i = i + 1
+    }
+    // Keep the selected track when it already lives on this deck; otherwise point at the deck's first track.
+    let selOnDeck = chIndex >= 0 && chIndex < chans.length && chans[chIndex].deck === l.ref
+    return { deck: l.ref, chIndex: selOnDeck ? chIndex : (first >= 0 ? first : chIndex), peerId: null, label: "Deck " + l.ref }
+  }
+  if (l.kind === "track" && l.ref !== null) {
+    let j = 0
+    while (j < chans.length) {
+      if (String(chans[j].id) === String(l.ref)) {
+        return { deck: chans[j].deck !== null ? chans[j].deck : deck, chIndex: j, peerId: null, label: "Track " + l.ref }
+      }
+      j = j + 1
+    }
+    return { deck: deck, chIndex: chIndex, peerId: null, label: "Track " + l.ref + " (gone)" }
+  }
+  if (l.kind === "peer" && l.ref !== null) {
+    let pd = env.peerDecks !== null ? env.peerDecks[l.ref] : null
+    return { deck: pd !== null && pd !== undefined ? pd : deck, chIndex: chIndex, peerId: l.ref, label: "@" + l.ref }
+  }
+  if (l.kind === "none") {
+    return { deck: deck, chIndex: chIndex, peerId: null, label: "" }
+  }
+  return { deck: deck, chIndex: chIndex, peerId: null, label: "Follow · Deck " + deck }
+}
+
+/** Short chip text for a lens ("A", "c3", "@bot", "follow"). */
+export fn lensChipText(lens) {
+  if (lens === null || lens.kind === "follow") {
+    return "follow"
+  }
+  if (lens.kind === "deck") {
+    return "deck " + lens.ref
+  }
+  if (lens.kind === "peer") {
+    return "@" + lens.ref
+  }
+  if (lens.kind === "track") {
+    return lens.ref
+  }
+  return ""
+}
+
+/** CSS custom property for a resolved deck colour ("--deck-a" …), or the neutral accent. */
+export fn deckColorVar(deck) {
+  if (deck === "B") {
+    return "var(--deck-b)"
+  }
+  if (deck === "C") {
+    return "var(--deck-c)"
+  }
+  if (deck === "D") {
+    return "var(--deck-d)"
+  }
+  if (deck === "A") {
+    return "var(--deck-a)"
+  }
+  return "var(--accent-green)"
+}
+
+/** Stable colour for a peer id — one of eight hues, hashed. */
+export fn peerHue(actorId) {
+  let s = String(actorId)
+  let h = 0
+  let i = 0
+  while (i < s.length) {
+    h = (h * 31 + s.charCodeAt(i)) % 360
+    i = i + 1
+  }
+  return h
+}
+
+/**
+ * Deck letter each room actor holds, mirroring coDjOwnDeckLetter's roster order (host first, then the other
+ * actors sorted). Pure: takes the roster rather than the runtime.
+ */
+export fn peerDeckMap(hostId, actors) {
+  let players = []
+  let host = hostId !== null ? String(hostId) : ""
+  if (host.length > 0) {
+    players.push(host)
+  }
+  let sorted = (Array.isArray(actors) ? actors : []).slice().sort()
+  let i = 0
+  while (i < sorted.length && players.length < 4) {
+    if (String(sorted[i]) !== host) {
+      players.push(String(sorted[i]))
+    }
+    i = i + 1
+  }
+  let letters = ["A", "B", "C", "D"]
+  let out = {}
+  let j = 0
+  while (j < players.length) {
+    out[players[j]] = letters[j]
+    j = j + 1
+  }
+  return out
+}

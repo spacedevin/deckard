@@ -1,0 +1,240 @@
+// Focus plumbing for keyboard navigation. Lattish re-renders the whole tree, and a layout change remounts
+// panels, so focus is tracked by stable `data-focus-id` and restored after each commit.
+//
+// Three focus levels: the workspace (panel frames, `.ws-panel[data-panel-id]`), a panel (its controls —
+// arrow keys move spatially between them), and a control that owns its arrows (slider, text field, canvas).
+
+import { nearestInDirection } from '../../workspace/Spatial.tish'
+
+let FOCUSABLE = "button:not([disabled]), [href], input:not([disabled]):not([type=\"hidden\"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"]), [role=\"tab\"], [contenteditable=\"true\"]"
+
+fn doc() {
+  return typeof document !== "undefined" ? document : null
+}
+
+export fn isVisible(el) {
+  if (!el || !el.getClientRects) {
+    return false
+  }
+  if (el.getClientRects().length === 0) {
+    return false
+  }
+  let r = el.getBoundingClientRect()
+  return r.width > 0 && r.height > 0
+}
+
+/** Visible focusable descendants of `root` (excluding root itself), in DOM order. */
+export fn focusablesIn(root) {
+  if (!root || !root.querySelectorAll) {
+    return []
+  }
+  let list = root.querySelectorAll(FOCUSABLE)
+  let out = []
+  let i = 0
+  while (i < list.length) {
+    let el = list[i]
+    if (el !== root && isVisible(el) && !el.closest(".ws-keepalive")) {
+      out.push(el)
+    }
+    i = i + 1
+  }
+  return out
+}
+
+/** True for a field where keys are text (shortcuts without a modifier must not fire). */
+export fn isTypingTarget(el) {
+  if (!el || !el.tagName) {
+    return false
+  }
+  let tag = String(el.tagName).toLowerCase()
+  if (tag === "textarea" || tag === "select" || el.isContentEditable) {
+    return true
+  }
+  if (tag === "input") {
+    let t = el.type ? String(el.type).toLowerCase() : "text"
+    return !(t === "range" || t === "checkbox" || t === "radio" || t === "button" || t === "submit" || t === "color" || t === "file")
+  }
+  return false
+}
+
+/** True when the element handles arrow keys itself (sliders, fields, grids, canvases, opt-outs). */
+export fn ownsArrows(el) {
+  if (!el || !el.tagName) {
+    return false
+  }
+  if (isTypingTarget(el)) {
+    return true
+  }
+  let tag = String(el.tagName).toLowerCase()
+  if (tag === "canvas" || (tag === "input" && el.type && String(el.type).toLowerCase() === "range")) {
+    return true
+  }
+  let role = el.getAttribute ? el.getAttribute("role") : null
+  if (role === "slider" || role === "grid" || role === "listbox" || role === "menu" || role === "spinbutton" || role === "radiogroup") {
+    return true
+  }
+  return el.closest !== null && el.closest("[data-keys-own]") !== null
+}
+
+/** Controls that Enter / Space activate natively (so global Space / Enter shortcuts must yield to them). */
+export fn isActivatable(el) {
+  if (!el || !el.tagName) {
+    return false
+  }
+  let tag = String(el.tagName).toLowerCase()
+  if (tag === "button" || tag === "a" || tag === "summary") {
+    return true
+  }
+  let role = el.getAttribute ? el.getAttribute("role") : null
+  return role === "button" || role === "tab" || role === "menuitem" || role === "option" || role === "checkbox"
+}
+
+export fn panelFrameOf(el) {
+  if (!el || !el.closest) {
+    return null
+  }
+  return el.closest(".ws-panel[data-panel-id]")
+}
+
+export fn panelFrameById(panelId) {
+  let d = doc()
+  if (!d) {
+    return null
+  }
+  let list = d.querySelectorAll(".ws-panel[data-panel-id]")
+  let i = 0
+  while (i < list.length) {
+    if (list[i].getAttribute("data-panel-id") === String(panelId) && !list[i].closest(".ws-keepalive")) {
+      return list[i]
+    }
+    i = i + 1
+  }
+  return null
+}
+
+export fn focusByFocusId(focusId) {
+  let d = doc()
+  if (!d || focusId === null) {
+    return false
+  }
+  let list = d.querySelectorAll("[data-focus-id]")
+  let i = 0
+  while (i < list.length) {
+    let el = list[i]
+    if (el.getAttribute("data-focus-id") === String(focusId) && isVisible(el)) {
+      try {
+        el.focus({ preventScroll: false })
+      } catch (e) {
+        el.focus()
+      }
+      return d.activeElement === el
+    }
+    i = i + 1
+  }
+  return false
+}
+
+/** Focus the first control inside a panel (level 2). Falls back to the frame when the panel has none. */
+export fn enterPanel(panelId) {
+  let frame = panelFrameById(panelId)
+  if (frame === null) {
+    return false
+  }
+  let list = focusablesIn(frame)
+  if (list.length > 0) {
+    list[0].focus()
+    return true
+  }
+  frame.focus()
+  return true
+}
+
+fn rectOf(el, id) {
+  let r = el.getBoundingClientRect()
+  return { id: id, x: r.left, y: r.top, w: r.width, h: r.height }
+}
+
+/** Arrow-key move between a panel's controls (level 2 roving). Returns true when focus moved. */
+export fn moveWithinPanel(fromEl, dir) {
+  let frame = panelFrameOf(fromEl)
+  let scope = frame !== null ? frame : (fromEl.closest ? fromEl.closest(".ws-topbar, .ws-palette") : null)
+  if (scope === null) {
+    return false
+  }
+  let list = focusablesIn(scope)
+  let rects = []
+  let fromIx = -1
+  let i = 0
+  while (i < list.length) {
+    rects.push(rectOf(list[i], String(i)))
+    if (list[i] === fromEl) {
+      fromIx = i
+    }
+    i = i + 1
+  }
+  if (fromIx < 0) {
+    return false
+  }
+  let hit = nearestInDirection(rects, String(fromIx), dir)
+  if (hit === null) {
+    return false
+  }
+  list[Number(hit)].focus()
+  return true
+}
+
+/** Rects of every visible panel frame → [{ id, x, y, w, h }] (ids = panel ids). */
+export fn panelRects() {
+  let d = doc()
+  let out = []
+  if (!d) {
+    return out
+  }
+  let list = d.querySelectorAll(".ws-panel[data-panel-id]")
+  let i = 0
+  while (i < list.length) {
+    if (isVisible(list[i]) && !list[i].closest(".ws-keepalive")) {
+      out.push(rectOf(list[i], list[i].getAttribute("data-panel-id")))
+    }
+    i = i + 1
+  }
+  return out
+}
+
+/** Rects of every docked stack → [{ id, x, y, w, h }] (ids = stack ids). */
+export fn stackRects() {
+  let d = doc()
+  let out = []
+  if (!d) {
+    return out
+  }
+  let list = d.querySelectorAll(".ws-stack[data-stack-id]")
+  let i = 0
+  while (i < list.length) {
+    if (isVisible(list[i])) {
+      out.push(rectOf(list[i], list[i].getAttribute("data-stack-id")))
+    }
+    i = i + 1
+  }
+  return out
+}
+
+// Input modality: the last interaction was keyboard or pointer. Enter / Space activate a focused button only
+// when the user is navigating by keyboard; after a mouse click they keep their global transport meaning.
+let modality = "pointer"
+
+export fn setModality(m) {
+  modality = m
+  let d = doc()
+  if (d && d.body) {
+    if (m === "keyboard") {
+      d.body.classList.add("kb-nav")
+    } else {
+      d.body.classList.remove("kb-nav")
+    }
+  }
+}
+
+export fn keyboardModality() {
+  return modality === "keyboard"
+}

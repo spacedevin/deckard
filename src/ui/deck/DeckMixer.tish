@@ -521,6 +521,32 @@ export fn DeckMixer(project, setProjectFromUI, touchMixer, rt) {
     document.addEventListener("mousemove", onMove)
     document.addEventListener("mouseup", onUp)
   }
+  // Keyboard twin of the pad drag: arrows nudge (Shift = bigger steps), Home snaps to the centre.
+  fn onPadKey(e) {
+    let k = e.key
+    let step = e.shiftKey ? 0.2 : 0.05
+    let nx = x
+    let ny = y
+    if (k === "ArrowLeft") {
+      nx = x - step
+    } else if (k === "ArrowRight") {
+      nx = x + step
+    } else if (k === "ArrowUp") {
+      ny = y - step
+    } else if (k === "ArrowDown") {
+      ny = y + step
+    } else if (k === "Home") {
+      nx = 0.5
+      ny = 0.5
+    } else {
+      return
+    }
+    e.preventDefault()
+    e.stopPropagation()
+    if (rt && rt.emit) {
+      rt.emit("xfade", [Math.max(0, Math.min(1, nx)), Math.max(0, Math.min(1, ny))])
+    }
+  }
   // Build the scalar prop bag for a memoized centre strip — these deps gate whether that strip re-renders.
   fn stripProps(deck) {
     let de = project.deckEq[deck]
@@ -579,19 +605,24 @@ export fn DeckMixer(project, setProjectFromUI, touchMixer, rt) {
         <div class="dk-xfade-labels">
           <span class="dk-xfade-mid">{"4-WAY FADER"}</span>
         </div>
-        <div
-          class="dk-xypad"
-          onmousedown={onPadDown}
-        >
-          <span class="dk-xypad-corner dk-xy-tl dk-acc-a">{"A"}</span>
-          <span class="dk-xypad-corner dk-xy-tr dk-acc-b">{"B"}</span>
-          <span class="dk-xypad-corner dk-xy-bl dk-acc-c">{"C"}</span>
-          <span class="dk-xypad-corner dk-xy-br dk-acc-d">{"D"}</span>
+        {h("div", {
+          class: "dk-xypad",
+          tabindex: "0",
+          role: "slider",
+          "aria-label": "4-way fader: left/right = A·C ↔ B·D, up/down = A·B ↔ C·D. Home centres.",
+          "aria-valuetext": "x " + String(Math.round(x * 100)) + "%, y " + String(Math.round(y * 100)) + "%",
+          onmousedown: onPadDown,
+          onkeydown: onPadKey
+        }, [
+          <span class="dk-xypad-corner dk-xy-tl dk-acc-a">{"A"}</span>,
+          <span class="dk-xypad-corner dk-xy-tr dk-acc-b">{"B"}</span>,
+          <span class="dk-xypad-corner dk-xy-bl dk-acc-c">{"C"}</span>,
+          <span class="dk-xypad-corner dk-xy-br dk-acc-d">{"D"}</span>,
           <span
             class="dk-xypad-knob"
             style={{ left: String(Math.round(x * 100)) + "%", top: String(Math.round(y * 100)) + "%" }}
           />
-        </div>
+        ])}
       </div>
     </div>
   )

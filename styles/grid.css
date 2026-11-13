@@ -1,0 +1,800 @@
+/* ============================================================================
+   v6 redesign — FL-style grid sequencer + A/B deck mixer (neon / terminal)
+   ============================================================================ */
+.daw-body-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: hidden;
+}
+.daw-body-stack .daw-main-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1 1 0;
+  min-height: 0;
+}
+/* The instrument grid takes the remaining height and scrolls INSIDE itself — it no longer pushes the layout
+   taller. SEQ + session stay pinned at the bottom of the main area at their natural height. */
+.daw-main-stack > .instr-stack-host {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.daw-main-stack > .seq-session-wrap {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+/* ---- Grid sequencer ---- */
+.sg-panel {
+  /* Follow the instrument-panel pattern: no card border/background, just a thin top accent + minimal padding.
+     Keep position:relative (the piano/lane/automation takeovers are inset:0 against this) and the 18px bottom
+     padding (it must match the session panel so both bottom-anchored grids line up). */
+  background: transparent;
+  border: none;
+  border-top: 2px solid var(--accent);
+  border-radius: 0;
+  padding: 6px 2px 18px;
+  position: relative;
+}
+/* Piano-roll TAKEOVER — one open at a time, fills the whole sequencer panel (does NOT expand/extend it). */
+.sg-piano-takeover { position: absolute; inset: 0; z-index: 30; background: var(--panel-2, #0a0a0c); display: flex; flex-direction: column; }
+.sg-piano-takeover-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 16px; border-bottom: 1px solid #1c1c22; flex-shrink: 0; }
+.sg-piano-takeover-title { font-size: 0.78rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent, #22d3ee); }
+.sg-piano-takeover-close { width: 24px; height: 24px; border: 1px solid #2a2a32; border-radius: 4px; background: transparent; color: var(--text, #e8e8ea); cursor: pointer; font-size: 0.85rem; line-height: 1; }
+.sg-piano-takeover-close:hover { background: rgba(255, 255, 255, 0.08); }
+/* Rows flex to fill the panel height so the piano roll never needs to scroll (height deduced from row count). */
+.sg-piano-takeover-body { flex: 1; min-height: 0; overflow: hidden; padding: 6px 10px 10px; display: flex; flex-direction: column; }
+.sg-piano-takeover-body .sg-prow { flex: 1 1 0; min-height: 0; }
+.sg-piano-takeover-body .sg-prow .sg-cells { height: 100%; }
+.sg-piano-takeover-body .sg-prow .sg-cell { height: 100%; }
+/* Lock / automation lanes in the takeover: each lane row flex-fills the panel height (tall, easy-to-draw
+   lanes) instead of the cramped inline ~18px. */
+.sg-lane-takeover-body { gap: 6px; padding-top: 10px; }
+.sg-lane-takeover-body .sg-lk-row { flex: 1 1 0; min-height: 0; margin-top: 0; opacity: 1; }
+.sg-lane-takeover-body .sg-lk-cells { height: 100%; }
+.sg-lane-takeover-body .sg-lk-cell,
+.sg-lane-takeover-body .sg-auto-cell { height: auto; }
+/* EUCLID & GENERATE takeover — a fill-density chip row + a generate-action grid, spread to use the panel. */
+.sg-eg-takeover-body { padding: 14px 16px; overflow-y: auto; }
+/* LYRICS takeover — a roomy syllable-per-step grid (8 wide cells × 2 rows for the 16-step bar) so each
+   lyric gets real horizontal room, vs the cramped LYR column it used to share in the locks overlay. */
+.sg-lyr-takeover-body { padding: 16px; overflow-y: auto; }
+.sg-lyr-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 10px; align-content: start; }
+.sg-lyr-cell { display: flex; flex-direction: column; gap: 5px; background: rgba(255, 255, 255, 0.025);
+  border: 1px solid #1c1c22; border-radius: 7px; padding: 9px 9px 11px; }
+.sg-lyr-cell.sg-lyr-beat { border-color: #2c2c38; }
+.sg-lyr-cell.sg-lyr-cell-off { opacity: 0.45; }
+.sg-lyr-step { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; color: var(--muted, #6a6a76); }
+/* Higher specificity + !important to beat the global input[type=text] rule (which is !important). */
+.sg-lyr-cell .sg-lyr-input { width: 100%; box-sizing: border-box; background: #0c0c12 !important;
+  border: 1px solid #2a2a32 !important; border-radius: 5px !important; color: var(--text, #e8e8ea);
+  font-size: 14px !important; text-align: center !important; padding: 8px 4px !important; font-family: inherit; }
+.sg-lyr-cell .sg-lyr-input:focus { outline: none !important; border-color: var(--accent, #22d3ee) !important; }
+.sg-lyr-cell .sg-lyr-input:disabled { background: transparent !important; border-color: transparent !important;
+  color: #3a3a44 !important; cursor: default; }
+.sg-eg-body { display: flex; flex-direction: column; gap: 18px; }
+.sg-eg-section { display: flex; flex-direction: column; gap: 9px; }
+.sg-eg-shead { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+.sg-eg-slabel { font-size: 0.7rem; font-weight: 800; letter-spacing: 0.12em; color: var(--accent-warm, #e8945c); }
+.sg-eg-slabel.sg-gen-label { color: #c08bf0; }
+.sg-eg-shint { font-size: 0.6rem; color: #6a6a76; letter-spacing: 0.02em; }
+.sg-eg-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.sg-eg-chip {
+  min-width: 34px; height: 30px; padding: 0 11px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid #2a2a35; border-radius: 5px; background: #0d0d11; color: #9a9aa6;
+  font-family: inherit; font-size: 0.78rem; cursor: pointer;
+  transition: background 90ms, color 90ms, border-color 90ms, box-shadow 90ms;
+}
+.sg-eg-chip:hover { background: #1c1c24; color: #d8d8e2; }
+.sg-eg-chip.sg-eg-chip-on {
+  border-color: var(--accent-warm, #e8945c); color: #fff;
+  background: rgba(232, 148, 92, 0.18); box-shadow: 0 0 8px rgba(232, 148, 92, 0.35);
+}
+.sg-eg-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.sg-eg-action {
+  flex: 1 1 calc(50% - 8px); min-width: 190px; text-align: left;
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 9px 13px; border: 1px solid #2a2a35; border-radius: 6px; background: #0d0d11; cursor: pointer;
+  transition: border-color 90ms, background 90ms, box-shadow 90ms, transform 60ms;
+}
+.sg-eg-action:hover { border-color: #a06be0; background: #16121d; box-shadow: 0 0 10px rgba(160, 107, 224, 0.3); }
+.sg-eg-action:active { transform: translateY(1px); }
+.sg-eg-action-name { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.06em; color: #d7b8f5; }
+.sg-eg-action-reseed .sg-eg-action-name { color: #ecd9ff; }
+.sg-eg-action-desc { font-size: 0.6rem; color: #7a7a86; letter-spacing: 0.01em; }
+.sg-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.sg-head h2 {
+  font-size: 0.8rem;
+  letter-spacing: 0.18em;
+  color: var(--deck-a);
+  margin: 0;
+}
+.sg-head-hint {
+  font-size: 0.62rem;
+  color: #555;
+  letter-spacing: 0.05em;
+}
+.sg-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+/* Bottom-anchor the ruler + grid AS ONE BLOCK (margin-top:auto), so the column ruler stays glued directly
+   above the grid and the panel's slack collects ABOVE them — not as a gap between the numbers and the cells. */
+.sg-grid-anchor {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.sg-row {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  --row-accent: var(--deck-a);
+  --row-glow: var(--deck-a-glow);
+}
+.sg-row.sg-deck-b {
+  --row-accent: var(--deck-b);
+  --row-glow: var(--deck-b-glow);
+}
+.sg-row.sg-deck-c {
+  --row-accent: var(--deck-c);
+  --row-glow: var(--deck-c-glow);
+}
+.sg-row.sg-deck-d {
+  --row-accent: var(--deck-d);
+  --row-glow: var(--deck-d-glow);
+}
+.sg-row-exhausted {
+  opacity: 0.4;
+}
+.sg-gutter {
+  width: 168px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-right: 1px solid var(--grid-line);
+  padding-right: 8px;
+}
+.sg-gutter-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+  min-width: 0;
+}
+.sg-row-sel .sg-ch-name {
+  color: #fff;
+}
+.sg-row-lib {
+  box-shadow: inset 3px 0 0 var(--deck-a, #22d3ee);
+  background: rgba(34, 211, 238, 0.14);
+}
+.sg-ch-name {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #cfcfd6;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sg-ch-instr {
+  font-size: 0.56rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #5a5a64;
+}
+.sg-gutter-ctl {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.sg-deck-chip {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  border: 1px solid var(--row-accent);
+  background: transparent;
+  color: var(--row-accent);
+  font-size: 0.6rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 0 6px var(--row-glow);
+}
+/* The deck chip is now a tiny select (click → A/B/C/D list, jump straight to any deck). Compact chrome that
+   matches the old chip: the letter + a faint caret. The dropdown list is the shared IkSelect popover.
+   The .instr-grid-container prefix (+ !important) is needed to beat the generic `.instr-grid-container .ik-sel`
+   sizing rule, since this chip lives inside the instrument grid. */
+.instr-grid-container .sg-deck-select.ik-sel,
+.sg-deck-select.ik-sel {
+  min-width: 0 !important;
+  width: 28px !important;
+  height: 18px;
+  padding: 0 2px !important;
+  border: 1px solid;
+  border-radius: 3px;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px !important;
+  font-size: 0.58rem !important;
+  font-weight: 800;
+  cursor: pointer;
+}
+.sg-deck-select .ik-sel-label { padding: 0; }
+.sg-deck-select .ik-sel-arrow { font-size: 0.45rem; opacity: 0.65; }
+.sg-tog {
+  width: 17px;
+  height: 17px;
+  border-radius: 3px;
+  border: 1px solid #2a2a31;
+  background: #0e0e12;
+  color: #6a6a72;
+  font-size: 0.58rem;
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.sg-tog svg { width: 11px; height: 11px; }
+.sg-tog-on {
+  background: #4a1f24;
+  border-color: #ff7a8c;
+  color: #ff9aa8;
+}
+.sg-tog-solo {
+  background: #4a4520;
+  border-color: #ffe07a;
+  color: #ffe89a;
+}
+.sg-tog-lock {
+  background: #401f2c;
+  border-color: #ff7aa0;
+  color: #ff9ab8;
+}
+.sg-cells {
+  flex: 1;
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+.sg-cell {
+  flex: 1;
+  height: 46px;
+  border: 1px solid var(--border-dark);
+  border-radius: 3px;
+  background: #0d0d11;
+  cursor: pointer;
+  padding: 0;
+  position: relative;
+  overflow: hidden;
+  transition: background 90ms, box-shadow 90ms, transform 60ms;
+}
+.sg-cell.sg-beat {
+  background: #121218;
+}
+/* The BARS/SWING/SCALE controls now sit INLINE in the SEQ header (one row), not as a second indented row. */
+.sg-barpager {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  padding-left: 0;
+  flex-wrap: nowrap;
+}
+.sg-barpager .sg-barbtn { min-width: 22px; }
+.sg-barpager .sg-barpager-label { margin-right: 1px; letter-spacing: 0.04em; }
+.sg-panel .panel-head { flex-wrap: nowrap; }
+.sg-panel .panel-head-l { align-items: center; flex-wrap: nowrap; min-width: 0; }
+/* VIEW overflow "···" dropdown — an IkSelect styled to match the bar buttons (.sg-barbtn). */
+.ik-sel.sg-barpager-more {
+  min-width: 30px;
+  height: 22px;
+  padding: 0 6px;
+  gap: 2px;
+  border-radius: 4px;
+  border: 1px solid #2a2a35;
+  background: #0d0d11;
+  color: #8a8a96;
+  font-size: 0.72rem;
+  box-sizing: border-box;
+}
+.ik-sel.sg-barpager-more:hover {
+  background: #1c1c24;
+  border-color: #2a2a35;
+}
+.ik-sel.sg-barpager-more.sg-barpager-more-on {
+  border-color: var(--row-accent, #00f3ff);
+  color: #fff;
+  box-shadow: 0 0 8px var(--row-glow, rgba(0, 243, 255, 0.4));
+}
+.sg-barpager-more .ik-sel-arrow {
+  font-size: 0.5rem;
+  margin-left: 0;
+}
+.sg-barpager-label {
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  color: #5a5a66;
+  margin-right: 2px;
+}
+.sg-barbtn {
+  min-width: 28px;
+  height: 22px;
+  border: 1px solid #2a2a35;
+  border-radius: 4px;
+  background: #0d0d11;
+  color: #8a8a96;
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: background 90ms, box-shadow 90ms, color 90ms;
+}
+.sg-barbtn:hover {
+  background: #1c1c24;
+}
+.sg-barbtn-active {
+  border-color: var(--row-accent, #00f3ff);
+  color: #fff;
+  box-shadow: 0 0 8px var(--row-glow, rgba(0, 243, 255, 0.4));
+}
+.sg-barbtn-playing {
+  background: #15202c;
+}
+.sg-barbtn-active.sg-barbtn-playing {
+  background: var(--row-accent, #00f3ff);
+  color: #04040a;
+}
+.sg-barbtn.sg-barbtn-mod {
+  min-width: 22px;
+  font-weight: 700;
+}
+.sg-barbtn.sg-follow {
+  min-width: 0;
+  padding: 0 8px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.sg-barbtn.sg-follow-on {
+  border-color: var(--accent-green, #7cff7c);
+  color: #04140a;
+  background: var(--accent-green, #7cff7c);
+  box-shadow: 0 0 8px rgba(124, 255, 124, 0.45);
+}
+.sg-barbtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.sg-barpager-count {
+  min-width: 14px;
+  text-align: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--row-accent, #00f3ff);
+}
+.sg-barpager-sep {
+  display: none;
+}
+.sg-ch-rootpitch {
+  margin-left: 6px;
+  font-size: 0.6rem;
+  color: var(--row-accent, #00f3ff);
+  opacity: 0.85;
+}
+.sg-cell:hover {
+  background: #1c1c24;
+}
+.sg-cell.sg-on {
+  background: var(--row-accent);
+  border-color: var(--row-accent);
+  box-shadow: 0 0 9px var(--row-glow);
+}
+/* A lit boolean step shows a velocity-scaled fill: the cell base dims to a faint accent, the bright bar
+   below rises to vel/127 — so the whole row reads its dynamics at a glance. */
+.sg-cell.sg-on.sg-velcell {
+  background: color-mix(in srgb, var(--row-accent) 24%, #0d0d11);
+}
+.sg-vel-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--row-accent);
+  box-shadow: 0 0 7px var(--row-glow);
+  pointer-events: none;
+}
+.sg-cell.sg-col-active .sg-vel-fill {
+  background: #ffffff;
+  box-shadow: none;
+}
+/* Lock markers inside a lit step: probability dot (top-left, fades with the odds), ratchet count (top-right),
+   nudge tick (left = early, right = late). */
+.sg-mk {
+  position: absolute;
+  pointer-events: none;
+  z-index: 2;
+}
+.sg-mk-prob {
+  top: 2px;
+  left: 2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.85);
+}
+.sg-mk-rch {
+  top: 0;
+  right: 2px;
+  font-size: 8px;
+  line-height: 10px;
+  font-weight: 700;
+  color: #0b0b0f;
+  text-shadow: 0 0 2px rgba(255, 255, 255, 0.9);
+}
+.sg-mk-ndg {
+  bottom: 2px;
+  width: 0;
+  height: 0;
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+}
+.sg-mk-ndg-l {
+  left: 1px;
+  border-right: 4px solid rgba(255, 255, 255, 0.9);
+}
+.sg-mk-ndg-r {
+  right: 1px;
+  border-left: 4px solid rgba(255, 255, 255, 0.9);
+}
+
+/* ---- Per-step lock LANES (drag-to-edit, under the step row) ---- */
+.sg-lk-row {
+  margin-top: 2px;
+  opacity: 0.96;
+}
+.sg-lk-gutter {
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 10px;
+}
+.sg-lk-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--row-accent);
+  opacity: 0.85;
+}
+.sg-lk-cells {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+.sg-lk-cell {
+  flex: 1;
+  height: 18px;
+  border: 1px solid #16161b;
+  border-radius: 2px;
+  background: #0c0c10;
+  position: relative;
+  overflow: hidden;
+  cursor: ns-resize;
+}
+.sg-lk-cell.sg-beat {
+  background: #121218;
+}
+.sg-lk-cell.sg-lk-dim {
+  opacity: 0.35;
+}
+.sg-lk-cell:hover {
+  border-color: var(--row-accent);
+}
+.sg-lk-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--row-accent);
+  opacity: 0.85;
+  pointer-events: none;
+}
+.sg-lk-fill.sg-lk-bip {
+  bottom: auto;
+}
+.sg-lk-mid {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.18);
+  pointer-events: none;
+}
+/* Per-note lock lanes (under the piano grid) reuse the step lane look; a left tick marks them as note-scoped,
+   and empty columns (no note at that step) fade further back. */
+.sg-pnote-lk-row .sg-lk-gutter {
+  border-left: 2px solid var(--row-accent);
+}
+.sg-pnote-lk-cell.sg-lk-dim {
+  opacity: 0.16;
+}
+.sg-tog-lck {
+  color: #8a8aa0;
+}
+.sg-tog-lck-on {
+  background: var(--row-accent);
+  border-color: var(--row-accent);
+  color: #0b0b0f;
+  box-shadow: 0 0 8px var(--row-glow);
+}
+.sg-scale-lit {
+  color: #7df0c0;
+  text-shadow: 0 0 6px rgba(125, 240, 192, 0.5);
+}
+/* Automation lane — a warm amber curve, distinct from the cool lock lanes. */
+.sg-tog-auto {
+  color: #e0a85a;
+}
+.sg-tog-auto-on {
+  background: #e0a85a;
+  border-color: #e0a85a;
+  color: #1a1206;
+  box-shadow: 0 0 8px rgba(224, 168, 90, 0.5);
+}
+/* Euclid & Generate overlay toggle — purple (generative) identity, matching the GEN label. */
+.sg-tog-gen { color: #b08bf0; }
+.sg-tog-gen-on {
+  background: #b08bf0;
+  border-color: #b08bf0;
+  color: #120a1c;
+  box-shadow: 0 0 8px rgba(176, 139, 240, 0.5);
+}
+/* Lyrics overlay toggle (vocal tracks) — cyan (vocal/text) identity. */
+.sg-tog-lyr { color: #5ec8e0; }
+.sg-tog-lyr-on {
+  background: #5ec8e0;
+  border-color: #5ec8e0;
+  color: #06141a;
+  box-shadow: 0 0 8px rgba(94, 200, 224, 0.5);
+}
+/* Per-channel delete toggle — neutral until hover, then red. */
+.sg-tog-del {
+  color: #6a6a72;
+  font-size: 0.82rem;
+  line-height: 1;
+}
+.sg-tog-del:hover {
+  border-color: #e0556e;
+  color: #ff7a8f;
+  background: #1a0c10;
+}
+/* "+ TRACK" button beside the SEQ title. */
+.sg-add-track {
+  height: 18px;
+  padding: 0 7px;
+  border: 1px solid #2a2a35;
+  border-radius: 4px;
+  background: #0d0d11;
+  color: #8a8a96;
+  font-family: inherit;
+  font-size: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: background 90ms, border-color 90ms, color 90ms;
+}
+.sg-add-track:hover {
+  border-color: var(--accent-green, #7cff7c);
+  color: var(--accent-green, #7cff7c);
+  background: #0c140c;
+}
+.sg-auto-label {
+  color: #e0a85a;
+}
+.sg-auto-cell {
+  height: 26px;
+  cursor: ns-resize;
+}
+.sg-auto-fill {
+  background: linear-gradient(to top, #c07a2a, #f0c070);
+  opacity: 0.9;
+}
+.sg-auto-cell:hover {
+  border-color: #e0a85a;
+}
+.sg-scale-sel {
+  height: 22px;
+  background: #121218;
+  color: #d6d6e6;
+  border: 1px solid #2a2a35;
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 0 4px;
+  cursor: pointer;
+}
+/* Inline in the one-row SEQ header: size the scale dropdowns to their content (C / off) instead of the wide
+   IkSelect default min-width, so the toolbar fits on one line. */
+.sg-scale-sel.ik-sel {
+  min-width: 0;
+  gap: 2px;
+}
+.sg-scale-sel:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.sg-scale-sel-lit {
+  border-color: #2bd49a;
+  color: #aef5d6;
+  box-shadow: 0 0 6px rgba(43, 212, 154, 0.35);
+}
+.sg-cell.sg-melodic.sg-on {
+  background: transparent;
+  border-color: var(--row-accent);
+  box-shadow: inset 0 0 8px var(--row-glow);
+}
+.sg-cell.sg-col-active {
+  background: #15202c;
+}
+.sg-cell.sg-on.sg-col-active {
+  background: #ffffff;
+  border-color: #fff;
+  box-shadow: 0 0 14px rgba(255, 255, 255, 0.95);
+  transform: scale(1.08);
+}
+.sg-ruler {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 5px;
+}
+.sg-ruler-pad {
+  width: 168px;
+  flex-shrink: 0;
+}
+.sg-ruler-ticks {
+  flex: 1;
+  display: flex;
+  gap: 4px;
+}
+.sg-tick {
+  flex: 1;
+  text-align: center;
+  font-size: 0.58rem;
+  color: #3a3a42;
+}
+.sg-tick-beat {
+  color: #6a6a74;
+}
+
+/* inline piano-roll expansion (rows reuse the step-grid layout so columns align) */
+.sg-exp {
+  width: 17px;
+  height: 17px;
+  border: 1px solid #2a2a31;
+  border-radius: 3px;
+  background: #0e0e12;
+  color: #6a6a72;
+  font-size: 0.6rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.sg-exp svg {
+  width: 12px;
+  height: 12px;
+}
+.sg-exp-on {
+  color: var(--row-accent);
+  border-color: var(--row-accent);
+  box-shadow: 0 0 6px var(--row-glow);
+}
+.sg-prow {
+  --pg-pad: 0;
+}
+.sg-cell.sg-pcell {
+  height: 14px;
+}
+/* Notes render as spanning bars overlaid on the cell row, so duration is visible + grabbable. */
+.sg-cells.sg-pcells {
+  position: relative;
+}
+.sg-pnote-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--row-accent);
+  border: 1px solid var(--row-accent);
+  border-radius: 3px;
+  box-shadow: 0 0 7px var(--row-glow);
+  cursor: grab;
+  z-index: 3;
+  box-sizing: border-box;
+}
+.sg-pnote-bar:active {
+  cursor: grabbing;
+}
+/* A step shown as a note bar (step channels on the piano roll) — a click toggles it, not a drag. */
+.sg-pnote-step { cursor: pointer; }
+/* Non-step-pitch rows of a single-pitch step channel: visible but not interactive. */
+.sg-pcell-inert { pointer-events: none; }
+.sg-pnote-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 9px;
+  z-index: 4;
+  cursor: ew-resize;
+  background: rgba(255, 255, 255, 0.25);
+  border-top-right-radius: 3px;
+  border-bottom-right-radius: 3px;
+}
+.sg-pnote-edge:hover {
+  background: rgba(255, 255, 255, 0.6);
+}
+.sg-gutter.sg-pgut {
+  justify-content: flex-end;
+}
+.sg-prow-black .sg-pgut {
+  background: #060608;
+}
+.sg-pkey {
+  font-size: 0.52rem;
+  color: #5a5a64;
+}
+.sg-pgut-c .sg-pkey {
+  color: #9a9aa2;
+  font-weight: 700;
+}
+
+/* ---- Chromatrack-style instrument editor (pill selectors) ---- */
+.ie-panel {
+  background: var(--panel-2);
+  border: 1px solid #1c1c22;
+  padding: 16px 20px 20px;
+}
+.ie-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.ie-head h2 {
+  font-size: 0.8rem;
+  letter-spacing: 0.16em;
+  color: var(--deck-b);
+  margin: 0;
+}
+.ie-sub {
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
+  color: #5a5a64;
+}
+.ie-section {
+  font-size: 0.6rem;
+  letter-spacing: 0.2em;
+  color: #6a6a72;
+  font-weight: 700;
+  margin: 18px 0 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--grid-line);
+}

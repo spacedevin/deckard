@@ -1,0 +1,413 @@
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+/* Elegant, thin dark scrollbars globally */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+body {
+  margin: 0;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  /* Only vertical scrolling anywhere — the page itself never scrolls horizontally. */
+  overflow-x: hidden;
+  font-size: 13px;
+  /* No accidental text-selection from clicking labels / dragging knobs & sliders. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* …except real editing surfaces, which stay fully selectable. */
+input,
+textarea,
+[contenteditable],
+[contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+/* Global range: dark track, green thumb; Firefox tint */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 1.25rem;
+  background: transparent;
+  cursor: pointer;
+  accent-color: var(--accent-green);
+}
+
+input[type="range"]:focus {
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--range-track);
+  border: 1px solid var(--border);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--accent-green);
+  border: 1px solid #0a0a0a;
+  box-shadow: 0 0 0 1px rgba(124, 255, 124, 0.25);
+}
+
+input[type="range"]::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--range-track);
+  border: 1px solid var(--border);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent-green);
+  border: 1px solid #0a0a0a;
+}
+
+.daw-workspace-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.deck-tab {
+  font-family: inherit;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 0.35rem 0.65rem;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.deck-tab:hover {
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.deck-tab-active {
+  color: var(--accent-green);
+  border-color: var(--accent-green);
+}
+
+.deck-module {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.5rem 0.55rem;
+  margin-bottom: 0.5rem;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.deck-module:last-child {
+  margin-bottom: 0;
+}
+
+.deck-module-h {
+  margin: 0 0 0.45rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-warm);
+}
+
+.deck-wave-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
+}
+
+.deck-wave-tile {
+  aspect-ratio: 1;
+  min-height: 2.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.15rem;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.deck-wave-tile:hover {
+  border-color: #444;
+  color: var(--text);
+}
+
+.deck-wave-tile-active {
+  color: #0a0a0a;
+  background: var(--accent-green);
+  border-color: var(--accent-green);
+}
+
+.deck-env-svg {
+  display: block;
+  width: 100%;
+  height: 48px;
+  margin-top: 0.35rem;
+  border-radius: 4px;
+  background: #080808;
+  border: 1px solid var(--border);
+}
+
+.deck-env-svg path {
+  fill: none;
+  stroke: var(--accent-warm);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.deck-adsr-sliders {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+
+.desktop-shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.ik-switch-btn {
+  width: 38px;
+  height: 24px;
+  background: linear-gradient(180deg, #2c2c32 0%, #1c1c22 100%);
+  border: 1px solid #0a0a0a;
+  border-top-color: #3c3c44;
+  border-radius: 3px;
+  box-shadow: 0 3px 5px rgba(0,0,0,0.6);
+  position: relative;
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: transform 0.05s ease, box-shadow 0.05s ease;
+}
+
+.ik-switch-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  border-top-color: #2c2c32;
+  background: #1a1a20;
+}
+
+.ik-switch-btn-on {
+  transform: translateY(1px);
+  box-shadow: 0 2px 3px rgba(0,0,0,0.6);
+  background: linear-gradient(180deg, #222228 0%, #16161c 100%);
+  border-top-color: #2a2a30;
+}
+
+.ik-switch-handle {
+  width: 14px;
+  height: 4px;
+  background: #111;
+  border-radius: 1px;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.8);
+  transition: background-color 0.1s ease, box-shadow 0.1s ease;
+}
+
+.ik-switch-btn-on .ik-switch-handle {
+  /* color set via inline styles in React */
+}
+
+.deck-adsr-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  align-items: stretch;
+}
+
+.deck-adsr-cell label {
+  font-size: 0.52rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  text-align: center;
+}
+
+.deck-adsr-cell input[type="range"] {
+  width: 100%;
+}
+
+.deck-adsr-val {
+  font-size: 0.55rem;
+  color: var(--accent-green);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.patch-bay {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  background: var(--panel);
+  min-height: 12rem;
+}
+
+.patch-bay-title {
+  margin: 0 0 0.15rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.patch-bay-sub {
+  margin: 0 0 1rem;
+  font-size: 0.58rem;
+  color: var(--muted);
+  line-height: 1.4;
+  opacity: 0.9;
+}
+
+.patch-bay-cols {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 2rem;
+  max-width: 36rem;
+  margin: 0 auto;
+}
+
+.patch-bay-col {
+  flex: 1;
+  min-width: 0;
+}
+
+.patch-bay-col-label {
+  font-size: 0.55rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+}
+
+.patch-node-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.patch-node {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.5rem;
+  background: #161616;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text);
+}
+
+.patch-bay-col-out .patch-node {
+  flex-direction: row;
+}
+
+.patch-bay-col-in .patch-node {
+  flex-direction: row-reverse;
+}
+
+.patch-node-jack {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid var(--muted);
+  flex-shrink: 0;
+  background: transparent;
+}
+
+.matrixfm-panel-wrap {
+  min-width: 0;
+  margin-top: 0.5rem;
+  padding-right: 0.15rem;
+}
+
+.instr-matrixfm-hint {
+  padding: 0.45rem 0.5rem;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  font-size: 0.65rem;
+  color: var(--muted);
+  line-height: 1.45;
+  margin-bottom: 0.35rem;
+}
+
+.instr-matrixfm-hint p {
+  margin: 0;
+}
+
+.btn-deck-outline {
+  margin-top: 0.45rem;
+  font-family: inherit;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.35rem 0.65rem;
+  background: transparent;
+  color: var(--accent-warm);
+  border: 1px solid var(--accent-warm);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.btn-deck-outline:hover {
+  background: rgba(232, 148, 92, 0.12);
+}

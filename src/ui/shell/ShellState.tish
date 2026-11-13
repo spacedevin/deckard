@@ -1,0 +1,249 @@
+// useShell — the workspace controller. Owns the mood state (layouts per mood), the action registry + keymap,
+// and the ctx every action runs against. Returns a stable `sh` object (fields refreshed each render) that the
+// workspace, top bar, palette, pointer gestures and key listeners all call into — one input path.
+
+import { useState, useRef, useEffect, useLayoutEffect } from '@tishlang/lattish'
+import { createActionRegistry } from '../../workspace/Actions.tish'
+import { createKeymap, loadKeyOverrides, isMacPlatform, actionChords, formatChord } from '../../workspace/Keymap.tish'
+import { loadMoodState, saveMoodState, activeMood, replaceMood } from '../../workspace/Moods.tish'
+import { visiblePanelIds, hasPanel, stackOfPanel } from '../../workspace/Layout.tish'
+import { panelRects, stackRects, focusByFocusId, enterPanel, panelFrameById } from './FocusRing.tish'
+import { announce } from './Announcer.tish'
+import { captureRects, playMorph } from './MoodMorph.tish'
+import { onKeyDownCapture, onKeyDownBubble, onKeyUp, onPointerDown, enterMode } from './Keyboard.tish'
+import { promptName } from '../PromptModal.tish'
+
+fn panelIdFromElement(el) {
+  if (!el || !el.closest) {
+    return null
+  }
+  let fr = el.closest("[data-panel-id]")
+  if (fr !== null) {
+    return fr.getAttribute("data-panel-id")
+  }
+  let tab = el.closest("[data-panel-tab]")
+  if (tab !== null) {
+    return tab.getAttribute("data-panel-tab")
+  }
+  let st = el.closest("[data-active-panel]")
+  if (st !== null) {
+    return st.getAttribute("data-active-panel")
+  }
+  return null
+}
+
+fn buildKeymap(registry, overrides) {
+  return createKeymap(registry.list().filter((a) => a.passive !== true), overrides)
+}
+
+fn makeShell(rerender) {
+  let registry = createActionRegistry(null)
+  let overrides = loadKeyOverrides()
+  let sh = {
+    isMac: isMacPlatform(),
+    registry: registry,
+    overrides: overrides,
+    keymapObj: buildKeymap(registry, overrides),
+    state: loadMoodState(),
+    uiNow: { palette: null, lensEditing: null },
+    app: null,
+    mode: null,
+    focus: null,
+    pendingFocus: null,
+    pendingMorph: null,
+    suppressClick: false,
+    rerender: rerender
+  }
+  sh.keymap = () => sh.keymapObj
+  sh.mood = () => activeMood(sh.state)
+  sh.paletteOpen = () => sh.uiNow.palette !== null
+  sh.ui = () => sh.uiNow
+  sh.setUi = (patch) => {
+    let next = { palette: sh.uiNow.palette, lensEditing: sh.uiNow.lensEditing }
+    Object.keys(patch).forEach((k) => { next[k] = patch[k] })
+    sh.uiNow = next
+    sh.rerender()
+  }
+  /** Display chord(s) for an action id, e.g. "⌘K" — for tooltips and the palette. */
+  sh.chordText = (id) => {
+    let a = registry.get(id)
+    if (a === null) {
+      return ""
+    }
+    let cs = actionChords(a, sh.overrides)
+    return cs.length > 0 ? formatChord(cs[0], sh.isMac) : ""
+  }
+  sh.firstChord = (id) => {
+    let a = registry.get(id)
+    if (a === null) {
+      return null
+    }
+    let cs = actionChords(a, sh.overrides)
+    return cs.length > 0 ? cs[0] : null
+  }
+  sh.focusedPanelId = () => {
+    let fromDom = typeof document !== "undefined" ? panelIdFromElement(document.activeElement) : null
+    if (fromDom !== null) {
+      return fromDom
+    }
+    let lay = sh.mood().layout
+    if (sh.focus !== null && hasPanel(lay, sh.focus)) {
+      return sh.focus
+    }
+    let vis = visiblePanelIds(lay)
+    return vis.length > 0 ? vis[0] : null
+  }
+  sh.focusPanel = (id) => {
+    if (id === null || id === undefined) {
+      return
+    }
+    sh.focus = String(id)
+    sh.pendingFocus = "panel:" + String(id)
+    requestAnimationFrame(() => { sh.flushFocus() })
+  }
+  sh.flushFocus = () => {
+    let f = sh.pendingFocus
+    if (f === null) {
+      return
+    }
+    sh.pendingFocus = null
+    if (!focusByFocusId(f) && f.indexOf("panel:") === 0) {
+      let fr = panelFrameById(f.substring(6))
+      if (fr !== null) {
+        fr.focus()
+      }
+    }
+  }
+  sh.commitMood = (mood, text) => {
+    sh.state = replaceMood(sh.state, mood)
+    saveMoodState(sh.state)
+    sh.rerender()
+    if (text !== null && text !== undefined && String(text).length > 0) {
+      announce(text)
+    }
+  }
+  sh.commitState = (state, text, morph) => {
+    if (morph) {
+      sh.pendingMorph = captureRects()
+    }
+    let inWorkspace = typeof document !== "undefined" && document.activeElement !== null && document.activeElement.closest !== undefined && document.activeElement.closest(".ws-root") !== null
+    sh.state = state
+    saveMoodState(sh.state)
+    if (inWorkspace) {
+      let lay = sh.mood().layout
+      let vis = visiblePanelIds(lay)
+      let keep = sh.focus !== null && vis.indexOf(sh.focus) >= 0 ? sh.focus : (vis.length > 0 ? vis[0] : null)
+      if (keep !== null) {
+        sh.focusPanel(keep)
+      }
+    }
+    sh.rerender()
+    if (text !== null && text !== undefined && String(text).length > 0) {
+      announce(text)
+    }
+  }
+  sh.ctx = {
+    state: () => sh.state,
+    mood: () => sh.mood(),
+    commitMood: (m, t) => sh.commitMood(m, t),
+    commitState: (s, t, morph) => sh.commitState(s, t, morph),
+    focusedPanelId: () => sh.focusedPanelId(),
+    focusPanel: (id) => sh.focusPanel(id),
+    enterPanel: (id) => {
+      sh.focus = id
+      enterPanel(id)
+    },
+    panelRects: () => panelRects(),
+    stackRects: () => stackRects(),
+    enterMode: (name, pid) => enterMode(sh, name, pid),
+    openPalette: (text) => sh.openPalette(text),
+    focusLensChip: (pid) => {
+      if (pid === null) {
+        return
+      }
+      sh.setUi({ lensEditing: String(pid) })
+      sh.pendingFocus = "lensinput:" + String(pid)
+    },
+    announce: (t) => announce(t),
+    viewport: () => ({ w: window.innerWidth, h: window.innerHeight }),
+    promptText: (title, def, cb) => promptName(title, def, cb),
+    run: (id, args) => sh.run(id, args),
+    app: null
+  }
+  sh.run = (id, args) => registry.run(id, sh.ctx, args)
+  sh.openPalette = (text) => {
+    sh.paletteReturn = typeof document !== "undefined" ? document.activeElement : null
+    sh.setUi({ palette: { text: text !== null && text !== undefined ? String(text) : "" } })
+    sh.pendingFocus = "palette:input"
+  }
+  sh.closePalette = () => {
+    sh.setUi({ palette: null })
+    let back = sh.paletteReturn
+    sh.paletteReturn = null
+    if (back !== null && back !== undefined && back.isConnected) {
+      requestAnimationFrame(() => { back.focus() })
+    } else if (sh.focus !== null) {
+      sh.focusPanel(sh.focus)
+    }
+  }
+  sh.closeLens = (pid) => {
+    sh.setUi({ lensEditing: null })
+    sh.focusPanel(pid)
+  }
+  return sh
+}
+
+/**
+ * Hook: the workspace controller. `app` = { playStop, preview, undo, redo, cueActive, openSongs, fullscreen,
+ * xfadeNudge(dx, dy), hasOverlay() } — App-owned callbacks actions may call.
+ */
+export fn useShell(app) {
+  let [gen, setGen] = useState(0)
+  let ref = useRef(null)
+  let genRef = useRef(0)
+  if (ref.current === null) {
+    ref.current = makeShell(() => {
+      genRef.current = genRef.current + 1
+      setGen(genRef.current)
+    })
+  }
+  let sh = ref.current
+  sh.app = app
+  sh.ctx.app = app
+  sh.gen = gen
+
+  useLayoutEffect(() => {
+    if (sh.pendingMorph !== null) {
+      let prev = sh.pendingMorph
+      sh.pendingMorph = null
+      playMorph(prev)
+    }
+    sh.flushFocus()
+  }, null)
+
+  useEffect(() => {
+    let cap = (e) => onKeyDownCapture(e, sh)
+    let bub = (e) => onKeyDownBubble(e, sh)
+    let up = (e) => onKeyUp(e, sh)
+    let pd = (e) => onPointerDown(e, sh)
+    let fi = (e) => {
+      let pid = panelIdFromElement(e.target)
+      if (pid !== null) {
+        sh.focus = pid
+      }
+    }
+    window.addEventListener("keydown", cap, true)
+    window.addEventListener("keydown", bub, false)
+    window.addEventListener("keyup", up, true)
+    window.addEventListener("pointerdown", pd, true)
+    document.addEventListener("focusin", fi, true)
+    return () => {
+      window.removeEventListener("keydown", cap, true)
+      window.removeEventListener("keydown", bub, false)
+      window.removeEventListener("keyup", up, true)
+      window.removeEventListener("pointerdown", pd, true)
+      document.removeEventListener("focusin", fi, true)
+    }
+  }, [])
+  return sh
+}

@@ -1,0 +1,344 @@
+// Moods = saved workspace layouts. Studio (produce) and Stage (perform) are built in; users save their own.
+//
+//   state = { version, active: moodId, moods: [mood…] }
+//   mood  = { id, name, builtin, layout, panels: { panelId: panel }, closed: [panelId…] }
+//
+// The same panel id in two moods (e.g. "mixer") is the same panel, so a mood switch can morph it between homes.
+// Persistence is UI state in localStorage — never part of the project / deck.
+
+import { makeLayout, stackNode, splitNode, clone, layoutFromValue, panelIds, addPanel, hasPanel } from './Layout.tish'
+import { makePanel, deckLens, followLens, noLens, panelType } from './Panels.tish'
+
+let STORE_KEY = "deckard.moods.v1"
+let STATE_VERSION = 1
+
+fn panelsMap(list) {
+  let out = {}
+  list.forEach((p) => { out[p.id] = p })
+  return out
+}
+
+fn studioMood() {
+  let panels = [
+    makePanel("library", "library", null),
+    makePanel("booths", "booths", null),
+    makePanel("decks", "decks", followLens()),
+    makePanel("sequencer", "sequencer", null),
+    makePanel("session", "session", null),
+    makePanel("instruments", "instruments", null),
+    makePanel("playlist", "playlist", null),
+    makePanel("mixer", "mixer", null),
+    makePanel("master", "master", null),
+    makePanel("codj", "codj", null),
+    makePanel("deckEditor", "deckEditor", null)
+  ]
+  let root = splitNode("x1", "row", [0.19, 0.55, 0.26], [
+    splitNode("x2", "col", [0.55, 0.45], [
+      stackNode("s1", ["library", "booths"], "library"),
+      stackNode("s2", ["decks"], "decks")
+    ]),
+    splitNode("x3", "col", [0.4, 0.42, 0.18], [
+      stackNode("s3", ["sequencer", "session"], "sequencer"),
+      stackNode("s4", ["instruments"], "instruments"),
+      stackNode("s5", ["playlist"], "playlist")
+    ]),
+    splitNode("x4", "col", [0.5, 0.5], [
+      stackNode("s6", ["mixer", "master"], "mixer"),
+      stackNode("s7", ["codj", "deckEditor"], "codj")
+    ])
+  ])
+  return { id: "studio", name: "Studio", builtin: true, glyph: "▦", layout: makeLayout(root, []), panels: panelsMap(panels), closed: [] }
+}
+
+fn stageMood() {
+  let panels = [
+    makePanel("deckA", "decks", deckLens("A", true)),
+    makePanel("deckB", "decks", deckLens("B", true)),
+    makePanel("deckC", "decks", deckLens("C", true)),
+    makePanel("deckD", "decks", deckLens("D", true)),
+    makePanel("mixer", "mixer", null),
+    makePanel("master", "master", null),
+    makePanel("session", "session", null),
+    makePanel("sequencer", "sequencer", null),
+    makePanel("playlist", "playlist", null),
+    makePanel("booths", "booths", null),
+    makePanel("instruments", "instruments", null),
+    makePanel("library", "library", null),
+    makePanel("codj", "codj", null),
+    makePanel("deckEditor", "deckEditor", null)
+  ]
+  let root = splitNode("y1", "col", [0.56, 0.44], [
+    splitNode("y2", "row", [0.3, 0.4, 0.3], [
+      stackNode("t1", ["deckA", "deckC"], "deckA"),
+      stackNode("t2", ["mixer", "master"], "mixer"),
+      stackNode("t3", ["deckB", "deckD"], "deckB")
+    ]),
+    splitNode("y3", "row", [0.46, 0.22, 0.32], [
+      stackNode("t4", ["session", "sequencer", "playlist"], "session"),
+      stackNode("t5", ["booths", "instruments", "library"], "booths"),
+      stackNode("t6", ["codj", "deckEditor"], "codj")
+    ])
+  ])
+  return { id: "stage", name: "Stage", builtin: true, glyph: "◉", layout: makeLayout(root, []), panels: panelsMap(panels), closed: [] }
+}
+
+export fn builtinMoods() {
+  return [studioMood(), stageMood()]
+}
+
+export fn builtinMood(id) {
+  let all = builtinMoods()
+  let i = 0
+  while (i < all.length) {
+    if (all[i].id === id) {
+      return all[i]
+    }
+    i = i + 1
+  }
+  return null
+}
+
+export fn defaultMoodState() {
+  return { version: STATE_VERSION, active: "studio", moods: builtinMoods() }
+}
+
+export fn moodById(state, id) {
+  let i = 0
+  while (i < state.moods.length) {
+    if (state.moods[i].id === id) {
+      return state.moods[i]
+    }
+    i = i + 1
+  }
+  return null
+}
+
+export fn activeMood(state) {
+  let m = moodById(state, state.active)
+  return m !== null ? m : state.moods[0]
+}
+
+export fn setActiveMood(state, id) {
+  if (moodById(state, id) === null) {
+    return state
+  }
+  let s = { version: state.version, active: id, moods: state.moods }
+  return s
+}
+
+/** Replace one mood (by id) — the shell's single write path for layout changes. */
+export fn replaceMood(state, mood) {
+  let out = []
+  state.moods.forEach((m) => { out.push(m.id === mood.id ? mood : m) })
+  return { version: state.version, active: state.active, moods: out }
+}
+
+/** Mood with a new layout (and, optionally, a panel record added / updated). */
+export fn withLayout(mood, layout) {
+  return { id: mood.id, name: mood.name, builtin: mood.builtin, glyph: mood.glyph, layout: layout, panels: mood.panels, closed: mood.closed }
+}
+
+export fn withPanel(mood, panel) {
+  let panels = {}
+  Object.keys(mood.panels).forEach((k) => { panels[k] = mood.panels[k] })
+  panels[panel.id] = panel
+  return { id: mood.id, name: mood.name, builtin: mood.builtin, glyph: mood.glyph, layout: mood.layout, panels: panels, closed: mood.closed }
+}
+
+/** Remember a closed panel so it can be reopened (most recent last, deduped, capped). */
+export fn pushClosed(mood, panelId) {
+  let c = []
+  mood.closed.forEach((x) => {
+    if (x !== panelId) {
+      c.push(x)
+    }
+  })
+  c.push(panelId)
+  if (c.length > 12) {
+    c.shift()
+  }
+  return { id: mood.id, name: mood.name, builtin: mood.builtin, glyph: mood.glyph, layout: mood.layout, panels: mood.panels, closed: c }
+}
+
+/** Pop the most recently closed panel that is not currently placed → { mood, panelId } (panelId null if none). */
+export fn popClosed(mood) {
+  let c = mood.closed.slice()
+  while (c.length > 0) {
+    let id = c.pop()
+    if (!hasPanel(mood.layout, id) && mood.panels[id] !== null && mood.panels[id] !== undefined) {
+      let m = { id: mood.id, name: mood.name, builtin: mood.builtin, glyph: mood.glyph, layout: mood.layout, panels: mood.panels, closed: c }
+      return { mood: m, panelId: id }
+    }
+  }
+  return { mood: mood, panelId: null }
+}
+
+/**
+ * Open a panel of `type` in the mood: reuse a placed one (focus it), else a closed record of that type with a
+ * matching lens, else mint a new panel. Returns { mood, panelId } with the panel placed in `stackId` (or the
+ * first stack).
+ */
+export fn openPanel(mood, type, lens, stackId) {
+  let placed = panelIds(mood.layout)
+  let ids = Object.keys(mood.panels)
+  let i = 0
+  while (i < ids.length) {
+    let p = mood.panels[ids[i]]
+    let lensOk = lens === null || (p.lens.kind === lens.kind && p.lens.ref === lens.ref)
+    if (p.type === type && lensOk) {
+      let lay = addPanel(mood.layout, p.id, placed.indexOf(p.id) >= 0 ? null : stackId)
+      return { mood: withLayout(mood, lay), panelId: p.id }
+    }
+    i = i + 1
+  }
+  let n = 1
+  let id = type
+  while (mood.panels[id] !== null && mood.panels[id] !== undefined) {
+    n = n + 1
+    id = type + String(n)
+  }
+  let t = panelType(type)
+  let l = lens !== null ? lens : (t !== null && t.lens.indexOf("follow") >= 0 ? followLens() : noLens())
+  let m = withPanel(mood, makePanel(id, type, l))
+  return { mood: withLayout(m, addPanel(m.layout, id, stackId)), panelId: id }
+}
+
+/** Clone the active mood as a new user mood named `name`, and make it active. */
+export fn saveMoodAs(state, name) {
+  let base = activeMood(state)
+  let n = 1
+  while (moodById(state, "user" + String(n)) !== null) {
+    n = n + 1
+  }
+  let m = clone(base)
+  m.id = "user" + String(n)
+  m.name = String(name).trim().length > 0 ? String(name).trim() : "Mood " + String(n)
+  m.builtin = false
+  m.glyph = "✧"
+  let moods = state.moods.slice()
+  moods.push(m)
+  return { version: state.version, active: m.id, moods: moods }
+}
+
+export fn deleteMood(state, id) {
+  let m = moodById(state, id)
+  if (m === null || m.builtin) {
+    return state
+  }
+  let out = []
+  state.moods.forEach((x) => {
+    if (x.id !== id) {
+      out.push(x)
+    }
+  })
+  return { version: state.version, active: state.active === id ? out[0].id : state.active, moods: out }
+}
+
+/** Restore a built-in mood to its shipped layout (user moods are left alone). */
+export fn resetMood(state, id) {
+  let fresh = builtinMood(id)
+  if (fresh === null) {
+    return state
+  }
+  return replaceMood(state, fresh)
+}
+
+fn validMood(m) {
+  if (m === null || typeof m !== "object" || typeof m.id !== "string" || typeof m.panels !== "object" || m.panels === null) {
+    return null
+  }
+  let lay = layoutFromValue(m.layout)
+  if (lay === null) {
+    return null
+  }
+  // Drop placed panels with no record (corrupt / older build) so the shell never renders an unknown id.
+  let ids = panelIds(lay)
+  let i = 0
+  while (i < ids.length) {
+    let rec = m.panels[ids[i]]
+    if (rec === null || rec === undefined || panelType(rec.type) === null) {
+      return null
+    }
+    i = i + 1
+  }
+  return { id: m.id, name: String(m.name), builtin: m.builtin === true, glyph: typeof m.glyph === "string" ? m.glyph : "✧", layout: lay, panels: m.panels, closed: Array.isArray(m.closed) ? m.closed : [] }
+}
+
+/** Parse a stored mood state; any invalid mood is dropped and missing built-ins are restored. */
+export fn moodStateFromText(text) {
+  let base = defaultMoodState()
+  if (text === null || String(text).length === 0) {
+    return base
+  }
+  let v = null
+  try {
+    v = JSON.parse(String(text))
+  } catch (e) {
+    return base
+  }
+  if (v === null || typeof v !== "object" || v.version !== STATE_VERSION || !Array.isArray(v.moods)) {
+    return base
+  }
+  let moods = []
+  v.moods.forEach((raw) => {
+    let m = validMood(raw)
+    if (m !== null) {
+      moods.push(m)
+    }
+  })
+  let shipped = builtinMoods()
+  let si = shipped.length - 1
+  while (si >= 0) {
+    let present = false
+    moods.forEach((m) => {
+      if (m.id === shipped[si].id) {
+        present = true
+      }
+    })
+    if (!present) {
+      moods.unshift(shipped[si])
+    }
+    si = si - 1
+  }
+  let st = { version: STATE_VERSION, active: typeof v.active === "string" ? v.active : "studio", moods: moods }
+  if (moodById(st, st.active) === null) {
+    st.active = moods[0].id
+  }
+  return st
+}
+
+export fn moodStateToText(state) {
+  return JSON.stringify(state)
+}
+
+fn storage() {
+  try {
+    return globalThis.localStorage
+  } catch (e) {
+    return null
+  }
+}
+
+export fn loadMoodState() {
+  let s = storage()
+  if (!s) {
+    return defaultMoodState()
+  }
+  try {
+    return moodStateFromText(s.getItem(STORE_KEY))
+  } catch (e) {
+    return defaultMoodState()
+  }
+}
+
+export fn saveMoodState(state) {
+  let s = storage()
+  if (!s) {
+    return
+  }
+  try {
+    s.setItem(STORE_KEY, moodStateToText(state))
+  } catch (e) {
+    return
+  }
+}

@@ -1,0 +1,120 @@
+/* ---- deck Playback / Playlist timeline (the recorded deck stream over time) ------------------------- */
+.seq-session-wrap { display: flex; flex-direction: column; gap: 10px; }
+.seq-arrange { flex: 1 1 auto; min-width: 0; display: flex; justify-content: flex-start; overflow: hidden; }
+.pl-view { flex: 1; min-width: 0; background: var(--panel-2, #0a0a0c); padding: 0; display: flex; align-items: center; gap: 12px; }
+.pl-head { display: flex; align-items: center; gap: 10px; min-height: 20px; flex-shrink: 0; }
+.pl-title { font-size: 10px; letter-spacing: 0.16em; color: var(--accent-green); font-weight: 600; }
+.pl-status { font-size: 10px; color: var(--muted); margin-left: auto; }
+.pl-rec { display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 9px;
+  background: #14141a; border: 1px solid #2a2a32; border-radius: 5px; color: var(--muted); font-size: 10px;
+  font-weight: 600; letter-spacing: 0.08em; cursor: pointer; font-family: inherit; }
+.pl-rec:hover { border-color: #3a3a44; color: var(--text); }
+.pl-rec-dot { width: 7px; height: 7px; border-radius: 50%; background: #6a2230; box-shadow: none; }
+.pl-rec-on { border-color: #e0556e; color: #ff7a8f; }
+.pl-rec-on .pl-rec-dot { background: #ff3b57; box-shadow: 0 0 7px rgba(255,59,87,0.85);
+  animation: pl-rec-blink 1s steps(2, start) infinite; }
+@keyframes pl-rec-blink { 50% { opacity: 0.35; } }
+.pl-btn { height: 20px; padding: 0 9px; background: #14141a; border: 1px solid #2a2a32; border-radius: 5px;
+  color: var(--text); font-size: 10px; cursor: pointer; }
+.pl-btn:hover { border-color: #3a3a44; background: #1b1b22; }
+.pl-btn:disabled { opacity: 0.4; cursor: default; }
+.pl-btn-ico { width: 22px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; line-height: 1; }
+.pl-replay-select { height: 20px; background: #14141a; border: 1px solid #2a2a32; border-radius: 5px;
+  color: var(--text); font-size: 10px; padding: 0 6px; max-width: 140px; }
+.pl-scroll { flex: 1; min-width: 0; overflow-x: hidden; overflow-y: hidden; }
+.pl-scroll::-webkit-scrollbar { height: 9px; }
+.pl-scroll::-webkit-scrollbar-track { background: transparent; }
+.pl-scroll::-webkit-scrollbar-thumb { background: #353b47; border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+.pl-scroll::-webkit-scrollbar-thumb:hover { background: #4a5161; }
+.pl-grid { position: relative; }
+/* Timeline is OVERLAID on the waveform (absolute, spanning the wave's full height), not a row above it —
+   so it adds zero vertical height. left:76px clears the MIX lane label so ticks line up with the wave. */
+.pl-ruler { position: absolute; top: 0; bottom: 0; left: 0; z-index: 5; pointer-events: none; }
+.pl-tick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--grid-line, #18181d); }
+.pl-tick-major { background: #26262e; }
+.pl-tick-num { position: absolute; top: 0; left: 3px; font-size: 9px; color: var(--muted); text-shadow: 0 0 3px #000, 0 0 2px #000; }
+.pl-rows { display: flex; flex-direction: column; gap: 3px; padding-top: 0; }
+.pl-lane { display: flex; align-items: stretch; gap: 4px; }
+.pl-lane-label { flex: 0 0 72px; width: 72px; height: 20px; display: flex; align-items: center;
+  padding: 0 6px; font-size: 10px; font-weight: 600; letter-spacing: 0.04em; background: #0c0c10;
+  border: 1px solid #1c1c22; border-radius: 4px; overflow: hidden; white-space: nowrap;
+  text-overflow: ellipsis; position: sticky; left: 0; z-index: 6; }
+.pl-lane-track { position: relative; height: 20px; background:
+  repeating-linear-gradient(90deg, transparent 0, transparent calc(4 * 26px - 1px),
+  var(--grid-line, #18181d) calc(4 * 26px - 1px), var(--grid-line, #18181d) calc(4 * 26px));
+  border-radius: 3px; }
+.pl-evt { position: absolute; top: 2px; height: 16px; width: 9px; border: 1px solid; border-radius: 3px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.15); }
+.pl-evt-count { position: absolute; right: 4px; top: 3px; font-size: 9px; color: #44444c; }
+.pl-empty-hint { font-size: 11px; color: var(--muted); padding: 2px; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; min-width: 0; }
+.pl-playhead { position: absolute; top: 0; bottom: 0; left: 0; opacity: 0; width: 2px;
+  background: var(--accent-green); box-shadow: 0 0 6px rgba(124,255,124,0.7); pointer-events: none;
+  z-index: 5; }
+/* Per-deck summarized waveforms — one filled mirror envelope per deck, in the deck colour, drawn imperatively
+   to a <canvas> by Scope.drawSetWaveLane (sized + painted there, off the vdom). The track div keeps the 4-bar
+   gridline background under the transparent canvas. */
+.pl-wave-cv { display: block; height: 100%; width: 100%; }
+.pl-deck-label { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; border-left: 3px solid;
+  padding-left: 7px; justify-content: flex-start; }
+
+/* ---- I/O Rack (multi-output device pickers) + per-deck CUE -------------------------------------- */
+.io-rack { display: inline-flex; align-items: center; gap: 10px; margin-left: 14px; padding: 0 10px;
+  height: 26px; }
+/* MIDI strip — mirrors the I/O Rack styling. */
+.midi-rack { position: relative; display: inline-flex; align-items: center; }
+.midi-rack-title { font-size: 10px; letter-spacing: 0.16em; color: var(--accent-green); font-weight: 600; }
+/* The footer MIDI control is a single button; its panel lives in a popover above it. */
+.midi-btn { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 11px;
+  background: #14141a; border: 1px solid #2a2a32; border-radius: 5px; color: var(--text); font-size: 10px;
+  font-weight: 600; letter-spacing: 0.12em; cursor: pointer; }
+.midi-btn:hover { border-color: #3a3a44; }
+.midi-btn-on { border-color: var(--accent-green); color: var(--accent-green); }
+.midi-btn-open { border-color: var(--accent, #22d3ee); color: var(--accent, #22d3ee); }
+.midi-popover { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 1000;
+  background: var(--bg, #0e0e12); border: 1px solid var(--border, #2a2a2a); border-radius: 8px; padding: 10px;
+  display: flex; flex-direction: column; gap: 8px; min-width: 280px; max-width: 360px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.55); }
+.midi-popover-top { display: flex; align-items: center; gap: 8px; }
+.midi-popover-chips { display: flex; flex-wrap: wrap; gap: 4px; max-height: 9rem; overflow-y: auto; overflow-x: hidden; }
+.midi-dot { width: 7px; height: 7px; border-radius: 50%; background: #33333c; }
+.midi-dot-on { background: var(--accent-green); box-shadow: 0 0 6px rgba(124,255,124,0.6); }
+.midi-select { height: 20px; max-width: 150px; background: #14141a; border: 1px solid #2a2a32;
+  border-radius: 4px; color: var(--text); font-size: 10px; padding: 0 4px; }
+.midi-assign { border-color: #f59e0b; color: #ffd27a; }
+.midi-enable, .midi-learn { height: 20px; padding: 0 9px; background: #14141a; border: 1px solid #2a2a32;
+  border-radius: 4px; color: #9a9aa6; font-size: 10px; letter-spacing: 0.08em; cursor: pointer; }
+.midi-enable:hover, .midi-learn:hover { border-color: #3a3a44; color: var(--text); }
+.midi-learn-on { border-color: #f59e0b; color: #ffd27a; background: rgba(245,158,11,0.16); }
+.midi-hint { font-size: 10px; color: #c9a16a; font-style: italic; }
+.midi-kbd-hint { font-size: 10px; color: #5a5a66; }
+.midi-map-chip { display: inline-flex; align-items: center; gap: 3px; font-size: 9px; color: #9a9aa6;
+  background: #16161c; border: 1px solid #26262e; border-radius: 3px; padding: 1px 3px 1px 5px; }
+.midi-map-x { background: none; border: none; color: #6a6a72; cursor: pointer; font-size: 11px; line-height: 1; padding: 0 1px; }
+.midi-map-x:hover { color: #ff7a7a; }
+.io-rack-title { font-size: 10px; letter-spacing: 0.16em; color: var(--accent-green); font-weight: 600; }
+.io-rack-off { display: inline-flex; align-items: center; margin-left: 14px; padding: 0 10px; height: 26px;
+  font-size: 10px; color: var(--muted); border: 1px dashed #2a2a32; border-radius: 6px; }
+.io-slot { display: inline-flex; align-items: center; gap: 5px; }
+.io-slot-label { font-size: 9px; letter-spacing: 0.08em; color: var(--muted); }
+.io-slot-hp { color: #e8b45c; }
+.io-select { height: 20px; max-width: 150px; background: #14141a; border: 1px solid #26262e; border-radius: 4px;
+  color: var(--text); font-size: 10px; padding: 0 4px; }
+.io-cue input[type="range"] { width: 64px; accent-color: #e8b45c; }
+.io-refresh { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;
+  background: #14141a; border: 1px solid #26262e; border-radius: 4px; color: var(--text); cursor: pointer;
+  padding: 0; font-size: 12px; }
+.io-refresh:hover { border-color: #34343e; }
+.io-autosync { height: 20px; padding: 0 9px; font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+  background: #14141a; border: 1px solid #26262e; border-radius: 4px; color: var(--muted); cursor: pointer; }
+.io-autosync-on { background: rgba(124, 255, 124, 0.16); border-color: var(--accent-green, #7cff7c);
+  color: var(--accent-green, #7cff7c); }
+.io-draw-off { background: rgba(232, 148, 92, 0.16); border-color: var(--accent-warm, #e8945c);
+  color: var(--accent-warm, #e8945c); }
+.dk-cue { height: 26px; padding: 6px 16px; margin: 5px 0 18px; font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
+  background: #161118; border: 1px solid #3a2a1e; border-radius: 4px; color: #8a6a4a; cursor: pointer; }
+/* Intentionally NO :hover rule — hovering must not change the colour. The button illuminates only when
+   actually engaged via .dk-cue-on (which would otherwise be overridden by a .dk-cue:hover on hover). */
+.dk-cue-on { background: rgba(232, 148, 92, 0.18); border-color: #e8945c; color: #ffba78;
+  box-shadow: 0 0 7px rgba(232, 148, 92, 0.5); }
