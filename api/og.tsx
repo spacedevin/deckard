@@ -1,4 +1,4 @@
-import { ImageResponse } from "@vercel/og"
+// @vercel/og is ESM-only: load it with import() so this CommonJS function can use it.
 import type { ReactNode } from "react"
 
 // Node.js runtime (the default on Vercel; Edge is deprecated).
@@ -279,6 +279,7 @@ export async function GET(req: Request): Promise<Response> {
     ? [{ name: "JetBrains Mono", data: font, weight: 700 as const, style: "normal" as const }]
     : []
 
+  const { ImageResponse } = await import("@vercel/og")
   return new ImageResponse(
     <OgCard title={title} description={description} eyebrow={eyebrow} />,
     {
