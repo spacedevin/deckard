@@ -143,7 +143,7 @@ export fn coDjGateReport(project, source, actorId, skillIds) {
         }
         ci = ci + 1
       }
-      if (id !== null && !actorMayEditTrack(project, id, actorId, !exists)) {
+      if (id !== null && !actorMayEditTrack(project, id, actorId, !exists, canMaster)) {
         let meta = project.coDjMeta && project.coDjMeta.tracks ? project.coDjMeta.tracks[id] : null
         let owner = meta && meta.ownerActorId ? String(meta.ownerActorId) : "?"
         let why = meta && meta.masterLock ? "track is master-locked" : "track is owned by " + owner

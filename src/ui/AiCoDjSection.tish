@@ -19,8 +19,9 @@ fn note(rt, s) {
 }
 
 fn add(rt, agent, role) {
-  spawnAiCoDj(rt, { agent: agent, model: rt.coDjAiModel, role: role === "host" ? "host" : "client" }).then((hd) => {
-    let what = role === "host" ? " joined — it runs the session and the mixer" : (agent ? " joined — message it below; it writes its own script" : " added — press Play to hear its hat, message it below")
+  // No role = let BrowserHost decide: on your own it acts for you (host), in a shared room it joins as a client.
+  spawnAiCoDj(rt, { agent: agent, model: rt.coDjAiModel, role: role === "host" || role === "client" ? role : null }).then((hd) => {
+    let what = role === "host" ? " joined — it runs the session and the mixer" : (agent ? (hd.role === "host" ? " joined — it acts for you: message it below and it reworks the music that's playing" : " joined — message it below; it writes its own script") : " added — press Play to hear its hat, message it below")
     note(rt, hd.name + what + (hd.mode === "ws" ? " (in the room)" : ""))
   }, (e) => note(rt, String(e && e.message ? e.message : e)))
 }
@@ -202,7 +203,7 @@ export fn AiCoDjSection(rt) {
   return <div class="codj-ai">
     <div class="codj-row">
       <strong>{"Co-DJs"}</strong>
-      <button type="button" class="btn-codj btn-codj-primary" title={signedIn ? "An AI co-DJ that writes and evolves its own script" : "Signs you in with Hypery, then adds an AI co-DJ"} onclick={() => addAgent(rt, "client")}>{"Add AI co-DJ"}</button>
+      <button type="button" class="btn-codj btn-codj-primary" title={signedIn ? "An AI co-DJ that writes and evolves its own script" : "Signs you in with Hypery, then adds an AI co-DJ"} onclick={() => addAgent(rt, null)}>{"Add AI co-DJ"}</button>
       <button type="button" class="btn-codj" title={signedIn ? "An AI host: session clips, the 4-way fader, booth EQ and the echo/filter throws" : "Signs you in with Hypery, then adds an AI host"} onclick={() => addAgent(rt, "host")}>{"Add AI host"}</button>
       <button type="button" class="btn-codj" title="A co-DJ you program yourself (JS hooks over the codj API)" onclick={() => add(rt, false)}>{"Add script co-DJ"}</button>
       <select class="codj-input codj-ai-model" title="Producer model for the next AI co-DJ or host: it calls the tools and writes the script." onchange={(e) => {

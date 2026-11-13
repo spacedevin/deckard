@@ -398,7 +398,7 @@ export fn directorRequest(kind, ctx, offered) {
   let what = kind === "open"
     ? "OPENING. The set starts now. Decide the first chapter and sketch the night's arc."
     : (kind === "request"
-      ? "REQUEST. Someone in the room asked for something. Turn it into the next call, in your persona's way."
+      ? "REQUEST. The user asked for something. Their words are the job — your brief must deliver exactly that to the music playing now (rework or replace what's there; never leave the old loop running beside it). Bring your persona's taste to HOW, never to WHETHER."
       : (kind === "chapter"
         ? "NEXT TRACK. The next track is cued, silent, on another deck (see decks in the set book). Decide what it becomes — a different place from the live one, with a bridge into it — the bar and the way it comes in (blend), and what follows it (crate)."
         : "MOVE. The set has been running. Decide the one move to make now."))

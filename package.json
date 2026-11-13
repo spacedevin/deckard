@@ -48,7 +48,7 @@
   },
   "packageManager": "pnpm@9.15.4",
   "dependencies": {
-    "@hyperyai/sdk": "^2.1.0",
+    "@hyperyai/sdk": "^3.2.1",
     "@spacedevin/deck": "^1.8.0",
     "@spacedevin/deck-synths": "^1.8.0",
     "@tishlang/lattish": "^4.0.2",

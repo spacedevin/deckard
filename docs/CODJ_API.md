@@ -54,8 +54,9 @@ Everything a co-DJ sees comes from what the host publishes (deck deltas, snapsho
 | script | tool | kind | what |
 |---|---|---|---|
 | `codj.deck()` | `get_deck` | read | The whole session as deck text (the room's shared document, exactly as the host would save it). |
-| `codj.tracks()` | `list_tracks` | read | Every track: id, name, gen, owner, mine, mix, a 16-char step string ('x' = hit), note count, bars, and onDeck (the deck letter it plays on). |
+| `codj.tracks()` | `list_tracks` | read | Every track: id, name, gen, owner, mine, editable (you may change it), mix, a 16-char step string ('x' = hit), note count, bars, and onDeck (the deck letter it plays on). |
 | `codj.track(id)` | `get_track` | read | One track in full: its summary + deck block text + generator params + piano notes. |
+| `codj.editable()` | `list_editable` | read | Ids of every track this co-DJ may change: its own, plus (as host, acting for the user) every unlocked track in the room — including the user's. |
 | `codj.owned()` | `list_owned` | read | Ids of the tracks this co-DJ owns (the only tracks it may edit). |
 | `codj.clock()` | `get_clock` | read | The shared playhead: perfStep (16ths since play), bar, beat (0-3), step (0-15), bpm, playing. |
 | `codj.room()` | `get_room` | read | Who is here: me ({actorId, displayName, skillIds, isHost}), host actorId, roster, what the host is focused on. |
@@ -102,8 +103,9 @@ Everything a co-DJ sees comes from what the host publishes (deck deltas, snapsho
 ## Tools (LLM / MCP names)
 
 - `get_deck` (read) — The whole session as deck text (the room's shared document, exactly as the host would save it).
-- `list_tracks` (read) — Every track: id, name, gen, owner, mine, mix, a 16-char step string ('x' = hit), note count, bars, and onDeck (the deck letter it plays on).
+- `list_tracks` (read) — Every track: id, name, gen, owner, mine, editable (you may change it), mix, a 16-char step string ('x' = hit), note count, bars, and onDeck (the deck letter it plays on).
 - `get_track` (read) — One track in full: its summary + deck block text + generator params + piano notes.
+- `list_editable` (read) — Ids of every track this co-DJ may change: its own, plus (as host, acting for the user) every unlocked track in the room — including the user's.
 - `list_owned` (read) — Ids of the tracks this co-DJ owns (the only tracks it may edit).
 - `get_clock` (read) — The shared playhead: perfStep (16ths since play), bar, beat (0-3), step (0-15), bpm, playing.
 - `get_room` (read) — Who is here: me ({actorId, displayName, skillIds, isHost}), host actorId, roster, what the host is focused on.

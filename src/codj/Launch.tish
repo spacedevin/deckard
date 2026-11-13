@@ -339,7 +339,7 @@ export fn applyLaunchDirective(project, rt, line, actorId, skillIds) {
       return true
     }
     // Per-track override is scoped to the track owner (or a new/unclaimed track).
-    if (!actorMayEditTrack(project, trackId, actorId, false)) {
+    if (!actorMayEditTrack(project, trackId, actorId, false, laneCanMaster(actorId, skillIds))) {
       return true
     }
     if (clipId === "stop") {

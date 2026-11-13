@@ -85,6 +85,7 @@ import { TopBar } from './shell/TopBar.tish'
 import { CommandPalette } from './shell/CommandPalette.tish'
 import { renderPanelContent } from './panels/PanelRegistry.tish'
 import { peerDeckMap } from '../workspace/Panels.tish'
+import { listenMaster } from '../audio/Listen.tish'
 
 // The heavy panels (step grid, session, playlist, instruments, mixer) are memo'd in ui/panels/PanelRegistry.
 
@@ -100,6 +101,8 @@ if (initialDeckardBoot.errors.length > 0 && typeof console !== "undefined" && co
 }
 
 let audioStore = {}
+// The AI co-DJ's ears: its worker asks the page (BrowserHost "listen") to capture the master — see audio/Listen.tish.
+globalThis.__deckardListen = (seconds) => listenMaster(audioStore.analyser, audioStore.ctx, seconds)
 // The lookahead scheduler + clock + draw loop now live in the Transport projection (src/audio/Transport.tish).
 // Preview runs on its OWN clock, fully independent of the live (Sequence/Session) transport.
 let previewTimer = null

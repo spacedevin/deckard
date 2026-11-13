@@ -21,7 +21,11 @@ import { ensureCoDjMeta, setTrackOwner, setTrackTouched } from './CoDjMeta.tish'
 import { skillIdsAllowMaster } from './Skills.tish'
 import { applyDeckMixParsed } from '../model/DeckRouting.tish'
 
-export fn actorMayEditTrack(project, channelId, actorId, isNewTrack) {
+/**
+ * Whether `actorId` may write this track. Owners may; so may a lane with master rights (a host — e.g. the
+ * AI co-DJ acting for you when you're on your own), unless the track is master-locked. A new id is free to claim.
+ */
+export fn actorMayEditTrack(project, channelId, actorId, isNewTrack, canMaster) {
   ensureCoDjMeta(project)
   let t = project.coDjMeta.tracks[channelId]
   if (!t) {
@@ -33,7 +37,7 @@ export fn actorMayEditTrack(project, channelId, actorId, isNewTrack) {
   if (t.ownerActorId === actorId) {
     return true
   }
-  return false
+  return canMaster === true
 }
 
 /**
@@ -115,7 +119,7 @@ export fn applyCoDjTplSource(project, source, actorId, authorId, currentPerfStep
     let tb = parsed.tracks[ti]
     let ch = findChannelById(project, tb.id)
     let isNew = ch === null
-    if (!actorMayEditTrack(project, tb.id, actorId, isNew)) {
+    if (!actorMayEditTrack(project, tb.id, actorId, isNew, canMaster)) {
       ti = ti + 1
       continue
     }
@@ -138,7 +142,10 @@ export fn applyCoDjTplSource(project, source, actorId, authorId, currentPerfStep
       setTrackOwner(project, tb.id, actorId, authorId)
     } else {
       ch.name = tb.name
-      if (canMaster) {
+      // A host editing someone else's track (the co-DJ reworking your Kick) leaves it yours, so you can
+      // still edit it; only an unclaimed track becomes the host's.
+      let prevMeta = project.coDjMeta && project.coDjMeta.tracks ? project.coDjMeta.tracks[tb.id] : null
+      if (canMaster && (!prevMeta || !prevMeta.ownerActorId)) {
         setTrackOwner(project, tb.id, actorId, authorId)
       }
     }

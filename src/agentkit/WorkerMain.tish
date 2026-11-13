@@ -22,6 +22,23 @@ let team = null
 let runtime = null
 let scriptHost = null
 let agent = null
+// "listen" round-trips to the page, which owns the AudioContext (BrowserHost → audio/Listen.tish).
+let listenSeq = 0
+let listenWaiting = {}
+fn listenToPage(seconds) {
+  listenSeq = listenSeq + 1
+  let id = listenSeq
+  return new Promise((resolve) => {
+    listenWaiting[id] = resolve
+    post({ ctl: "listen", id: id, seconds: seconds })
+    setTimeout(() => {
+      if (listenWaiting[id]) {
+        delete listenWaiting[id]
+        resolve({ image: null, stats: { error: "the page did not answer in time" } })
+      }
+    }, 20000)
+  })
+}
 
 fn post(msg) {
   G.postMessage(msg)
@@ -110,6 +127,7 @@ fn start(cfg) {
         skills: cfg.skills,
         log: log,
         onScript: (src) => post({ ctl: "script", source: src }),
+        listen: listenToPage,
         onActivity: (e) => post({ ctl: "activity", entry: e })
       })
     } catch (e) {
@@ -133,6 +151,14 @@ G.onmessage = (ev) => {
     return
   }
   let c = m.ctl
+  if (c === "listened") {
+    let done = listenWaiting[m.id]
+    if (done) {
+      delete listenWaiting[m.id]
+      done({ image: m.image ? m.image : null, stats: m.stats ? m.stats : null })
+    }
+    return
+  }
   if (c === "init") {
     start(m.config)
   } else if (c === "load" && scriptHost !== null) {
