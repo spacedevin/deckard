@@ -67,6 +67,10 @@ export fn TopBar(sh, rt, activeDeck, transport) {
           <a href="https://space.la" target="_blank" rel="noopener noreferrer">space.la</a>
           <span class="made-by-sep">{" · "}</span>
           <a href="/docs/" class="docs-link">{"Docs"}</a>
+          <span class="made-by-sep">{" · "}</span>
+          <a href="/privacy" class="docs-link">{"Privacy"}</a>
+          <span class="made-by-sep">{" · "}</span>
+          <a href="/terms" class="docs-link">{"Terms"}</a>
         </div>
       </div>
       {transport}

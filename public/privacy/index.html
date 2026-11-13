@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Privacy · Deckard</title>
+  <meta name="description" content="How Deckard handles your data." />
+  <link rel="canonical" href="https://deckard.lol/privacy" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <meta name="theme-color" content="#09090d" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root { --bg:#050507; --panel:#09090d; --border:#14141c; --text:#cccccc; --muted:#6a6a74; --accent:#7cff7c; --warm:#e8945c; }
+    * { box-sizing:border-box; }
+    html,body { margin:0; background:var(--bg); color:var(--text); font-family:"JetBrains Mono",ui-monospace,monospace; font-size:14px; line-height:1.7; }
+    a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
+    header,footer { display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:space-between; padding:14px 20px; background:var(--panel); border-bottom:1px solid var(--border); }
+    footer { border-bottom:0; border-top:1px solid var(--border); color:var(--muted); font-size:12px; }
+    nav { display:flex; flex-wrap:wrap; gap:16px; }
+    .brand { font-weight:700; color:var(--text); }
+    main { max-width:720px; margin:0 auto; padding:40px 16px 64px; }
+    h1 { font-size:24px; margin:0 0 4px; color:#fff; }
+    h2 { font-size:15px; margin:32px 0 6px; color:var(--warm); }
+    p,ul { margin:0 0 12px; } ul { padding-left:20px; }
+    .updated { color:var(--muted); margin-bottom:24px; }
+    code { color:#fff; }
+  </style>
+</head>
+<body>
+  <header>
+    <a class="brand" href="/">Deckard</a>
+    <nav><a href="/docs/">Docs</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/">Open DAW</a></nav>
+  </header>
+  <main>
+    <h1>Privacy</h1>
+    <p class="updated">Last updated November 2026</p>
+    <h2>Local first</h2>
+    <p>Deckard runs entirely in your browser. Your sets, presets, MIDI mappings and audio settings are saved in your browser's local storage on your device. We don't have an account database and we don't store your projects on a server. Export a <code>.deck</code> file whenever you want a copy; clearing your browser data removes the rest.</p>
+    <h2>No analytics</h2>
+    <p>We don't run analytics, telemetry or ad trackers, and Deckard doesn't set cookies. Your audio and microphone or MIDI input are processed on your device and never uploaded.</p>
+    <h2>Sign-in with Hypery</h2>
+    <p>Signing in is optional and only needed for AI co-DJs and identity in shared rooms. Sign-in happens on Hypery (hypery.ai). Deckard asks for basic profile access and permission to use AI on your behalf. The resulting tokens and your basic profile (such as your name) are kept in your browser's local storage, and you can sign out at any time. Hypery's own <a href="https://hypery.ai">terms and privacy policy</a> cover your Hypery account.</p>
+    <h2>AI co-DJs</h2>
+    <p>When you add an AI co-DJ, the prompts it needs (the current set as <code>.deck</code> text and your instructions) are sent through Hypery to the AI model provider, and usage is billed to your Hypery account. Don't put anything in a set you wouldn't want an AI provider to process.</p>
+    <h2>Multiplayer rooms</h2>
+    <p>If you join a Co-DJ room, the edits you make in that room, your display name and room ID pass through our WebSocket gateway to the other people in it. If you're signed in, the gateway checks your Hypery token with Hypery to confirm who you are. Rooms live in memory only and are gone when everyone leaves; we don't save their contents. Like any server, the gateway may keep short-lived operational logs (such as connections and errors).</p>
+    <h2>This website</h2>
+    <p>deckard.lol is a static site served by DigitalOcean. Fonts load from Google Fonts, so Google sees your IP address when they load. Our hosting provider may keep standard request logs.</p>
+    <h2>Contact</h2>
+    <p>Questions? Email <a href="mailto:support@deckard.lol">support@deckard.lol</a>.</p>
+  </main>
+  <footer>
+    <span>&copy; Deckard by <a href="https://space.la">space.la</a></span>
+    <nav><a href="/docs/">Docs</a><a href="https://github.com/spacedevin/deckard">GitHub</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a></nav>
+  </footer>
+</body>
+</html>
